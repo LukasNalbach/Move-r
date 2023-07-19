@@ -90,12 +90,16 @@ uint_t move_r<uint_t>::count(const std::string& P) {
         // If the characters have been remapped internally, the pattern also has to be remapped.
         P_j = chars_remapped ? map_to_internal(char_to_uchar(P[j])) : char_to_uchar(P[j]);
 
+        if (!RS_L_.contains_character(P_j)) return 0;
+
         // Find the lexicographically smallest suffix in the current suffix array interval that is prefixed by P[j]; this
         // filters out suffixes s of T, where s+1 is prefixed by P[j+1..m], but T[s,n] lexicographically smaller than P[j..m]
         if (P_j != L_<uint8_t>(x_l)) {
             /* To do so, we can at first find the first (sub-)run with character P[j] after the x_l-th (sub-)run, save
             its index in x_l and set i_l to its start position M_LF.p(x_l). */
-            x_l = RS_L_.select(P_j,RS_L_.rank(P_j,x_l)+1);
+            x_l = RS_L_.rank(P_j,x_l);
+            if (x_l == RS_L_.num_occurrences(P_j)) return 0;
+            x_l = RS_L_.select(P_j,x_l+1);
             i_l = M_LF.p(x_l);
         }
 
@@ -104,7 +108,9 @@ uint_t move_r<uint_t>::count(const std::string& P) {
         if (P_j != L_<uint8_t>(x_r)) {
             /* To do so, we can at first find the (sub-)last run with character P[j] before the x_r-th (sub-)run, save
             its index in x_r and set i_r to its end position M_LF.p(x_r+1)-1. */
-            x_r = RS_L_.select(P_j,RS_L_.rank(P_j,x_r));
+            x_r = RS_L_.rank(P_j,x_r);
+            if (x_r == 0) return 0;
+            x_r = RS_L_.select(P_j,x_r);
             i_r = M_LF.p(x_r+1)-1;
         }
         
@@ -117,10 +123,8 @@ uint_t move_r<uint_t>::count(const std::string& P) {
         i_l <= i_r holds. */
 
         // If the suffix array interval is empty, P does not occur in T, so return 0.
-        if (i_l > i_r) {
-            return 0;
-        }
-
+        if (i_l > i_r) return 0;
+        
         // Else, set i_l <- LF(i_l) and i_r <- LF(i_r)
         M_LF.move(i_l,x_l);
         M_LF.move(i_r,x_r);
@@ -164,12 +168,16 @@ void move_r<uint_t>::locate(const std::string& P, const std::function<void(uint_
         // If the characters have been remapped internally, the pattern also has to be remapped.
         P_j = chars_remapped ? map_to_internal(char_to_uchar(P[j])) : char_to_uchar(P[j]);
 
+        if (!RS_L_.contains_character(P_j)) return;
+
         // Find the lexicographically smallest suffix in the current suffix array interval that is prefixed by P[j]; this
         // filters out suffixes s of T, where s+1 is prefixed by P[j+1..m], but T[s,n] lexicographically smaller than P[j..m]
         if (P_j != L_<uint8_t>(x_l)) {
             /* To do so, we can at first find the first (sub-)run with character P[j] after the x_l-th (sub-)run, save
             its index in x_l and set i_l to its start position M_LF.p(x_l). */
-            x_l = RS_L_.select(P_j,RS_L_.rank(P_j,x_l)+1);
+            x_l = RS_L_.rank(P_j,x_l);
+            if (x_l == RS_L_.num_occurrences(P_j)) return;
+            x_l = RS_L_.select(P_j,x_l+1);
             i_l = M_LF.p(x_l);
         }
 
@@ -178,7 +186,9 @@ void move_r<uint_t>::locate(const std::string& P, const std::function<void(uint_
         if (P_j != L_<uint8_t>(x_r)) {
             /* To do so, we can at first find the (sub-)last run with character P[j] before the x_r-th (sub-)run, save
             its index in x_r and set i_r to its end position M_LF.p(x_r+1)-1. */
-            x_r = RS_L_.select(P_j,RS_L_.rank(P_j,x_r));
+            x_r = RS_L_.rank(P_j,x_r);
+            if (x_r == 0) return;
+            x_r = RS_L_.select(P_j,x_r);
             i_r = M_LF.p(x_r+1)-1;
             
             // update m-j', because P[j] != L'[x_r] held in this iteration.
@@ -196,9 +206,7 @@ void move_r<uint_t>::locate(const std::string& P, const std::function<void(uint_
         i_l <= i_r holds. */
 
         // If the suffix array interval is empty, P does not occur in T, so return.
-        if (i_l > i_r) {
-            return;
-        }
+        if (i_l > i_r) return;
         
         // Else, set i_l <- LF(i_l) and i_r <- LF(i_r)
         M_LF.move(i_l,x_l);
