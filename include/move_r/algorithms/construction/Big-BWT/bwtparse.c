@@ -240,7 +240,7 @@ void bigbwt_bwtparse(const Args_Bwtparse& arg, bool log)
 
   // transform SA->BWT inplace and write remapped last array, and possibly sainfo
   sa_index_t *BWTsa = SA; // BWT overlapping SA
-  assert(n>1);
+  assert(n>0);
   // first BWT symbol
   assert(SA[0]==n);
   BWTsa[0] = Text[n-1];
