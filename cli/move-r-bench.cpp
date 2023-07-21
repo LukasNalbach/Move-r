@@ -15,7 +15,12 @@
 
 uint16_t max_num_threads;
 std::string input;
+uint64_t input_size;
+std::vector<int32_t> SA_32;
+std::vector<int64_t> SA_64;
+std::string BWT;
 std::string input_reverted;
+std::string path_measurement_file;
 bool check_correctness = false;
 uint64_t external_peak_memory_usage;
 std::ofstream measurement_file;
@@ -28,11 +33,21 @@ std::string path_patternsfile_2;
 std::string name_textfile;
 int ptr = 1;
 
+template <typename sa_sint_t>
+constexpr std::vector<sa_sint_t>& get_sa() {
+	if constexpr (std::is_same<sa_sint_t,int32_t>::value) {
+		return SA_32;
+	} else {
+		return SA_64;
+	}
+}
+
 void help(std::string msg) {
 	if (msg != "") std::cout << msg << std::endl;
-	std::cout << "move-r-bench: benchmarks construction-, revert- and query-performance of move-r, r-index-f, rcomp, r-index" << std::endl;
+	std::cout << "move-r-bench: benchmarks construction-(, revert-) and query-performance of move-r, r-index-f, rcomp, r-index" << std::endl;
 	std::cout << "              (Prezza), r-index (Mun), OnlineRLBWT and DYNAMIC; has to be executed from the base folder." << std::endl << std::endl;
 	std::cout << "usage: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>" << std::endl;
+	std::cout << "   -r                 measure revert performance" << std::endl;
 	std::cout << "   -c                 check for correctnes if possible; disables the -m option; will not print" << std::endl;
 	std::cout << "                      runtime data if the runtime could be affected by checking for correctness" << std::endl;
 	std::cout << "   -m <m_file>        writes measurement data to m_file" << std::endl;
@@ -42,6 +57,13 @@ void help(std::string msg) {
 	std::cout << "   <patterns_file_2>  file containing patterns (pattern length << number of occurrences) from <input_file>" << std::endl;
 	std::cout << "                      to locate" << std::endl;
 	std::cout << "   <num_threads>      maximum number of threads to use" << std::endl;
+	std::cout << std::endl;
+	std::cout << "alternative usage: move-r-bench -sa [options] <input_file> <num_threads>" << std::endl;
+	std::cout << "                   builds the suffix array and bwt once using libsais and constructs only the static indexes" << std::endl;
+	std::cout << "                   (move-r, r-index (Prezza), r-index (Mun) and r-index-f) from the suffix array and the bwt" << std::endl;
+	std::cout << "   -m <m_file>     writes measurement data to m_file" << std::endl;
+	std::cout << "   <input_file>    input file" << std::endl;
+	std::cout << "   <num_threads>   maximum number of threads to use" << std::endl;
 	exit(0);
 }
 
@@ -51,7 +73,7 @@ void parse_args(char** argv, int argc, int &ptr) {
 
 	if (s == "-m") {
 		if (ptr >= argc-1) help("error: missing parameter after -m option");
-		std::string path_measurement_file = argv[ptr++];
+		path_measurement_file = argv[ptr++];
 		measurement_file.open(path_measurement_file,std::filesystem::exists(path_measurement_file) ? std::ios::app : std::ios::out);
 		if (!measurement_file.good()) help("error: cannot open or create measurement file");
 	} else if (s == "-c") {
@@ -91,6 +113,9 @@ uint64_t peak_memory_usage(std::ifstream& log_file) {
 
 template <typename idx_t, bool alternative_build_mode>
 void build_index(idx_t& index, uint16_t num_threads);
+
+template <typename sa_sint_t, typename idx_t>
+uint64_t build_index_from_sa_and_bwt(idx_t& index, uint16_t num_threads);
 
 template <typename idx_t>
 void destroy_index(idx_t& index);
@@ -213,8 +238,8 @@ void measure(std::string index_name, std::string index_log_name, uint16_t max_bu
 		std::cout << "building " << index_name << " using " << format_threads(cur_num_threads) << std::flush;
 
 		destroy_index<idx_t>(index);
-		malloc_count_reset_peak();
 		external_peak_memory_usage = 0;
+		malloc_count_reset_peak();
 		m1 = malloc_count_current();
 		t1 = now();
 		build_index<idx_t,alternative_build_mode>(index,cur_num_threads);
@@ -236,7 +261,7 @@ void measure(std::string index_name, std::string index_log_name, uint16_t max_bu
 	}
 
 	if constexpr (measure_revert) {
-		no_init_resize(input_reverted,input.size());
+		no_init_resize(input_reverted,input_size);
 
 		for (uint16_t cur_num_threads=1; cur_num_threads<=max_revert_threads; cur_num_threads*=2) {
 			std::cout << "reverting the index using " << format_threads(cur_num_threads) << std::flush;
@@ -254,7 +279,7 @@ void measure(std::string index_name, std::string index_log_name, uint16_t max_bu
 				std::cout << "checking correctness of the reverted text:" << std::flush;
 				bool correct = true;
 
-				for (uint_t pos=0; pos<input.size(); pos++) {
+				for (uint64_t pos=0; pos<input_size; pos++) {
 					if (input[pos] != input_reverted[pos]) {
 						correct = false;
 						break;
@@ -374,6 +399,24 @@ void build_index<move_r<uint64_t>,true>(move_r<uint64_t>& index, uint16_t num_th
 }
 
 template <>
+uint64_t build_index_from_sa_and_bwt<int32_t,move_r<uint32_t>>(move_r<uint32_t>& index, uint16_t num_threads) {
+	index = std::move(move_r<uint32_t>(get_sa<int32_t>(),BWT,full_support,num_threads));
+	return 0;
+}
+
+template <>
+uint64_t build_index_from_sa_and_bwt<int64_t,move_r<uint32_t>>(move_r<uint32_t>& index, uint16_t num_threads) {
+	index = std::move(move_r<uint32_t>(get_sa<int64_t>(),BWT,full_support,num_threads));
+	return 0;
+}
+
+template <>
+uint64_t build_index_from_sa_and_bwt<int64_t,move_r<uint64_t>>(move_r<uint64_t>& index, uint16_t num_threads) {
+	index = std::move(move_r<uint64_t>(get_sa<int64_t>(),BWT,full_support,num_threads));
+	return 0;
+}
+
+template <>
 void destroy_index<move_r<uint32_t>>(move_r<uint32_t>& index) {
 	index = std::move(move_r<uint32_t>());
 }
@@ -420,15 +463,15 @@ using rcomp_glfig_16 = rcomp::rindex_types::glfig_serialized<16>::type;
 
 template <>
 void build_index<rcomp_lfig,false>(rcomp_lfig& index, uint16_t) {
-	for (size_t pos=1; pos<=input.size(); pos++) {
-        index.extend(input[input.size()-pos]);
+	for (size_t pos=1; pos<=input_size; pos++) {
+        index.extend(input[input_size-pos]);
     }
 }
 
 template <>
 void build_index<rcomp_glfig_16,false>(rcomp_glfig_16& index, uint16_t) {
-	for (size_t pos=1; pos<=input.size(); pos++) {
-        index.extend(input[input.size()-pos]);
+	for (size_t pos=1; pos<=input_size; pos++) {
+        index.extend(input[input_size-pos]);
     }
 }
 
@@ -477,29 +520,25 @@ uint64_t count_pattern<uint64_t,rcomp_glfig_16>(rcomp_glfig_16& index, std::stri
 template <>
 void locate_pattern<uint32_t,rcomp_lfig>(rcomp_lfig& index, std::string& pattern, std::vector<uint32_t>& occurrences) {
 	std::string reversed_pattern(pattern.rbegin(),pattern.rend());
-	uint32_t input_size = index.get_num_chars();
-    index.locate(rcomp::make_range(reversed_pattern),[&occurrences,&input_size](uint32_t occurrence){occurrences.emplace_back(input_size-occurrence);});
+    index.locate(rcomp::make_range(reversed_pattern),[&occurrences](uint32_t occurrence){occurrences.emplace_back(input_size-occurrence);});
 }
 
 template <>
 void locate_pattern<uint64_t,rcomp_lfig>(rcomp_lfig& index, std::string& pattern, std::vector<uint64_t>& occurrences) {
 	std::string reversed_pattern(pattern.rbegin(),pattern.rend());
-	uint64_t input_size = index.get_num_chars();
-    index.locate(rcomp::make_range(reversed_pattern),[&occurrences,&input_size](uint64_t occurrence){occurrences.emplace_back(input_size-occurrence);});
+    index.locate(rcomp::make_range(reversed_pattern),[&occurrences](uint64_t occurrence){occurrences.emplace_back(input_size-occurrence);});
 }
 
 template <>
 void locate_pattern<uint32_t,rcomp_glfig_16>(rcomp_glfig_16& index, std::string& pattern, std::vector<uint32_t>& occurrences) {
 	std::string reversed_pattern(pattern.rbegin(),pattern.rend());
-	uint32_t input_size = index.get_num_chars();
-    index.locate(rcomp::make_range(reversed_pattern),[&occurrences,&input_size](uint32_t occurrence){occurrences.emplace_back(input_size-occurrence);});
+    index.locate(rcomp::make_range(reversed_pattern),[&occurrences](uint32_t occurrence){occurrences.emplace_back(input_size-occurrence);});
 }
 
 template <>
 void locate_pattern<uint64_t,rcomp_glfig_16>(rcomp_glfig_16& index, std::string& pattern, std::vector<uint64_t>& occurrences) {
 	std::string reversed_pattern(pattern.rbegin(),pattern.rend());
-	uint64_t input_size = index.get_num_chars();
-    index.locate(rcomp::make_range(reversed_pattern),[&occurrences,&input_size](uint64_t occurrence){occurrences.emplace_back(input_size-occurrence);});
+    index.locate(rcomp::make_range(reversed_pattern),[&occurrences](uint64_t occurrence){occurrences.emplace_back(input_size-occurrence);});
 }
 
 // ############################# r-index-prezza #############################
@@ -510,6 +549,18 @@ void build_index<ri::r_index<>,false>(ri::r_index<>& index, uint16_t) {
     std::cout.rdbuf(NULL);
 	index = ri::r_index<>(input,true);
     std::cout.rdbuf(cout_rfbuf);
+}
+
+template <>
+uint64_t build_index_from_sa_and_bwt<int32_t,ri::r_index<>>(ri::r_index<>& index, uint16_t) {
+	index = std::move(ri::r_index<>(get_sa<int32_t>(),BWT));
+	return 0;
+}
+
+template <>
+uint64_t build_index_from_sa_and_bwt<int64_t,ri::r_index<>>(ri::r_index<>& index, uint16_t) {
+	index = std::move(ri::r_index<>(get_sa<int64_t>(),BWT));
+	return 0;
 }
 
 template <>
@@ -552,7 +603,7 @@ void build_index<ri_mun::r_index<>,false>(ri_mun::r_index<>& index, uint16_t num
     std::cout.rdbuf(NULL);
     std::string name_textfile = "r-index-" + random_alphanumeric_string(10);
 	std::ofstream text_file(name_textfile);
-	write_to_file(text_file,input.c_str(),input.size());
+	write_to_file(text_file,input.c_str(),input_size);
 	text_file.close();
 	index = ri_mun::r_index<>(name_textfile,"bigbwt",num_threads);
 	std::filesystem::remove(name_textfile);
@@ -562,6 +613,34 @@ void build_index<ri_mun::r_index<>,false>(ri_mun::r_index<>& index, uint16_t num
 	std::filesystem::remove(name_textfile + ".log");
 	system("rm -f nul");
     std::cout.rdbuf(cout_rfbuf);
+}
+
+uint64_t build_r_index_mun_from_sa_and_bwt(ri_mun::r_index<>& index) {
+	std::streambuf* cout_rfbuf = cout.rdbuf();
+    std::cout.rdbuf(NULL);
+    std::string name_textfile = "r-index-" + random_alphanumeric_string(10);
+	std::ofstream text_file(name_textfile);
+	write_to_file(text_file,input.c_str(),input_size);
+	text_file.close();
+	
+	uint64_t time_build_override;
+	index = ri_mun::r_index<>(name_textfile,"bigbwt",1,&time_build_override);
+	std::filesystem::remove(name_textfile);
+	std::filesystem::remove(name_textfile + ".log");
+	system("rm -f nul");
+    std::cout.rdbuf(cout_rfbuf);
+
+	return time_build_override;
+}
+
+template <>
+uint64_t build_index_from_sa_and_bwt<int32_t,ri_mun::r_index<>>(ri_mun::r_index<>& index, uint16_t num_threads) {
+	return build_r_index_mun_from_sa_and_bwt(index);
+}
+
+template <>
+uint64_t build_index_from_sa_and_bwt<int64_t,ri_mun::r_index<>>(ri_mun::r_index<>& index, uint16_t num_threads) {
+	return build_r_index_mun_from_sa_and_bwt(index);
 }
 
 template <>
@@ -610,7 +689,7 @@ using OnlineRlbwt = itmmti::OnlineRlbwtIndex<DynRleT, DynSuccT>;
 
 template <>
 void build_index<OnlineRlbwt,false>(OnlineRlbwt& index, uint16_t) {
-	for (uint64_t pos=0; pos<input.size(); pos++) {
+	for (uint64_t pos=0; pos<input_size; pos++) {
 		index.extend(input[pos]);
 	}
 }
@@ -687,7 +766,7 @@ using DYNAMIC = dyn::rle_bwt;
 
 template <>
 void build_index<DYNAMIC,false>(DYNAMIC& index, uint16_t) {
-	for (uint64_t pos=0; pos<input.size(); pos++) {
+	for (uint64_t pos=0; pos<input_size; pos++) {
 		index.extend(input[pos]);
 	}
 }
@@ -720,7 +799,7 @@ void build_index<r_index_f<>,false>(r_index_f<>& index, uint16_t) {
 	std::cout.rdbuf(NULL);
     std::string name_textfile = "r-index-f-" + random_alphanumeric_string(10);
 	std::ofstream text_file(name_textfile);
-	write_to_file(text_file,input.c_str(),input.size());
+	write_to_file(text_file,input.c_str(),input_size);
 	text_file.close();
 	std::string cmd_newscan = "build/external/Big-BWT/newscanNT.x " + name_textfile + " >nul 2>nul";
 	system(cmd_newscan.c_str());
@@ -735,6 +814,41 @@ void build_index<r_index_f<>,false>(r_index_f<>& index, uint16_t) {
 	system(cmd_rm.c_str());
 	system("rm -f nul");
     std::cout.rdbuf(cout_rfbuf);
+}
+
+uint64_t build_r_index_f_from_sa_and_bwt(r_index_f<>& index) {
+	std::streambuf* cout_rfbuf = cout.rdbuf();
+	std::cout.rdbuf(NULL);
+    std::string name_textfile = "r-index-f-" + random_alphanumeric_string(10);
+	std::ofstream text_file(name_textfile);
+	write_to_file(text_file,input.c_str(),input_size);
+	text_file.close();
+	std::string cmd_newscan = "build/external/Big-BWT/newscanNT.x " + name_textfile + " >nul 2>nul";
+	system(cmd_newscan.c_str());
+	std::string cmd_pfp_thresholds = "build/external/pfp-thresholds/pfp-thresholds " +
+	name_textfile + " -r > " + name_textfile + ".log 2>" + name_textfile + ".log";
+	system(cmd_pfp_thresholds.c_str());
+
+	auto t1 = now();
+	index = std::move(r_index_f<>(name_textfile));
+	auto t2 = now();
+	
+	std::string cmd_rm = "rm -f " + name_textfile + "* >nul 2>nul";
+	system(cmd_rm.c_str());
+	system("rm -f nul");
+    std::cout.rdbuf(cout_rfbuf);
+	
+	return time_diff_ns(t1,t2);
+}
+
+template <>
+uint64_t build_index_from_sa_and_bwt<int32_t,r_index_f<>>(r_index_f<>& index, uint16_t num_threads) {
+	return build_r_index_f_from_sa_and_bwt(index);
+}
+
+template <>
+uint64_t build_index_from_sa_and_bwt<int64_t,r_index_f<>>(r_index_f<>& index, uint16_t) {
+	return build_r_index_f_from_sa_and_bwt(index);
 }
 
 template <>
@@ -772,7 +886,208 @@ void measure_all() {
 	measure<uint_t,DYNAMIC,false,true,true,false>("DYNAMIC","dynamic",1,1);
 }
 
+template <typename sa_sint_t, typename idx_t>
+void measure_construct_from_sa_and_bwt(std::string index_name, std::string index_log_name, uint16_t max_build_threads) {
+	idx_t index;
+	std::chrono::steady_clock::time_point t1,t2;
+	uint64_t m1,m2;
+	std::vector<build_result> results_build;
+	uint_t time_build_override;
+	std::cout << "############## benchmarking " << index_name << " ##############" << std::endl << std::endl;
+
+	for (uint16_t cur_num_threads=1; cur_num_threads<=max_build_threads; cur_num_threads*=2) {
+		std::cout << "building " << index_name << " using " << format_threads(cur_num_threads) << std::flush;
+
+		destroy_index<idx_t>(index);
+		external_peak_memory_usage = 0;
+		malloc_count_reset_peak();
+		m1 = malloc_count_current();
+		t1 = now();
+		time_build_override = build_index_from_sa_and_bwt<sa_sint_t,idx_t>(index,cur_num_threads);
+		t2 = now();
+		m2 = malloc_count_current();
+		
+		build_result res{
+			.num_threads = cur_num_threads,
+			.time_build = time_build_override != 0 ? time_build_override : time_diff_ns(t1,t2),
+			.peak_memory_usage = std::max(malloc_count_peak()-m1,external_peak_memory_usage),
+			.index_size = m2-m1
+		};
+
+		results_build.emplace_back(res);
+		std::cout << std::endl;
+		std::cout << "build time: " << format_time(res.time_build) << std::endl;
+		std::cout << "peak memory usage: " << format_size(res.peak_memory_usage) << std::endl;
+		std::cout << "index size: " << format_size(res.index_size) << std::endl << std::endl;
+	}
+
+	if (measurement_file.is_open()) {
+		for (build_result& res : results_build) {
+			measurement_file << "RESULT"
+				<< " type=comparison_build_from_sa_and_bwt"
+				<< " implementation=" << index_log_name
+				<< " text=" << name_textfile
+				<< " num_threads=" << res.num_threads
+				<< " time_build=" << res.time_build
+				<< " peak_memory_usage=" << res.peak_memory_usage
+				<< " index_size=" << res.index_size
+				<< std::endl;
+		}
+	}
+}
+
+template <typename uint_t, typename sa_sint_t>
+void measure_all_construct_from_sa_and_bwt() {
+
+	std::vector<std::vector<uint8_t>> contains_uchar_thr(max_num_threads,std::vector<uint8_t>(256,0));
+
+	#pragma omp parallel for num_threads(max_num_threads)
+	for (uint64_t i=0; i<input_size-1; i++) {
+		contains_uchar_thr[omp_get_thread_num()][char_to_uchar(input[i])] = 1;
+	}
+
+	std::vector<uint8_t> contains_uchar(256,0);
+
+    for (uint16_t i=0; i<256; i++) {
+        for (uint16_t j=0; j<max_num_threads; j++) {
+            if (contains_uchar_thr[j][i] == 1) {
+                contains_uchar[i] = 1;
+                break;
+            }
+        }
+    }
+
+    contains_uchar_thr.clear();
+    contains_uchar_thr.shrink_to_fit();
+    uint8_t alphabet_size = 1;
+
+    for (uint16_t i=0; i<256; i++) {
+        if (contains_uchar[i] == 1) {
+            alphabet_size++;
+        }
+    }
+    
+    bool contains_invalid_char = false;
+
+    for (uint8_t i=0; i<2; i++) {
+        if (contains_uchar[i] == 1) {
+            contains_invalid_char = true;
+            break;
+        }
+    }
+
+	std::vector<uint8_t> map_char;
+
+    if (contains_invalid_char) {
+        if (alphabet_size > 253) {
+            std::cout << "Error: the input contains more than 253 distinct characters" << std::endl;
+        }
+
+        map_char.resize(256,0);
+        uint16_t j = 2;
+
+        for (uint16_t i=0; i<256; i++) {
+            if (contains_uchar[i] == 1) {
+                map_char[i] = j;
+                j++;
+            }
+        }
+
+        #pragma omp parallel for num_threads(max_num_threads)
+		for (uint64_t i=0; i<input_size-1; i++) {
+			input[i] = uchar_to_char(map_char[char_to_uchar(input[i])]);
+		}
+    }
+
+	contains_uchar.clear();
+	contains_uchar.shrink_to_fit();
+	std::cout << std::endl << "building suffix array" << std::flush;
+	std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>();
+	(*reinterpret_cast<std::vector<no_init<sa_sint_t>>*>(&SA)).resize(input_size);
+
+	if constexpr (std::is_same<sa_sint_t,int32_t>::value) {
+        if (max_num_threads == 1) {
+            libsais((uint8_t*)&input[0],&SA[0],input_size,0,NULL);
+        } else {
+            libsais_omp((uint8_t*)&input[0],&SA[0],input_size,0,NULL,max_num_threads);
+        }
+    } else {
+        if (max_num_threads == 1) {
+            libsais64((uint8_t*)&input[0],&SA[0],input_size,0,NULL);
+        } else {
+            libsais64_omp((uint8_t*)&input[0],&SA[0],input_size,0,NULL,max_num_threads);
+        }
+    }
+
+	std::cout << std::endl << "building BWT" << std::flush;
+	no_init_resize(BWT,input_size);
+
+	#pragma omp parallel for num_threads(max_num_threads)
+	for (uint64_t i=0; i<input_size; i++) {
+		BWT[i] = input[SA[i] == 0 ? input_size-1 : SA[i]-1];
+	}
+
+	std::cout << std::endl << std::endl;
+	measure_construct_from_sa_and_bwt<sa_sint_t,move_r<uint_t>>("move-r (a=8)","move_r",max_num_threads);
+	//measure_construct_from_sa_and_bwt<sa_sint_t,r_index_f<>>("r-index-f","r_index_f",1);
+	measure_construct_from_sa_and_bwt<sa_sint_t,ri::r_index<>>("r-index (prezza)","r_index_prezza",1);
+	//measure_construct_from_sa_and_bwt<sa_sint_t,ri_mun::r_index<>>("r-index (mun)","r_index_mun",1);
+}
+
+int main_construct_from_sa_and_bwt(int argc, char** argv) {
+	if (argc == 6) {
+		if (std::string(argv[2]) != "-m") help("");
+
+		path_measurement_file = argv[3];
+		path_inputfile = argv[4];
+		max_num_threads = atoi(argv[5]);
+
+		measurement_file.open(path_measurement_file,std::filesystem::exists(path_measurement_file) ? std::ios::app : std::ios::out);
+		if (!measurement_file.good()) help("error: cannot open or create measurement file");
+	} else if (argc == 4) {
+		path_inputfile = argv[2];
+		max_num_threads = atoi(argv[3]);
+	} else {
+		help("");
+	}
+	
+	input_file.open(path_inputfile);
+	if (!input_file.good()) help("error: invalid input, could not read <input_file>");
+	if (max_num_threads == 0 || max_num_threads > omp_get_max_threads()) help("error: invalid number of threads");
+
+	system("chmod +x build/external/Big-BWT/*");
+	system("chmod +x build/external/pfp-thresholds/*");
+	std::cout << std::setprecision(4);
+	name_textfile = path_inputfile.substr(path_inputfile.find_last_of("/\\") + 1);
+
+	input_file.seekg(0,std::ios::end);
+	input_size = input_file.tellg()+(std::streamsize)+1;
+	input_file.seekg(0,std::ios::beg);
+	no_init_resize(input,input_size);
+	read_from_file(input_file,input.c_str(),input_size-1);
+	input[input_size-1] = 1;
+	input_file.close();
+	
+	std::cout << "benchmarking " << path_inputfile << " (" << format_size(input_size-1);
+	std::cout << ") using up to " << format_threads(max_num_threads) << std::endl;
+
+	if (input_size <= UINT_MAX) {
+		if (input_size <= INT_MAX) {
+			measure_all_construct_from_sa_and_bwt<uint32_t,int32_t>();
+		} else {
+			measure_all_construct_from_sa_and_bwt<uint32_t,int64_t>();
+		}
+	} else {
+		measure_all_construct_from_sa_and_bwt<uint64_t,int64_t>();
+	}
+
+	if (measurement_file.is_open()) measurement_file.close();
+	return 0;
+}
+
 int main(int argc, char** argv) {
+	if (argc == 1) help("");
+	if (std::string(argv[1]) == "-sa") return main_construct_from_sa_and_bwt(argc,argv);
 	if (argc < 5) help("");
 	while (ptr < argc - 4) parse_args(argv, argc, ptr);
 
@@ -795,21 +1110,20 @@ int main(int argc, char** argv) {
 	system("chmod +x build/external/pfp-thresholds/*");
 	std::cout << std::setprecision(4);
 	name_textfile = path_inputfile.substr(path_inputfile.find_last_of("/\\") + 1);
-	std::cout << "benchmarking " << path_inputfile;
+	std::cout << "benchmarking " << path_inputfile << " (" << format_size(input_size-1);
+	std::cout << ") using up to " << format_threads(max_num_threads) << std::endl;
+	if (check_correctness) std::cout << "correctnes will be checked if possible" << std::endl;
+	std::cout << std::endl;
 
 	input_file.seekg(0,std::ios::end);
-	uint64_t input_size = input_file.tellg()+(std::streamsize)+1;
+	input_size = input_file.tellg()+(std::streamsize)+1;
 	input_file.seekg(0,std::ios::beg);
 	input.reserve(input_size);
 	no_init_resize(input,input_size-1);
 	read_from_file(input_file,input.c_str(),input_size-1);
 	input_file.close();
-	
-	std::cout << " (" << format_size(input_size-1) << ") using up to " << format_threads(max_num_threads) << std::endl;
-	if (check_correctness) std::cout << "correctnes will be checked if possible" << std::endl;
-	std::cout << std::endl;
 
-	if (input_size < UINT_MAX) {
+	if (input_size <= UINT_MAX) {
 		measure_all<uint32_t>();
 	} else {
 		measure_all<uint64_t>();
@@ -819,4 +1133,5 @@ int main(int argc, char** argv) {
 	patterns_file_2.close();
 
 	if (measurement_file.is_open()) measurement_file.close();
+	return 0;
 }

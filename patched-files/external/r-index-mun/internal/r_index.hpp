@@ -35,9 +35,9 @@ public:
      * Build index
      */
     r_index(){} // empty constructor. Should call one of init_sais, init_bigbwt, or init_frombwt
-    r_index(std::string fname, std::string method="bigbwt", uint32_t nthreads=1) {
+    r_index(std::string fname, std::string method="bigbwt", uint32_t nthreads=1, uint64_t* time_build_override = NULL) {
         if (method == "bigbwt") { 
-            init_bigbwt(fname, nthreads);
+            init_bigbwt(fname, nthreads, time_build_override);
         }
     }
 
@@ -114,11 +114,14 @@ public:
      * idx = r_index();
      * idx.init(fname);
      */
-    void init_bigbwt(std::string fname, uint32_t nthreads=1) {
+    void init_bigbwt(std::string fname, uint32_t nthreads=1, uint64_t* time_build_override = NULL) {
         std::vector<std::pair<ulint, ulint>> samples_first_vec;
         std::vector<ulint> samples_last_vec;
         cout << "(1/3) Building BWT..." << endl;
         std::string bwt_fname = bigbwt(fname, false, nthreads);
+        
+        auto t1 = now();
+
         /* make sure we only read fname+".*" after this, NOT fname itself */
         cout << "done.\n(2/3) RLE encoding BWT and computing SA samples... " << endl;
         std::ifstream ifs(bwt_fname);
@@ -145,6 +148,9 @@ public:
         std::filesystem::remove(fname + ".bwt");
         std::filesystem::remove(fname + ".ssa");
         std::filesystem::remove(fname + ".esa");
+
+        auto t2 = now();
+        if (time_build_override != NULL) *time_build_override = time_diff_ns(t1,t2);
     }
 
     void from_bwt(std::string fname) {

@@ -99,8 +99,8 @@ inline move_data_structure_phi<uint_t>::construction::tout_it_t_v5 move_data_str
                 balance_upto_v5_seq_par(tn_Y,qy_pd_,q_u);
                 
                 // because we inserted another pair into T_out_v5[i_p] in the recursive call of balance_upto_v5_seq_par, tout_n_new
-                // may not point to (p_j + d, q_j + d) anymore, so set it to T_out_v5[i_p].end() (which is constant)
-                tout_n_new = T_out_v5[i_p].end();
+                // may not point to (p_j + d, q_j + d) anymore, so return T_out_v5[i_p].end() (which is constant)
+                return T_out_v5[i_p].end();
             }
         }
     }

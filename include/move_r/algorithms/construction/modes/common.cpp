@@ -140,11 +140,14 @@ void move_r<uint_t>::construction::build_rsl_() {
         std::cout << "building RS_L'" << std::flush;
     }
 
-    std::vector<char> chars;
     
-    for (uint16_t i=0; i<256; i++) {
-        if (contains_uchar[i] == 1) {
-            chars.emplace_back(uchar_to_char((uint8_t)i));
+    std::vector<char> chars;
+
+    if (!build_from_sa_and_l) {
+        for (uint16_t i=0; i<256; i++) {
+            if (contains_uchar[i] == 1) {
+                chars.emplace_back(uchar_to_char((uint8_t)i));
+            }
         }
     }
 
@@ -251,9 +254,9 @@ void move_r<uint_t>::construction::sort_iphi() {
 
     // Choose the correct sorting algorithm.
     if (p > 1) {
-        ips4o::parallel::sort(&I_Phi[0],&I_Phi[r],comp_I_Phi);
+        ips4o::parallel::sort(I_Phi.begin(),I_Phi.end(),comp_I_Phi);
     } else {
-        ips4o::sort(&I_Phi[0],&I_Phi[r],comp_I_Phi);
+        ips4o::sort(I_Phi.begin(),I_Phi.end(),comp_I_Phi);
     }
 
     if (log) {
@@ -303,9 +306,9 @@ void move_r<uint_t>::construction::build_saidxoffs(uint_t r_) {
 
     auto comp_pi_ = [this](uint_t i, uint_t j){return SA_s[i] < SA_s[j];};
     if (p > 1) {
-        ips4o::parallel::sort(&pi_[0],&pi_[this->r_],comp_pi_);
+        ips4o::parallel::sort(pi_.begin(),pi_.end(),comp_pi_);
     } else {
-        ips4o::sort(&pi_[0],&pi_[this->r_],comp_pi_);
+        ips4o::sort(pi_.begin(),pi_.end(),comp_pi_);
     }
 
     omega_idx = std::max((uint8_t)1,(uint8_t)(ceil(log2(r__)/(double)8)*8));

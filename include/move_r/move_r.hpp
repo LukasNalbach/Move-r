@@ -310,6 +310,35 @@ class move_r {
 		measurement_file_index,measurement_file_move_data_structures,name_textfile);
 	}
 
+	/**
+	 * @brief constructs a move_r index from a suffix array and a bwt
+	 * @tparam sa_sint_t suffix array signed integer type
+	 * @param suffix_array vector containing the suffix array of the input
+	 * @param bwt string containing the bwt of the input
+	 * @param support a vector containing move_r operations to build support for
+	 * @param num_threads maximum number of threads to use during the construction
+	 * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+	 * @param log controls, whether to print log messages
+	 * @param measurement_file_index measurement file for the index construciton
+	 * @param measurement_file_move_data_structures measurement file for the move data structure construction
+	 * @param name_textfile name of the input file (used only for measurement output)
+	 */
+	template <typename sa_sint_t>
+	move_r(
+		std::vector<sa_sint_t>& suffix_array,
+		std::string& bwt,
+		std::vector<move_r_support> support = full_support,
+		uint16_t num_threads = omp_get_max_threads(),
+		uint16_t a = 8,
+		bool log = false,
+		std::ostream* measurement_file_index = NULL,
+		std::ostream* measurement_file_move_data_structures = NULL,
+    	std::string name_textfile = ""
+	) {
+		construction mrc(*this,suffix_array,bwt,support,num_threads,a,log,
+		measurement_file_index,measurement_file_move_data_structures,name_textfile);
+	}
+
 	// ############################# MISC PUBLIC METHODS #############################
 
 	/**

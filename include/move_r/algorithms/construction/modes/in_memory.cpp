@@ -59,7 +59,10 @@ void move_r<uint_t>::construction::build_l_and_c_in_memory() {
     }
 
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
-    no_init_resize(L,n);
+
+    if (!build_from_sa_and_l) {
+        no_init_resize(L,n);
+    }
 
     C.resize(p+1);
     r_p.resize(p+1);
@@ -76,9 +79,11 @@ void move_r<uint_t>::construction::build_l_and_c_in_memory() {
         // Iteration range end position of thread i_p.
         uint_t e = i_p == p-1 ? n-1 : (i_p+1)*(n/p)-1;
 
-        // Build L in the range [b..e].
-        for (uint_t i=b; i<=e; i++) {
-            L[i] = SA[i] == 0 ? T[n-1] : T[SA[i]-1];
+        if (!build_from_sa_and_l) {
+            // Build L in the range [b..e].
+            for (uint_t i=b; i<=e; i++) {
+                L[i] = T[SA[i] == 0 ? n-1 : SA[i]-1];
+            }
         }
 
         // Store in C[i_p][c] the number of occurences of c in L[b..e], for each c in [0..255].
@@ -106,7 +111,7 @@ void move_r<uint_t>::construction::build_l_and_c_in_memory() {
         T.shrink_to_fit();
     }
 
-    if (!build_locate_support) {
+    if (!build_locate_support && !build_from_sa_and_l) {
         SA.clear();
         SA.shrink_to_fit();
     }
@@ -147,22 +152,30 @@ void move_r<uint_t>::construction::process_rp_in_memory() {
         time = log_runtime(time);
         std::cout << "n = " << n << ", sigma = " << std::to_string(sigma) << ", r = " << r << ", n/r = " << n_r << std::endl;
     }
-
-    if (p > 1 && 1000*p > r) {
-        p = std::max((uint_t)1,r/1000);
-        if (log) std::cout << "warning: p > r/1000, setting p to r/1000 ~ " << std::to_string(p) << std::endl;
-    }
 }
 
 template <typename uint_t>
-void move_r<uint_t>::construction::build_ilf_and_bwt_run_heads_in_memory() {
+template <typename sa_sint_t>
+void move_r<uint_t>::construction::build_ilf_iphi_and_bwt_run_heads_in_memory() {
     if (log) {
         time = now();
-        std::cout << "building I_LF and bwt run heads" << std::flush;
+        std::string msg;
+        if (build_from_sa_and_l) {
+            msg = "building I_LF and I_Phi";
+        } else {
+            msg = "building I_LF and bwt run heads";
+        }
+        std::cout << msg << std::flush;
     }
 
     (*reinterpret_cast<std::vector<std::pair<no_init<uint_t>,no_init<uint_t>>>*>(&I_LF)).resize(r);
-    no_init_resize(bwt_run_heads,r);
+    if (!build_from_sa_and_l) no_init_resize(bwt_run_heads,r);
+    std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
+
+    if (build_locate_support && build_from_sa_and_l) {
+        (*reinterpret_cast<std::vector<std::pair<no_init<uint_t>,no_init<uint_t>>>*>(&I_Phi)).resize(r);
+        I_Phi[0] = std::make_pair(SA[0],SA[n-1]);
+    }
 
     #pragma omp parallel num_threads(p)
     {
@@ -183,8 +196,13 @@ void move_r<uint_t>::construction::build_ilf_and_bwt_run_heads_in_memory() {
 
         /* Each thread creates one input interval starting at b,
         whiches pair has to be placed at LF[r_p[i_p]]. */
-        I_LF[j] = std::make_pair(i_,C[p][char_to_uchar(L[b])]+C[i_p][char_to_uchar(L[b])]);
-        bwt_run_heads[j] = L[i_];
+        I_LF[j] = std::make_pair(b,C[p][char_to_uchar(L[b])]+C[i_p][char_to_uchar(L[b])]);
+
+        if (build_from_sa_and_l) {
+            if (build_locate_support && b != 0) I_Phi[j] = std::make_pair(SA[b],SA[b-1]);
+        } else {
+            bwt_run_heads[j] = L[b];
+        }
 
         j++;
 
@@ -193,7 +211,11 @@ void move_r<uint_t>::construction::build_ilf_and_bwt_run_heads_in_memory() {
 
             // Check, if a run starts at a position i
             if (L[i] != L[i-1]) {
-                bwt_run_heads[j] = L[i];
+                if (build_from_sa_and_l) {
+                    if (build_locate_support) I_Phi[j] = std::make_pair(SA[i],SA[i-1]);
+                } else {
+                    bwt_run_heads[j] = L[i];
+                }
 
                 /* Update the rank-function in C[i_p] to store C[i_p][c] = rank(L,c,i-1),
                 for each c in [0..255]. */
@@ -214,11 +236,16 @@ void move_r<uint_t>::construction::build_ilf_and_bwt_run_heads_in_memory() {
     C.clear();
     C.shrink_to_fit();
 
-    L.clear();
-    L.shrink_to_fit();
+    if (build_from_sa_and_l) {
+        r_p.clear();
+        r_p.shrink_to_fit();
+    } else {        
+        L.clear();
+        L.shrink_to_fit();
+    }
 
     if (log) {
-        if (measurement_file_index != NULL) *measurement_file_index << " time_build_ilf_bwt_run_heads=" << time_diff_ns(time,now());
+        if (measurement_file_index != NULL) *measurement_file_index << " time_build_ilf_iphi_bwt_run_heads=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }
@@ -416,6 +443,25 @@ void move_r<uint_t>::construction::build_l__and_iphi_in_memory() {
 
 template <typename uint_t>
 template <typename sa_sint_t>
+void move_r<uint_t>::construction::build_l__in_memory_from_l() {
+    if (log) {
+        time = now();
+        std::cout << "building L'" << std::flush;
+    }
+
+    #pragma omp parallel for num_threads(p)
+    for (uint64_t i=0; i<r_; i++) {
+        idx.M_LF.template set_character<char>(i,L[idx.M_LF.p(i)]);
+    }
+
+    if (log) {
+        if (measurement_file_index != NULL) *measurement_file_index << " time_build_l_=" << time_diff_ns(time,now());
+        time = log_runtime(time);
+    }
+}
+
+template <typename uint_t>
+template <typename sa_sint_t>
 void move_r<uint_t>::construction::build_sas_in_memory() {
     if (log) {
         time = now();
@@ -423,7 +469,6 @@ void move_r<uint_t>::construction::build_sas_in_memory() {
     }
 
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
-
     (*reinterpret_cast<std::vector<no_init<uint_t>>*>(&SA_s)).resize(r_);
 
     // build SA_s
@@ -432,9 +477,11 @@ void move_r<uint_t>::construction::build_sas_in_memory() {
         SA_s[i] = SA[idx.M_LF.p(i+1)-1];
     }
 
-    // Now we do not need the suffix array anymore
-    SA.clear();
-    SA.shrink_to_fit();
+    if (!build_from_sa_and_l) {
+        // Now we do not need the suffix array anymore
+        SA.clear();
+        SA.shrink_to_fit();
+    }
 
     if (log) {
         if (measurement_file_index != NULL) *measurement_file_index << " time_build_sas=" << time_diff_ns(time,now());

@@ -18,8 +18,11 @@ class move_r<uint_t>::construction {
     // ############################# MISC VARIABLES #############################
 
 	std::string T_tmp;
-	std::string& T; // the string containing T
+	std::string L_tmp;
+	std::vector<int32_t> SA_32_tmp;
+	std::vector<int64_t> SA_64_tmp;
 	uint16_t p = 1; // the number of threads to use
+	bool build_from_sa_and_l = false; // 
 	bool log = false; // controls, whether to print log messages
 	std::ostream* measurement_file_index = NULL; // file to write measurement data of the index construction to 
 	std::ostream* measurement_file_move_data_structures = NULL; // file to write measurement data of the move data structure construction to 
@@ -50,14 +53,16 @@ class move_r<uint_t>::construction {
 
     // ############################# CONSTRUCTION DATA STRUCTURE VARIABLES #############################
 
+	/** the string containing T */
+	std::string& T;
 	/** The move-r index to construct */
 	move_r<uint_t>& idx;
 	/** [0..n-1] The suffix array (32-bit) */
-	std::vector<int32_t> SA_32_bit;
+	std::vector<int32_t>& SA_32;
 	/** [0..n-1] The suffix array (64-bit) */
-	std::vector<int64_t> SA_64_bit;
+	std::vector<int64_t>& SA_64;
 	/** [0..n-1] The BWT */
-    std::string L;
+    std::string& L;
 	/** [0..r-1] characters of the bwt runs */
     std::string bwt_run_heads;
 	/** [0..r-1] lengths of the bwt runs */
@@ -131,9 +136,9 @@ class move_r<uint_t>::construction {
 	template <typename sa_sint_t>
     constexpr std::vector<sa_sint_t>& get_sa() {
         if constexpr (std::is_same<sa_sint_t,int32_t>::value) {
-            return SA_32_bit;
+            return SA_32;
         } else {
-            return SA_64_bit;
+            return SA_64;
         }
     }
 
@@ -235,7 +240,7 @@ class move_r<uint_t>::construction {
 		std::ostream* measurement_file_index,
 		std::ostream* measurement_file_move_data_structures,
     	std::string name_textfile
-	) : T(T), idx(index) {
+	) : T(T), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
 		this->support = support;
 		this->p = p;
 		this->a = a;
@@ -293,7 +298,7 @@ class move_r<uint_t>::construction {
 		std::ostream* measurement_file_index,
 		std::ostream* measurement_file_move_data_structures,
     	std::string name_textfile
-	) : T(T_tmp), idx(index) {
+	) : T(T_tmp), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
 		this->support = support;
 		this->p = p;
 		this->a = a;
@@ -320,7 +325,114 @@ class move_r<uint_t>::construction {
 		if (log) log_finished();
 	}
 
+	/**
+	 * @brief constructs a move_r index from an input file
+	 * @tparam sa_sint_t suffix array signed integer type
+	 * @param index The move-r index to construct
+	 * @param suffix_array vector containing the suffix array of the input
+	 * @param bwt string containing the bwt of the input
+	 * @param support a vector containing move_r operations to build support for
+	 * @param p the number of threads to use during the construction
+	 * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+	 * @param log controls, whether to print log messages
+	 * @param measurement_file_index measurement file for the index construciton
+	 * @param measurement_file_move_data_structures measurement file for the move data structure construction
+	 * @param name_textfile name of the input file (used only for measurement output)
+	 */
+	construction(
+		move_r<uint_t>& index,
+		std::vector<int32_t>& suffix_array,
+		std::string& bwt,
+		std::vector<move_r_support> support,
+		uint16_t p,
+		uint16_t a,
+		bool log,
+		std::ostream* measurement_file_index,
+		std::ostream* measurement_file_move_data_structures,
+    	std::string name_textfile
+	) : T(T_tmp), L(bwt), SA_32(suffix_array), SA_64(SA_64_tmp), idx(index) {
+		this->support = support;
+		this->p = p;
+		this->a = a;
+		this->log = log;
+		this->measurement_file_index = measurement_file_index;
+		this->measurement_file_move_data_structures = measurement_file_move_data_structures;
+		this->name_textfile = name_textfile;
+		
+		construct_from_sa_and_l<int32_t>();
+	}
+
+	/**
+	 * @brief constructs a move_r index from an input file
+	 * @tparam sa_sint_t suffix array signed integer type
+	 * @param index The move-r index to construct
+	 * @param suffix_array vector containing the suffix array of the input
+	 * @param bwt string containing the bwt of the input
+	 * @param support a vector containing move_r operations to build support for
+	 * @param p the number of threads to use during the construction
+	 * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+	 * @param log controls, whether to print log messages
+	 * @param measurement_file_index measurement file for the index construciton
+	 * @param measurement_file_move_data_structures measurement file for the move data structure construction
+	 * @param name_textfile name of the input file (used only for measurement output)
+	 */
+	construction(
+		move_r<uint_t>& index,
+		std::vector<int64_t>& suffix_array,
+		std::string& bwt,
+		std::vector<move_r_support> support,
+		uint16_t p,
+		uint16_t a,
+		bool log,
+		std::ostream* measurement_file_index,
+		std::ostream* measurement_file_move_data_structures,
+    	std::string name_textfile
+	) : T(T_tmp), L(bwt), SA_32(SA_32_tmp), SA_64(suffix_array), idx(index) {
+		this->support = support;
+		this->p = p;
+		this->a = a;
+		this->log = log;
+		this->measurement_file_index = measurement_file_index;
+		this->measurement_file_move_data_structures = measurement_file_move_data_structures;
+		this->name_textfile = name_textfile;
+		
+		construct_from_sa_and_l<int64_t>();
+	}
+
     // ############################# CONSTRUCTION #############################
+
+	/**
+	 * @brief constructs the index from a suffix array and a bwt
+	 */
+	template <typename sa_sint_t>
+	void construct_from_sa_and_l() {
+		build_from_sa_and_l = true;
+		min_valid_char = 2;
+		terminator = 1;
+		n = L.size();
+		idx.n = n;
+
+		prepare_phase_1();
+		prepare_phase_2();
+		build_l_and_c_in_memory<sa_sint_t>();
+		process_c_array();
+		process_rp_in_memory();
+		build_ilf_iphi_and_bwt_run_heads_in_memory<sa_sint_t>();
+		build_mlf();
+		build_l__in_memory_from_l<sa_sint_t>();
+
+		if (build_locate_support) {
+			sort_iphi();
+			build_mphi();
+			build_sas_in_memory<sa_sint_t>();
+			build_saidxoffs(r_);
+			build_de(r_);
+		}
+
+		if (build_count_support) build_rsl_();
+
+		if (log) log_finished();
+	}
 
 	/**
 	 * @brief constructs the index from a string in memory (optimized for low runtime)
@@ -349,7 +461,7 @@ class move_r<uint_t>::construction {
 		build_l_and_c_in_memory<sa_sint_t>();
 		process_c_array();
 		process_rp_in_memory();
-		build_ilf_and_bwt_run_heads_in_memory();
+		build_ilf_iphi_and_bwt_run_heads_in_memory<sa_sint_t>();
 		build_br_in_memory();
 		build_mlf();
 		build_l__and_iphi_in_memory<sa_sint_t>();
@@ -471,8 +583,10 @@ class move_r<uint_t>::construction {
 
 	/**
 	 * @brief builds I_LF and the BWT run heads in-memory
+	 * @tparam sa_sint_t suffix array signed integer type
 	 */
-	void build_ilf_and_bwt_run_heads_in_memory();
+	template <typename sa_sint_t>
+	void build_ilf_iphi_and_bwt_run_heads_in_memory();
 
 	/**
 	 * @brief builds B_r in-memory
@@ -485,6 +599,13 @@ class move_r<uint_t>::construction {
 	 */
 	template <typename sa_sint_t = int32_t>
 	void build_l__and_iphi_in_memory();
+
+	/**
+	 * @brief builds L' in-memory from L
+	 * @tparam sa_sint_t suffix array signed integer type 
+	 */
+	template <typename sa_sint_t>
+	void build_l__in_memory_from_l();
 
 	/**
 	 * @brief builds SA_s in-memory

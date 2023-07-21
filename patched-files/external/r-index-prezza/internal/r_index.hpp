@@ -36,6 +36,125 @@ public:
 
 	r_index(){}
 
+	template <typename sa_sint_t>
+	r_index(std::vector<sa_sint_t>& SA, std::string &L) {
+
+		vector<pair<ulint,ulint> > samples_first_vec;
+		vector<ulint> samples_last_vec;
+
+		{
+
+	        for (ulint i=0; i<SA.size(); i++){
+	            auto x = SA[i];
+
+	            assert(x<=L.size());
+
+	            //Insert samples at begin of runs
+	            if(i>0){
+
+	            	if(	i==1 ||									//case 1: i-1 == 0 is at run begin
+						(i>1 && L[i-1] != L[i-2])		//case 2: i-1 is at the begin of a run
+	            	){
+
+	            		samples_first_vec.push_back( {SA[i-1]>0?SA[i-1]-1:SA.size()-1, samples_first_vec.size()} );
+
+	            	}
+
+	            	//check last BWT letter
+	            	if(i==SA.size()-1 && L[i]!=L[i-1]) samples_first_vec.push_back( {SA[i]>0?SA[i]-1:SA.size()-1, samples_first_vec.size()} );
+
+				}
+
+	            //Insert samples at end of runs
+	            if(i>0){
+
+	            	if(	L[i-1] != L[i]		//i-1 is at the end of a run
+	            	){
+
+	            		samples_last_vec.push_back( SA[i-1]>0?SA[i-1]-1:SA.size()-1 );
+
+	            	}
+
+	            	//last BWT letter is always at end of a run and is never checked in the previous if
+	            	if(i==SA.size()-1) samples_last_vec.push_back( SA[i]>0?SA[i]-1:SA.size()-1 );
+
+	            }
+
+	        }
+
+	    }
+
+	    assert(samples_first_vec.size() == samples_last_vec.size());
+
+		bwt = rle_string_t(L);
+
+		//build F column
+		F = vector<ulint>(256,0);
+		for(uchar c : L)
+			F[c]++;
+
+		for(ulint i=255;i>0;--i)
+			F[i] = F[i-1];
+
+		F[0] = 0;
+
+		for(ulint i=1;i<256;++i)
+			F[i] += F[i-1];
+
+		for(ulint i=0;i<L.size();++i)
+			if(L[i]==TERMINATOR)
+				terminator_position = i;
+
+		r = bwt.number_of_runs();
+
+		assert(samples_first_vec.size() == r);
+		assert(samples_last_vec.size() == r);
+
+		int log_r = bitsize(uint64_t(r));
+		int log_n = bitsize(uint64_t(bwt.size()));
+		
+		//sort samples of first positions in runs according to text position
+		std::sort(samples_first_vec.begin(), samples_first_vec.end());
+
+		//build Elias-Fano predecessor
+		{
+
+			auto pred_bv = vector<bool>(L.size(),false);
+
+			for(auto p : samples_first_vec){
+
+				assert(p.first < pred_bv.size());
+				pred_bv[p.first] = true;
+
+			}
+
+			pred = sparse_bv_type(pred_bv);
+
+		}
+
+		assert(pred.rank(pred.size()) == r);
+
+		//last text position must be sampled
+		assert(pred[pred.size()-1]);
+
+		samples_last = int_vector<>(r,0,log_n); //text positions corresponding to last characters in BWT runs, in BWT order
+		pred_to_run = int_vector<>(r,0,log_r); //stores the BWT run (0...R-1) corresponding to each position in pred, in text order
+
+		for(ulint i=0;i<samples_last_vec.size();++i){
+
+			assert(bitsize(uint64_t(samples_last_vec[i])) <= log_n);
+			samples_last[i] = samples_last_vec[i];
+
+		}
+
+		for(ulint i=0;i<samples_first_vec.size();++i){
+
+			assert(bitsize(uint64_t(samples_first_vec[i].second)) <= log_r);
+			pred_to_run[i] = samples_first_vec[i].second;
+
+		}
+	}
+
 	/*
 	 * Build index
 	 */

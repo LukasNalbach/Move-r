@@ -1,10 +1,9 @@
 template <typename uint_t>
 void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
     if (log) log_message("building pi");
-    
-    // build pi to constructo T_out faster
+        
+    // build pi to construct T_out faster
     build_pi_for_I();
-
     calculate_seperation_positions_for_I();
 
     if (log) {
