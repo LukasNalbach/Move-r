@@ -6,7 +6,7 @@ inline uint_t move_data_structure_phi<uint_t>::construction::interval_length_v2v
 }
 
 template <typename uint_t>
-inline move_data_structure_phi<uint_t>::construction::lin_node_t_v2v3v4* move_data_structure_phi<uint_t>::construction::is_a_heavy_v2v3v4(
+inline typename move_data_structure_phi<uint_t>::construction::lin_node_t_v2v3v4* move_data_structure_phi<uint_t>::construction::is_a_heavy_v2v3v4(
     lin_node_t_v2v3v4 **ln_IpI_,
     uint_t* i_,
     tout_node_t_v2v3v4 *tn_J,

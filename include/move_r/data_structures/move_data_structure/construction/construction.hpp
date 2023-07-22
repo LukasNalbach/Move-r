@@ -478,8 +478,8 @@ class move_data_structure_phi<uint_t>::construction {
     using tin_t_v5 = absl::btree_set<pair_t,tin_cmp>;
     using tout_t_v5 = absl::btree_set<pair_t,tout_cmp>;
 
-    using tin_it_t_v5 = tin_t_v5::iterator;
-    using tout_it_t_v5 = tout_t_v5::iterator;
+    using tin_it_t_v5 = typename tin_t_v5::iterator;
+    using tout_it_t_v5 = typename tout_t_v5::iterator;
 
     /** 
      * @brief [0..p-1] b-trees; T_in_v5[i_p] stores the pairs (p_i,q_i) in ascending order of p_i,

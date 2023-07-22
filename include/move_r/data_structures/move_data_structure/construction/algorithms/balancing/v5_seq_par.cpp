@@ -34,7 +34,7 @@ inline uint_t move_data_structure_phi<uint_t>::construction::is_a_heavy_v5_seq_p
 }
 
 template <typename uint_t>
-inline move_data_structure_phi<uint_t>::construction::tout_it_t_v5 move_data_structure_phi<uint_t>::construction::balance_upto_v5_seq_par(tout_it_t_v5& tn_J_, uint_t qj_pd, uint_t q_u) {
+inline typename move_data_structure_phi<uint_t>::construction::tout_it_t_v5 move_data_structure_phi<uint_t>::construction::balance_upto_v5_seq_par(tout_it_t_v5& tn_J_, uint_t qj_pd, uint_t q_u) {
     // Index in [0..p-1] of the current thread.
     uint16_t i_p = omp_get_thread_num();
 

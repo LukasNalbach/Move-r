@@ -1,5 +1,5 @@
 template <typename uint_t>
-inline move_data_structure_phi<uint_t>::construction::tout_node_t_v2v3v4* move_data_structure_phi<uint_t>::construction::balance_upto_v4_par(
+inline typename move_data_structure_phi<uint_t>::construction::tout_node_t_v2v3v4* move_data_structure_phi<uint_t>::construction::balance_upto_v4_par(
     lin_node_t_v2v3v4 *ln_IpA,
     tout_node_t_v2v3v4 *tn_J,
     tout_node_t_v2v3v4* tn_J_,
