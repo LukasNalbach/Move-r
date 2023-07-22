@@ -5,7 +5,7 @@ find_package(Git REQUIRED)
 
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/external/libsais/LICENSE")
   execute_process(COMMAND git submodule update --init --recursive WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-  execute_process(COMMAND cp -rf "${CMAKE_SOURCE_DIR}/fixed-files/*" "${CMAKE_SOURCE_DIR}")
+  execute_process(COMMAND cp -rf "${CMAKE_SOURCE_DIR}/patched-files/*" "${CMAKE_SOURCE_DIR}")
 endif()
 
 project (move-r LANGUAGES C CXX)
@@ -72,7 +72,7 @@ target_include_directories(move_r INTERFACE include/)
 target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree malloc_count)
 
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)
-option(MOVE_R_BUILD_BENCH_CLI "Builds the benchmark cli program" OFF)
+option(MOVE_R_BUILD_BENCH_CLI "Builds the benchmark cli program" ON)
 option(MOVE_R_BUILD_EXAMPLES "Build the example programs" OFF)
 
 ############################# move-r cli #############################
