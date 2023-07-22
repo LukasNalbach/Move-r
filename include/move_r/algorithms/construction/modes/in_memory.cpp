@@ -256,16 +256,9 @@ void move_r<uint_t>::construction::build_br_in_memory() {
         time = now();
         std::cout << "building B_r" << std::flush;
     }
-    
-    // build bitvectors, that mark the run head positions in each threads section
-    // use an sd_vector, if the bitvectors are sparse (r << n)
-    compress_br = (n/r) > 7;
 
-    if (compress_br) {
-        B_r_sdsl.resize(p);
-    } else {
-        B_r_pasta.resize(p,NULL);
-    }
+    // build bitvectors, that mark the run head positions in each threads section
+    B_r.resize(p);
 
     #pragma omp parallel num_threads(p)
     {
@@ -282,38 +275,31 @@ void move_r<uint_t>::construction::build_br_in_memory() {
         // Iteration range end position of thread i_p in I_LF.
         uint_t e_r = r_p[i_p+1]-1;
 
-        if (compress_br) {
-            // add one bit and mark the next section's first run start position
-            B_r_sdsl[i_p] = std::move(sdsl::bit_vector(e-b+2));
-            B_r_sdsl[i_p][e-b+1] = 1;
+        // add one bit and mark the next section's first run start position
+        B_r[i_p] = std::move(sdsl::bit_vector(e-b+2));
+        B_r[i_p][e-b+1] = 1;
 
-            for (uint_t i=b_r; i<=e_r; i++) {
-                B_r_sdsl[i_p][I_LF[i].first-b] = 1;
-            }
-        } else {
-            // add one bit and mark the next section's first run start position
-            B_r_pasta[i_p] = new pasta::BitVector(e-b+2,0);
-            (*B_r_pasta[i_p])[e-b+1] = 1;
-
-            for (uint_t i=b_r; i<=e_r; i++) {
-                (*B_r_pasta[i_p])[I_LF[i].first-b] = 1;
-            }
+        for (uint_t i=b_r; i<=e_r; i++) {
+            B_r[i_p][I_LF[i].first-b] = 1;
         }
     }
+    
+    // use an sd_vector, if the bitvectors are sparse (r << n)
+    compress_br = (n/r) > 7;
 
     // compress B_r using sd_arrays
     if (compress_br) {
-        B_r_compr.resize(p);
+        B_r_sd.resize(p);
 
         #pragma omp parallel num_threads(p)
         {
             // Index in [0..p-1] of the current thread.
             uint16_t i_p = omp_get_thread_num();
-            B_r_compr[i_p] = std::move(sd_array<uint_t>(B_r_sdsl[i_p]));
+            B_r_sd[i_p] = std::move(sd_array<uint_t>(B_r[i_p]));
         }
 
-        B_r_sdsl.clear();
-        B_r_sdsl.shrink_to_fit();
+        B_r.clear();
+        B_r.shrink_to_fit();
     }
 
     if (log) {
@@ -349,13 +335,13 @@ void move_r<uint_t>::construction::build_l__and_iphi_in_memory() {
         uint16_t i_p = omp_get_thread_num();
 
         std::function<uint_t(uint_t)> Br_ip_select_1; // function that comutes select_1 on B_r[i_p]
-        pasta::FlatRankSelect B_r_pasta_select_1;
+        sdsl::bit_vector::select_1_type Br_ip_select_1_support;
 
         if (compress_br) {
-            Br_ip_select_1 = [this,&i_p](uint_t idx){return B_r_compr[i_p].select_1(idx);};
+            Br_ip_select_1 = [this,&i_p](uint_t idx){return B_r_sd[i_p].select_1(idx);};
         } else {
-            B_r_pasta_select_1 = std::move(pasta::FlatRankSelect(*B_r_pasta[i_p]));
-            Br_ip_select_1 = [&B_r_pasta_select_1](uint_t idx){return B_r_pasta_select_1.select1(idx);};
+            Br_ip_select_1_support = sdsl::bit_vector::select_1_type(&B_r[i_p]);
+            Br_ip_select_1 = [&Br_ip_select_1_support](uint_t idx){return Br_ip_select_1_support.select(idx);};
         }
 
         // Bwt range start position of thread i_p.
@@ -404,6 +390,8 @@ void move_r<uint_t>::construction::build_l__and_iphi_in_memory() {
                 j++;
             } while (idx.M_LF.p(j) < l_);
         }
+
+        Br_ip_select_1_support.set_vector(NULL);
     }
 
     r_p.clear();
@@ -413,26 +401,11 @@ void move_r<uint_t>::construction::build_l__and_iphi_in_memory() {
     bwt_run_heads.shrink_to_fit();
 
     if (compress_br) {
-        B_r_compr.clear();
-        B_r_compr.shrink_to_fit();
+        B_r_sd.clear();
+        B_r_sd.shrink_to_fit();
     } else {
-        for (uint16_t i=0; i<p; i++) {
-            delete B_r_pasta[i];
-            B_r_pasta[i] = NULL;
-        }
-
-        B_r_pasta.clear();
-        B_r_pasta.shrink_to_fit();
-    }
-
-    if (!build_locate_support) {
-        if (compress_br) {
-            B_r_sdsl.clear();
-            B_r_sdsl.shrink_to_fit();
-        } else {
-            B_r_compr.clear();
-            B_r_compr.shrink_to_fit();
-        }
+        B_r.clear();
+        B_r.shrink_to_fit();
     }
 
     if (log) {

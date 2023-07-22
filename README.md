@@ -9,7 +9,6 @@ This is an optimized and parallelized implementation of the modified r-index des
 - [libsais](https://github.com/IlyaGrebnov/libsais)
 - [abseil-cpp](https://github.com/abseil/abseil-cpp)
 - [ips4o](https://github.com/ips4o/ips4o)
-- [pasta::bit_vector](https://github.com/pasta-toolbox/bit_vector)
 - [concurrentqueue](https://github.com/cameron314/concurrentqueue)
 - [Big-BWT](https://github.com/alshai/Big-BWT)
 - [sdsl-lite](https://github.com/simongog/sdsl-lite)

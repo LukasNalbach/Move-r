@@ -1,8 +1,5 @@
 #pragma once
 
-#include <pasta/bit_vector/bit_vector.hpp>
-#include <pasta/bit_vector/support/flat_rank_select.hpp>
-
 template <typename uint_t>
 class move_r<uint_t>::construction {
     static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
@@ -95,11 +92,9 @@ class move_r<uint_t>::construction {
      *  the section of thread i */
     std::vector<uint_t> num_SA_s_missing_thr;
     /** [0..n-1] bitvector that marks the bwt run start positions */
-    std::vector<pasta::BitVector*> B_r_pasta;
+    std::vector<sdsl::bit_vector> B_r;
     /** [0..n-1] bitvector that marks the bwt run start positions */
-    std::vector<sdsl::bit_vector> B_r_sdsl;
-    /** [0..n-1] bitvector that marks the bwt run start positions */
-    std::vector<sd_array<uint_t>> B_r_compr;
+    std::vector<sd_array<uint_t>> B_r_sd;
 
     // ############################# COMMON MISC METHODS #############################
 

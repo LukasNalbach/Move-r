@@ -66,15 +66,12 @@ target_include_directories(sdsl PUBLIC ${CMAKE_BINARY_DIR}/external/sdsl-lite/ex
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 add_subdirectory(external/abseil-cpp/)
 
-# pasta_bit_vector
-add_subdirectory(external/bit_vector/)
-
 ############################# move-r #############################
 
 # move-r
 add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE include/)
-target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree pasta_bit_vector malloc_count)
+target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree malloc_count)
 
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)
 option(MOVE_R_BUILD_BENCH_CLI "Builds the benchmark cli program" OFF)

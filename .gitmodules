@@ -10,9 +10,6 @@
 [submodule "external/libsais"]
 	path = external/libsais
 	url = git@github.com:IlyaGrebnov/libsais.git
-[submodule "external/bit_vector"]
-	path = external/bit_vector
-	url = git@github.com:pasta-toolbox/bit_vector.git
 [submodule "external/sdsl-lite"]
 	path = external/sdsl-lite
 	url = git@github.com:simongog/sdsl-lite.git
