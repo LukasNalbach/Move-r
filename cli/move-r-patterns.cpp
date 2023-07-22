@@ -7,7 +7,7 @@
 #include <move_r/misc/utils.hpp>
 
 void help(std::string msg) {
-	if (msg != "") std::cout << msg << std::endl;
+    if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-patterns: generate patterns from a file." << std::endl << std::endl;
     std::cout << "usage: move-r-patterns <file> <length> <number> <patterns file> <forbidden>" << std::endl;
     std::cout << "       randomly extracts <number> substrings of length <length> from <file>," << std::endl;
@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
 
     std::cout << std::setprecision(4);
     input_file.seekg(0,std::ios::end);
-	int64_t input_size = input_file.tellg();
+    int64_t input_size = input_file.tellg();
 
     int64_t num_queries = atoi(argv[3]);
     int64_t pattern_length = atoi(argv[2]);
@@ -43,13 +43,13 @@ int main(int argc, char *argv[]) {
     std::string basename = argv[1];
     basename = basename.substr(basename.find_last_of("/\\")+1);
     output_file << "# number=" << num_queries << " length=" << pattern_length << " file=" << basename << " forbidden=\n";
-	input_file.seekg(0,std::ios::beg);
+    input_file.seekg(0,std::ios::beg);
     std::cout << "reading input file" << std::flush;
     auto time = now();
     std::string input;
     no_init_resize(input,input_size);
-	read_from_file(input_file,input.c_str(),input_size);
-	input_file.close();
+    read_from_file(input_file,input.c_str(),input_size);
+    input_file.close();
     time = log_runtime(time);
     uint64_t pos_random;
     bool found_forbidden = false;

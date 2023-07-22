@@ -141,9 +141,10 @@ usage: move-r-patterns <file> <length> <number> <patterns file> <forbidden>
 
 ### move-r-bench: benchmarks construction-, revert- and query-performance.
 ```
-move-r-bench: benchmarks construction-, revert- and query-performance of move-r, r-index-f, rcomp, r-index
+move-r-bench: benchmarks construction-(, revert-) and query-performance of move-r, r-index-f, rcomp, r-index
               (Prezza), r-index (Mun), OnlineRLBWT and DYNAMIC; has to be executed from the base folder.
 usage: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>
+   -r                 measure revert performance
    -c                 check for correctnes if possible; disables the -m option; will not print
                       runtime data if the runtime could be affected by checking for correctness
    -m <m_file>        writes measurement data to m_file
@@ -153,6 +154,14 @@ usage: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2> <
    <patterns_file_2>  file containing patterns (pattern length << number of occurrences) from <input_file>
                       to locate
    <num_threads>      maximum number of threads to use
+
+alternative usage: move-r-bench -sa [options] <input_file> <num_threads>
+                   builds the suffix array and bwt once using libsais and constructs only the static indexes
+                   from the suffix array and the bwt (move-r and r-index (Prezza))
+                   or from the prefix-free parsing (r-index (Mun) and r-index-f)
+   -m <m_file>     writes measurement data to m_file
+   <input_file>    input file
+   <num_threads>   maximum number of threads to use
 ```
 GitHub-repositories of the other indexes can be found in the folder `external/`.
 

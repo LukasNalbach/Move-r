@@ -10,7 +10,7 @@
  */
 template <typename uint_t = uint32_t>
 class interleaved_vectors {
-	static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
+    static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
 
     protected:
     uint64_t size = 0; // size of each stored vector
@@ -209,7 +209,7 @@ class interleaved_vectors {
      */
     template <uint8_t vec>
     inline void set(uint_t i, uint_t v) {
-	    static_assert(vec < 16);
+        static_assert(vec < 16);
         *reinterpret_cast<uint_t*>(bases[vec] + i * width_entry) =
         (*reinterpret_cast<uint_t*>(bases[vec] + i * width_entry) & masks_set[vec]) | v;
     }
@@ -224,7 +224,7 @@ class interleaved_vectors {
      */
     template <uint8_t vec, typename T>
     inline void set_unsafe(uint_t i, T v) {
-	    static_assert(vec < 16);
+        static_assert(vec < 16);
         *reinterpret_cast<T*>(bases[vec] + i * width_entry) = v;
     }
 
@@ -236,7 +236,7 @@ class interleaved_vectors {
      */
     template <uint8_t vec>
     inline uint_t get(uint_t i) {
-	    static_assert(vec < 16);
+        static_assert(vec < 16);
         return *reinterpret_cast<uint_t*>(bases[vec] + i * width_entry) & masks_get[vec];
     }
 
@@ -250,7 +250,7 @@ class interleaved_vectors {
      */
     template <uint8_t vec, typename T>
     inline uint_t get_unsafe(uint_t i) {
-	    static_assert(vec < 16);
+        static_assert(vec < 16);
         return *reinterpret_cast<T*>(bases[vec] + i * width_entry);
     }
 

@@ -107,43 +107,43 @@ void log_message(std::string message) {
 }
 
 void print_header_error() {
-	std::cout << "Error: malformed header in patterns file" << std::endl;
-	std::cout << "Take a look here for more info on the file format: http://pizzachili.dcc.uchile.cl/experiments.html" << std::endl;
-	exit(0);
+    std::cout << "Error: malformed header in patterns file" << std::endl;
+    std::cout << "Take a look here for more info on the file format: http://pizzachili.dcc.uchile.cl/experiments.html" << std::endl;
+    exit(0);
 }
 
 uint64_t number_of_patterns(std::string header) {
-	uint64_t start_pos = header.find("number=");
+    uint64_t start_pos = header.find("number=");
 
-	if (start_pos == std::string::npos or start_pos + 7 >= header.size()) {
-		print_header_error();
-	}
+    if (start_pos == std::string::npos or start_pos + 7 >= header.size()) {
+        print_header_error();
+    }
 
-	start_pos += 7;
-	uint64_t end_pos = header.substr(start_pos).find(" ");
+    start_pos += 7;
+    uint64_t end_pos = header.substr(start_pos).find(" ");
 
-	if (end_pos == std::string::npos) {
-		print_header_error();
-	}
+    if (end_pos == std::string::npos) {
+        print_header_error();
+    }
 
-	return std::atoi(header.substr(start_pos).substr(0, end_pos).c_str());
+    return std::atoi(header.substr(start_pos).substr(0, end_pos).c_str());
 }
 
 uint64_t patterns_length(std::string header) {
-	uint64_t start_pos = header.find("length=");
+    uint64_t start_pos = header.find("length=");
 
-	if (start_pos == std::string::npos or start_pos + 7 >= header.size()) {
-		print_header_error();
-	}
+    if (start_pos == std::string::npos or start_pos + 7 >= header.size()) {
+        print_header_error();
+    }
 
-	start_pos += 7;
-	uint64_t end_pos = header.substr(start_pos).find(" ");
+    start_pos += 7;
+    uint64_t end_pos = header.substr(start_pos).find(" ");
 
-	if (end_pos == std::string::npos) {
-		print_header_error();
-	}
+    if (end_pos == std::string::npos) {
+        print_header_error();
+    }
 
-	return std::atoi(header.substr(start_pos).substr(0, end_pos).c_str());
+    return std::atoi(header.substr(start_pos).substr(0, end_pos).c_str());
 }
 
 void read_from_file(std::istream& in, const char* data, uint64_t size) {

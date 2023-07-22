@@ -8,7 +8,7 @@
  */
 template <typename uint_t = uint32_t>
 class move_data_structure_lf : public move_data_structure_phi<uint_t> {
-	static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
+    static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
 
     public:
     move_data_structure_lf() = default;
@@ -60,7 +60,7 @@ class move_data_structure_lf : public move_data_structure_phi<uint_t> {
      */
     template <typename char_t>
     inline char_t character(uint_t x) {
-		static_assert(std::is_same<char_t,char>::value || std::is_same<char_t,uint8_t>::value);
+        static_assert(std::is_same<char_t,char>::value || std::is_same<char_t,uint8_t>::value);
 
         return move_data_structure_phi<uint_t>::data.template get_unsafe<3,char_t>(x);
     }

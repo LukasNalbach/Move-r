@@ -40,20 +40,6 @@ void move_r<uint_t>::construction::pfp(std::ifstream& t_file, bool delete_t_file
         prefix_tempfiles = "move-r_" + random_alphanumeric_string(10);
     }
 
-    std::filesystem::remove(prefix_tempfiles + ".bwlast");
-    std::filesystem::remove(prefix_tempfiles + ".bwsai");
-    std::filesystem::remove(prefix_tempfiles + ".bwt");
-    std::filesystem::remove(prefix_tempfiles + ".bwtr");
-    std::filesystem::remove(prefix_tempfiles + ".bwtrls");
-    std::filesystem::remove(prefix_tempfiles + ".dict");
-    std::filesystem::remove(prefix_tempfiles + ".iphi");
-    std::filesystem::remove(prefix_tempfiles + ".ilist");
-    std::filesystem::remove(prefix_tempfiles + ".last");
-    std::filesystem::remove(prefix_tempfiles + ".occ");
-    std::filesystem::remove(prefix_tempfiles + ".parse");
-    std::filesystem::remove(prefix_tempfiles + ".parse_old");
-    std::filesystem::remove(prefix_tempfiles + ".sai");
-
     uint64_t dictionary_size;
 
     bigbwt_newscan({
@@ -101,15 +87,11 @@ void move_r<uint_t>::construction::pfp(std::ifstream& t_file, bool delete_t_file
     this->r = r;
     idx.r = r;
 
-    std::filesystem::remove(prefix_tempfiles + ".bwlast");
-    std::filesystem::remove(prefix_tempfiles + ".bwsai");
-    std::filesystem::remove(prefix_tempfiles + ".dict");
-    std::filesystem::remove(prefix_tempfiles + ".ilist");
-    std::filesystem::remove(prefix_tempfiles + ".last");
-    std::filesystem::remove(prefix_tempfiles + ".occ");
-    std::filesystem::remove(prefix_tempfiles + ".parse");
-    std::filesystem::remove(prefix_tempfiles + ".parse_old");
-    std::filesystem::remove(prefix_tempfiles + ".sai");
+    std::vector<std::string> suffixes = {".bwlast",".bwsai",".dict",".ilist",".last",".occ",".parse",".parse_old",".sai"};
+
+    for (std::string& suffix : suffixes) {
+        std::filesystem::remove(prefix_tempfiles + suffix);
+    }
 
     if (log) {
         double n_r = std::round(100.0*(n/(double)r))/100.0;

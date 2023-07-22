@@ -10,7 +10,7 @@
  */
 template <typename uint_t = uint32_t>
 class string_rank_select_support {
-	static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
+    static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
     
     protected:
     uint_t size = 0;
@@ -36,8 +36,8 @@ class string_rank_select_support {
      * @brief builds the data structure from the range [l,r] in an input string (0 <= l <= r < string.size()),
      * else if l > r, then the the data structure is built for the whole input string
      * @param string the input string
-	 * @param l left range limit (l <= r)
-	 * @param r right range limit (l <= r)
+     * @param l left range limit (l <= r)
+     * @param r right range limit (l <= r)
      * @param chars vector that contains exactly the characters occurring in the input string in the range [l,r]
      * (optional, saves one scan over the input string)
      * @param p the number of threads to use
@@ -51,10 +51,10 @@ class string_rank_select_support {
     ) {
         r = std::max(r,string.size()-1);
 
-		if (l > r) {
-			l = 0;
-			r = string.size()-1;
-		}
+        if (l > r) {
+            l = 0;
+            r = string.size()-1;
+        }
 
         *this = std::move(string_rank_select_support([&string](uint i){return string[i];},l,r,chars,p));
     }
@@ -63,8 +63,8 @@ class string_rank_select_support {
      * @brief builds the data structure by reading the input using the function read
      * @param read function to read the input string with; it is called with i in [l,r]
      * as a parameter and must return the character of the input string at index i
-	 * @param l left range limit (l <= r)
-	 * @param r right range limit (l <= r)
+     * @param l left range limit (l <= r)
+     * @param r right range limit (l <= r)
      * @param chars vector that contains exactly the characters occurring in the input
      * string (optional, saves one scan over the input string)
      * @param p the number of threads to use
@@ -403,7 +403,7 @@ class string_rank_select_support {
      */
     template <typename char_t>
     std::vector<char_t> alphabet() {
-	    static_assert(std::is_same<char_t,uint8_t>::value || std::is_same<char_t,char>::value);
+        static_assert(std::is_same<char_t,uint8_t>::value || std::is_same<char_t,char>::value);
 
         if constexpr (std::is_same<char_t,uint8_t>::value) {
             return uchars;

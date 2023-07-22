@@ -16,7 +16,7 @@
  */
 template <typename uint_t>
 class move_data_structure_phi<uint_t>::construction {
-	static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
+    static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
 
     public:
     construction() = delete;
@@ -34,7 +34,7 @@ class move_data_structure_phi<uint_t>::construction {
     static constexpr uint8_t v = 5; // construction method
     /* maximum factor, by which the number of intervals can be increased in the process of splitting too
      * long intervals*/
-	static constexpr double epsilon = 0.125;
+    static constexpr double epsilon = 0.125;
     move_data_structure_phi<uint_t>& mds; // the move data structure to construct
     pair_arr_t&& I; // the disjoint interval sequence to construct the move data structure out of
     uint_t n; // maximum value, n = p_{k-1} + d_{k-1}, k <= n
@@ -59,7 +59,7 @@ class move_data_structure_phi<uint_t>::construction {
      *        is, if s[i_p] = min {s' in [0,n-1], s.t. x[i_p] + u[i_p] - 2 >= i_p * lfloor 2k/p rfloor, where
                                 x[i_p] = min {x' in [0,k-1], , s.t. p_{x'} >= s'} and
                                 u[i_p] = min {u' in [0,k-1], s.t. q_{pi[u']} >= s'}
-	          } holds.
+              } holds.
      */
     std::vector<uint_t> s;
 

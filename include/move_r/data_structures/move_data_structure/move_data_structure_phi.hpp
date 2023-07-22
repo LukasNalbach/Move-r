@@ -10,7 +10,7 @@
  */
 template <typename uint_t = uint32_t>
 class move_data_structure_phi {
-	static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
+    static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
 
     protected:
     class construction;
