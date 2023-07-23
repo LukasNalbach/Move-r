@@ -34,42 +34,41 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO  "${move_r_debug_flags} -Ofast")
 find_package(OpenMP REQUIRED)
 
 # ips4o
-add_subdirectory(${CMAKE_SOURCE_DIR}/external/ips4o)
+add_subdirectory("${CMAKE_SOURCE_DIR}/external/ips4o")
 set_target_properties(ips4o_example PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1)
 
 # concurrentqueue
-add_subdirectory(${CMAKE_SOURCE_DIR}/external/concurrentqueue/)
-include_directories(${CMAKE_SOURCE_DIR}/external/concurrentqueue/)
+add_subdirectory("${CMAKE_SOURCE_DIR}/external/concurrentqueue/")
 
 # libsais
 set(LIBSAIS_USE_OPENMP ON CACHE BOOL "" FORCE)
-add_subdirectory(${CMAKE_SOURCE_DIR}/external/libsais/)
+add_subdirectory("${CMAKE_SOURCE_DIR}/external/libsais/")
 
 # malloc_count
 add_library(malloc_count INTERFACE)
-target_sources(malloc_count INTERFACE ${CMAKE_SOURCE_DIR}/external/malloc_count/malloc_count.c)
-target_include_directories(malloc_count INTERFACE ${CMAKE_SOURCE_DIR}/external/malloc_count/)
+target_sources(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/malloc_count/malloc_count.c")
+target_include_directories(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/malloc_count/")
 target_link_libraries(malloc_count INTERFACE dl)
 
 # sdsl
 set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
-add_subdirectory(${CMAKE_SOURCE_DIR}/external/sdsl-lite/)
+add_subdirectory("${CMAKE_SOURCE_DIR}/external/sdsl-lite/")
 set_target_properties(
   uninstall-sdsl uninstall gtest gtest_main divsufsort divsufsort64
   PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1
 )
-target_include_directories(sdsl PUBLIC ${CMAKE_BINARY_DIR}/external/sdsl-lite/external/libdivsufsort/include/)
+target_include_directories(sdsl PUBLIC "${CMAKE_BINARY_DIR}/external/sdsl-lite/external/libdivsufsort/include/")
 
 # abseil
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
-add_subdirectory(${CMAKE_SOURCE_DIR}/external/abseil-cpp/)
+add_subdirectory("${CMAKE_SOURCE_DIR}/external/abseil-cpp/")
 
 ############################# move-r #############################
 
 # move-r
 add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE include/)
-target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree malloc_count)
+target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree malloc_count concurrentqueue)
 
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)
 option(MOVE_R_BUILD_BENCH_CLI "Builds the benchmark cli program" ON)
@@ -123,57 +122,57 @@ endif()
 
 if(MOVE_R_BUILD_BENCH_CLI)
   # Big-BWT
-  add_subdirectory(${CMAKE_SOURCE_DIR}/external/Big-BWT/)
+  add_subdirectory("${CMAKE_SOURCE_DIR}/external/Big-BWT/")
 
   ############################# other indexes #############################
 
   # rcomp
   add_library(rcomp INTERFACE)
-  target_include_directories(rcomp INTERFACE ${CMAKE_SOURCE_DIR}/external/rcomp/include/)
+  target_include_directories(rcomp INTERFACE "${CMAKE_SOURCE_DIR}/external/rcomp/include/")
 
   # r-index-f
   add_library(r-index-f INTERFACE)
   target_include_directories(r-index-f INTERFACE
-    ${CMAKE_SOURCE_DIR}/external/r-index-f/include/common/
-    ${CMAKE_SOURCE_DIR}/external/r-index-f/include/r_index_f/
+    "${CMAKE_SOURCE_DIR}/external/r-index-f/include/common/"
+    "${CMAKE_SOURCE_DIR}/external/r-index-f/include/r_index_f/"
   )
   target_link_libraries(r-index-f INTERFACE sdsl)
-  add_executable(pfp-thresholds ${CMAKE_SOURCE_DIR}/external/pfp-thresholds/test/src/pfp_thresholds.cpp)
-  target_sources(pfp-thresholds PRIVATE ${CMAKE_SOURCE_DIR}/external/gsa-is/gsacak.c)
+  add_executable(pfp-thresholds "${CMAKE_SOURCE_DIR}/external/pfp-thresholds/test/src/pfp_thresholds.cpp")
+  target_sources(pfp-thresholds PRIVATE "${CMAKE_SOURCE_DIR}/external/gsa-is/gsacak.c")
   target_include_directories(pfp-thresholds PRIVATE
-    ${CMAKE_SOURCE_DIR}/external/pfp-thresholds/include/common/
-    ${CMAKE_SOURCE_DIR}/external/pfp-thresholds/include/pfp/
-    ${CMAKE_SOURCE_DIR}/external/gsa-is/
+    "${CMAKE_SOURCE_DIR}/external/pfp-thresholds/include/common/"
+    "${CMAKE_SOURCE_DIR}/external/pfp-thresholds/include/pfp/"
+    "${CMAKE_SOURCE_DIR}/external/gsa-is/"
   )
   target_link_libraries(pfp-thresholds PRIVATE sdsl malloc_count)
   set_target_properties(pfp-thresholds PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/external/pfp-thresholds/")
 
   # r-index-prezza
   add_library(r-index-prezza INTERFACE)
-  target_include_directories(r-index-prezza INTERFACE ${CMAKE_SOURCE_DIR}/external/r-index-prezza/internal/)
+  target_include_directories(r-index-prezza INTERFACE "${CMAKE_SOURCE_DIR}/external/r-index-prezza/internal/")
   target_link_libraries(r-index-prezza INTERFACE sdsl)
 
   # r-index-mun
   add_library(r-index-mun INTERFACE)
   target_include_directories(r-index-mun INTERFACE
-    ${CMAKE_SOURCE_DIR}/external/r-index-mun/internal/
-    ${CMAKE_SOURCE_DIR}/external/r-index-mun/
+    "${CMAKE_SOURCE_DIR}/external/r-index-mun/internal/"
+    "${CMAKE_SOURCE_DIR}/external/r-index-mun/"
   )
   target_link_libraries(r-index-mun INTERFACE sdsl divsufsort divsufsort64)
 
   # OnlineRlbwt
   add_library(OnlineRlbwt INTERFACE)
   target_include_directories(OnlineRlbwt INTERFACE
-    ${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/
-    ${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/module/Basics/
-    ${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/module/BTree/
+    "${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/"
+    "${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/module/Basics/"
+    "${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/module/BTree/"
   )
 
   # DYNAMIC
   add_library(DYNAMIC INTERFACE)
   target_include_directories(DYNAMIC INTERFACE
-    ${CMAKE_SOURCE_DIR}/external/DYNAMIC/include/
-    ${CMAKE_SOURCE_DIR}/external/hopscotch-map/include
+    "${CMAKE_SOURCE_DIR}/external/DYNAMIC/include/"
+    "${CMAKE_SOURCE_DIR}/external/hopscotch-map/include"
   )
 
   ############################# move-r #############################

@@ -40,8 +40,8 @@ class move_data_structure_phi<uint_t>::construction {
     uint_t n; // maximum value, n = p_{k-1} + d_{k-1}, k <= n
     uint_t k; // number of intervals in the (possibly a-heavy) inteval sequence I, 0 < k
     uint_t k_; // number of intervals in the a-balanced inteval sequence B_a(I), 0 < k <= k'
-    uint_t a; // balancing parameter, restricts size increase to the factor (1+1/(a-1)), 2 <= a
-    uint_t two_a; // 2*a
+    uint16_t a; // balancing parameter, restricts size increase to the factor (1+1/(a-1)), 2 <= a
+    uint16_t two_a; // 2*a
     uint16_t p; // number of threads to use
     bool log; // toggles log messages
     std::ostream* mf; // measurement file
@@ -100,7 +100,7 @@ class move_data_structure_phi<uint_t>::construction {
 
         this->n = n;
         this->k = I.size();
-        this->a = (uint_t)a;
+        this->a = a;
         this->log = log;
         this->mf = mf;
 

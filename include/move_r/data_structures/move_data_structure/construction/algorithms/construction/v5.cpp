@@ -44,13 +44,7 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
     #pragma omp parallel num_threads(p)
     {
         uint16_t i_p = omp_get_thread_num();
-
-        uint_t b = x[i_p];
-        uint_t e = x[i_p+1]-1;
-
-        for (uint_t i=b; i<=e; i++) {
-            T_in_v5[i_p].emplace_hint(T_in_v5[i_p].end(),I[i]);
-        }
+        T_in_v5[i_p].insert(&I[x[i_p]],&I[x[i_p+1]]);
     }
 
     x.clear();

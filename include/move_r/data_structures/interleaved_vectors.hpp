@@ -64,7 +64,6 @@ class interleaved_vectors {
         width_entry = other.width_entry;
         data = other.data;
         widths = other.widths;
-        bases = other.bases;
         masks_get = other.masks_get;
         masks_set = other.masks_set;
 
