@@ -60,7 +60,7 @@ static realloc_type real_realloc = NULL;
 static const size_t sentinel = 0xDEADC0DE;
 
 /* a simple memory heap for allocations prior to dlsym loading */
-#define INIT_HEAP_SIZE 1024*1024
+#define INIT_HEAP_SIZE 1024*1024*2
 static char init_heap[INIT_HEAP_SIZE];
 static size_t init_heap_use = 0;
 static const int log_operations_init_heap = 0;

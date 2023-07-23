@@ -149,8 +149,8 @@ public:
         LF_runs = vector<LF_row>();
         vector<vector<size_t>> L_block_indices = vector<vector<size_t>>(ALPHABET_SIZE);
         
-        char last_c;
-        char c;
+        uchar last_c;
+        uchar c;
         ulint i = 0;
         r = 0;
         n = 0;

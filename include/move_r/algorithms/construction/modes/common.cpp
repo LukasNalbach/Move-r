@@ -311,7 +311,7 @@ void move_r<uint_t>::construction::build_saidxoffs(uint_t r_) {
         ips4o::sort(pi_.begin(),pi_.end(),comp_pi_);
     }
 
-    omega_idx = std::max((uint8_t)1,(uint8_t)(ceil(log2(r__)/(double)8)*8));
+    omega_idx = std::max((uint8_t)8,(uint8_t)(std::ceil(std::log2(r__)/(double)8)*8));
     omega_offs = idx.M_Phi.width_offs();
     
     idx.omega_idx = omega_idx;

@@ -152,9 +152,9 @@ void move_r<uint_t>::construction::build_rlbwt_and_c_space_saving() {
             uint16_t i_p = omp_get_thread_num();
 
             uint_t b = r_p[i_p];
-            uint_t e = r_p[i_p+1]-1;
+            uint_t e = r_p[i_p+1];
 
-            for (uint_t i=b; i<=e; i++) {
+            for (uint_t i=b; i<e; i++) {
                 n_p[i_p] += bwt_run_lengths[i];
                 C[i_p][char_to_uchar(bwt_run_heads[i])] += bwt_run_lengths[i];
             }
@@ -248,12 +248,12 @@ void move_r<uint_t>::construction::build_ilf_space_saving() {
         // Iteration range start position of thread i_p.
         uint_t b = r_p[i_p];
         // Iteration range end position of thread i_p.
-        uint_t e = r_p[i_p+1]-1;
+        uint_t e = r_p[i_p+1];
 
         // Start position of the current run.
         uint_t i_ = n_p[i_p];
 
-        for (uint_t i=b; i<=e; i++) {
+        for (uint_t i=b; i<e; i++) {
             /* Write the pair (i_,LF(i_)) to the current position i in I_LF, where
             LF(i_) = C[L[i_]] + rank(L,L[i_],i_-1) = C[p][L[i_]] + C[i_p][L[i_]]. */
             I_LF[i] = std::make_pair(i_,C[p][char_to_uchar(bwt_run_heads[i])]+C[i_p][char_to_uchar(bwt_run_heads[i])]);
@@ -346,7 +346,7 @@ void move_r<uint_t>::construction::build_l__and_sas_space_saving() {
         // Bwt runs iteration range start position of thread i_p.
         uint_t b_r = r_p[i_p];
         // Bwt runs iteration range end position of thread i_p.
-        uint_t e_r = r_p[i_p+1]-1;
+        uint_t e_r = r_p[i_p+1];
 
         // Index of the current input interval in M_LF, initially the index of the input interval of M_LF, in which b lies.
         uint_t j;
@@ -370,7 +370,7 @@ void move_r<uint_t>::construction::build_l__and_sas_space_saving() {
         uint_t j_; // Index of the first input interval in M_LF starting in the current bwt run.
         uint_t l_ = b; // Starting position of the next bwt run.
 
-        for (uint_t i=b_r; i<=e_r; i++) {
+        for (uint_t i=b_r; i<e_r; i++) {
             j_ = j;
 
             // update l_ to the next run start position
@@ -432,9 +432,9 @@ void move_r<uint_t>::construction::build_l__and_sas_space_saving() {
             uint16_t i_p = omp_get_thread_num();
 
             uint_t b = num_SA_s_missing_thr[i_p];
-            uint_t e = num_SA_s_missing_thr[i_p+1]-1;
+            uint_t e = num_SA_s_missing_thr[i_p+1];
 
-            for (uint_t i=b; i<=e; i++) {
+            for (uint_t i=b; i<e; i++) {
                 SA_s_missing[i] = SA_s_missing_thr[i_p][i-b];
             }
         }
@@ -446,26 +446,28 @@ void move_r<uint_t>::construction::build_l__and_sas_space_saving() {
             std::get<2>(SA_s_missing[i]) += std::get<2>(SA_s_missing[i-1]);
         }
 
-        #pragma omp parallel num_threads(p)
-        {
-            // Index in [0..p-1] of the current thread.
-            uint16_t i_p = omp_get_thread_num();
+        if (num_SA_s_missing_thr[p] != 0) {
+            #pragma omp parallel num_threads(p)
+            {
+                // Index in [0..p-1] of the current thread.
+                uint16_t i_p = omp_get_thread_num();
 
-            uint_t x,y,z;
-            x = 0;
-            z = num_SA_s_missing_thr[p]-1;
-            uint_t opt = i_p*(std::get<2>(SA_s_missing[num_SA_s_missing_thr[p]-1])/p);
+                uint_t x,y,z;
+                x = 0;
+                z = num_SA_s_missing_thr[p]-1;
+                uint_t opt = i_p*(std::get<2>(SA_s_missing[num_SA_s_missing_thr[p]-1])/p);
 
-            while (x != z) {
-                y = (x+z)/2+1;
-                if (std::get<2>(SA_s_missing[y]) <= opt) {
-                    x = y;
-                } else {
-                    z = y-1;
+                while (x != z) {
+                    y = (x+z)/2+1;
+                    if (std::get<2>(SA_s_missing[y]) <= opt) {
+                        x = y;
+                    } else {
+                        z = y-1;
+                    }
                 }
-            }
 
-            SA_s_missing_sect[i_p] = x;
+                SA_s_missing_sect[i_p] = x;
+            }
         }
 
         n_p.clear();

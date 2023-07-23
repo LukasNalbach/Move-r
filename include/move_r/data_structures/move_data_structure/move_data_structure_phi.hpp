@@ -128,8 +128,8 @@ class move_data_structure_phi {
         this->n = n;
         this->k_ = k_;
 
-        omega_p = std::max((uint8_t)1,(uint8_t)(ceil(log2(n)/(double)8)*8));
-        omega_idx = std::max((uint8_t)1,(uint8_t)(ceil(log2(k_)/(double)8)*8));
+        omega_p = std::max((uint8_t)8,(uint8_t)(std::ceil(std::log2(n)/(double)8)*8));
+        omega_idx = std::max((uint8_t)8,(uint8_t)(std::ceil(std::log2(k_)/(double)8)*8));
 
         if (is_move_data_structure_lf) {
             data = std::move(interleaved_vectors<uint_t>({
