@@ -40,9 +40,10 @@
 [submodule "external/gsa-is"]
 	path = external/gsa-is
 	url = git@github.com:felipelouza/gsa-is.git
-[submodule "external/malloc_count"]
-	path = external/malloc_count
-	url = git@github.com:bingmann/malloc_count.git
 [submodule "external/hopscotch-map"]
 	path = external/hopscotch-map
 	url = git@github.com:Tessil/hopscotch-map.git
+[submodule "external/malloc_count"]
+	path = external/malloc_count
+	url = git@github.com:ByteHamster-etc/malloc_count.git
+	branch = aligned_alloc

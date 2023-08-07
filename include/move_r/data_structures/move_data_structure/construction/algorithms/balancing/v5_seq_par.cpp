@@ -105,8 +105,7 @@ inline typename move_data_structure_phi<uint_t>::construction::tout_it_t_v5 move
         }
     }
 
-    // return an iterator pointing to the newly created pair (p_j + d, q_j + d) in T_out_v5, if no recursive call has been
-    // made; else an iterator pointing to T_out_v5[i_p].end()
+    // return an iterator pointing to the newly created pair (p_j + d, q_j + d) in T_out_v5, since no recursive call has been made
     return tout_n_new;
 }
 

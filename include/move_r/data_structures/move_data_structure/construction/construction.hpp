@@ -26,17 +26,37 @@ class move_data_structure_phi<uint_t>::construction {
     construction& operator=(const construction&) = delete;
     ~construction() {}
 
-    // ############################# COMMON VARIABLES #############################
+    // ############################# COMMON TYPES #############################
 
     using pair_t = std::pair<uint_t,uint_t>;
     using pair_arr_t = std::vector<pair_t>;
+
+    /**
+     * @brief comparator for the pairs in T_in_v1 and T_in_v5
+     */
+    struct in_cmp_v1v5 {
+        bool operator()(const pair_t &p1, const pair_t &p2) const {
+            return p1.first < p2.first;
+        }
+    };
+
+    /**
+     * @brief comparator for the pairs in T_out_v1 and T_out_v5
+     */
+    struct out_cmp_v1v5 {
+        bool operator()(const pair_t &p1, const pair_t &p2) const {
+            return p1.second < p2.second;
+        }
+    };
+
+    // ############################# COMMON VARIABLES #############################
 
     static constexpr uint8_t v = 5; // construction method
     /* maximum factor, by which the number of intervals can be increased in the process of splitting too
      * long intervals*/
     static constexpr double epsilon = 0.125;
     move_data_structure_phi<uint_t>& mds; // the move data structure to construct
-    pair_arr_t&& I; // the disjoint interval sequence to construct the move data structure out of
+    pair_arr_t& I; // the disjoint interval sequence to construct the move data structure out of
     uint_t n; // maximum value, n = p_{k-1} + d_{k-1}, k <= n
     uint_t k; // number of intervals in the (possibly a-heavy) inteval sequence I, 0 < k
     uint_t k_; // number of intervals in the a-balanced inteval sequence B_a(I), 0 < k <= k'
@@ -44,6 +64,7 @@ class move_data_structure_phi<uint_t>::construction {
     uint16_t two_a; // 2*a
     uint16_t p; // number of threads to use
     bool log; // toggles log messages
+    bool delete_i;
     std::ostream* mf; // measurement file
     uint_t l_max; // maximum interval length
     uint64_t baseline_memory_allocation; // baseline memory allocation in bytes
@@ -77,21 +98,25 @@ class move_data_structure_phi<uint_t>::construction {
      * @param I disjoint interval sequence
      * @param n n = p_{k-1} + d_{k-1}, k <= n
      * @param k k = |I|
+     * @param p number of threads to use
      * @param a balancing parameter, restricts size increase to the factor
      *          (1+1/(a-1)) and restricts move query runtime to 2a, 2 <= a
-     * @param p number of threads to use
+     * @param delete_i controls whether I should be deleted when not needed anymore
+     * @param pi_mphi vector to move pi_mphi into after the construction
      * @param log enables log messages during build process
      * @param mf output stream to write runtime and space usage to if log is enabled
      */
     construction(
         move_data_structure_phi<uint_t>& mds,
-        std::vector<std::pair<uint_t,uint_t>>&& I,
+        std::vector<std::pair<uint_t,uint_t>>& I,
         uint_t n,
         uint16_t p = omp_get_max_threads(),
         uint16_t a = 8,
+        bool delete_i = false,
+        std::vector<uint_t>* pi_mphi = NULL,
         bool log = false,
         std::ostream* mf = NULL
-    ) : mds(mds), I(std::move(I)) {
+    ) : mds(mds), I(I) {
         if (log) {
             time = now();
             time_start = time;
@@ -101,20 +126,22 @@ class move_data_structure_phi<uint_t>::construction {
         this->n = n;
         this->k = I.size();
         this->a = a;
+        this->delete_i = delete_i;
         this->log = log;
         this->mf = mf;
 
+        mds.k = k;
         two_a = 2*a;
 
         if (p > 1 && 1000*p > k) {
             p = std::max((uint_t)1,k/1000);
-            if (log) std::cout << std::endl << "warning: p > k/1000, setting p to k/1000 ~ " << p << std::endl;
+            if (log) std::cout << "warning: p > k/1000, setting p to k/1000 ~ " << p << std::endl;
         }
 
         this->p = p;
         omp_set_num_threads(p);
 
-        /* setomega_offs <- {min omega in {8,16,24,32,40}, s.t. n/(k2^omega) <= epsilon}, which ensures
+        /* set omega_offs <- {min omega in {8,16,24,32,40}, s.t. n/(k2^omega) <= epsilon}, which ensures
          * k' <= k*(1+epsilon)*a/(a-1) */
         for (uint8_t omega=8; omega<=40; omega+=8) {
             if (n/((pow(2,omega)-1)*(double)k) <= epsilon) {
@@ -144,8 +171,13 @@ class move_data_structure_phi<uint_t>::construction {
         }
         #endif
 
-        pi.clear();
-        pi.shrink_to_fit();
+        if (pi_mphi == NULL) {
+            pi.clear();
+            pi.shrink_to_fit();
+        } else {
+            *pi_mphi = std::move(pi);
+            pi_mphi = NULL;
+        }
 
         D_q.clear();
         D_q.shrink_to_fit();
@@ -185,16 +217,21 @@ class move_data_structure_phi<uint_t>::construction {
     void verify_correctness();
 
     // ############################# V1 #############################
+
+    using t_node_t_v1 = avl_node<pair_t>;
+
+    using tin_t_v1 = avl_tree<pair_t,in_cmp_v1v5>;
+    using tout_te_t_v1 = avl_tree<pair_t,out_cmp_v1v5>;
     
     // stores the pairs in I sorted by p_i
-    avl_tree<pair_t> T_in_v1;
+    tin_t_v1 T_in_v1;
 
     // stores the pairs in I sorted by q_i
-    avl_tree<std::pair<uint_t,uint_t>> T_out_v1;
+    tout_te_t_v1 T_out_v1;
 
     /* stores the pairs in I sorted by p_i, whiches output intervals have at least 4 incoming edges in
     the permutation graph */
-    avl_tree<std::pair<uint_t,uint_t>> T_e_v1;
+    tout_te_t_v1 T_e_v1;
 
     /**
      * @brief builds the move data structure mds using the construction method v1
@@ -224,7 +261,6 @@ class move_data_structure_phi<uint_t>::construction {
 
     /**
      * @brief builds D_p in mds and D_q out of the disjoint interval sequence stored in T_in_v1 and T_out_v1 
-     * 
      */
     void build_dp_dq_v1();
 
@@ -238,8 +274,17 @@ class move_data_structure_phi<uint_t>::construction {
     using lin_node_t_v2v3v4 = doubly_linked_list_node<pair_t>;
     using lin_t_v2v3v4 = doubly_linked_list<pair_t>;
 
+    /**
+     * @brief comparator for the list nodes in T_out_v2, T_e_v2, T_out_v3 and T_out_v5
+     */
+    struct tout_cmp_v2v3v4 {
+        bool operator()(const lin_node_t_v2v3v4 &n1, const lin_node_t_v2v3v4 &n2) const {
+            return n1.v.second < n2.v.second;
+        }
+    };
+    
     using tout_node_t_v2v3v4 = avl_node<lin_node_t_v2v3v4>;
-    using tout_t_v2v3v4 = avl_tree<lin_node_t_v2v3v4>;
+    using tout_t_v2v3v4 = avl_tree<lin_node_t_v2v3v4,tout_cmp_v2v3v4>;
 
     /** 
      * @brief [0..p-1] doubly linked lists; L_in_v2v3v4[i_p] stores the pairs (p_i,q_i) in ascending order of p_i,
@@ -333,7 +378,17 @@ class move_data_structure_phi<uint_t>::construction {
     
     using te_pair_t_v2 = std::pair<lin_node_t_v2v3v4*,tout_node_t_v2v3v4*>;
     using te_node_t_v2 = avl_node<te_pair_t_v2>;
-    using te_t_v2 = avl_tree<te_pair_t_v2>;
+
+    /**
+     * @brief comparator for the list nodes in T_out_v2, T_e_v2, T_out_v3 and T_out_v5
+     */
+    struct te_cmp_v2 {
+        bool operator()(const te_pair_t_v2 &p1, const te_pair_t_v2 &p2) const {
+            return p1.second->v.v.second < p2.second->v.v.second;
+        }
+    };
+
+    using te_t_v2 = avl_tree<te_pair_t_v2,te_cmp_v2>;
 
     /* 
         contains pairs (lin_node_t_v2v3v4 *p1, lin_node_t_v2v3v4 *p2),
@@ -457,26 +512,8 @@ class move_data_structure_phi<uint_t>::construction {
 
     // ############################# V5 SEQUENTIAL/PARALLEL #############################
 
-    /**
-     * @brief comparator for the pairs in T_in_v5
-     */
-    struct tin_cmp {
-        bool operator()(const pair_t &p1, const pair_t &p2) const {
-            return p1.first < p2.first;
-        }
-    };
-
-    /**
-     * @brief comparator for the pairs in T_out_v5
-     */
-    struct tout_cmp {
-        bool operator()(const pair_t &p1, const pair_t &p2) const {
-            return p1.second < p2.second;
-        }
-    };
-
-    using tin_t_v5 = absl::btree_set<pair_t,tin_cmp>;
-    using tout_t_v5 = absl::btree_set<pair_t,tout_cmp>;
+    using tin_t_v5 = absl::btree_set<pair_t,in_cmp_v1v5>;
+    using tout_t_v5 = absl::btree_set<pair_t,out_cmp_v1v5>;
 
     using tin_it_t_v5 = typename tin_t_v5::iterator;
     using tout_it_t_v5 = typename tout_t_v5::iterator;
@@ -555,7 +592,6 @@ class move_data_structure_phi<uint_t>::construction {
     inline uint_t is_a_heavy_v5_seq_par(tin_it_t_v5& tn_I, uint_t q_J_);
 
     /**
-     * 
      * @brief balances the output interval [q_j, q_j + d_j) and all a-heavy output intervals in [s[i_p],s[i_p+1])
      *        starting before q_u that have become a-heavy in the process by inserting the newly created pair into
      *        T_out_v5[i_p] and Q_v5[0..p-1][i_p]
@@ -580,6 +616,7 @@ class move_data_structure_phi<uint_t>::construction {
 #include "algorithms/construction/v2v3v4.cpp"
 #include "algorithms/construction/v5.cpp"
 
+#include "algorithms/balancing/v1_seq.cpp"
 #include "algorithms/balancing/v2_seq.cpp"
 #include "algorithms/balancing/v3_seq.cpp"
 #include "algorithms/balancing/v3_par.cpp"

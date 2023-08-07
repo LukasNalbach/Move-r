@@ -57,15 +57,8 @@ inline typename move_data_structure_phi<uint_t>::construction::lin_node_t_v2v3v4
 
 template <typename uint_t>
 void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
-    L_in_v2v3v4 = std::vector<lin_t_v2v3v4>(p);
-
-    T_out_v2v3v4 = std::move(std::vector<tout_t_v2v3v4>(p,
-        tout_t_v2v3v4(
-            [](auto n1, auto n2){return n1.v.second < n2.v.second;},
-            [](auto n1, auto n2){return n1.v.second > n2.v.second;},
-            [](auto n1, auto n2){return n1.v.second == n2.v.second;}
-        )
-    ));
+    L_in_v2v3v4.resize(p);
+    T_out_v2v3v4.resize(p);
 
     if (log) log_message("building pi");
 
@@ -90,13 +83,13 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
         {
             for (uint16_t i_p=0; i_p<2*p; i_p++) {
                 uint_t l2 = x[i_p/2];
-                uint_t r2 = x[i_p/2+1]-1;
+                uint_t r2 = x[i_p/2+1];
 
-                if (r2 >= l2) {
+                if (r2 > l2) {
                     uint_t m2 = l2+(r2-l2)/2;
 
                     uint_t l = i_p%2 == 0 ? l2 : (m2+1);
-                    uint_t r = i_p%2 == 0 ? m2 : r2;
+                    uint_t r = i_p%2 == 0 ? m2 : r2-1;
 
                     #pragma omp task
                     {
@@ -144,7 +137,7 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
 
     /* This function returns for the value i in [0,k-1] the node in nodes_v2v3v4[0..k-1],
     that stores the pair, which creates the i-th output interval. */
-    std::function<tout_node_t_v2v3v4*(uint_t)> at = [this](uint_t i){
+    static constexpr std::function<tout_node_t_v2v3v4*(uint_t)> at = [this](uint_t i){
         return &nodes_v2v3v4[pi[i]];
     };
 
@@ -407,7 +400,7 @@ void move_data_structure_phi<uint_t>::construction::build_dp_dq_v2v3v4() {
 
     mds.resize(n,k_);
 
-    (*reinterpret_cast<std::vector<no_init<uint_t>>*>(&D_q)).resize(k_+1);
+    no_init_resize(D_q,k_+1);
     D_q[k_] = n;
 
     #pragma omp parallel num_threads(p)
@@ -416,11 +409,11 @@ void move_data_structure_phi<uint_t>::construction::build_dp_dq_v2v3v4() {
         {
             for (uint16_t i_p=0; i_p<p; i_p++) {
                 uint_t l = x[i_p];
-                uint_t r = x[i_p+1]-1;
+                uint_t r = x[i_p+1];
 
                 auto ln_cur = L_in_v2v3v4[i_p].head();
 
-                for (uint_t i=l; i<=r; i++) {
+                for (uint_t i=l; i<r; i++) {
                     mds.set_p(i,ln_cur->v.first);
                     D_q[i] = ln_cur->v.second;
                     ln_cur = ln_cur->sc;

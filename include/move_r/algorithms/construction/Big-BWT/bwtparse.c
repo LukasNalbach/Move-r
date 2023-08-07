@@ -60,7 +60,7 @@ typedef uint_t sa_index_t;
 // -------------------------------------------------------------
 // struct containing command line parameters and other globals
 typedef struct {
-   const char *name_inputfile;
+   const char *name_input_file;
    bool compute_sa_info;
    int th = 0;    // number of segments for the last and sa files
 } Args_Bwtparse;
@@ -70,9 +70,9 @@ typedef struct {
 // to a new allocate uint32_t array containing it. Store size in *tsize
 // note *tsize is the number of element in the parsing, but we add a 0
 // symbol at the end so the returned array has *tsize+1 elements 
-static uint32_t *read_parse(const char *name_inputfile, long *tsize, bool log) 
+static uint32_t *read_parse(const char *name_input_file, long *tsize, bool log) 
 {  
-  FILE *parse = open_aux_file(name_inputfile,EXTPARSE,"rb");
+  FILE *parse = open_aux_file(name_input_file,EXTPARSE,"rb");
   // get file size
   if(fseek(parse,0,SEEK_END)!=0) die("parse fseek");
   long nn = ftell(parse);
@@ -119,9 +119,9 @@ static uint32_t *read_parse(const char *name_inputfile, long *tsize, bool log)
 
 static void print_help(char *name)
 {
-  printf("Usage: %s <name_inputfile> [options]\n\n", name);
-  puts("Compute the BWT of name_inputfile.parse and store its inverted list occurrence");
-  puts("Permute the file name_inputfile.last according to the same permutation");
+  printf("Usage: %s <name_input_file> [options]\n\n", name);
+  puts("Compute the BWT of name_input_file.parse and store its inverted list occurrence");
+  puts("Permute the file name_input_file.last according to the same permutation");
   puts("  Options:");
   puts("\t-h  \tshow help and exit");
   puts("\t-s  \tpermute also sa info");
@@ -156,7 +156,7 @@ static void parseArgs(int argc, char** argv, Args_Bwtparse *arg ) {
   // read base name as the only non-option parameter 
   if (argc!=optind+1)
     print_help(argv[0]);
-  arg->name_inputfile = argv[optind];
+  arg->name_input_file = argv[optind];
 }
 
 static sa_index_t *compute_SA(uint32_t *Text, long n, long k, bool log) 
@@ -177,7 +177,7 @@ static sa_index_t *compute_SA(uint32_t *Text, long n, long k, bool log)
 static uint8_t *load_last(const Args_Bwtparse& arg, long n)
 {  
   // open .last file for reading
-  mFile *lastin = mopen_aux_file(arg.name_inputfile,EXTLST,arg.th);
+  mFile *lastin = mopen_aux_file(arg.name_input_file,EXTLST,arg.th);
   // allocate and load the last array
   uint8_t *last = (uint8_t*) malloc(n);
   if(last==NULL) die("malloc failed (LAST)"); 
@@ -193,7 +193,7 @@ static uint8_t *load_sa_info(const Args_Bwtparse& arg, long n)
   // maybe sa info was not required 
   if(arg.compute_sa_info==false) return NULL;
   // open .sa_info file for reading and .bwlast for writing
-  mFile *fin = mopen_aux_file(arg.name_inputfile,EXTSAI,arg.th);
+  mFile *fin = mopen_aux_file(arg.name_input_file,EXTSAI,arg.th);
   // allocate and load the sa info array
   uint8_t *sai = (uint8_t*) malloc(n*IBYTES);
   if(sai==NULL) die("malloc failed (SA INFO)"); 
@@ -206,7 +206,7 @@ static uint8_t *load_sa_info(const Args_Bwtparse& arg, long n)
 static FILE *open_sa_out(const Args_Bwtparse& arg)
 {
   if(arg.compute_sa_info==false) return NULL;
-  return open_aux_file(arg.name_inputfile,EXTBWSAI,"wb"); 
+  return open_aux_file(arg.name_input_file,EXTBWSAI,"wb"); 
 }
 
 void bigbwt_bwtparse(const Args_Bwtparse& arg, bool log)
@@ -220,7 +220,7 @@ void bigbwt_bwtparse(const Args_Bwtparse& arg, bool log)
   // start measuring wall clock time 
   time_t start_wc = time(NULL);
   // read parse file
-  Text = read_parse(arg.name_inputfile,&n,log);
+  Text = read_parse(arg.name_input_file,&n,log);
   
   // ------- compute largest input symbol (ie alphabet size-1)
   long k=0;
@@ -234,7 +234,7 @@ void bigbwt_bwtparse(const Args_Bwtparse& arg, bool log)
   uint8_t *last = load_last(arg,n);
   // load sa info file, if requested
   uint8_t *sa_info = load_sa_info(arg,n); 
-  FILE *lastout = open_aux_file(arg.name_inputfile,EXTBWLST,"wb");   
+  FILE *lastout = open_aux_file(arg.name_input_file,EXTBWLST,"wb");   
   FILE *sa_out = open_sa_out(arg);
   // note that lastout and sa_out files will have n+1 elements instead of n
 
@@ -280,7 +280,7 @@ void bigbwt_bwtparse(const Args_Bwtparse& arg, bool log)
   // read # of occ of each char from file .occ
   uint32_t *occ = (uint32_t *)malloc((k+1)*sizeof(*occ)); // extra space for the only occ of 0
   if(occ==NULL) die("malloc failed (OCC)");
-  FILE *occin = open_aux_file(arg.name_inputfile,"occ","rb");
+  FILE *occin = open_aux_file(arg.name_input_file,"occ","rb");
   s = fread(occ+1,sizeof(*occ), k,occin);
   if(s!=k) die("not enough occ data!");
   occ[0] = 1; // we know there is somewhere a 0 BWT entry 
@@ -306,7 +306,7 @@ void bigbwt_bwtparse(const Args_Bwtparse& arg, bool log)
   for(long i=0;i<=k;i++) 
     assert(occ[i]==0);
   // ---save Ilist   
-  FILE *ilist = open_aux_file(arg.name_inputfile,EXTILIST,"wb");
+  FILE *ilist = open_aux_file(arg.name_input_file,EXTILIST,"wb");
   s = fwrite(IList,sizeof(*IList),n+1,ilist);
   //if(s!=n+1) die("Ilist write");
   fclose(ilist);

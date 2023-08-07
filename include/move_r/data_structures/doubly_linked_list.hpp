@@ -87,36 +87,9 @@ class doubly_linked_list {
     
     public:
     doubly_linked_list() = default;
-
-    /**
-     * @brief moves a list into another list and returns it
-     * @param other the list to move
-     */
-    doubly_linked_list(doubly_linked_list&& other) {
-        move_from_other(std::move(other));
-    }
-
-    /**
-     * @brief creates a copy of another list
-     * @param other the list to copy
-     */
+    doubly_linked_list(doubly_linked_list&& other) {move_from_other(std::move(other));}
     doubly_linked_list(const doubly_linked_list& other) {copy_from_other(other);}
-
-    /**
-     * @brief moves a list into another list and returns it
-     * @param other the list to move
-     * @return the list that other has moved to
-     */
-    doubly_linked_list& operator=(doubly_linked_list&& other) {
-        move_from_other(std::move(other));
-        return *this;
-    }
-
-    /**
-     * @brief returns a copy of another list
-     * @param other the avl tree to copy
-     * @return the copy of the list
-     */
+    doubly_linked_list& operator=(doubly_linked_list&& other) {move_from_other(std::move(other));return *this;}
     doubly_linked_list& operator=(const doubly_linked_list& other) {copy_from_other(other); return *this;}
 
     /**
@@ -463,7 +436,6 @@ class doubly_linked_list {
 
     /**
      * @brief returns an iterator pointing to the node n
-     * 
      * @param n a node in the list
      * @return an iterator
      */

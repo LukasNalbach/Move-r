@@ -1,12 +1,6 @@
 template <typename uint_t>
 void move_data_structure_phi<uint_t>::construction::balance_v2_seq() {
     if (log) log_message("building T_e");
-
-    T_e_v2 = te_t_v2(
-        [](auto n1, auto n2){return n1.second->v.v.second < n2.second->v.v.second;},
-        [](auto n1, auto n2){return n1.second->v.v.second > n2.second->v.v.second;},
-        [](auto n1, auto n2){return n1.second->v.v.second == n2.second->v.v.second;}
-    );
     
     std::vector<te_node_t_v2> nodes_te = std::vector<te_node_t_v2>();
     nodes_te.reserve(k/(two_a));

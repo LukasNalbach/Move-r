@@ -1,6 +1,5 @@
 #include <iostream>
 #include <filesystem>
-#include <move_r/misc/utils.hpp>
 #include <move_r/move_r.hpp>
 
 int ptr = 1;
@@ -8,17 +7,17 @@ uint16_t p = 1;
 bool revert_in_memory = false;
 std::string path_index_file;
 std::string path_outputfile;
-std::string name_textfile;
+std::string name_text_file;
 std::ifstream index_file;
 std::ofstream output_file;
-std::ofstream measurement_file;
+std::ofstream mf;
 
 void help(std::string msg) {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-revert: reconstruct the original file from the index." << std::endl << std::endl;
     std::cout << "usage: move-r-revert [options] <index_file> <output_file>" << std::endl;
     std::cout << "   -im                        revert in memory; faster, but stores the whole" << std::endl;
-    std::cout << "                              input in memory" << std::endl;
+    std::cout << "                              output in memory" << std::endl;
     std::cout << "   -p <integer>               number of threads to use while reverting" << std::endl;
     std::cout << "                              (default: greatest possible)" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
@@ -35,9 +34,9 @@ void parse_args(char** argv, int argc, int &ptr) {
     if (s == "-m") {
         if (ptr >= argc-1) help("error: missing parameter after -m option");
         std::string path_m_file = argv[ptr++];
-        measurement_file.open(path_m_file,std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
-        if (!measurement_file.good()) help("error: cannot open measurement file");
-        name_textfile = argv[ptr++];
+        mf.open(path_m_file,std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
+        if (!mf.good()) help("error: cannot open measurement file");
+        name_text_file = argv[ptr++];
     } else if (s == "-im") {
         revert_in_memory = true;
     } else if (s == "-p") {
@@ -81,21 +80,20 @@ void measure_revert() {
     log_runtime(t2,t3);
     uint64_t time_revert = time_diff_ns(t2,t3);
 
-    if (measurement_file.is_open()) {
-        measurement_file << "RESULT";
-        measurement_file << " type=revert";
-        measurement_file << " text=" << name_textfile;
-        measurement_file << " index_impl=move_r";
-        measurement_file << " a=" << index.balancing_parameter();
-        measurement_file << " n=" << index.input_size();
-        measurement_file << " sigma=" << std::to_string(index.alphabet_size());
-        measurement_file << " r=" << index.num_bwt_runs();
-        measurement_file << " r_=" << index.num_intervals_m_lf();
-        measurement_file << " r__=" << index.num_intervals_m_phi();
-        index.log_data_structure_sizes(measurement_file);
-        measurement_file << " time_revert=" << time_revert;
-        measurement_file << std::endl;
-        measurement_file.close();
+    if (mf.is_open()) {
+        mf << "RESULT";
+        mf << " type=revert";
+        mf << " text=" << name_text_file;
+        mf << " a=" << index.balancing_parameter();
+        mf << " n=" << index.input_size();
+        mf << " sigma=" << std::to_string(index.alphabet_size());
+        mf << " r=" << index.num_bwt_runs();
+        mf << " r_=" << index.num_intervals_m_lf();
+        mf << " r__=" << index.num_intervals_m_phi();
+        index.log_data_structure_sizes(mf);
+        mf << " time_revert=" << time_revert;
+        mf << std::endl;
+        mf.close();
     }
 
     if (revert_in_memory) write_to_file(output_file,input.c_str(),input.size());

@@ -27,32 +27,17 @@ int main(int argc, char *argv[]) {
     std::cout << std::setprecision(4);
     input_file.seekg(0,std::ios::end);
     int64_t input_size = input_file.tellg();
-
-    int64_t num_queries = atoi(argv[3]);
+    int64_t num_patterns = atoi(argv[3]);
     int64_t pattern_length = atoi(argv[2]);
 
     if (pattern_length < 0 || pattern_length >= input_size) help("Error: length must be >= 1 and <= file length");
-    if (num_queries < 0) help("Error: number of patterns must be >= 1");
+    if (num_patterns < 0) help("Error: number of patterns must be >= 1");
 
     std::ofstream output_file(argv[4]);
     if(!output_file.is_open()) help("invalid input: could not create <patterns file>");
 
     std::string forbidden = "";
     if (argc == 6) forbidden = argv[5];
-
-    std::string basename = argv[1];
-    basename = basename.substr(basename.find_last_of("/\\")+1);
-    output_file << "# number=" << num_queries << " length=" << pattern_length << " file=" << basename << " forbidden=\n";
-    input_file.seekg(0,std::ios::beg);
-    std::cout << "reading input file" << std::flush;
-    auto time = now();
-    std::string input;
-    no_init_resize(input,input_size);
-    read_from_file(input_file,input.c_str(),input_size);
-    input_file.close();
-    time = log_runtime(time);
-    uint64_t pos_random;
-    bool found_forbidden = false;
     std::vector<uint8_t> is_forbidden;
 
     if (!forbidden.empty()) {
@@ -60,16 +45,28 @@ int main(int argc, char *argv[]) {
         for (uint64_t i=0; i<forbidden.size(); i++) is_forbidden[forbidden[i]] = 1;
     }
 
-    std::cout << "generating " << num_queries << " petterns of length " << pattern_length << std::flush;
+    std::string basename = argv[1];
+    basename = basename.substr(basename.find_last_of("/\\")+1);
+    output_file << "# number=" << num_patterns << " length=" << pattern_length << " file=" << basename << " forbidden=\n";
+    input_file.seekg(0,std::ios::beg);
 
-    for(int64_t i=0; i<num_queries; i++) {
+    std::cout << "generating " << num_patterns << " petterns of length " << pattern_length << std::flush;
+    uint64_t pos_random;
+    std::string pattern;
+    no_init_resize(pattern,pattern_length);
+    bool found_forbidden = false;
+    auto time = now();
+
+    for(int64_t i=0; i<num_patterns; i++) {
         do {
             pos_random = std::rand()%(input_size-pattern_length);
+            input_file.seekg(pos_random,std::ios::beg);
+            read_from_file(input_file,pattern.c_str(),pattern_length);
             found_forbidden = false;
 
             if (!forbidden.empty()) {
                 for (int64_t i=0; i<pattern_length; i++) {
-                    if (is_forbidden[input[pos_random+i]] == 1) {
+                    if (is_forbidden[pattern[i]] == 1) {
                         found_forbidden = true;
                         break;
                     }
@@ -77,9 +74,10 @@ int main(int argc, char *argv[]) {
             }
         } while (found_forbidden);
         
-        output_file.write((char*)&input[pos_random],pattern_length);
+        output_file.write(pattern.c_str(),pattern_length);
     }
 
+    input_file.close();
     output_file.close();
     time = log_runtime(time);
 }

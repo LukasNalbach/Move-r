@@ -147,18 +147,18 @@ if(MOVE_R_BUILD_BENCH_CLI)
   target_link_libraries(pfp-thresholds PRIVATE sdsl malloc_count)
   set_target_properties(pfp-thresholds PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/external/pfp-thresholds/")
 
-  # r-index-prezza
-  add_library(r-index-prezza INTERFACE)
-  target_include_directories(r-index-prezza INTERFACE "${CMAKE_SOURCE_DIR}/external/r-index-prezza/internal/")
-  target_link_libraries(r-index-prezza INTERFACE sdsl)
+  # r-index
+  add_library(r-index INTERFACE)
+  target_include_directories(r-index INTERFACE "${CMAKE_SOURCE_DIR}/external/r-index/internal/")
+  target_link_libraries(r-index INTERFACE sdsl)
 
-  # r-index-mun
-  add_library(r-index-mun INTERFACE)
-  target_include_directories(r-index-mun INTERFACE
+  # r-index-bigbwt
+  add_library(r-index-bigbwt INTERFACE)
+  target_include_directories(r-index-bigbwt INTERFACE
     "${CMAKE_SOURCE_DIR}/external/r-index-mun/internal/"
     "${CMAKE_SOURCE_DIR}/external/r-index-mun/"
   )
-  target_link_libraries(r-index-mun INTERFACE sdsl divsufsort divsufsort64)
+  target_link_libraries(r-index-bigbwt INTERFACE sdsl divsufsort divsufsort64)
 
   # OnlineRlbwt
   add_library(OnlineRlbwt INTERFACE)
@@ -178,6 +178,6 @@ if(MOVE_R_BUILD_BENCH_CLI)
   ############################# move-r #############################
 
   add_executable(move-r-bench cli/move-r-bench.cpp)
-  target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index-prezza r-index-mun OnlineRlbwt DYNAMIC)
+  target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index r-index-bigbwt OnlineRlbwt DYNAMIC)
   set_target_properties(move-r-bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
 endif()

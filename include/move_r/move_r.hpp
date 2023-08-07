@@ -3,6 +3,7 @@
 #include <iostream>
 #include <omp.h>
 #include <move_r/misc/utils.hpp>
+#include <move_r/data_structures/hybrid_bit_vector.hpp>
 #include <move_r/data_structures/string_rank_select_support.hpp>
 #include <move_r/data_structures/interleaved_vectors.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure_phi.hpp>
@@ -14,13 +15,12 @@
 enum move_r_support {
     /* support for retrieving (a range of) the input string from the index (reverting
        the index); this also includes support for accessing or retrieving (a range in)
-       the bwt (reverting in parallel requires locate support) */
+       the bwt (reverting in parallel requires the index to be built with locate support) */
     revert = 0,
     count = 2, // support for counting the occurrences of a pattern in the input string
     /* support for calculating the positions of occurrences of a pattern in the input
        string; this also adds support for accessing and retrieving (a range in)
-       the suffix array (also in parallel); this also adds support for reverting the
-       input string in parallel */
+       the suffix array (also in parallel) */
     locate = 3
 };
 
@@ -37,8 +37,8 @@ static std::vector<move_r_support> full_support = {
  * @brief move-r construction mode
  */
 enum move_r_construction_mode {
-    space = 0, // optimized for low peak memory consumption
-    runtime = 1 // optimized for low runtime
+    space = 0, // optimized for low peak memory consumption (and low-runtime if the input is repetitive)
+    runtime = 1 // optimized for low runtime if the input is non-repetitive
 };
 
 /**
@@ -60,7 +60,6 @@ class move_r {
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))), 2 <= a
     uint16_t p_r = 0; // maximum possible number of threads to use while reverting the index
     uint8_t omega_idx = 0; // word width of SA_idx
-    uint8_t omega_offs = 0; // word width of SA_offs
 
     std::vector<move_r_support> support; // contains all supported operations
     /* true <=> the characters of the input string have been remapped internally, because the input
@@ -80,65 +79,36 @@ class move_r {
     std::vector<std::pair<uint_t,uint_t>> D_e;
     string_rank_select_support<uint_t> RS_L_; // rank-select data structure for L_ using sd-vectors
     move_data_structure_phi<uint_t> M_Phi; // The Move Data Structure for Phi.
-    /* Stores SA_offs and SA_idx interleaved with each other,
-    so SA_idxoffs[i] = (SA_offs[i],SA_idx[i]), for all i in [0..r'-1] */
-    interleaved_vectors<uint_t> SA_idxoffs;
+    /* [0..r-1] SA_idx */
+    interleaved_vectors<uint_t> SA_idx_vec;
 
     // ############################# INTERNAL METHODS #############################
 
     /**
      * @brief returns SA_idx[x]
-     * @param x [0..r'-1]
+     * @param x [0..r-1]
      * @return SA_idx[x]
      */
     inline uint_t SA_idx(uint_t x) {
-        return SA_idxoffs.template get<0>(x);
-    }
-
-    /**
-     * @brief returns SA_offs[x]
-     * @param x [0..r'-1]
-     * @return SA_offs[x]
-     */
-    inline uint_t SA_offs(uint_t x) {
-        return SA_idxoffs.template get<1>(x);
+        return SA_idx_vec.template get<0>(x);
     }
 
     /**
      * @brief returns SA_s[x]
-     * @param x [0..r'-1]
+     * @param x [0..r'-1] the end position of the x-th input interval in M_LF must be an end position of a bwt run
      * @return SA_s[x]
      */
     inline uint_t SA_s(uint_t x) {
-        return M_Phi.p(SA_idx(x))+SA_offs(x);
+        return M_Phi.q(SA_idx(x));
     }
 
     /**
      * @brief sets SA_idx[x] to idx
-     * @param x [0..r'-1]
+     * @param x [0..r-1]
      * @param idx [0..r''-1]
      */
     inline void set_SA_idx(uint_t x, uint_t idx) {
-        SA_idxoffs.template set<0>(x,idx);
-    }
-
-    /**
-     * @brief sets SA_offs[x] to offs
-     * @param x [0..r'-1]
-     * @param idx [0..2^omega_offs-1]
-     */
-    inline void set_SA_offs(uint_t x, uint_t offs) {
-        SA_idxoffs.template set<1>(x,offs);
-    }
-
-    /**
-     * @brief maps a character that occurs in the input string to the internal alphabet, if the characters
-     *        have been remapped
-     * @param c a character that occurs in the input string
-     * @return the character in the internal effective alphabet, to which c has been mapped to
-     */
-    inline uint8_t map_to_internal(uint8_t c) {
-        return map_char[c];
+        SA_idx_vec.template set<0>(x,idx);
     }
 
     /**
@@ -157,16 +127,6 @@ class move_r {
      * @param c a character that occurs in the internal effective alphabet
      * @return its corresponding character in the input string
      */
-    inline uint8_t unmap_from_internal(uint8_t c) {
-        return unmap_char[c];
-    }
-
-    /**
-     * @brief maps a character that occurs in the internal effective alphabet to its corresponding
-     *          character in the input string
-     * @param c a character that occurs in the internal effective alphabet
-     * @return its corresponding character in the input string
-     */
     inline char unmap_from_internal(char c) {
         return uchar_to_char(unmap_char[char_to_uchar(c)]);
     }
@@ -176,12 +136,17 @@ class move_r {
      * @param x [0..r'-1]
      * @return L'[x]
      */
-    template <typename char_t>
-    inline char_t L_(uint_t x) {
-        static_assert(std::is_same<char_t,char>::value || std::is_same<char_t,uint8_t>::value);
-
-        return M_LF.template character<char_t>(x);
+    inline char L_(uint_t x) {
+        return M_LF.character(x);
     }
+
+    /**
+     * @brief Sets the up a Phi-move-pair for the suffix array sample at the end position of the x-th input interval in M_LF
+     * @param x an input interval in M_LF (the end position of the x-th input interval in M_LF must be an end position of a BWT run)
+     * @param i_s variable to store the suffix array sample at position l'_{x+1}-1
+     * @param x_s variable to store the index of the input interval in M_Phi, in that i_s lies
+     */
+    void setup_phi_move_pair(uint_t x, uint_t& i_s, uint_t& x_s);
 
     /**
      * @brief adds implicitly supported move_r operations to the vector support and sorts it afterwards
@@ -224,10 +189,6 @@ class move_r {
 
     public:
     move_r() = default;
-    move_r(move_r&& other) = default;
-    move_r(const move_r& other) = default;
-    move_r& operator=(move_r&& other) = default;
-    move_r& operator=(const move_r& other) = default;
 
     /**
      * @brief constructs a move_r index of the string input
@@ -237,9 +198,9 @@ class move_r {
      * @param num_threads maximum number of threads to use during the construction
      * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
      * @param log controls, whether to print log messages
-     * @param measurement_file_index measurement file for the index construciton
-     * @param measurement_file_move_data_structures measurement file for the move data structure construction
-     * @param name_textfile name of the input file (used only for measurement output)
+     * @param mf_idx measurement file for the index construciton
+     * @param mf_mds measurement file for the move data structure construction
+     * @param name_text_file name of the input file (used only for measurement output)
      */
     move_r(
         std::string& input,
@@ -248,11 +209,13 @@ class move_r {
         uint16_t num_threads = omp_get_max_threads(),
         uint16_t a = 8,
         bool log = false,
-        std::ostream* measurement_file_index = NULL,
-        std::ostream* measurement_file_move_data_structures = NULL,
-        std::string name_textfile = ""
-    ) : move_r(std::move(input),support,construction_mode,num_threads,a,log,measurement_file_index,
-               measurement_file_move_data_structures,name_textfile) {}
+        std::ostream* mf_idx = NULL,
+        std::ostream* mf_mds = NULL,
+        std::string name_text_file = ""
+    ) {
+        construction mrc(*this,input,false,support,construction_mode,num_threads,a,
+        log,mf_idx,mf_mds,name_text_file);
+    }
 
     /**
      * @brief constructs a move_r index of the string input
@@ -262,9 +225,9 @@ class move_r {
      * @param num_threads maximum number of threads to use during the construction
      * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
      * @param log controls, whether to print log messages
-     * @param measurement_file_index measurement file for the index construciton
-     * @param measurement_file_move_data_structures measurement file for the move data structure construction
-     * @param name_textfile name of the input file (used only for measurement output)
+     * @param mf_idx measurement file for the index construciton
+     * @param mf_mds measurement file for the move data structure construction
+     * @param name_text_file name of the input file (used only for measurement output)
      */
     move_r(
         std::string&& input,
@@ -273,12 +236,12 @@ class move_r {
         uint16_t num_threads = omp_get_max_threads(),
         uint16_t a = 8,
         bool log = false,
-        std::ostream* measurement_file_index = NULL,
-        std::ostream* measurement_file_move_data_structures = NULL,
-        std::string name_textfile = ""
+        std::ostream* mf_idx = NULL,
+        std::ostream* mf_mds = NULL,
+        std::string name_text_file = ""
     ) {
-        construction mrc(*this,input,support,construction_mode,num_threads,a,
-        log,measurement_file_index,measurement_file_move_data_structures,name_textfile);
+        construction mrc(*this,input,true,support,construction_mode,num_threads,a,
+        log,mf_idx,mf_mds,name_text_file);
     }
 
     /**
@@ -289,9 +252,9 @@ class move_r {
      * @param num_threads maximum number of threads to use during the construction
      * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
      * @param log controls, whether to print log messages
-     * @param measurement_file_index measurement file for the index construciton
-     * @param measurement_file_move_data_structures measurement file for the move data structure construction
-     * @param name_textfile name of the input file (used only for measurement output)
+     * @param mf_idx measurement file for the index construciton
+     * @param mf_mds measurement file for the move data structure construction
+     * @param name_text_file name of the input file (used only for measurement output)
      */
     move_r(
         std::ifstream& input,
@@ -300,12 +263,12 @@ class move_r {
         uint16_t num_threads = omp_get_max_threads(),
         uint16_t a = 8,
         bool log = false,
-        std::ostream* measurement_file_index = NULL,
-        std::ostream* measurement_file_move_data_structures = NULL,
-        std::string name_textfile = ""
+        std::ostream* mf_idx = NULL,
+        std::ostream* mf_mds = NULL,
+        std::string name_text_file = ""
     ) {
         construction mrc(*this,input,support,construction_mode,num_threads,a,log,
-        measurement_file_index,measurement_file_move_data_structures,name_textfile);
+        mf_idx,mf_mds,name_text_file);
     }
 
     /**
@@ -317,9 +280,9 @@ class move_r {
      * @param num_threads maximum number of threads to use during the construction
      * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
      * @param log controls, whether to print log messages
-     * @param measurement_file_index measurement file for the index construciton
-     * @param measurement_file_move_data_structures measurement file for the move data structure construction
-     * @param name_textfile name of the input file (used only for measurement output)
+     * @param mf_idx measurement file for the index construciton
+     * @param mf_mds measurement file for the move data structure construction
+     * @param name_text_file name of the input file (used only for measurement output)
      */
     template <typename sa_sint_t>
     move_r(
@@ -329,12 +292,12 @@ class move_r {
         uint16_t num_threads = omp_get_max_threads(),
         uint16_t a = 8,
         bool log = false,
-        std::ostream* measurement_file_index = NULL,
-        std::ostream* measurement_file_move_data_structures = NULL,
-        std::string name_textfile = ""
+        std::ostream* mf_idx = NULL,
+        std::ostream* mf_mds = NULL,
+        std::string name_text_file = ""
     ) {
         construction mrc(*this,suffix_array,bwt,support,num_threads,a,log,
-        measurement_file_index,measurement_file_move_data_structures,name_textfile);
+        mf_idx,mf_mds,name_text_file);
     }
 
     // ############################# MISC PUBLIC METHODS #############################
@@ -389,6 +352,14 @@ class move_r {
     }
 
     /**
+     * @brief returns the number omega_idx of bits used by one entry in SA_idx (word width of SA_idx)
+     * @return omega_idx
+     */
+    inline uint8_t width_saidx() {
+        return omega_idx;
+    }
+
+    /**
      * @brief returns the maximum number of threads that can be used to revert the index
      * @return maximum number of threads that can be used to revert the index 
      */
@@ -406,7 +377,6 @@ class move_r {
 
     /**
      * @brief returns whether the provided operation is supported by this index object
-     * 
      * @param operation a move_r operation
      * @return whether operation is supported by this index object
      */
@@ -427,7 +397,7 @@ class move_r {
             M_LF.size_in_bytes()+ // M_LF and L'
             RS_L_.size_in_bytes()+ // RS_L'
             M_Phi.size_in_bytes()+ // M_Phi
-            SA_idxoffs.size_in_bytes(); // SA_idx and SA_offs
+            SA_idx_vec.size_in_bytes(); // SA_idx
     }
 
     /**
@@ -444,8 +414,7 @@ class move_r {
 
             if (does_support(move_r_support::locate)) {
                 std::cout << "M_Phi: " << format_size(M_Phi.size_in_bytes()) << std::endl;
-                std::cout << "SA_idx: " << format_size(r_*(omega_idx/8)) << std::endl;
-                std::cout << "SA_offs: " << format_size(r_*(omega_offs/8)) << std::endl;
+                std::cout << "SA_idx: " << format_size(SA_idx_vec.size_in_bytes()) << std::endl;
             }
         }
     }
@@ -464,8 +433,7 @@ class move_r {
 
             if (does_support(move_r_support::locate)) {
                 out << " size_m_phi=" << M_Phi.size_in_bytes();
-                out << " size_sa_idx=" << r_*(omega_idx/8);
-                out << " size_sa_offs=" << r_*(omega_offs/8);
+                out << " size_sa_idx=" << SA_idx_vec.size_in_bytes();
             }
         }
     }
@@ -477,15 +445,8 @@ class move_r {
      * @param x [0..num_intervals_m_lf()-1]
      * @return L'[x]
      */
-    template <typename char_t>
-    inline char_t access_l_(uint_t x) {
-        static_assert(std::is_same<char_t,char>::value || std::is_same<char_t,uint8_t>::value);
-
-        if constexpr (std::is_same<char_t,char>::value) {
-            return uchar_to_char(chars_remapped ? unmap_from_internal(L_<uint8_t>(x)) : L_<uint8_t>(x));
-        } else {
-            return chars_remapped ? unmap_from_internal(L_<uint8_t>(x)) : L_<uint8_t>(x);
-        }
+    inline char access_l_(uint_t x) {
+        return chars_remapped ? unmap_from_internal(L_(x)) : L_(x);
     }
 
     /**
@@ -538,7 +499,7 @@ class move_r {
     // ############################# QUERY METHODS #############################
 
     /**
-     * @brief returns the number of occurences of P in the input string
+     * @brief returns the number of occurrences of P in the input string
      * @param P the pattern to count in the input string
      * @return the number of occurrences of P in the input string
      */
@@ -547,7 +508,7 @@ class move_r {
     /**
      * @brief locates the pattern P in the input string
      * @param P the pattern to locate in the input string
-     * @return a vector containing the occurences of P in the input string
+     * @return a vector containing the occurrences of P in the input string
      */
     std::vector<uint_t> locate(const std::string& P) {
         std::vector<uint_t> Occ;
@@ -566,7 +527,7 @@ class move_r {
     /**
      * @brief locates the pattern P in the input string
      * @param P the pattern to locate in the input string
-     * @param report function that is called with every occurence of P in the input string as a parameter
+     * @param report function that is called with every occurrence of P in the input string as a parameter
      */
     void locate(const std::string& P, const std::function<void(uint_t)>& report);
 
@@ -718,7 +679,7 @@ class move_r {
         }
 
         std::vector<uint_t> SA;
-        (*reinterpret_cast<std::vector<no_init<uint_t>>*>(&SA)).resize(r-l+1);
+        no_init_resize(SA,r-l+1);
         retrieve_sa_range([&SA,&l](uint_t i, uint_t s){SA[i-l] = s;},l,r,num_threads);
         return SA;
     }
@@ -799,8 +760,7 @@ class move_r {
             M_Phi.serialize(out);
 
             out.write((char*)&omega_idx,1);
-            out.write((char*)&omega_offs,1);
-            SA_idxoffs.serialize(out);
+            SA_idx_vec.serialize(out);
         }
 
         std::streamoff offs_end = out.tellp()-pos_data_structure_offsets;
@@ -873,8 +833,7 @@ class move_r {
             M_Phi.load(in);
 
             in.read((char*)&omega_idx,1);
-            in.read((char*)&omega_offs,1);
-            SA_idxoffs.load(in);
+            SA_idx_vec.load(in);
         }
 
         in.seekg(pos_data_structure_offsets+offs_end,std::ios::beg);

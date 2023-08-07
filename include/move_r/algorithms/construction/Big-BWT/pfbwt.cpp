@@ -39,7 +39,7 @@ using namespace __gnu_cxx;
 // -------------------------------------------------------------
 // struct containing command line parameters and other globals
 struct Args_Pfbwt {
-   const char *name_inputfile;
+   const char *name_input_file;
    uint64_t n;
    string parseExt =  EXTPARSE;    // extension final parse file  
    string occExt =    EXTOCC;      // extension occurrences file  
@@ -61,12 +61,12 @@ static long get_num_words(uint8_t *d, long n);
 static long binsearch(uint_t x, uint_t a[], long n);
 static int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
 static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp, bool log);
-static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, FILE *fbwtl, long &easy_bwts, long &hard_bwts, bool rle, uint8_t& bwt_last, uint32_t& cur_run_length, uint64_t& num_bwt_runs);
+static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts, bool rle, uint8_t& bwt_last, uint32_t& cur_run_length, uint64_t& num_bwt_runs);
 static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts,
                                      int_t suffixLen, FILE *safile, uint8_t *bwsainfo,long);
 static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
                                     uint32_t *ilist, uint32_t *istart,
-                                    FILE *fbwt, FILE *fbwtl, long &easy_bwts, long &hard_bwts,
+                                    FILE *fbwt, long &easy_bwts, long &hard_bwts,
                                     int_t suffixLen, FILE *iphifile, bool is_64_bit, 
                                     uint8_t *bwsainfo, long n, int &bwtlast, uint64_t &salast, int ssa, bool rle, uint8_t& bwt_last, uint32_t& cur_run_length, uint64_t& num_bwt_runs);
 static uint8_t *load_bwsa_info(const Args_Pfbwt &arg, long n);
@@ -97,10 +97,6 @@ bool SeqId::operator<(const SeqId& a) {
     return *bwtpos > *(a.bwtpos);
 }
 
-#ifndef NOTHREADS
-//#include "pfthreads.hpp"
-#endif
-
 
 
 /* *******************************************************************
@@ -118,13 +114,13 @@ void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its si
   uint8_t *bwsainfo = load_bwsa_info(arg,psize);
   FILE *safile=NULL, *ssafile=NULL, *esafile=NULL;
   // open the necessary (sampled) SA files (possibly none)
-  if(arg.SA) safile = open_aux_file(arg.name_inputfile,EXTSA,"wb");
-  //if(arg.build_sa_samples & START_RUN) ssafile = open_aux_file(arg.name_inputfile,EXTSSA,"wb");
-  //if(arg.build_sa_samples & END_RUN) esafile = open_aux_file(arg.name_inputfile,EXTESA,"wb");
+  if(arg.SA) safile = open_aux_file(arg.name_input_file,EXTSA,"wb");
+  //if(arg.build_sa_samples & START_RUN) ssafile = open_aux_file(arg.name_input_file,EXTSSA,"wb");
+  //if(arg.build_sa_samples & END_RUN) esafile = open_aux_file(arg.name_input_file,EXTESA,"wb");
 
   FILE *iphifile=NULL;
   if (arg.build_sa_samples) {
-    iphifile = open_aux_file(arg.name_inputfile,"iphi","wb");
+    iphifile = open_aux_file(arg.name_input_file,"iphi","wb");
   }
 
   // compute sa and bwt of d and do some checking on them 
@@ -139,17 +135,15 @@ void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its si
   for(int i=0;i<dwords-1;i++)
     assert(eos[i]<eos[i+1]);
 
-  bool rle = arg.n > dsize;
+  bool rle = arg.n > 160 * dwords;
 
   // open output file
   FILE *fbwt = NULL;
-  FILE *frlen = NULL;
   
   if (rle) {
-    fbwt = open_aux_file(arg.name_inputfile,"bwtr","wb");
-    frlen = open_aux_file(arg.name_inputfile,"bwtrls","wb");
+    fbwt = open_aux_file(arg.name_input_file,"rlbwt","wb");
   } else {
-    fbwt = open_aux_file(arg.name_inputfile,"bwt","wb");
+    fbwt = open_aux_file(arg.name_input_file,"bwt","wb");
   }
 
   uint32_t cur_run_length = 0;
@@ -224,7 +218,7 @@ void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its si
           if (nextbwt != bwt_last) {
             num_bwt_runs++;
             fputc(bwt_last,fbwt);
-            fwrite(&cur_run_length,4,1,frlen);
+            fwrite(&cur_run_length,4,1,fbwt);
             bwt_last = nextbwt;
             cur_run_length = 1;
           } else {
@@ -262,9 +256,9 @@ void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its si
     if(arg.SA)
       fwrite_chars_same_suffix_sa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,safile,bwsainfo,psize);
     else if(arg.build_sa_samples!=0)
-      fwrite_chars_same_suffix_ssa(id2merge,char2write,ilist,istart,fbwt,frlen,easy_bwts,hard_bwts,suffixLen,iphifile,is_64_bit,bwsainfo,psize,lastbwt,lastSa,arg.build_sa_samples,rle,bwt_last,cur_run_length,num_bwt_runs);
+      fwrite_chars_same_suffix_ssa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,iphifile,is_64_bit,bwsainfo,psize,lastbwt,lastSa,arg.build_sa_samples,rle,bwt_last,cur_run_length,num_bwt_runs);
     else 
-      fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,frlen,easy_bwts,hard_bwts,rle,bwt_last,cur_run_length,num_bwt_runs);
+      fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,rle,bwt_last,cur_run_length,num_bwt_runs);
   }
   // write very last Sa pair
   if(arg.build_sa_samples & END_RUN) {
@@ -283,7 +277,7 @@ void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its si
   }
   if (rle) {
     fputc(bwt_last,fbwt);
-    fwrite(&cur_run_length,4,1,frlen);
+    fwrite(&cur_run_length,4,1,fbwt);
   }
   assert(full_words==dwords);
   if (log) cout << "Full words: " << full_words << endl;
@@ -291,9 +285,6 @@ void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its si
   if (log) cout << "Hard bwt chars: " << hard_bwts << endl;
   if (log) cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds\n";    
   fclose(fbwt);
-  if (frlen != NULL) {
-    fclose(frlen);
-  }
   delete[] lcp;
   delete[] sa;
   if(arg.SA or arg.build_sa_samples!=0) free(bwsainfo);
@@ -348,9 +339,9 @@ void parseArgs( int argc, char** argv, Args_Pfbwt& arg ) {
       }
    }
    // the only input parameter is the file name
-   arg.name_inputfile = NULL; 
+   arg.name_input_file = NULL; 
    if (argc == optind+1) 
-     arg.name_inputfile = argv[optind];
+     arg.name_input_file = argv[optind];
    else {
       cout << "Invalid number of arguments" << endl;
       print_help(argv,arg);
@@ -385,7 +376,7 @@ void bigbwt_pfbwt(const Args_Pfbwt& arg, uint64_t& num_bwt_runs, bool log)
   // translate command line parameters
   //parseArgs(argc, argv, arg);
   // read dictionary file 
-  FILE *g = open_aux_file(arg.name_inputfile,EXTDICT,"rb");
+  FILE *g = open_aux_file(arg.name_input_file,EXTDICT,"rb");
   fseek(g,0,SEEK_END);
   long dsize = ftell(g);
   if(dsize<0) die("ftell dictionary");
@@ -406,7 +397,7 @@ void bigbwt_pfbwt(const Args_Pfbwt& arg, uint64_t& num_bwt_runs, bool log)
   fclose(g);
   
   // read occ file
-  g = open_aux_file(arg.name_inputfile,EXTOCC,"rb");
+  g = open_aux_file(arg.name_input_file,EXTOCC,"rb");
   fseek(g,0,SEEK_END);
   e = ftell(g);
   if(e<0) die("ftell occ file");
@@ -421,7 +412,7 @@ void bigbwt_pfbwt(const Args_Pfbwt& arg, uint64_t& num_bwt_runs, bool log)
   assert(dwords==get_num_words(d,dsize));
 
   // read ilist file 
-  g = open_aux_file(arg.name_inputfile,EXTILIST,"rb");
+  g = open_aux_file(arg.name_input_file,EXTILIST,"rb");
   fseek(g,0,SEEK_END);
   e = ftell(g);
   if(e<0) die("ftell ilist file");
@@ -437,7 +428,7 @@ void bigbwt_pfbwt(const Args_Pfbwt& arg, uint64_t& num_bwt_runs, bool log)
   assert(ilist[0]==1); // EOF is in PBWT[1] 
 
   // read bwlast file 
-  g = open_aux_file(arg.name_inputfile,EXTBWLST,"rb");  
+  g = open_aux_file(arg.name_input_file,EXTBWLST,"rb");  
   if (log) cout  << "bwlast file size: " << psize << endl;
   uint8_t *bwlast = new uint8_t[psize];  
   e = fread(bwlast,1,psize,g);
@@ -483,7 +474,7 @@ static uint8_t *load_bwsa_info(const Args_Pfbwt &arg, long n)
   // maybe sa info is not really needed 
   if(arg.SA==false and arg.build_sa_samples==0) return NULL;
   // open .bwsa file for reading and .bwlast for writing
-  FILE *fin = open_aux_file(arg.name_inputfile,EXTBWSAI,"rb");
+  FILE *fin = open_aux_file(arg.name_input_file,EXTBWSAI,"rb");
   // allocate and load the bwsa array
   uint8_t *sai = (uint8_t *) malloc(n*IBYTES);
   if(sai==NULL) die("malloc failed (BWSA INFO)"); 
@@ -578,7 +569,7 @@ static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w,
 // doing a merge operation if necessary
 static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
                                     uint32_t *ilist, uint32_t *istart,
-                                    FILE *fbwt, FILE *fbwtl, long &easy_bwts, long &hard_bwts, bool rle, uint8_t& bwt_last, uint32_t& cur_run_length, uint64_t& num_bwt_runs)
+                                    FILE *fbwt, long &easy_bwts, long &hard_bwts, bool rle, uint8_t& bwt_last, uint32_t& cur_run_length, uint64_t& num_bwt_runs)
 {
   size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   bool samechar=true;
@@ -591,7 +582,7 @@ static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t
         if (char2write[0] != bwt_last) {
           num_bwt_runs++;
           fputc(bwt_last,fbwt);
-          fwrite(&cur_run_length,4,1,fbwtl);
+          fwrite(&cur_run_length,4,1,fbwt);
           bwt_last = char2write[0];
           cur_run_length = istart[s+1]-istart[s];
         } else {
@@ -623,7 +614,7 @@ static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t
         if (s.char2write != bwt_last) {
           num_bwt_runs++;
           fputc(bwt_last,fbwt);
-          fwrite(&cur_run_length,4,1,fbwtl);
+          fwrite(&cur_run_length,4,1,fbwt);
           bwt_last = s.char2write;
           cur_run_length = 1;
         } else {
@@ -697,7 +688,7 @@ static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint
 // and the corresponding sampled SA entries doing a merge operation
 static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
                                     uint32_t *ilist, uint32_t *istart,
-                                    FILE *fbwt, FILE *fbwtl, long &easy_bwts, long &hard_bwts,
+                                    FILE *fbwt, long &easy_bwts, long &hard_bwts,
                                     int_t suffixLen, FILE *iphifile, bool is_64_bit,
                                     uint8_t *bwsainfo, long n, int &bwtlast, uint64_t &salast, int ssa, bool rle, uint8_t& bwt_last, uint32_t& cur_run_length, uint64_t& num_bwt_runs)
 {
@@ -723,7 +714,7 @@ static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uin
       if (bwtnext != bwt_last) {
         num_bwt_runs++;
         fputc(bwt_last,fbwt);
-        fwrite(&cur_run_length,4,1,fbwtl);
+        fwrite(&cur_run_length,4,1,fbwt);
         bwt_last = bwtnext;
         cur_run_length = istart[s+1]-istart[s];
       } else {
@@ -757,7 +748,7 @@ static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uin
         if (bwtnext != bwt_last) {
           num_bwt_runs++;
           fputc(bwt_last,fbwt);
-          fwrite(&cur_run_length,4,1,fbwtl);
+          fwrite(&cur_run_length,4,1,fbwt);
           bwt_last = bwtnext;
           cur_run_length = 1;
         } else {

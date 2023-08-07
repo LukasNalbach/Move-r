@@ -168,20 +168,10 @@ void write_to_file(std::ostream& out, const char* data, uint64_t size) {
     }
 }
 
-/**
- * @brief interprets a uint8_t as a char
- * @param c a uint8_t character
- * @return the same character interpreted as a char 
- */
 inline char uchar_to_char(uint8_t c) {
     return *reinterpret_cast<char*>(&c);
 }
 
-/**
- * @brief interprets a char as a char
- * @param c a char character
- * @return the same character interpreted as a uint8_t 
- */
 inline uint8_t char_to_uchar(char c) {
     return *reinterpret_cast<uint8_t*>(&c);
 }
@@ -247,4 +237,19 @@ class default_init_allocator : public Alloc {
 
 void no_init_resize(std::string& str, size_t size) {
     (*reinterpret_cast<std::basic_string<char,std::char_traits<char>,default_init_allocator<char>>*>(&str)).resize(size);
+}
+
+template <typename T>
+void no_init_resize(std::vector<T>& vec, size_t size) {
+    (*reinterpret_cast<std::vector<no_init<T>>*>(&vec)).resize(size);
+}
+
+template <typename T1, typename T2>
+void no_init_resize(std::vector<std::pair<T1,T2>>& vec, size_t size) {
+    (*reinterpret_cast<std::vector<std::pair<no_init<T1>,no_init<T2>>>*>(&vec)).resize(size);
+}
+
+template <typename T>
+void no_init_resize(std::vector<std::tuple<T,T,T>>& vec, size_t size) {
+    (*reinterpret_cast<std::vector<std::tuple<no_init<T>,no_init<T>,no_init<T>>>*>(&vec)).resize(size);
 }

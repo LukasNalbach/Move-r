@@ -16,8 +16,8 @@ class sd_array {
     sdsl::sd_vector<> sd_vector; // the sd_vector
     sdsl::sd_vector<>::rank_0_type rank_0_support; // rank_0 support for sd_vector
     sdsl::sd_vector<>::rank_1_type rank_1_support; // rank_1 support for sd_vector
-    sdsl::sd_vector<>::select_1_type select_1_support; // select_1 support for sd_vector
     sdsl::sd_vector<>::select_0_type select_0_support; // select_1 support for sd_vector
+    sdsl::sd_vector<>::select_1_type select_1_support; // select_1 support for sd_vector
 
     uint_t zeros = 0;
     uint_t ones = 0;
@@ -47,8 +47,8 @@ class sd_array {
     void setup() {
         rank_0_support.set_vector(&sd_vector);
         rank_1_support.set_vector(&sd_vector);
-        select_1_support.set_vector(&sd_vector);
         select_0_support.set_vector(&sd_vector);
+        select_1_support.set_vector(&sd_vector);
 
         if (size() > 0) {
             ones = rank_1(size());
@@ -62,8 +62,8 @@ class sd_array {
     void reset() {
         rank_0_support.set_vector(NULL);
         rank_1_support.set_vector(NULL);
-        select_1_support.set_vector(NULL);
         select_0_support.set_vector(NULL);
+        select_1_support.set_vector(NULL);
 
         ones = 0;
         zeros = 0;
@@ -90,15 +90,6 @@ class sd_array {
     }
 
     /**
-     * @brief constructs a new sd_array from a bit vector
-     * @param bit_vector a bit vector
-     */
-    sd_array(sdsl::bit_vector&& bit_vector) {
-        sd_vector = std::move(sdsl::sd_vector<>(std::move(bit_vector)));
-        setup();
-    }
-
-    /**
      * @brief constructs a new sd_array from an sd_vector
      * @param bit_vector an sd_vector
      */
@@ -117,14 +108,26 @@ class sd_array {
         setup();
     }
 
+    /**
+     * @brief returns the size of the bit vector
+     * @return the size of the bit vector 
+     */
     uint_t size() {
         return sd_vector.size();
     }
 
+    /**
+     * @brief returns the number of ones in the bit vector
+     * @return the number of ones in the bit vector 
+     */
     uint_t num_ones() {
         return ones;
     }
 
+    /**
+     * @brief returns the number of zeros in the bit vector
+     * @return the number of ones in the bit vector 
+     */
     uint_t num_zeros() {
         return zeros;
     }
@@ -149,7 +152,7 @@ class sd_array {
 
     /**
      * @brief returns the number of zeros before index i
-     * @param i [0..size-1]
+     * @param i [0..size]
      * @return the number of zeros before index i 
      */
     inline uint_t rank_0(uint_t i) {

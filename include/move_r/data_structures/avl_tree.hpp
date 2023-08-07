@@ -88,8 +88,9 @@ struct avl_node {
 /**
  * @brief balanced binary search tree, for each node |height of left child - height of right child| <= 1 holds
  * @tparam T value type
+ * @tparam Compare comparison class
  */
-template <typename T>
+template <typename T, typename Compare = std::less<T>>
 class avl_tree {
     protected:
     avl_node<T> *r = NULL; // root of the avl_tree
@@ -98,23 +99,14 @@ class avl_tree {
     uint64_t s = 0; // size
     uint8_t h = 0; // height
 
-    std::function<bool(T&,T&)> lt; // comparison function "less than" on values of type T
-    std::function<bool(T&,T&)> gt; // comparison function "greater than" on values of type T
-    std::function<bool(T&,T&)> eq; // comparison function "equals" on values of type T
-
-    // comparison function "less than or equal to" on values of type T
-    inline bool leq(T &v1, T &v2) {
-        return lt(v1,v2) || eq(v1,v2);
-    }
-
-    // comparison function "greater than or equal to" on values of type T
-    inline bool geq(T &v1, T &v2) {
-        return gt(v1,v2) || eq(v1,v2);
-    }
+    static bool eq(const T& v1, const T& v2) {return !Compare()(v1,v2) && !Compare()(v2,v1);}; // comparison function "equals" on values of type T
+    static bool lt(const T& v1, const T& v2) {return Compare()(v1,v2);}; // comparison function "less than" on values of type T
+    static bool gt(const T& v1, const T& v2) {return Compare()(v2,v1);}; // comparison function "greater than" on values of type T
+    static bool leq(const T& v1, const T& v2) {return Compare()(v1,v2) || !Compare()(v2,v1);}; // comparison function "less than or equal to" on values of type T
+    static bool geq(const T& v1, const T& v2) {return Compare()(v2,v1) || !Compare()(v1,v2);}; // comparison function "greater than or equal to" on values of type T
 
     /**
      * @brief returns the hight of the node n if n != NULL, else returns 0
-     * 
      * @param n an avl_node in the avl_tree
      * @return height of n
      */
@@ -124,7 +116,6 @@ class avl_tree {
 
     /**
      * @brief updates the height of the subtree of node n
-     * 
      * @param n an avl_node in the avl_tree
      * @return whether the height of n changed
      */
@@ -184,7 +175,6 @@ class avl_tree {
 
     /**
      * @brief balances the node n
-     * 
      * @param n an avl_node in the avl_tree
      * @return whether n was a-heavy
      */
@@ -214,10 +204,10 @@ class avl_tree {
         while (nf != nt) {
             if (nf == nf->p->rc) {
                 nf = nf->p;
-                if (!update_height(nf->rc)&!balance(nf->rc)) return;
+                if (!update_height(nf->rc) & !balance(nf->rc)) return;
             } else {
                 nf = nf->p;
-                if (!update_height(nf->lc)&!balance(nf->lc)) return;
+                if (!update_height(nf->lc) & !balance(nf->lc)) return;
             }
         }
         update_height(nt);
@@ -400,10 +390,6 @@ class avl_tree {
      * @param other the avl_tree to copy
      */
     void copy_from_other(const avl_tree& other) {
-        this->lt = other.lt;
-        this->gt = other.gt;
-        this->eq = other.eq;
-
         if (other.s == 0) return;
 
         avl_node<T>* cur = other.fst;
@@ -424,9 +410,6 @@ class avl_tree {
         this->lst = std::move(other.lst);
         this->s = std::move(other.s);
         this->h = std::move(other.h);
-        this->lt = std::move(other.lt);
-        this->gt = std::move(other.gt);
-        this->eq = std::move(other.eq);
 
         other.r = NULL;
         other.fst = NULL;
@@ -437,64 +420,16 @@ class avl_tree {
 
     public:
     avl_tree() = default;
-
-    /**
-     * @brief creates an empty avl_tree
-     * @param lt comparison function "less than" on values of type T
-     * @param gt comparison function "greater than" on values of type T
-     * @param eq comparison function "equals" on values of type T
-     */
-    avl_tree(
-        std::function<bool(T&,T&)> lt,
-        std::function<bool(T&,T&)> gt,
-        std::function<bool(T&,T&)> eq
-    ) { 
-        this->lt = lt;
-        this->gt = gt;
-        this->eq = eq;
-    }
+    avl_tree(avl_tree&& other) {move_from_other(std::move(other));}
+    avl_tree(const avl_tree& other) {copy_from_other(other);}
+    avl_tree& operator=(avl_tree&& other) {move_from_other(std::move(other));return *this;}
+    avl_tree& operator=(const avl_tree& other) {copy_from_other(other);return *this;}
 
     /**
      * @brief deletes the avl_tree but not it's nodes
      */
     ~avl_tree() {
         fst = lst = r = NULL;
-    }
-
-    /**
-     * @brief moves an avl_tree into another avl_tree and returns it
-     * @param other the avl_tree to move
-     */
-    avl_tree(avl_tree&& other) {
-        move_from_other(std::move(other));
-    }
-
-    /**
-     * @brief creates a copy of another avl_tree
-     * @param other the avl_tree to copy
-     */
-    avl_tree(const avl_tree& other) {
-        copy_from_other(other);
-    }
-
-    /**
-     * @brief moves an avl_tree into another avl_tree and returns it
-     * @param other the avl_tree to move
-     * @return the avl_tree that other has moved to
-     */
-    avl_tree& operator=(avl_tree&& other) {
-        move_from_other(std::move(other));
-        return *this;
-    }
-
-    /**
-     * @brief returns a copy of another avl_tree
-     * @param other the avl tree to copy
-     * @return the copy of the avl_tree
-     */
-    avl_tree& operator=(const avl_tree& other) {
-        copy_from_other(other);
-        return *this;
     }
 
     /**
@@ -913,7 +848,7 @@ class avl_tree {
      */
     class avl_it {
         protected:
-        avl_tree<T> *t; // the avl_tree, the iterator iterates through
+        avl_tree *t; // the avl_tree, the iterator iterates through
         avl_node<T> *cur; // the node the iterator points to
 
         public:
@@ -922,7 +857,7 @@ class avl_tree {
          * @param t an avl_tree
          * @param n an avl_node in t
          */
-        avl_it(avl_tree<T> *t, avl_node<T> *n) {
+        avl_it(avl_tree *t, avl_node<T> *n) {
             this->t = t;
             this->cur = n;
         }
@@ -940,7 +875,7 @@ class avl_tree {
          * @return whether it can iterate forward
          */
         inline bool has_next() {
-            return t->lt(cur->v,t->lst->v);
+            return avl_tree::lt(cur->v,t->lst->v);
         }
 
         /**
@@ -948,7 +883,7 @@ class avl_tree {
          * @return whether it can iterate backward
          */
         inline bool has_prev() {
-            return t->gt(cur->v,t->fst->v);
+            return avl_tree::gt(cur->v,t->fst->v);
         }
 
         /**
@@ -991,15 +926,15 @@ class avl_tree {
      * @param n an avl_node in the avl_tree
      * @return an iterator
      */
-    inline avl_tree<T>::avl_it iterator(avl_node<T> *n) {
-        return avl_tree<T>::avl_it(this,n);
+    inline avl_tree::avl_it iterator(avl_node<T> *n) {
+        return avl_tree::avl_it(this,n);
     }
 
     /**
      * @brief returns an iterator pointing to the minimum of the avl_tree if it is not empty
      * @return an iterator
      */
-    inline avl_tree<T>::avl_it iterator() {
-        return avl_tree<T>::avl_it(this,fst);
+    inline avl_tree::avl_it iterator() {
+        return avl_tree::avl_it(this,fst);
     }
 };

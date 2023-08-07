@@ -2,7 +2,7 @@
 
 template <typename uint_t>
 void move_data_structure_phi<uint_t>::construction::build_pi_for_I() {
-    (*reinterpret_cast<std::vector<no_init<uint_t>>*>(&pi)).resize(k);
+    no_init_resize(pi,k);
     
     // write the identity permutation of [0..k-1] to pi
     #pragma omp parallel for num_threads(p)
@@ -21,7 +21,7 @@ void move_data_structure_phi<uint_t>::construction::build_pi_for_I() {
 
 template <typename uint_t>
 void move_data_structure_phi<uint_t>::construction::build_pi_for_dq() {
-    (*reinterpret_cast<std::vector<no_init<uint_t>>*>(&pi)).resize(k_+1);
+    no_init_resize(pi,k_+1);
 
     // write the identity permutation of [0..k'] to pi
     #pragma omp parallel for num_threads(p)
@@ -245,32 +245,33 @@ void move_data_structure_phi<uint_t>::construction::build_didx_doffs_v2v3v4v5() 
 
         /* Check if the range [u[i_p]..u[i_p+1]-1], over which the thread i_p
         has to iterate in D_q, is empty. */
-        if (u[i_p+1] > u[i_p]) {
+        if (u[i_p] < u[i_p+1]) {
             // Iteration range start position in D_p.
             uint_t i = x[i_p];
             // Iteration range start position in D_q.
             uint_t j = u[i_p];
-
-            // Iteration range end position in D_p.
-            uint_t i_ = x[i_p+1]-1;
-            // Iteration range end position in D_q.
-            uint_t j_ = u[i_p+1]-1;
+            // Iteration range end position in D_q + 1.
+            uint_t j_ = u[i_p+1];
 
             /* Check if the first value in D_q lies before x[i_p]-th 
             input interval. */
-            if (D_q[pi[j]] < mds.p(i)) {
+            while (D_q[pi[j]] < mds.p(i)) {
                 i--;
+            }
+
+            while (mds.p(i+1) <= D_q[pi[j]]) {
+                i++;
             }
 
             /* Iterate until one of the iteration end positions i_ and j_ has
             been reached. */
-            while (i <= i_ && j <= j_) {
+            while (j < j_) {
 
                 /* Iterate over the values in D_q that lie in the current
                 i-th input interval. */
-                while (j <= j_ && D_q[pi[j]] < mds.p(i+1)) {
+                while (j < j_ && D_q[pi[j]] < mds.p(i+1)) {
                     
-                    /* Because each of those j-th largest value in D_q lie in the i-th
+                    /* Because each of those j-th largest values in D_q lie in the i-th
                     input interval, we can set D_idx[pi[j]] = i for each of them. */
                     mds.set_idx(pi[j],i);
                     mds.set_offs(pi[j],D_q[pi[j]]-mds.p(i));

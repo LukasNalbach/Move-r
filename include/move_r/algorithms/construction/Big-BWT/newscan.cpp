@@ -104,7 +104,6 @@ extern "C" {
 }
 #include <zlib.h>
 #include <stdio.h>
-#include "kseq.h"
 
 using namespace std;
 using namespace __gnu_cxx;
@@ -156,7 +155,7 @@ struct Args_Newscan {
    std::ifstream& input;
    bool chars_remapped;
    std::vector<uint8_t>& map_char;
-   string name_inputfile = "";
+   string name_input_file = "";
    size_t w = 10;            // sliding window size and its default
    size_t p = 100;           // modulus for establishing stopping w-tuples
    bool compute_sa_info = false;   // compute SA information
@@ -283,28 +282,20 @@ static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_s
   w.erase(0,w.size() - minsize);
 }
 
-inline int uchar_to_int(uint8_t c) {
-    return *reinterpret_cast<int*>(&c);
-}
-
-inline uint8_t int_to_uchar(int c) {
-    return *reinterpret_cast<uint8_t*>(&c);
-}
-
 // prefix free parse of file fnam. w is the window size, p is the modulus
 // use a KR-hash as the word ID that is immediately written to the parse file
 uint64_t process_file(const Args_Newscan& arg, map<uint64_t,word_stats>& wordFreq)
 {
   //open a, possibly compressed, input file
-  string fnam = arg.name_inputfile;
+  string fnam = arg.name_input_file;
   // open the 1st pass parsing file
-  FILE *g = open_aux_file(arg.name_inputfile.c_str(),EXTPARS0,"wb");
+  FILE *g = open_aux_file(arg.name_input_file.c_str(),EXTPARS0,"wb");
   // open output file containing the char at position -(w+1) of each word
-  FILE *last_file = open_aux_file(arg.name_inputfile.c_str(),EXTLST,"wb");
+  FILE *last_file = open_aux_file(arg.name_input_file.c_str(),EXTLST,"wb");
   // if requested open file containing the ending position+1 of each word
   FILE *sa_file = NULL;
   if(arg.compute_sa_info)
-    sa_file = open_aux_file(arg.name_inputfile.c_str(),EXTSAI,"wb");
+    sa_file = open_aux_file(arg.name_input_file.c_str(),EXTSAI,"wb");
 
   // main loop on the chars of the input file
   int c;
@@ -321,9 +312,9 @@ uint64_t process_file(const Args_Newscan& arg, map<uint64_t,word_stats>& wordFre
     }
     while((c = arg.input.get()) != EOF) {
       if (arg.chars_remapped) {
-        c = (int)arg.map_char[int_to_uchar(c)];
+        c = (int)arg.map_char[(uint8_t)c];
       }
-      if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
+      //if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
       word.append(1,c);
       uint64_t hash = krw.addchar(c);
       if(hash%arg.p==0) {
@@ -358,10 +349,10 @@ void writeDictOcc(const Args_Newscan &arg, map<uint64_t,word_stats> &wfreq, vect
   FILE *fdict;
   // open dictionary and occ files
   if(arg.compress)
-    fdict = open_aux_file(arg.name_inputfile.c_str(),EXTDICZ,"wb");
+    fdict = open_aux_file(arg.name_input_file.c_str(),EXTDICZ,"wb");
   else
-    fdict = open_aux_file(arg.name_inputfile.c_str(),EXTDICT,"wb");
-  FILE *focc = open_aux_file(arg.name_inputfile.c_str(),EXTOCC,"wb");
+    fdict = open_aux_file(arg.name_input_file.c_str(),EXTDICT,"wb");
+  FILE *focc = open_aux_file(arg.name_input_file.c_str(),EXTOCC,"wb");
 
   word_int_t wrank = 1; // current word rank (1 based)
   for(auto x: sortedDict) {
@@ -391,8 +382,8 @@ void writeDictOcc(const Args_Newscan &arg, map<uint64_t,word_stats> &wfreq, vect
 void remapParse(const Args_Newscan &arg, map<uint64_t,word_stats> &wfreq)
 {
   // open parse files. the old parse can be stored in a single file or in multiple files
-  mFile *moldp = mopen_aux_file(arg.name_inputfile.c_str(), EXTPARS0, arg.th);
-  FILE *newp = open_aux_file(arg.name_inputfile.c_str(), EXTPARSE, "wb");
+  mFile *moldp = mopen_aux_file(arg.name_input_file.c_str(), EXTPARS0, arg.th);
+  FILE *newp = open_aux_file(arg.name_input_file.c_str(), EXTPARSE, "wb");
 
   // recompute occ as an extra check
   vector<occ_int_t> occ(wfreq.size()+1,0); // ranks are zero based
@@ -471,7 +462,7 @@ void parseArgs( int argc, char** argv, Args_Newscan& arg ) {
    }
    // the only input parameter is the file name
    if (argc == optind+1) {
-     arg.name_inputfile.assign( argv[optind] );
+     arg.name_input_file.assign( argv[optind] );
    }
    else {
       cout << "Invalid number of arguments" << endl;
@@ -509,7 +500,7 @@ bool is_gzipped(std::string fname) {
     return (byte1 == 0x1f && byte2 == 0x8b);
 }
 
-void bigbwt_newscan(const Args_Newscan& arg, uint64_t& dictionary_size, bool log)
+void bigbwt_newscan(const Args_Newscan& arg, uint64_t& num_dictionary_words, bool log)
 {
   // translate command line parameters
   if (log) {
@@ -566,7 +557,7 @@ void bigbwt_newscan(const Args_Newscan& arg, uint64_t& dictionary_size, bool log
     totWord += x.second.occ;
     dictArray.push_back(&x.second.str);
   }
-  dictionary_size = sumLen+1;
+  num_dictionary_words = totWord;
   assert(dictArray.size()==totDWord);
   if (log) {
     cout << "Sum of lenghts of dictionary words: " << sumLen << endl;

@@ -2,24 +2,6 @@ template <typename uint_t>
 void move_data_structure_phi<uint_t>::construction::build_tin_tout_v1() {
     if (log) log_message("building T_in");
 
-    T_in_v1 = avl_tree<std::pair<uint_t,uint_t>>(
-        [](auto n1, auto n2){return n1.first < n2.first;},
-        [](auto n1, auto n2){return n1.first > n2.first;},
-        [](auto n1, auto n2){return n1.first == n2.first;}
-    );
-
-    T_out_v1 = avl_tree<std::pair<uint_t,uint_t>>(
-        [](auto n1, auto n2){return n1.second < n2.second;},
-        [](auto n1, auto n2){return n1.second > n2.second;},
-        [](auto n1, auto n2){return n1.second == n2.second;}
-    );
-
-    T_e_v1 = avl_tree<std::pair<uint_t,uint_t>>(
-        [](auto n1, auto n2){return n1.first < n2.first;},
-        [](auto n1, auto n2){return n1.first > n2.first;},
-        [](auto n1, auto n2){return n1.first == n2.first;}
-    );
-
     // build T_in_v1 and T_out_v1
     for (uint_t i=0; i<k; i++) {
         T_in_v1.insert_or_update(I[i]);
@@ -39,7 +21,7 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v1() {
 
     T_out_v1.insert_or_update(std::make_pair(n,n));
 
-    avl_node<std::pair<uint_t,uint_t>> *node_cur = T_in_v1.minimum();
+    avl_node<pair_t> *node_cur = T_in_v1.minimum();
 
     while (node_cur != T_in_v1.maximum()) {
         while (node_cur->nxt()->v.first - node_cur->v.first > l_max) {
@@ -49,9 +31,11 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v1() {
         node_cur = node_cur->nxt();
     }
 
-    // Now, we do not need I anymore.
-    I.clear();
-    I.shrink_to_fit();
+    if (delete_i) {
+        // Now, we do not need I anymore.
+        I.clear();
+        I.shrink_to_fit();
+    }
 
     if (log) {
         if (mf != NULL) *mf << " time_build_tout=" << time_diff_ns(time);
@@ -65,7 +49,7 @@ void move_data_structure_phi<uint_t>::construction::build_dp_dq_v1() {
 
     mds.resize(n,k_);
     
-    (*reinterpret_cast<std::vector<no_init<uint_t>>*>(&D_q)).resize(k_+1);
+    no_init_resize(D_q,k_+1);
     D_q[k_] = n;
 
     auto it = T_in_v1.iterator();

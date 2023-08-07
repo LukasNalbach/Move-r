@@ -17,6 +17,7 @@ class move_data_structure_phi {
 
     bool is_move_data_structure_lf = false; // true <=> this move data structure is of type move_data_structure_lf
     uint_t n = 0; // n = p_{k_'-1} + d_{k_'-1}, k_' <= n
+    uint_t k = 0; // k, number of intervals in the original disjoint inteval sequence I
     uint_t k_ = 0; // k', number of intervals in the balanced disjoint inteval sequence B_a(I), k <= k_'
     uint8_t omega_p = 0; // word width of D_p
     uint8_t omega_idx = 0; // word width of D_idx
@@ -36,6 +37,7 @@ class move_data_structure_phi {
      * @param n n = p_k + d_j
      * @param p the number of threads to use during the construction
      * @param a balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
+     * @param pi_mphi vector to move pi into after the construction
      * @param log controls whether to print log messages during the construction
      * @param mf measurement file to write runtime data to
      */
@@ -44,9 +46,12 @@ class move_data_structure_phi {
         uint_t n,
         uint16_t p = omp_get_max_threads(),
         uint16_t a = 8,
+        std::vector<uint_t>* pi_mphi = NULL,
         bool log = false,
         std::ostream* mf = NULL
-    ) : move_data_structure_phi(std::move(I),n,p,a,log,mf) {}
+    ) {
+        construction mdsc(*this,I,n,p,a,false,pi_mphi,log,mf);
+    }
 
     /**
      * @brief Constructs a new move data structure from a disjoint interval sequence
@@ -54,6 +59,7 @@ class move_data_structure_phi {
      * @param n n = p_k + d_j
      * @param p the number of threads to use during the construction
      * @param a balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
+     * @param pi_mphi vector to move pi into after the construction
      * @param log controls whether to print log messages during the construction
      * @param mf measurement file to write runtime data to
      */
@@ -62,10 +68,11 @@ class move_data_structure_phi {
         uint_t n,
         uint16_t p = omp_get_max_threads(),
         uint16_t a = 8,
+        std::vector<uint_t>* pi_mphi = NULL,
         bool log = false,
         std::ostream* mf = NULL
     ) {
-        construction mdsc(*this,std::move(I),n,p,a,log,mf);
+        construction mdsc(*this,I,n,p,a,true,pi_mphi,log,mf);
     }
 
     /**
@@ -82,7 +89,7 @@ class move_data_structure_phi {
      * @brief returns the maximum value n = p_k + d_k of the stored disjoint interval sequence
      * @return n = p_k + d_k
      */
-    inline uint_t sequence_width() {
+    inline uint_t max_value() {
         return n;
     }
 
@@ -95,7 +102,7 @@ class move_data_structure_phi {
     }
 
     /**
-     * @brief returns the number omega_p of bytes used by one entry in D_p (word width of D_p)
+     * @brief returns the number omega_p of bits used by one entry in D_p (word width of D_p)
      * @return omega_p 
      */
     inline uint8_t width_p() {
@@ -103,7 +110,7 @@ class move_data_structure_phi {
     }
 
     /**
-     * @brief returns the number omega_p of bytes used by one entry in D_idx (word width of D_idx)
+     * @brief returns the number omega_p of bits used by one entry in D_idx (word width of D_idx)
      * @return omega_idx
      */
     inline uint8_t width_idx() {
@@ -111,7 +118,7 @@ class move_data_structure_phi {
     }
 
     /**
-     * @brief returns the number omega_p of bytes used by one entry in D_offs (word width of D_offs)
+     * @brief returns the number omega_p of bits used by one entry in D_offs (word width of D_offs)
      * @return omega_offs
      */
     inline uint8_t width_offs() {
@@ -251,6 +258,7 @@ class move_data_structure_phi {
      */
     void serialize(std::ostream& out) {
         out.write((char*)&n,sizeof(uint_t));
+        out.write((char*)&k,sizeof(uint_t));
         out.write((char*)&k_,sizeof(uint_t));
         out.write((char*)&omega_p,1);
         out.write((char*)&omega_idx,1);
@@ -264,6 +272,7 @@ class move_data_structure_phi {
      */
     void load(std::istream& in) {
         in.read((char*)&n,sizeof(uint_t));
+        in.read((char*)&k,sizeof(uint_t));
         in.read((char*)&k_,sizeof(uint_t));
         in.read((char*)&omega_p,1);
         in.read((char*)&omega_idx,1);

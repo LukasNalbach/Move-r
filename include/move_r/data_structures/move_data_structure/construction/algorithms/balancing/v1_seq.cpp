@@ -1,18 +1,18 @@
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_tin_tout_v1() {
+void move_data_structure_phi<uint_t>::construction::balance_v1_seq() {
     if (log) log_message("building T_e");
 
     // build T_e_v1
     uint_t q_i,q_next;
-    node_cur = T_in_v1.minimum();
-    avl_node<std::pair<uint_t,uint_t>> *node_cur_2;
+    t_node_t_v1* node_cur = T_in_v1.minimum();
+    t_node_t_v1* node_cur_2;
     uint32_t e;
     while (node_cur != T_in_v1.maximum()) {
         /* For each output interval [q_i, q_i + d_i), find the first input interval connected
         to it in the permutation graph. */
         q_i = node_cur->v.second;
         q_next = q_i + node_cur->nxt()->v.first - node_cur->v.first;
-        node_cur_2 = T_in_v1.minimum_geq(std::pair<uint_t,uint_t>{q_i,0});
+        node_cur_2 = T_in_v1.minimum_geq(pair_t{q_i,0});
         // Count the number of input intervals connected to it in the permutation graph.
         e = 0;
         while (node_cur_2 != NULL) {
@@ -39,9 +39,9 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v1() {
 
     // balance the disjoint interval sequence
     uint_t d,q_j,p_j,q_y,d_j,d_y;
-    std::pair<uint_t,uint_t> pair_NEW,pair_Y;
-    avl_node<std::pair<uint_t,uint_t>> *node_Ipa,*min,*node_NEW,*node_Y;
-    std::vector<std::tuple<uint_t,uint_t,std::pair<uint_t,uint_t>>> intervals_to_check;
+    pair_t pair_NEW,pair_Y;
+    t_node_t_v1 *node_Ipa,*min,*node_NEW,*node_Y;
+    std::vector<std::tuple<uint_t,uint_t,pair_t>> intervals_to_check;
     while (!T_e_v1.empty()) {
         /* Find the pair creating the first a-heavy output interval [q_j, q_j + d_j)
         and remove it from T_e_v1. */

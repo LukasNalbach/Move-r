@@ -2,35 +2,31 @@
 
 #include <vector>
 #include <iostream>
-#include <move_r/data_structures/sd_array.hpp>
+#include <move_r/data_structures/hybrid_bit_vector.hpp>
 
 /**
- * @brief a string rank-select data structure using sd_arrays
+ * @brief a string rank-select data structure using hybrid bit vectors (either sd_array or plain bit vector)
  * @tparam uint_t unsigned integer type
  */
-template <typename uint_t = uint32_t>
+template <typename uint_t = uint32_t, bool build_rank_support = true, bool build_select_support = true, bool build_select_other_support = false>
 class string_rank_select_support {
     static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
     
+    using hybrid_bv_t = hybrid_bit_vector<uint_t,build_rank_support,build_select_other_support,build_select_support>;
+
     protected:
-    uint_t size = 0;
-    
-    std::vector<uint8_t> uchars; // vector containing exactly the characters occurring in the input string
+    uint_t size = 0; // the size of the input string    
+    std::vector<char> characters; // vector containing exactly the characters occurring in the input string
     std::vector<uint_t> occurrences; // [0..255] stores at position c the number of occurrences of c in the input string
 
     /**
-     * @brief sd_arrays with rank_1- and select_1 support of each character occurring in the input string;
-     *        sd_arrays[c] contains an sd_vector of size [0..size-1] that marks (with ones) the occurrences of c
-     *        in the input string
+     * @brief hyb_bit_vecs[c] contains a hybrid bit vector [0..size-1] that marks (with ones) the occurrences of c
+     *        in the input string, for each character c, that occurs in the input string
      */
-    std::vector<sd_array<uint_t>> sd_arrays;
+    std::vector<hybrid_bv_t> hyb_bit_vecs;
 
     public:
     string_rank_select_support() = default;
-    string_rank_select_support(string_rank_select_support&& other) = default;
-    string_rank_select_support(const string_rank_select_support& other) = default;
-    string_rank_select_support& operator=(string_rank_select_support&& other) = default;
-    string_rank_select_support& operator=(const string_rank_select_support& other) = default;
 
     /**
      * @brief builds the data structure from the range [l,r] in an input string (0 <= l <= r < string.size()),
@@ -38,7 +34,7 @@ class string_rank_select_support {
      * @param string the input string
      * @param l left range limit (l <= r)
      * @param r right range limit (l <= r)
-     * @param chars vector that contains exactly the characters occurring in the input string in the range [l,r]
+     * @param characters vector that contains exactly the characters occurring in the input string in the range [l,r]
      * (optional, saves one scan over the input string)
      * @param p the number of threads to use
      */
@@ -46,7 +42,7 @@ class string_rank_select_support {
         const std::string& string,
         uint_t l = 1,
         uint_t r = 0,
-        const std::vector<char>& chars = {},
+        const std::vector<char>& characters = {},
         uint16_t p = omp_get_max_threads()
     ) {
         r = std::max(r,string.size()-1);
@@ -56,7 +52,7 @@ class string_rank_select_support {
             r = string.size()-1;
         }
 
-        *this = std::move(string_rank_select_support([&string](uint i){return string[i];},l,r,chars,p));
+        *this = std::move(string_rank_select_support([&string](uint i){return string[i];},l,r,characters,p));
     }
     
     /**
@@ -89,23 +85,21 @@ class string_rank_select_support {
             for (uint16_t i=0; i<256; i++) {
                 for (uint16_t i_p=0; i_p<p; i_p++) {
                     if (contains_uchar_thr[i_p][i] == 1) {
-                        uchars.emplace_back(i);
+                        characters.emplace_back(uchar_to_char((uint8_t)i));
                         break;
                     }
                 }
             }
         } else {
-            for (char c : chars) {
-                uchars.push_back(char_to_uchar(c));
-            }
+            characters = chars;
         }
 
         std::vector<sdsl::bit_vector> plain_bvs(256);
-        uint16_t num_chars = uchars.size();
+        uint16_t num_chars = characters.size();
 
         #pragma omp parallel for num_threads(p)
         for (uint16_t i=0; i<num_chars; i++) {
-            plain_bvs[uchars[i]] = std::move(sdsl::bit_vector(size));
+            plain_bvs[char_to_uchar(characters[i])] = std::move(sdsl::bit_vector(size));
         }
 
         #pragma omp parallel for num_threads(p)
@@ -113,14 +107,14 @@ class string_rank_select_support {
             plain_bvs[char_to_uchar(read(i))][i] = 1;
         }
 
-        sd_arrays.resize(256);
+        hyb_bit_vecs.resize(256);
         occurrences.resize(256);
 
         #pragma omp parallel for num_threads(p)
         for (uint16_t i=0; i<num_chars; i++) {
-            sd_arrays[uchars[i]] = std::move(sd_array<uint_t>(plain_bvs[uchars[i]]));
-            plain_bvs[uchars[i]] = sdsl::bit_vector();
-            occurrences[uchars[i]] = sd_arrays[uchars[i]].num_ones();
+            hyb_bit_vecs[char_to_uchar(characters[i])] = std::move(hybrid_bv_t(std::move(plain_bvs[char_to_uchar(characters[i])])));
+            plain_bvs[char_to_uchar(characters[i])] = sdsl::bit_vector();
+            occurrences[char_to_uchar(characters[i])] = hyb_bit_vecs[char_to_uchar(characters[i])].num_ones();
         }
     }
 
@@ -129,15 +123,16 @@ class string_rank_select_support {
      * @return alphabet_size 
      */
     inline uint8_t alphabet_size() {
-        return uchars.size();
+        return characters.size();
     }
 
-    inline uint_t num_occurrences(uint8_t c) {
-        return occurrences[c];
-    }
-
+    /**
+     * @brief returns the number of occurrences of c in the input string
+     * @param c character
+     * @return the number of occurrences of c in the input string
+     */
     inline uint_t num_occurrences(char c) {
-        return num_occurrences(char_to_uchar(c));
+        return occurrences[char_to_uchar(c)];
     }
 
     /**
@@ -145,10 +140,10 @@ class string_rank_select_support {
      * @return size of the data structure in bytes
      */
     uint64_t size_in_bytes() {
-        uint64_t size = sizeof(uint_t)+uchars.size(); // variables
+        uint64_t size = sizeof(uint_t)+characters.size()+sizeof(uint_t)*characters.size();
 
-        for (uint16_t i=0; i<sd_arrays.size(); i++) {
-            size += sd_arrays[i].size_in_bytes();
+        for (uint16_t i=0; i<hyb_bit_vecs.size(); i++) {
+            size += hyb_bit_vecs[i].size_in_bytes();
         }
 
         return size;
@@ -157,53 +152,14 @@ class string_rank_select_support {
     /**
      * @brief returns the number of occurrences of c before index i
      * @param c a character
-     * @param i [0..size-1]
-     * @return number of occurrences of c before index i
-     */
-    inline uint_t rank(uint8_t c, uint_t i) {
-        return sd_arrays[c].rank_1(i);
-    }
-
-    /**
-     * @brief returns the number of occurrences of c before index i
-     * @param c a character
-     * @param i [0..size-1]
+     * @param i [0..size]
      * @return number of occurrences of c before index i
      */
     inline uint_t rank(char c, uint_t i) {
-        return rank(char_to_uchar(c),i);
+        static_assert(build_rank_support);
+        return hyb_bit_vecs[char_to_uchar(c)].rank_1(i);
     }
-
-    /**
-     * @brief returns the number of occurrences of characters other than c before index i
-     * @param c a character
-     * @param i [0..size-1]
-     * @return number of coccurrences of characters other than c before index i
-     */
-    inline uint_t rank_other(uint8_t c, uint_t i) {
-        return sd_arrays[c].rank_0(i);
-    }
-
-    /**
-     * @brief returns the number of occurrences of characters other than c before index i
-     * @param c a character
-     * @param i [0..size-1]
-     * @return number of coccurrences of characters other than c before index i
-     */
-    inline uint_t rank_other(char c, uint_t i) {
-        return rank_other(char_to_uchar(c),i);
-    }
-
-    /**
-     * @brief returns the index of the i-th occurrence of c
-     * @param c a character that occurs in the input string
-     * @param i [0..number of occurrences of c in the input string - 1]
-     * @return index of the i-th occurrence of c
-     */
-    inline uint_t select(uint8_t c, uint_t i) {
-        return sd_arrays[c].select_1(i);
-    }
-
+    
     /**
      * @brief returns the index of the i-th occurrence of c
      * @param c a character that occurs in the input string
@@ -211,121 +167,61 @@ class string_rank_select_support {
      * @return index of the i-th occurrence of c
      */
     inline uint_t select(char c, uint_t i) {
-        return select(char_to_uchar(c),i);
+        static_assert(build_rank_support);
+        return hyb_bit_vecs[char_to_uchar(c)].select_1(i);
     }
 
     /**
      * @brief returns the i-th index, at which there is a character other than c
      * @param c a character that occurs in the input string
-     * @param i [0..sum of the numbers of occurences of all characters other than c in the input string - 1]
-     * @return i-th index, at which there is a character other than c
-     */
-    inline uint_t select_other(uint8_t c, uint_t i) {
-        return sd_arrays[c].select_1(i);
-    }
-
-    /**
-     * @brief returns the i-th index, at which there is a character other than c
-     * @param c a character that occurs in the input string
-     * @param i [0..sum of the numbers of occurences of all characters other than c in the input string - 1]
+     * @param i [0..sum of the numbers of occurrences of all characters other than c in the input string - 1]
      * @return i-th index, at which there is a character other than c
      */
     inline uint_t select_other(char c, uint_t i) {
-        return select_other(char_to_uchar(c),i);
+        static_assert(build_rank_support);
+        return hyb_bit_vecs[char_to_uchar(c)].select_1(i);
     }
 
     /**
-     * @brief returns the index of the next occurence of c after index i
+     * @brief returns the index of the next occurrence of c after index i
      * @param c a character that occurs after index i in the input string
      * @param i [0..size-1]
-     * @return the index of the next occurence of c after index i
-     */
-    inline uint_t next(uint8_t c, uint_t i) {
-        return sd_arrays[c].next_1(i);
-    }
-
-    /**
-     * @brief returns the index of the next occurence of c after index i
-     * @param c a characte that occurs after index i in the input string
-     * @param i [0..size-1]
-     * @return the index of the next occurence of c after index i
+     * @return the index of the next occurrence of c after index i
      */
     inline uint_t next(char c, uint_t i) {
-        return next(char_to_uchar(c),i);
+        return hyb_bit_vecs[char_to_uchar(c)].next_1(i);
     }
 
     /**
-     * @brief returns the index of the previous occurence of c before index i
+     * @brief returns the index of the previous occurrence of c before index i
      * @param c a character that occurs before index i in the input string
      * @param i [0..size-1]
-     * @return the index of the next occurence of c before index i
-     */
-    inline uint_t previous(uint8_t c, uint_t i) {
-        return sd_arrays[c].previous_1(i);
-    }
-
-    /**
-     * @brief returns the index of the previous occurence of c before index i
-     * @param c a character that occurs before index i in the input string
-     * @param i [0..size-1]
-     * @return the index of the next occurence of c before index i
+     * @return the index of the next occurrence of c before index i
      */
     inline uint_t previous(char c, uint_t i) {
-        return previous(char_to_uchar(c),i);
+        return hyb_bit_vecs[char_to_uchar(c)].previous_1(i);
     }
 
     /**
      * @brief returns the index of the next character other than c after index i
      * @param c a character that occurs in the input string
      * @param i [0..size-1] an index in the input string, after which
-     * there occurrs a character c' != c in the input string
-     * @return the index of the next character other than c after index i 
-     */
-    inline uint_t next_other(uint8_t c, uint_t i) {
-        return sd_arrays[c].next_0(i);
-    }
-
-    /**
-     * @brief returns the index of the next character other than c after index i
-     * @param c a character that occurs in the input string
-     * @param i [0..size-1] an index in the input string, after which
-     * there occurrs a character c' != c in the input string
+     * there occurs a character c' != c in the input string
      * @return the index of the next character other than c after index i 
      */
     inline uint_t next_other(char c, uint_t i) {
-        return next_other(char_to_uchar(c),i);
+        return hyb_bit_vecs[char_to_uchar(c)].next_0(i);
     }
 
     /**
      * @brief returns the index of the previous character other than c before index i
      * @param c a character that occurs in the input string
      * @param i [0..size-1] an index in the input string, before which
-     * there occurrs a character c' != c in the input string
-     * @return the index of the previous character other than c before index i
-     */
-    inline uint_t previous_other(uint8_t c, uint_t i) {
-        return sd_arrays[c].previous_0(i);
-    }
-
-    /**
-     * @brief returns the index of the previous character other than c before index i
-     * @param c a character that occurs in the input string
-     * @param i [0..size-1] an index in the input string, before which
-     * there occurrs a character c' != c in the input string
+     * there occurs a character c' != c in the input string
      * @return the index of the previous character other than c before index i
      */
     inline uint_t previous_other(char c, uint_t i) {
-        return previous_other(char_to_uchar(c),i);
-    }
-
-    /**
-     * @brief returns whether there is a c at index i
-     * @param i [0..size-1]
-     * @param c a character that occurs in the input string
-     * @return whether there is a c at index i
-     */
-    inline bool equals_at(uint_t i, uint8_t c) {
-        return sd_arrays[c][i];
+        return hyb_bit_vecs[char_to_uchar(c)].previous_0(i);
     }
 
     /**
@@ -335,16 +231,7 @@ class string_rank_select_support {
      * @return whether there is a c at index i
      */
     inline bool equals_at(uint_t i, char c) {
-        return equals_at(i,char_to_uchar(c));
-    }
-
-    /**
-     * @brief returns whether the input string contains c
-     * @param c a character
-     * @return whether the input string contains c
-     */
-    inline bool contains_character(uint8_t c) {
-        return occurrences[c] != 0;
+        return hyb_bit_vecs[char_to_uchar(c)][i];
     }
 
     /**
@@ -353,69 +240,37 @@ class string_rank_select_support {
      * @return whether the input string contains c
      */
     inline bool contains_character(char c) {
-        return contains_character(char_to_uchar(c));
+        return occurrences[char_to_uchar(c)] != 0;
     }
 
     /**
-     * @brief returns whether the character c occurrs before index i in the input string
-     * @param c character that occurrs in the input string
+     * @brief returns whether the character c occurs before index i in the input string
+     * @param c character that occurs in the input string
      * @param i [0..size-1]
-     * @return whether c occurrs before index i
+     * @return whether c occurs before index i
      */
-    inline bool occurrs_before(uint8_t c, uint_t i) {
-        return rank(c,i) != 0;
+    inline bool occurs_before(char c, uint_t i) {
+        static_assert(build_rank_support);
+        return rank(char_to_uchar(c),i) != 0;
     }
 
     /**
-     * @brief returns whether the character c occurrs before index i in the input string
-     * @param c character that occurrs in the input string
-     * @param i [0..size-1]
-     * @return whether c occurrs before index i
-     */
-    inline bool occurrs_before(char c, uint_t i) {
-        return occurrs_before(char_to_uchar(c),i);
-    }
-
-    /**
-     * @brief returns whether the character c occurrs after index i in the input string
-     * @param c character that occurrs in the input string
+     * @brief returns whether the character c occurs after index i in the input string
+     * @param c character that occurs in the input string
      * @param i [0..size-2]
-     * @return whether c occurrs after index i
+     * @return whether c occurs after index i
      */
-    inline bool occurrs_after(uint8_t c, uint_t i) {
-        return rank(c,i+1) < occurrences[c];
-    }
-
-    /**
-     * @brief returns whether the character c occurrs after index i in the input string
-     * @param c character that occurrs in the input string
-     * @param i [0..size-2]
-     * @return whether c occurrs after index i
-     */
-    inline bool occurrs_after(char c, uint_t i) {
-        return occurrs_after(char_to_uchar(c),i);
+    inline bool occurs_after(char c, uint_t i) {
+        static_assert(build_rank_support);
+        return rank(char_to_uchar(c),i+1) < occurrences[c];
     }
 
     /**
      * @brief returns a vector containing all characters in the input string (the alphabet)
-     * @tparam char_t character type
      * @return the alphabet
      */
-    template <typename char_t>
-    std::vector<char_t> alphabet() {
-        static_assert(std::is_same<char_t,uint8_t>::value || std::is_same<char_t,char>::value);
-
-        if constexpr (std::is_same<char_t,uint8_t>::value) {
-            return uchars;
-        } else {
-            std::vector<char> chars(0);
-
-            for (uint8_t c : uchars) {
-                chars.emplace_back(uchar_to_char(c));
-            }
-            
-            return chars;
-        }
+    std::vector<char> alphabet() {
+        return characters;
     }
 
     /**
@@ -426,14 +281,14 @@ class string_rank_select_support {
         out.write((char*)&size,sizeof(uint_t));
         
         if (size > 0) {
-            uint8_t num_chars = uchars.size();
+            uint8_t num_chars = characters.size();
             out.write((char*)&num_chars,1);
 
-            out.write((char*)&uchars[0],uchars.size());
+            out.write((char*)&characters[0],characters.size());
             out.write((char*)&occurrences[0],256*sizeof(uint_t));
 
-            for (uint16_t i=0; i<uchars.size(); i++) {
-                sd_arrays[uchars[i]].serialize(out);
+            for (uint16_t i=0; i<characters.size(); i++) {
+                hyb_bit_vecs[char_to_uchar(characters[i])].serialize(out);
             }
         }
     }
@@ -449,16 +304,16 @@ class string_rank_select_support {
             uint8_t num_chars;
             in.read((char*)&num_chars,1);
 
-            uchars.resize(num_chars);
-            in.read((char*)&uchars[0],num_chars);
+            characters.resize(num_chars);
+            in.read((char*)&characters[0],num_chars);
 
             occurrences.resize(256);
             in.read((char*)&occurrences[0],256*sizeof(uint_t));
 
-            sd_arrays.resize(256);
+            hyb_bit_vecs.resize(256);
 
-            for (uint16_t i=0; i<uchars.size(); i++) {
-                sd_arrays[uchars[i]].load(in);
+            for (uint16_t i=0; i<characters.size(); i++) {
+                hyb_bit_vecs[char_to_uchar(characters[i])].load(in);
             }
         }
     }

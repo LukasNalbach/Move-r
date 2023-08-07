@@ -98,11 +98,11 @@ uint64_t mt_process_file(const Args_Newscan& arg, map<uint64_t,word_stats>& wf, 
     td[i].end = (i+1==arg.th) ? size : (i+1)*(size/arg.th); // range end
     assert(td[i].end<=size);
     // open the 1st pass parsing file
-    td[i].parse = open_aux_file_num(arg.name_inputfile.c_str(),EXTPARS0,i,"wb");
+    td[i].parse = open_aux_file_num(arg.name_input_file.c_str(),EXTPARS0,i,"wb");
     // open output file containing the char at position -(w+1) of each word
-    td[i].last = open_aux_file_num(arg.name_inputfile.c_str(),EXTLST,i,"wb");
+    td[i].last = open_aux_file_num(arg.name_input_file.c_str(),EXTLST,i,"wb");
     // if requested open file containing the ending position+1 of each word
-    td[i].sa = arg.compute_sa_info ?open_aux_file_num(arg.name_inputfile.c_str(),EXTSAI,i,"wb") : NULL;
+    td[i].sa = arg.compute_sa_info ?open_aux_file_num(arg.name_input_file.c_str(),EXTSAI,i,"wb") : NULL;
     xpthread_create(&t[i],NULL,&mt_parse,&td[i],__LINE__,__FILE__);
   }
 
@@ -222,9 +222,9 @@ uint64_t mt_process_file_fasta(Args_Newscan& arg, map<uint64_t,word_stats>& wf, 
   pthread_t t[arg.th];
   mt_data td[arg.th];
   // scan file for start positions and execute threads
-  FILE* fp = fopen(arg.name_inputfile.c_str(), "r");
+  FILE* fp = fopen(arg.name_input_file.c_str(), "r");
   if (fp == NULL) {
-    throw new std::runtime_error("Cannot open input file " +arg.name_inputfile);
+    throw new std::runtime_error("Cannot open input file " +arg.name_input_file);
   }
   fseek(fp, 0L, SEEK_END);
   size_t size = ftell(fp);
@@ -259,9 +259,9 @@ uint64_t mt_process_file_fasta(Args_Newscan& arg, map<uint64_t,word_stats>& wf, 
           td[j-1].start = th_sts[j-1]; // range start
           td[j-1].end = (j==arg.th) ? size : th_sts[j];
           assert(td[j-1].end<=size);
-          td[j-1].parse = open_aux_file_num(arg.name_inputfile.c_str(),EXTPARS0,j-1,"wb");
-          td[j-1].last = open_aux_file_num(arg.name_inputfile.c_str(),EXTLST,j-1,"wb");
-          td[j-1].sa = arg.compute_sa_info ?open_aux_file_num(arg.name_inputfile.c_str(),EXTSAI,j-1,"wb") : NULL;
+          td[j-1].parse = open_aux_file_num(arg.name_input_file.c_str(),EXTPARS0,j-1,"wb");
+          td[j-1].last = open_aux_file_num(arg.name_input_file.c_str(),EXTLST,j-1,"wb");
+          td[j-1].sa = arg.compute_sa_info ?open_aux_file_num(arg.name_input_file.c_str(),EXTSAI,j-1,"wb") : NULL;
           xpthread_create(&t[j-1],NULL,&mt_parse_fasta,&td[j-1],__LINE__,__FILE__);
         }
         ++j;
@@ -285,9 +285,9 @@ uint64_t mt_process_file_fasta(Args_Newscan& arg, map<uint64_t,word_stats>& wf, 
   td[j-1].true_end = true_ends[j-1];
   td[j-1].start = th_sts[j-1]; // range start
   td[j-1].end = size;
-  td[j-1].parse = open_aux_file_num(arg.name_inputfile.c_str(),EXTPARS0,j-1,"wb");
-  td[j-1].last = open_aux_file_num(arg.name_inputfile.c_str(),EXTLST,j-1,"wb");
-  td[j-1].sa = arg.compute_sa_info ?open_aux_file_num(arg.name_inputfile.c_str(),EXTSAI,j-1,"wb") : NULL;
+  td[j-1].parse = open_aux_file_num(arg.name_input_file.c_str(),EXTPARS0,j-1,"wb");
+  td[j-1].last = open_aux_file_num(arg.name_input_file.c_str(),EXTLST,j-1,"wb");
+  td[j-1].sa = arg.compute_sa_info ?open_aux_file_num(arg.name_input_file.c_str(),EXTSAI,j-1,"wb") : NULL;
   xpthread_create(&t[j-1],NULL,&mt_parse_fasta,&td[j-1],__LINE__,__FILE__);
   fclose(fp);
   // TODO: we might have a bunch of threads at the end that start at the same

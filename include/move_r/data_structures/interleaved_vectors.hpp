@@ -20,31 +20,25 @@ class interleaved_vectors {
     /**
      * @brief [0..(size+1)*vecs-1] vector storing the interleaved vectors
      */
-    std::vector<uint8_t> data;
+    std::vector<char> data;
 
     /**
      * @brief [0..vecs-1] widths of the stored vectors; widths[i] = width of vector i
      */
-    std::array<uint8_t,16> widths = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    std::array<uint64_t,16> widths = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
     /**
      * @brief [0..vecs-1] pointers to the first entries of each vector; bases[vec] = base
      *        of the first entry of the vector with index vec
      */
-    std::array<uint8_t*,16> bases = {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+    std::array<char*,16> bases = {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                                      NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL};
 
     /**
      * @brief [0..vecs-1] masks that are used to mask off data of other vector entries when
      *        accessing a vector
      */
-    std::array<uint_t,16> masks_get = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-
-    /**
-     * @brief [0..vecs-1] masks that are used to mask off data of other vector entries when
-     *        setting an entry in a vector
-     */
-    std::array<uint_t,16> masks_set = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    std::array<uint_t,16> masks = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
     
     void set_bases() {
         bases[0] = &data[0];
@@ -64,8 +58,7 @@ class interleaved_vectors {
         width_entry = other.width_entry;
         data = other.data;
         widths = other.widths;
-        masks_get = other.masks_get;
-        masks_set = other.masks_set;
+        masks = other.masks;
 
         set_bases();
     }
@@ -81,8 +74,7 @@ class interleaved_vectors {
         data = std::move(other.data);
         widths = std::move(other.widths);
         bases = std::move(other.bases);
-        masks_get = std::move(other.masks_get);
-        masks_set = std::move(other.masks_set);
+        masks = std::move(other.masks);
         set_bases();
 
         other.size = 0;
@@ -92,9 +84,29 @@ class interleaved_vectors {
         for (uint8_t i=0; i<16; i++) {
             other.bases[i] = NULL;
             other.widths[i] = 0;
-            other.masks_get[i] = 0;
-            other.masks_set[i] = 0;
+            other.masks[i] = 0;
         }
+    }
+
+    /**
+     * @brief resizes all stored vectors to size
+     * @param size size
+     * @param initialize_memory controls whether the vectors should be initialized to 0
+     */
+    void resize(uint64_t size, bool initialize_memory = true) {
+        this->size = size;
+
+        if (initialize_memory) {
+            data.resize((size+1)*width_entry);
+        } else {
+            no_init_resize(data,(size+1)*width_entry);
+
+            for (uint64_t byte=0; byte<width_entry; byte++) {
+                data[(size * width_entry) + byte] = 0;
+            }
+        }
+        
+        set_bases();
     }
     
     public:
@@ -122,8 +134,7 @@ class interleaved_vectors {
         for (uint8_t i=0; i<vecs; i++) {
             this->widths[i] = widths[i];
             width_entry += widths[i];
-            masks_get[i] = std::numeric_limits<uint_t>::max()>>(8*(sizeof(uint_t)-widths[i]));
-            masks_set[i] = ~masks_get[i];
+            masks[i] = std::numeric_limits<uint_t>::max()>>(8*(sizeof(uint_t)-widths[i]));
         }
 
         resize(size,initialize_memory);
@@ -136,7 +147,7 @@ class interleaved_vectors {
     uint64_t size_in_bytes() {
         return
             2*sizeof(uint64_t)+1+ // variables
-            vecs+ // widths
+            vecs*sizeof(uint64_t)+ // widths
             2*vecs*sizeof(uint_t)+ // masks
             (size+1)*width_entry; // data
     }
@@ -167,37 +178,11 @@ class interleaved_vectors {
     }
 
     /**
-     * @brief resizes all stored vectors to size
-     * @param size size
-     * @param initialize_memory controls whether the vectors should be initialized to 0
+     * @brief returns a pointer to the data of the interleved vectors
+     * @return pointer to the data of the interleved vectors
      */
-    void resize(uint64_t size, bool initialize_memory = true) {
-        this->size = size;
-
-        if (initialize_memory) {
-            data.resize((size+1)*width_entry);
-        } else {
-            (*reinterpret_cast<std::vector<no_init<char>>*>(&data)).resize((size+1)*width_entry);
-        }
-        
-        set_bases();
-    }
-
-    /**
-     * @brief (possibly re-)allocates the memory needed to resize all vectors to size
-     * @param size size
-     */
-    void reserve(uint64_t size) {
-        data.reserve((size+1)*width_entry);
-        set_bases();
-    }
-
-    /**
-     * @brief shrinks all vectors to size (possibly reallocates memory)
-     */
-    void shrink_to_fit() {
-        data.shrink_to_fit();
-        set_bases();
+    char* get_data() {
+        return reinterpret_cast<char*>(&data[0]);
     }
 
     /**
@@ -209,8 +194,11 @@ class interleaved_vectors {
     template <uint8_t vec>
     inline void set(uint_t i, uint_t v) {
         static_assert(vec < 16);
-        *reinterpret_cast<uint_t*>(bases[vec] + i * width_entry) =
-        (*reinterpret_cast<uint_t*>(bases[vec] + i * width_entry) & masks_set[vec]) | v;
+
+        for (uint64_t byte=0; byte<widths[vec]; byte++) {
+            *reinterpret_cast<char*>(bases[vec] + (i * width_entry) + byte) =
+            *(reinterpret_cast<char*>(&v) + byte);
+        }
     }
 
     /**
@@ -236,7 +224,7 @@ class interleaved_vectors {
     template <uint8_t vec>
     inline uint_t get(uint_t i) {
         static_assert(vec < 16);
-        return *reinterpret_cast<uint_t*>(bases[vec] + i * width_entry) & masks_get[vec];
+        return *reinterpret_cast<uint_t*>(bases[vec] + i * width_entry) & masks[vec];
     }
 
     /**
@@ -263,13 +251,12 @@ class interleaved_vectors {
         out.write((char*)&width_entry,sizeof(uint64_t));
 
         if (vecs > 0) {
-            out.write((char*)&widths[0],vecs);
-            out.write((char*)&masks_get[0],vecs*sizeof(uint_t));
-            out.write((char*)&masks_set[0],vecs*sizeof(uint_t));
+            out.write((char*)&widths[0],vecs*sizeof(uint64_t));
+            out.write((char*)&masks[0],vecs*sizeof(uint_t));
         }
 
         if (size > 0) {
-            out.write((char*)&data[0],size*width_entry);
+            write_to_file(out,(char*)&data[0],size*width_entry);
         }
     }
 
@@ -283,14 +270,13 @@ class interleaved_vectors {
         in.read((char*)&width_entry,sizeof(uint64_t));
 
         if (vecs > 0) {
-            in.read((char*)&widths[0],vecs);
-            in.read((char*)&masks_get[0],vecs*sizeof(uint_t));
-            in.read((char*)&masks_set[0],vecs*sizeof(uint_t));
+            in.read((char*)&widths[0],vecs*sizeof(uint64_t));
+            in.read((char*)&masks[0],vecs*sizeof(uint_t));
         }
 
         if (size > 0) {
             resize(size);
-            in.read((char*)&data[0],size*width_entry);
+            read_from_file(in,(char*)&data[0],size*width_entry);
         }
     }
 };

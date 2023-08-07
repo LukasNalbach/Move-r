@@ -10,6 +10,30 @@ template <typename uint_t = uint32_t>
 class move_data_structure_lf : public move_data_structure_phi<uint_t> {
     static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
 
+    /**
+     * @brief builds the move_data_structure_lf
+     * @param I a disjoint interval sequence
+     * @param n n = p_k + d_j
+     * @param p the number of threads to use during the construction
+     * @param a balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
+     * @param log controls whether to print log messages during the construction
+     * @param mf measurement file to write runtime data to
+     * @param delete_i whether I can be deleted during the construction
+     */
+    void build(
+        std::vector<std::pair<uint_t,uint_t>>& I,
+        uint_t n,
+        uint16_t p,
+        uint16_t a,
+        bool log,
+        std::ostream* mf,
+        bool delete_i
+    ) {
+        move_data_structure_phi<uint_t>::is_move_data_structure_lf = true;
+        typename move_data_structure_phi<uint_t>::construction mdsc(*reinterpret_cast<move_data_structure_phi<uint_t>*>(this),I,n,p,a,delete_i,NULL,log,mf);
+        set_character(move_data_structure_phi<uint_t>::k_,0);
+    }
+
     public:
     move_data_structure_lf() = default;
 
@@ -29,7 +53,9 @@ class move_data_structure_lf : public move_data_structure_phi<uint_t> {
         uint16_t a = 8,
         bool log = false,
         std::ostream* mf = NULL
-    ) : move_data_structure_lf(std::move(I),n,p,a,log,mf) {}
+    ) {
+        build(I,n,p,a,log,mf,false);
+    }
 
     /**
      * @brief Constructs a new move data structure from a disjoint interval sequence
@@ -48,9 +74,7 @@ class move_data_structure_lf : public move_data_structure_phi<uint_t> {
         bool log = false,
         std::ostream* mf = NULL
     ) {
-        move_data_structure_phi<uint_t>::is_move_data_structure_lf = true;
-        typename move_data_structure_phi<uint_t>::construction mdsc(*reinterpret_cast<move_data_structure_phi<uint_t>*>(this),std::move(I),n,p,a,log,mf);
-        set_character(move_data_structure_phi<uint_t>::k_,0);
+        build(I,n,p,a,log,mf,true);
     }
 
     /**
@@ -58,11 +82,8 @@ class move_data_structure_lf : public move_data_structure_phi<uint_t> {
      * @param x index in [0..k_'-1]
      * @return the character at position x
      */
-    template <typename char_t>
-    inline char_t character(uint_t x) {
-        static_assert(std::is_same<char_t,char>::value || std::is_same<char_t,uint8_t>::value);
-
-        return move_data_structure_phi<uint_t>::data.template get_unsafe<3,char_t>(x);
+    inline char character(uint_t x) {
+        return move_data_structure_phi<uint_t>::data.template get_unsafe<3,char>(x);
     }
 
     /**
@@ -70,8 +91,7 @@ class move_data_structure_lf : public move_data_structure_phi<uint_t> {
      * @param x index in [0..k_'-1]
      * @param c a character
      */
-    template <typename char_t>
-    inline void set_character(uint_t x, char_t c) {
-        move_data_structure_phi<uint_t>::data.template set_unsafe<3,char_t>(x,c);
+    inline void set_character(uint_t x, char c) {
+        move_data_structure_phi<uint_t>::data.template set_unsafe<3,char>(x,c);
     }
 };

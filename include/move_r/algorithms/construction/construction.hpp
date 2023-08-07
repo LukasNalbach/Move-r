@@ -19,21 +19,23 @@ class move_r<uint_t>::construction {
     std::vector<int32_t> SA_32_tmp;
     std::vector<int64_t> SA_64_tmp;
     uint16_t p = 1; // the number of threads to use
-    bool build_from_sa_and_l = false; // 
+    bool build_from_sa_and_l = false; // controls whether the index should be built from the suffix array and the bwt
+    bool delete_T = false; // controls whether T should be deleted when not needed anymore
     bool log = false; // controls, whether to print log messages
-    std::ostream* measurement_file_index = NULL; // file to write measurement data of the index construction to 
-    std::ostream* measurement_file_move_data_structures = NULL; // file to write measurement data of the move data structure construction to 
-    std::string name_textfile = ""; // name of the text file (only for measurement output)
+    std::ostream* mf_idx = NULL; // file to write measurement data of the index construction to 
+    std::ostream* mf_mds = NULL; // file to write measurement data of the move data structure construction to 
+    std::string name_text_file = ""; // name of the text file (only for measurement output)
     std::string prefix_tempfiles = ""; // prefix of temporary files
     std::chrono::steady_clock::time_point time; // time of the start of the last build phase
     std::chrono::steady_clock::time_point time_start; // time of the start of the whole build phase
     uint64_t baseline_memory_allocation = 0; // memory allocation at the start of the construction
     bool build_count_support = false; // = true <=> build support for count (RS_L')
-    bool build_locate_support = false; // = true <=> build support for locate (SA_idx, SA_offs and M_Phi) and build parallel revert support (D_e)
-    bool read_rle_bwt = false; // = true <=> read the run-length encoded BWT
-    bool compress_br = false; // = true <=> compress B_r using sd-arrays
+    bool build_locate_support = false; // = true <=> build support for locate (SA_idx and M_Phi) and build parallel revert support (D_e)
+    bool read_rlbwt = false; // = true <=> read the run-length encoded BWT
     uint8_t terminator = 0; // terminator (dollar) symbol
     uint8_t min_valid_char = 0; // the minimum valid character that is allowed to occur in T
+    uint8_t max_remapped_uchar = 0; // the maximum character in T, that has been remappd
+    uint8_t max_remapped_to_uchar = 0; // the maximum character in T, that a character has been remappd to
 
     // ############################# INDEX VARIABLES #############################
 
@@ -46,7 +48,6 @@ class move_r<uint_t>::construction {
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))), 2 <= a
     uint16_t p_r = 0; // maximum possible number of threads to use while reverting the index
     uint8_t omega_idx = 0; // word width of SA_idx
-    uint8_t omega_offs = 0; // word width of SA_offs
 
     // ############################# CONSTRUCTION DATA STRUCTURE VARIABLES #############################
 
@@ -60,10 +61,10 @@ class move_r<uint_t>::construction {
     std::vector<int64_t>& SA_64;
     /** [0..n-1] The BWT */
     std::string& L;
-    /** [0..r-1] characters of the bwt runs */
-    std::string bwt_run_heads;
-    /** [0..r-1] lengths of the bwt runs */
-    std::vector<uint32_t> bwt_run_lengths;
+    /** [0..p-1] vectors that contain the RLBWT concatenated */
+    std::vector<std::vector<std::pair<char,uint32_t>>> RLBWT_thr;
+    /** [0..r-1] the RLBWT */
+    interleaved_vectors<uint32_t> RLBWT;
     /** [0..256] marks at position c whether the character c occurs in T */
     std::vector<uint8_t> contains_uchar = {};
     /** [0..p] n_p[0] < n_p[1] < ... < n_p[p] = n; n_p[i] = start position of thread i's section in L and SA */
@@ -77,24 +78,13 @@ class move_r<uint_t>::construction {
     std::vector<std::pair<uint_t,uint_t>> I_LF;
     /** The disjoint interval sequence for Phi */
     std::vector<std::pair<uint_t,uint_t>> I_Phi;
-    /** [0..r'-1] Suffix array samples at the end positions of the input intervals in M_LF; SA_s[x] = SA[M_LF.p(x+1)-1] */
+    /** [0..r'-1] if the end position of the i-th input interval of M_LF is the end position of a BWT run, then
+     * SA_[i] is the suffix array sample at the end position of the i-th input interval of M_LF; else SA_s[i] = n */
     std::vector<uint_t> SA_s;
     /** [0..r'-1] Permutation, that stores the order of the values in SA_s */
     std::vector<uint_t> pi_;
-    /** [...] vector that contains tuples of (i,j,l), where i marks the first input interval in a run of input intervals
-     * of M_LF, whiches end position does not correspond to the end position of a run in the bwt */
-    std::vector<std::tuple<uint_t,uint_t,uint_t>> SA_s_missing;
-    /** [0..p-1] vector of vectors like SA_s_missing, where the i-th vector corresponds to threads i */
-    std::vector<std::vector<std::tuple<uint_t,uint_t,uint_t>>> SA_s_missing_thr;
-    /** [0..p] start positions of each threads section in SA_s_missing */
-    std::vector<uint_t> SA_s_missing_sect;
-    /** [0..p] stores at position i the number of Phi-queries, that is required to compute all missing SA-samples in
-     *  the section of thread i */
-    std::vector<uint_t> num_SA_s_missing_thr;
-    /** [0..n-1] bitvector that marks the bwt run start positions */
-    std::vector<sdsl::bit_vector> B_r;
-    /** [0..n-1] bitvector that marks the bwt run start positions */
-    std::vector<sd_array<uint_t>> B_r_sd;
+    /** [0..r''-1] Permutation, that stores the order of the output interval starting positions of M_Phi */
+    std::vector<uint_t> pi_mphi;
 
     // ############################# COMMON MISC METHODS #############################
 
@@ -138,6 +128,46 @@ class move_r<uint_t>::construction {
     }
 
     /**
+     * @brief sets the run length of the i-th BWT run to len
+     * @param i [0..r-1] run index
+     * @param len run length
+     */
+    void set_run_length(uint_t i, uint32_t len) {
+        RLBWT.set_unsafe<1,uint32_t>(i,len);
+    }
+
+    /**
+     * @brief returns the length of the i-th BWT run
+     * @param i [0..r-1] run index
+     * @return run length
+     */
+    uint32_t run_length(uint_t i) {
+        return RLBWT.get_unsafe<1,uint32_t>(i);
+    }
+
+    /**
+     * @brief sets the character of the i-th BWT run to c
+     * @param i [0..r-1] run index
+     * @param c character
+     */
+    void set_run_char(uint_t i, char c) {
+        RLBWT.set_unsafe<0,char>(i,c);
+    }
+
+    /**
+     * @brief returns the character of the i-th BWT run
+     * @param i [0..r-1] run index
+     * @return character
+     */
+    char run_char(uint_t i) {
+        return RLBWT.get_unsafe<0,char>(i);
+    }
+
+    uint8_t run_uchar(uint_t i) {
+        return RLBWT.get_unsafe<0,uint8_t>(i);
+    }
+
+    /**
      * @brief sets some variables and logs
      */
     void prepare_phase_1() {
@@ -176,7 +206,6 @@ class move_r<uint_t>::construction {
     void prepare_phase_2() {
         if (p > 1 && 1000*p > n) {
             p = std::max((uint_t)1,n/1000);
-            omp_set_num_threads(p);
             if (log) std::cout << "warning: p > n/1000, setting p to n/1000 ~ " << std::to_string(p) << std::endl;
         }
 
@@ -201,12 +230,25 @@ class move_r<uint_t>::construction {
         std::cout << "peak memory allocation: " << format_size(peak_memory_allocation) << std::endl;
         idx.log_data_structure_sizes();
 
-        if (measurement_file_index != NULL) {
-            *measurement_file_index << " time_construction=" << time_construction;
-            *measurement_file_index << " peak_memory_allocation=" << peak_memory_allocation;
-            idx.log_data_structure_sizes(*measurement_file_index);
-            *measurement_file_index << std::endl;
+        if (mf_idx != NULL) {
+            *mf_idx << " time_construction=" << time_construction;
+            *mf_idx << " peak_memory_allocation=" << peak_memory_allocation;
+            idx.log_data_structure_sizes(*mf_idx);
+            *mf_idx << std::endl;
         }
+    }
+
+    /**
+     * @brief logs statistics of T
+     */
+    void log_statistics() {
+        double n_r = std::round(100.0*(n/(double)r))/100.0;
+        if (mf_idx != NULL) {
+            *mf_idx << " n=" << n;
+            *mf_idx << " sigma=" << std::to_string(sigma);
+            *mf_idx << " r=" << r;
+        }
+        std::cout << "n = " << n << ", sigma = " << std::to_string(sigma) << ", r = " << r << ", n/r = " << n_r << std::endl;
     }
 
     // ############################# CONSTRUCTORS #############################
@@ -220,29 +262,31 @@ class move_r<uint_t>::construction {
      * @param p the number of threads to use during the construction
      * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
      * @param log controls, whether to print log messages
-     * @param measurement_file_index measurement file for the index construciton
-     * @param measurement_file_move_data_structures measurement file for the move data structure construction
-     * @param name_textfile name of the input file (used only for measurement output)
+     * @param mf_idx measurement file for the index construciton
+     * @param mf_mds measurement file for the move data structure construction
+     * @param name_text_file name of the input file (used only for measurement output)
      */
     construction(
         move_r<uint_t>& index,
         std::string& T,
+        bool delete_T,
         std::vector<move_r_support> support,
         move_r_construction_mode construction_mode,
         uint16_t p,
         uint16_t a,
         bool log,
-        std::ostream* measurement_file_index,
-        std::ostream* measurement_file_move_data_structures,
-        std::string name_textfile
+        std::ostream* mf_idx,
+        std::ostream* mf_mds,
+        std::string name_text_file
     ) : T(T), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
+        this->delete_T = delete_T;
         this->support = support;
         this->p = p;
         this->a = a;
         this->log = log;
-        this->measurement_file_index = measurement_file_index;
-        this->measurement_file_move_data_structures = measurement_file_move_data_structures;
-        this->name_textfile = name_textfile;
+        this->mf_idx = mf_idx;
+        this->mf_mds = mf_mds;
+        this->name_text_file = name_text_file;
 
         prepare_phase_1();
 
@@ -278,9 +322,9 @@ class move_r<uint_t>::construction {
      * @param p the number of threads to use during the construction
      * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
      * @param log controls, whether to print log messages
-     * @param measurement_file_index measurement file for the index construciton
-     * @param measurement_file_move_data_structures measurement file for the move data structure construction
-     * @param name_textfile name of the input file (used only for measurement output)
+     * @param mf_idx measurement file for the index construciton
+     * @param mf_mds measurement file for the move data structure construction
+     * @param name_text_file name of the input file (used only for measurement output)
      */
     construction(
         move_r<uint_t>& index,
@@ -290,17 +334,17 @@ class move_r<uint_t>::construction {
         uint16_t p,
         uint16_t a,
         bool log,
-        std::ostream* measurement_file_index,
-        std::ostream* measurement_file_move_data_structures,
-        std::string name_textfile
+        std::ostream* mf_idx,
+        std::ostream* mf_mds,
+        std::string name_text_file
     ) : T(T_tmp), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
         this->support = support;
         this->p = p;
         this->a = a;
         this->log = log;
-        this->measurement_file_index = measurement_file_index;
-        this->measurement_file_move_data_structures = measurement_file_move_data_structures;
-        this->name_textfile = name_textfile;
+        this->mf_idx = mf_idx;
+        this->mf_mds = mf_mds;
+        this->name_text_file = name_text_file;
 
         prepare_phase_1();
 
@@ -322,7 +366,6 @@ class move_r<uint_t>::construction {
 
     /**
      * @brief constructs a move_r index from an input file
-     * @tparam sa_sint_t suffix array signed integer type
      * @param index The move-r index to construct
      * @param suffix_array vector containing the suffix array of the input
      * @param bwt string containing the bwt of the input
@@ -330,9 +373,9 @@ class move_r<uint_t>::construction {
      * @param p the number of threads to use during the construction
      * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
      * @param log controls, whether to print log messages
-     * @param measurement_file_index measurement file for the index construciton
-     * @param measurement_file_move_data_structures measurement file for the move data structure construction
-     * @param name_textfile name of the input file (used only for measurement output)
+     * @param mf_idx measurement file for the index construciton
+     * @param mf_mds measurement file for the move data structure construction
+     * @param name_text_file name of the input file (used only for measurement output)
      */
     construction(
         move_r<uint_t>& index,
@@ -342,24 +385,23 @@ class move_r<uint_t>::construction {
         uint16_t p,
         uint16_t a,
         bool log,
-        std::ostream* measurement_file_index,
-        std::ostream* measurement_file_move_data_structures,
-        std::string name_textfile
+        std::ostream* mf_idx,
+        std::ostream* mf_mds,
+        std::string name_text_file
     ) : T(T_tmp), L(bwt), SA_32(suffix_array), SA_64(SA_64_tmp), idx(index) {
         this->support = support;
         this->p = p;
         this->a = a;
         this->log = log;
-        this->measurement_file_index = measurement_file_index;
-        this->measurement_file_move_data_structures = measurement_file_move_data_structures;
-        this->name_textfile = name_textfile;
+        this->mf_idx = mf_idx;
+        this->mf_mds = mf_mds;
+        this->name_text_file = name_text_file;
         
         construct_from_sa_and_l<int32_t>();
     }
 
     /**
      * @brief constructs a move_r index from an input file
-     * @tparam sa_sint_t suffix array signed integer type
      * @param index The move-r index to construct
      * @param suffix_array vector containing the suffix array of the input
      * @param bwt string containing the bwt of the input
@@ -367,9 +409,9 @@ class move_r<uint_t>::construction {
      * @param p the number of threads to use during the construction
      * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
      * @param log controls, whether to print log messages
-     * @param measurement_file_index measurement file for the index construciton
-     * @param measurement_file_move_data_structures measurement file for the move data structure construction
-     * @param name_textfile name of the input file (used only for measurement output)
+     * @param mf_idx measurement file for the index construciton
+     * @param mf_mds measurement file for the move data structure construction
+     * @param name_text_file name of the input file (used only for measurement output)
      */
     construction(
         move_r<uint_t>& index,
@@ -379,17 +421,17 @@ class move_r<uint_t>::construction {
         uint16_t p,
         uint16_t a,
         bool log,
-        std::ostream* measurement_file_index,
-        std::ostream* measurement_file_move_data_structures,
-        std::string name_textfile
+        std::ostream* mf_idx,
+        std::ostream* mf_mds,
+        std::string name_text_file
     ) : T(T_tmp), L(bwt), SA_32(SA_32_tmp), SA_64(suffix_array), idx(index) {
         this->support = support;
         this->p = p;
         this->a = a;
         this->log = log;
-        this->measurement_file_index = measurement_file_index;
-        this->measurement_file_move_data_structures = measurement_file_move_data_structures;
-        this->name_textfile = name_textfile;
+        this->mf_idx = mf_idx;
+        this->mf_mds = mf_mds;
+        this->name_text_file = name_text_file;
         
         construct_from_sa_and_l<int64_t>();
     }
@@ -409,19 +451,22 @@ class move_r<uint_t>::construction {
 
         prepare_phase_1();
         prepare_phase_2();
-        build_l_and_c_in_memory<sa_sint_t>();
-        process_c_array();
-        process_rp_in_memory();
-        build_ilf_iphi_and_bwt_run_heads_in_memory<sa_sint_t>();
+        build_rlbwt_c_in_memory<sa_sint_t,true>();
+
+        if (log) log_statistics();
+
+        build_ilf();
         build_mlf();
-        build_l__in_memory_from_l<sa_sint_t>();
+
+        if (build_locate_support) build_iphi_in_memory<sa_sint_t>();
+
+        build_l__sas();
 
         if (build_locate_support) {
             sort_iphi();
             build_mphi();
-            build_sas_in_memory<sa_sint_t>();
-            build_saidxoffs(r_);
-            build_de(r_);
+            build_saidx();
+            build_de();
         }
 
         if (build_count_support) build_rsl_();
@@ -453,20 +498,22 @@ class move_r<uint_t>::construction {
         preprocess_t(true,true);
         prepare_phase_2();
         build_sa_in_memory<sa_sint_t>();
-        build_l_and_c_in_memory<sa_sint_t>();
-        process_c_array();
-        process_rp_in_memory();
-        build_ilf_iphi_and_bwt_run_heads_in_memory<sa_sint_t>();
-        build_br_in_memory();
+        build_rlbwt_c_in_memory<sa_sint_t,false>();
+
+        if (log) log_statistics();
+
+        build_ilf();
         build_mlf();
-        build_l__and_iphi_in_memory<sa_sint_t>();
+        
+        if (build_locate_support) build_iphi_in_memory<sa_sint_t>();
+
+        build_l__sas();
 
         if (build_locate_support) {
-            build_sas_in_memory<sa_sint_t>();
             sort_iphi();
             build_mphi();
-            build_saidxoffs(r_);
-            build_de(r_);
+            build_saidx();
+            build_de();
         }
 
         if (build_count_support) build_rsl_();
@@ -482,23 +529,34 @@ class move_r<uint_t>::construction {
 
         prepare_phase_2();
         pfp(t_file,delete_t_file);
-        if (log) log_peak_mem_usage(baseline_memory_allocation);
-        build_rlbwt_and_c_space_saving();
-        process_c_array();
-        build_ilf_space_saving();
-        build_mlf();
 
+        if (log) {
+            log_peak_mem_usage(baseline_memory_allocation);
+            log_statistics();
+        }
+
+        read_rlbwt_bwt();
+
+        if (read_rlbwt) {
+            preprocess_rlbwt_space_saving();
+        } else {
+            build_rlbwt_c_in_memory<int32_t,true>();
+        }
+        
+        build_ilf();
+        build_mlf();
+        
         if (build_locate_support) read_iphi_space_saving();
-        build_l__and_sas_space_saving();
+
+        build_l__sas();
 
         if (build_locate_support) {
             store_mlf();
             sort_iphi();
             build_mphi();
-            build_saidxoffs(r);
-            build_de(r);
+            build_saidx();
+            build_de();
             load_mlf();
-            compute_missing_sa_samples_space_saving();
         }
 
         if (build_count_support) build_rsl_();
@@ -513,14 +571,32 @@ class move_r<uint_t>::construction {
     void preprocess_t(bool in_memory, bool map_t, std::ifstream* t_file = NULL);
 
     /**
+     * @brief builds the RLBWT and C in-memory
+     * @tparam sa_sint_t suffix array signed integer type
+     * @tparam whether the RLBWT should be read from L
+     */
+    template <typename sa_sint_t = int32_t, bool read_l>
+    void build_rlbwt_c_in_memory();
+
+    /**
      * @brief processes the C-array
      */
-    void process_c_array();
+    void process_c();
+
+    /**
+     * @brief builds I_LF
+     */
+    void build_ilf();
 
     /**
      * @brief builds M_LF
      */
     void build_mlf();
+
+    /**
+     * @brief builds L' (and SA_s)
+     */
+    void build_l__sas();
 
     /**
      * @brief sorts I_Phi
@@ -533,16 +609,14 @@ class move_r<uint_t>::construction {
     void build_mphi();
 
     /**
-     * @brief builds SA_idxoffs
-     * @param r_ r' allows to override r' := r during memory-saving construction
+     * @brief builds SA_idx
      */
-    void build_saidxoffs(uint_t r_);
+    void build_saidx();
 
     /**
      * @brief builds D_e
-     * @param r_ r' allows to override r' := r during memory-saving construction
      */
-    void build_de(uint_t r_);
+    void build_de();
 
     /**
      * @brief builds RS_L'
@@ -565,49 +639,11 @@ class move_r<uint_t>::construction {
     void build_sa_in_memory();
 
     /**
-     * @brief builds L and C in-memory
-     * @tparam sa_sint_t suffix array signed integer type
-     */
-    template <typename sa_sint_t = int32_t>
-    void build_l_and_c_in_memory();
-
-    /**
-     * @brief processes r_p in-memory
-     */
-    void process_rp_in_memory();
-
-    /**
-     * @brief builds I_LF and the BWT run heads in-memory
+     * @brief builds SA_s from SA in memory
      * @tparam sa_sint_t suffix array signed integer type
      */
     template <typename sa_sint_t>
-    void build_ilf_iphi_and_bwt_run_heads_in_memory();
-
-    /**
-     * @brief builds B_r in-memory
-     */
-    void build_br_in_memory();
-
-    /**
-     * @brief builds L' and I_Phi in-memory
-     * @tparam sa_sint_t suffix array signed integer type
-     */
-    template <typename sa_sint_t = int32_t>
-    void build_l__and_iphi_in_memory();
-
-    /**
-     * @brief builds L' in-memory from L
-     * @tparam sa_sint_t suffix array signed integer type 
-     */
-    template <typename sa_sint_t>
-    void build_l__in_memory_from_l();
-
-    /**
-     * @brief builds SA_s in-memory
-     * @tparam sa_sint_t suffix array signed integer type
-     */
-    template <typename sa_sint_t = int32_t>
-    void build_sas_in_memory();
+    void build_iphi_in_memory();
 
     /**
      * @brief unmaps T from the internal alphabet
@@ -636,24 +672,19 @@ class move_r<uint_t>::construction {
     void pfp(std::ifstream& t_file, bool delete_t_file);
 
     /**
-     * @brief builds the RLBWT and C
+     * @brief reads the RLBWT or BWT from a file
      */
-    void build_rlbwt_and_c_space_saving();
+    void read_rlbwt_bwt();
 
     /**
-     * @brief builds I_LF
+     * @brief builds the RLBWT and C
      */
-    void build_ilf_space_saving();
+    void preprocess_rlbwt_space_saving();
 
     /**
      * @brief reads I_Phi
      */
     void read_iphi_space_saving();
-
-    /**
-     * @brief builds L' (and SA_s)
-     */
-    void build_l__and_sas_space_saving();
 
     /**
      * @brief stores M_LF in a file

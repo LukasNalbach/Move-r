@@ -4,7 +4,7 @@
 template <typename uint_t>
 void move_r<uint_t>::construction::read_t_from_file_in_memory(std::ifstream& t_file) {
     time = now();
-    if (log) std::cout << "reading T";
+    if (log) std::cout << "reading T" << std::flush;
 
     t_file.seekg(0,std::ios::end);
     n = t_file.tellg()+(std::streamsize)+1;
@@ -27,7 +27,7 @@ void move_r<uint_t>::construction::build_sa_in_memory() {
     }
 
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
-    (*reinterpret_cast<std::vector<no_init<sa_sint_t>>*>(&SA)).resize(n);
+    no_init_resize(SA,n);
 
     // Choose the correct suffix array construction algorithm.
     if constexpr (std::is_same<sa_sint_t,int32_t>::value) {
@@ -45,80 +45,106 @@ void move_r<uint_t>::construction::build_sa_in_memory() {
     }
     
     if (log) {
-        if (measurement_file_index != NULL) *measurement_file_index << " time_build_sa=" << time_diff_ns(time,now());
+        if (mf_idx != NULL) *mf_idx << " time_build_sa=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }
 
 template <typename uint_t>
-template <typename sa_sint_t>
-void move_r<uint_t>::construction::build_l_and_c_in_memory() {
+template <typename sa_sint_t, bool read_l>
+void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
     if (log) {
         time = now();
-        std::cout << "building L and C" << std::flush;
+        std::cout << "building RLBWT" << std::flush;
     }
 
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
 
-    if (!build_from_sa_and_l) {
-        no_init_resize(L,n);
+    r_p.resize(p+1);
+    RLBWT_thr.resize(p);
+
+    for (uint16_t i=0; i<p; i++) {
+        n_p.emplace_back(i*(n/p));
     }
 
-    C.resize(p+1);
-    r_p.resize(p+1);
+    n_p.emplace_back(n);
 
     #pragma omp parallel num_threads(p)
     {
         // Index in [0..p-1] of the current thread.
         uint16_t i_p = omp_get_thread_num();
 
-        C[i_p].resize(256,0);
-
         // Iteration range start position of thread i_p.
-        uint_t b = i_p*(n/p);
+        uint_t b = n_p[i_p];
         // Iteration range end position of thread i_p.
-        uint_t e = i_p == p-1 ? n-1 : (i_p+1)*(n/p)-1;
+        uint_t e = n_p[i_p+1];
 
-        if (!build_from_sa_and_l) {
-            // Build L in the range [b..e].
-            for (uint_t i=b; i<=e; i++) {
-                L[i] = T[SA[i] == 0 ? n-1 : SA[i]-1];
+        // Store in C[i_p][c] the number of occurrences of c in L[b..e], for each c in [0..255].
+
+        char prev_char; // previous character in L.
+        char cur_char; // current character in L.
+        uint_t i_ = b; // start position of the last seen run in L.
+
+        if constexpr (read_l) {
+            prev_char = L[b];
+        } else {
+            prev_char = T[SA[b] == 0 ? n-1 : SA[b]-1];
+        }
+
+        // Iterate backwards in L until the next run start position.
+        if (p > 0) {
+            while (i_ > n_p[i_p-1] && (read_l ? L[i_-1] : T[SA[i_-1] == 0 ? n-1 : SA[i_-1]-1]) == prev_char) {
+                i_--;
             }
         }
 
-        // Store in C[i_p][c] the number of occurences of c in L[b..e], for each c in [0..255].
+        #pragma omp barrier
+
+        // communicate the new iteration range start positions in L.
+        n_p[i_p] = i_;
+
+        #pragma omp barrier
+
+        // adjust the current threads iteration range end position.
+        e = n_p[i_p+1];
+
+        // Iterate over the range L[b+1..e-1]
+        for (uint_t i=b+1; i<e; i++) {
+            if constexpr (read_l) {
+                cur_char = L[i];
+            } else {
+                cur_char = T[SA[i] == 0 ? n-1 : SA[i]-1];
+            }
+
+            if (cur_char != prev_char) {
+                RLBWT_thr[i_p].emplace_back(std::make_pair(prev_char,i-i_));
+
+                prev_char = cur_char;
+                i_ = i;
+            }
+        }
+
+        RLBWT_thr[i_p].emplace_back(std::make_pair(prev_char,e-i_));
+
         // Store in r_p[i_p] the number of runs starting in L[b..e].
-
-        // We add an artificial run starting at b.
-        C[i_p][char_to_uchar(L[b])]++;
-        r_p[i_p] = 1;
-        
-        // Iterate over the range L[b..e]
-        for (uint_t i=b+1; i<=e; i++) {
-
-            // Count the occurence of L[i] in C[i_p][L[i]].
-            C[i_p][char_to_uchar(L[i])]++;
-
-            // If there is a run starting at position i, count it in r_p[i_p].
-            if (L[i] != L[i-1]) {
-                r_p[i_p]++;
-            }
-        }
+        r_p[i_p] = RLBWT_thr[i_p].size();
     }
 
-    if (&T == &T_tmp) {
+    if (&L == &L_tmp) {
+        L.clear();
+        L.shrink_to_fit();
+    }
+
+    if (delete_T) {
         T.clear();
         T.shrink_to_fit();
     }
 
-    if (!build_locate_support && !build_from_sa_and_l) {
+    if (!build_locate_support && !read_l) {
         SA.clear();
         SA.shrink_to_fit();
     }
-}
 
-template <typename uint_t>
-void move_r<uint_t>::construction::process_rp_in_memory() {
     /* Now, r_p[i_p] stores the number of runs starting in the iteration range L[b..e] of thread
     i_p in [0..p-1], and r_p[p] = 0. We want r_p[i_p] to store the number of runs starting before
     the iteration range start position b of thread i_p in [0..p-1]. Also, we want r_p[p] to store
@@ -141,41 +167,20 @@ void move_r<uint_t>::construction::process_rp_in_memory() {
     r = r_p[p];
     idx.r = r;
 
-    if (log) {
-        double n_r = std::round(100.0*(n/(double)r))/100.0;
-        if (measurement_file_index != NULL) {
-            *measurement_file_index << " time_build_l_c=" << time_diff_ns(time,now());
-            *measurement_file_index << " n=" << n;
-            *measurement_file_index << " sigma=" << std::to_string(sigma);
-            *measurement_file_index << " r=" << r;
-        }
-        time = log_runtime(time);
-        std::cout << "n = " << n << ", sigma = " << std::to_string(sigma) << ", r = " << r << ", n/r = " << n_r << std::endl;
-    }
-}
+    RLBWT = std::move(interleaved_vectors<uint32_t>({1,4},r,false));
 
-template <typename uint_t>
-template <typename sa_sint_t>
-void move_r<uint_t>::construction::build_ilf_iphi_and_bwt_run_heads_in_memory() {
-    if (log) {
-        time = now();
-        std::string msg;
-        if (build_from_sa_and_l) {
-            msg = "building I_LF and I_Phi";
-        } else {
-            msg = "building I_LF and bwt run heads";
-        }
-        std::cout << msg << std::flush;
+    std::vector<uint_t> r_p_new;
+    std::vector<uint_t> n_p_new;
+    n_p_new.resize(p+1);
+    C.resize(p+1);
+    n_p_new[p] = n;
+
+    for (uint16_t i=0; i<p; i++) {
+        r_p_new.emplace_back(i*(r/p));
+        C[i].resize(256);
     }
 
-    (*reinterpret_cast<std::vector<std::pair<no_init<uint_t>,no_init<uint_t>>>*>(&I_LF)).resize(r);
-    if (!build_from_sa_and_l) no_init_resize(bwt_run_heads,r);
-    std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
-
-    if (build_locate_support && build_from_sa_and_l) {
-        (*reinterpret_cast<std::vector<std::pair<no_init<uint_t>,no_init<uint_t>>>*>(&I_Phi)).resize(r);
-        I_Phi[0] = std::make_pair(SA[0],SA[n-1]);
-    }
+    r_p_new.emplace_back(r);
 
     #pragma omp parallel num_threads(p)
     {
@@ -183,281 +188,116 @@ void move_r<uint_t>::construction::build_ilf_iphi_and_bwt_run_heads_in_memory() 
         uint16_t i_p = omp_get_thread_num();
 
         // Iteration range start position of thread i_p.
-        uint_t b = i_p*(n/p);
+        uint_t b_r = r_p[i_p];
         // Iteration range end position of thread i_p.
-        uint_t e = i_p == p-1 ? n-1 : (i_p+1)*(n/p)-1;
+        uint_t e_r = r_p[i_p+1];
 
-        // Start position of the last-seen run.
-        uint_t i_ = b;
-        // Position in I_LF and M_Phi to write the next pairs to.
-        uint_t j = r_p[i_p];
+        // Iterator pointing to the current RLBWT pair in RLBWT_thr[i_p].
+        auto rlbwt_it = RLBWT_thr[i_p].begin();
 
-        // Build I_LF[r_p[i_p]..r_p[i_p+1]-1]
+        // Current position in L.
+        uint_t j = n_p[i_p];
 
-        /* Each thread creates one input interval starting at b,
-        whiches pair has to be placed at LF[r_p[i_p]]. */
-        I_LF[j] = std::make_pair(b,C[p][char_to_uchar(L[b])]+C[i_p][char_to_uchar(L[b])]);
-
-        if (build_from_sa_and_l) {
-            if (build_locate_support && b != 0) I_Phi[j] = std::make_pair(SA[b],SA[b-1]);
-        } else {
-            bwt_run_heads[j] = L[b];
-        }
-
-        j++;
-
-        // Iterate over the range L[b+1..e]
-        for (uint_t i=b+1; i<=e; i++) {
-
-            // Check, if a run starts at a position i
-            if (L[i] != L[i-1]) {
-                if (build_from_sa_and_l) {
-                    if (build_locate_support) I_Phi[j] = std::make_pair(SA[i],SA[i-1]);
-                } else {
-                    bwt_run_heads[j] = L[i];
-                }
-
-                /* Update the rank-function in C[i_p] to store C[i_p][c] = rank(L,c,i-1),
-                for each c in [0..255]. */
-                C[i_p][char_to_uchar(L[i-1])] += i-i_;
-
-                // Update the position i_ of the last-seen run to i.
-                i_ = i;
-
-                /* Write the pair (i,LF(i)) to the next position j in I_LF, where
-                LF(i) = C[L[i]] + rank(L,L[i],i-1) = C[p][L[i]] + C[i_p][L[i]]. */
-                I_LF[j] = std::make_pair(i,C[p][char_to_uchar(L[i])]+C[i_p][char_to_uchar(L[i])]);
-
-                j++;
-            }
-        }
-    }
-
-    C.clear();
-    C.shrink_to_fit();
-
-    if (build_from_sa_and_l) {
-        r_p.clear();
-        r_p.shrink_to_fit();
-    } else {        
-        L.clear();
-        L.shrink_to_fit();
-    }
-
-    if (log) {
-        if (measurement_file_index != NULL) *measurement_file_index << " time_build_ilf_iphi_bwt_run_heads=" << time_diff_ns(time,now());
-        time = log_runtime(time);
-    }
-}
-
-template <typename uint_t>
-void move_r<uint_t>::construction::build_br_in_memory() {
-    if (log) {
-        time = now();
-        std::cout << "building B_r" << std::flush;
-    }
-
-    // build bitvectors, that mark the run head positions in each threads section
-    B_r.resize(p);
-
-    #pragma omp parallel num_threads(p)
-    {
-        // Index in [0..p-1] of the current thread.
-        uint16_t i_p = omp_get_thread_num();
-
-        // Bwt range start position of thread i_p.
-        uint_t b = i_p*(n/p);
-        // Bwt range start position of thread i_p.
-        uint_t e = i_p == p-1 ? n-1 : (i_p+1)*(n/p)-1;
-
-        // Iteration range start position of thread i_p in I_LF.
-        uint_t b_r = r_p[i_p];
-        // Iteration range end position of thread i_p in I_LF.
-        uint_t e_r = r_p[i_p+1]-1;
-
-        // add one bit and mark the next section's first run start position
-        B_r[i_p] = std::move(sdsl::bit_vector(e-b+2));
-        B_r[i_p][e-b+1] = 1;
-
-        for (uint_t i=b_r; i<=e_r; i++) {
-            B_r[i_p][I_LF[i].first-b] = 1;
-        }
-    }
-    
-    // use an sd_vector, if the bitvectors are sparse (r << n)
-    compress_br = (n/r) > 7;
-
-    // compress B_r using sd_arrays
-    if (compress_br) {
-        B_r_sd.resize(p);
-
-        #pragma omp parallel num_threads(p)
-        {
-            // Index in [0..p-1] of the current thread.
-            uint16_t i_p = omp_get_thread_num();
-            B_r_sd[i_p] = std::move(sd_array<uint_t>(B_r[i_p]));
-        }
-
-        B_r.clear();
-        B_r.shrink_to_fit();
-    }
-
-    if (log) {
-        time = log_runtime(time);
-    }
-}
-
-template <typename uint_t>
-template <typename sa_sint_t>
-void move_r<uint_t>::construction::build_l__and_iphi_in_memory() {
-    if (log) {
-        time = now();
-        std::string msg;
-        if (build_locate_support) {
-            msg = "building L' and I_Phi";
-        } else {
-            msg = "building L'";
-        }
-        std::cout << msg << std::flush;
-    }
-
-    std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
-
-    if (build_locate_support) {
-        (*reinterpret_cast<std::vector<std::pair<no_init<uint_t>,no_init<uint_t>>>*>(&I_Phi)).resize(r);
-        I_Phi[0] = std::make_pair(SA[0],SA[n-1]);
-    }
-
-    // Simultaneously iterate over the input intervals of M_LF, the bwt run start positions and SA to build I_Phi and L'
-    #pragma omp parallel num_threads(p)
-    {
-        // Index in [0..p-1] of the current thread.
-        uint16_t i_p = omp_get_thread_num();
-
-        std::function<uint_t(uint_t)> Br_ip_select_1; // function that comutes select_1 on B_r[i_p]
-        sdsl::bit_vector::select_1_type Br_ip_select_1_support;
-
-        if (compress_br) {
-            Br_ip_select_1 = [this,&i_p](uint_t idx){return B_r_sd[i_p].select_1(idx);};
-        } else {
-            Br_ip_select_1_support = sdsl::bit_vector::select_1_type(&B_r[i_p]);
-            Br_ip_select_1 = [&Br_ip_select_1_support](uint_t idx){return Br_ip_select_1_support.select(idx);};
-        }
-
-        // Bwt range start position of thread i_p.
-        uint_t b = i_p*(n/p);
-
-        // Bwt runs iteration range start position of thread i_p.
-        uint_t b_r = r_p[i_p];
-        // Bwt runs iteration range end position of thread i_p.
-        uint_t e_r = r_p[i_p+1]-1;
-
-        /**
-         * @brief Index of the current input interval in M_LF, initially
-         *        the index of the input interval of M_LF, in which b lies.
-         */
-        uint_t j;
+        // Index of the current section in r_p_new.
+        uint_t cur_rp;
         {
             uint_t x,y,z;
             x = 0;
-            z = r_-1;
+            z = p-1;
 
             while (x != z) {
                 y = (x+z)/2+1;
-                if (idx.M_LF.p(y) <= b) {
+                if (r_p_new[y] <= b_r) {
                     x = y;
                 } else {
                     z = y-1;
                 }
             }
 
-            j = x;
+            cur_rp = x;
         }
 
-        uint_t l_ = b; // Starting position of the next bwt run.
+        if (b_r == r_p_new[cur_rp]) {
+            n_p_new[cur_rp] = j;
+        }
+        
+        // Index of the next section in r_p_new.
+        uint_t next_rp = cur_rp+1;
 
-        for (uint_t i=b_r; i<=e_r; i++) {
-            if (build_locate_support && i != 0) {
-                I_Phi[i] = std::make_pair(SA[l_],SA[l_-1]);
+        for (uint_t i=b_r; i<e_r; i++) {
+            if (i == r_p_new[next_rp]) {
+                n_p_new[next_rp] = j;
+                cur_rp++;
+                next_rp++;
             }
 
-            // update l_ to the next run start position
-            l_ = b + Br_ip_select_1(i-b_r+2);
+            // Count the occurrences of L[i-1] within the last run in C[i_p][L[i-1]].
+            #pragma omp atomic
+            C[cur_rp][char_to_uchar((*rlbwt_it).first)] += (*rlbwt_it).second;
 
-            // iterate over all input intervals in M_LF within the x-th bwt run, that have been created by the balancing algorithm
-            do {
-                idx.M_LF.template set_character<char>(j,bwt_run_heads[i]);
-                j++;
-            } while (idx.M_LF.p(j) < l_);
+            set_run_char(i,(*rlbwt_it).first);
+            set_run_length(i,(*rlbwt_it).second);
+
+            j += (*rlbwt_it).second;
+            rlbwt_it++;
         }
-
-        Br_ip_select_1_support.set_vector(NULL);
     }
 
-    r_p.clear();
-    r_p.shrink_to_fit();
+    RLBWT_thr.clear();
+    RLBWT_thr.shrink_to_fit();
 
-    bwt_run_heads.clear();
-    bwt_run_heads.shrink_to_fit();
+    r_p = std::move(r_p_new);
+    n_p = std::move(n_p_new);
 
-    if (compress_br) {
-        B_r_sd.clear();
-        B_r_sd.shrink_to_fit();
-    } else {
-        B_r.clear();
-        B_r.shrink_to_fit();
-    }
+    process_c();
 
     if (log) {
-        if (measurement_file_index != NULL) *measurement_file_index << " time_build_l_=" << time_diff_ns(time,now());
+        if (mf_idx != NULL) *mf_idx << " time_build_rlbwt=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }
 
 template <typename uint_t>
 template <typename sa_sint_t>
-void move_r<uint_t>::construction::build_l__in_memory_from_l() {
+void move_r<uint_t>::construction::build_iphi_in_memory() {
     if (log) {
         time = now();
-        std::cout << "building L'" << std::flush;
-    }
-
-    #pragma omp parallel for num_threads(p)
-    for (uint64_t i=0; i<r_; i++) {
-        idx.M_LF.template set_character<char>(i,L[idx.M_LF.p(i)]);
-    }
-
-    if (log) {
-        if (measurement_file_index != NULL) *measurement_file_index << " time_build_l_=" << time_diff_ns(time,now());
-        time = log_runtime(time);
-    }
-}
-
-template <typename uint_t>
-template <typename sa_sint_t>
-void move_r<uint_t>::construction::build_sas_in_memory() {
-    if (log) {
-        time = now();
-        std::cout << "building SA_s" << std::flush;
+        std::cout << "building I_Phi" << std::flush;
     }
 
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
-    (*reinterpret_cast<std::vector<no_init<uint_t>>*>(&SA_s)).resize(r_);
+    
+    no_init_resize(I_Phi,r);
+    I_Phi[0] = std::make_pair(SA[0],SA[n-1]);
 
-    // build SA_s
-    #pragma omp parallel for num_threads(p)
-    for (uint64_t i=0; i<r_; i++) {
-        SA_s[i] = SA[idx.M_LF.p(i+1)-1];
+    #pragma omp parallel num_threads(p)
+    {
+        uint16_t i_p = omp_get_thread_num();
+
+        // Bwt runs iteration range start position of thread i_p.
+        uint_t b_r = r_p[i_p];
+        // Bwt runs iteration range end position of thread i_p.
+        uint_t e_r = r_p[i_p+1];
+
+        // start position of the current BWT run.
+        uint_t j = n_p[i_p];
+
+        if (b_r != 0) I_Phi[b_r] = std::make_pair(SA[j],SA[j-1]);
+        j += run_length(b_r);
+
+        for (uint_t i=b_r+1; i<e_r; i++) {
+            I_Phi[i] = std::make_pair(SA[j],SA[j-1]);
+            j += run_length(i);
+        }
     }
 
     if (!build_from_sa_and_l) {
-        // Now we do not need the suffix array anymore
         SA.clear();
         SA.shrink_to_fit();
     }
 
     if (log) {
-        if (measurement_file_index != NULL) *measurement_file_index << " time_build_sas=" << time_diff_ns(time,now());
+        if (mf_idx != NULL) *mf_idx << " time_build_iphi=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }
@@ -465,7 +305,9 @@ void move_r<uint_t>::construction::build_sas_in_memory() {
 template <typename uint_t>
 void move_r<uint_t>::construction::unmap_t() {
     #pragma omp parallel for num_threads(p)
-    for (uint_t i=0; i<n-1; i++) {
-        T[i] = idx.unmap_from_internal(T[i]);
+    for (uint64_t i=0; i<n-1; i++) {
+        if (char_to_uchar(T[i]) <= max_remapped_to_uchar) {
+            T[i] = idx.unmap_from_internal(T[i]);
+        }
     }
 }

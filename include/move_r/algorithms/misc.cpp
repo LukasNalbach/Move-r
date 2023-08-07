@@ -8,7 +8,7 @@ void move_r<uint_t>::retrieve_range(
 
     if (num_threads == 1 && !output_reversed) {
         std::vector<output_t> write_buffer;
-        (*reinterpret_cast<std::vector<no_init<output_t>>*>(&write_buffer)).resize(max_writebuffer_size);
+        no_init_resize(write_buffer,max_writebuffer_size);
         int64_t pos_cur;
 
         (this->*retrieve_method)([&out,&pos_cur,&write_buffer,&max_writebuffer_size](uint_t, output_t v){
@@ -30,7 +30,7 @@ void move_r<uint_t>::retrieve_range(
 
         #pragma omp parallel for num_threads(num_threads)
         for (uint_t i=0; i<num_threads; i++) {
-            (*reinterpret_cast<std::vector<no_init<output_t>>*>(&write_buffer[i])).resize(max_writebuffer_size);
+            no_init_resize(write_buffer[i],max_writebuffer_size);
         }
         
         std::vector<int64_t> pos_cur(num_threads,0);
@@ -65,7 +65,7 @@ void move_r<uint_t>::retrieve_range(
 
         std::vector<output_t> temp_buffer;
         int64_t max_tempbuffer_size = num_threads*max_writebuffer_size;
-        (*reinterpret_cast<std::vector<no_init<output_t>>*>(&temp_buffer)).resize(max_tempbuffer_size);
+        no_init_resize(temp_buffer,max_tempbuffer_size);
         int64_t elems_left;
         int64_t elems_to_read;
 

@@ -1,15 +1,14 @@
 #include <iostream>
 #include <filesystem>
-#include <move_r/misc/utils.hpp>
 #include <move_r/move_r.hpp>
 
 int ptr = 1;
-std::ofstream measurement_file;
+std::ofstream mf;
 std::string path_index_file;
 std::string path_patterns_file;
 std::ifstream index_file;
 std::ifstream patterns_file;
-std::string name_textfile;
+std::string name_text_file;
 
 void help(std::string msg) {
     if (msg != "") std::cout << msg << std::endl;
@@ -29,9 +28,9 @@ void parse_args(char **argv, int argc, int &ptr) {
     if (s == "-m") {
         if (ptr >= argc - 1) help("error: missing parameter after -o option.");
         std::string path_m_file = argv[ptr++];
-        measurement_file.open(path_m_file,std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
-        if (!measurement_file.good()) help("error: cannot open measurement file");
-        name_textfile = argv[ptr++];
+        mf.open(path_m_file,std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
+        if (!mf.good()) help("error: cannot open measurement file");
+        name_text_file = argv[ptr++];
     } else {
         help("error: unrecognized '" + s + "' option");
     }
@@ -90,24 +89,23 @@ void measure_count() {
         std::cout << "            " << format_time(time_count/num_occurrences) << "/occurrence" << std::endl;
     }
 
-    if (measurement_file.is_open()) {
-        measurement_file << "RESULT";
-        measurement_file << " type=count";
-        measurement_file << " text=" << name_textfile;
-        measurement_file << " index_impl=move_r";
-        measurement_file << " a=" << index.balancing_parameter();
-        measurement_file << " n=" << index.input_size();
-        measurement_file << " sigma=" << std::to_string(index.alphabet_size());
-        measurement_file << " r=" << index.num_bwt_runs();
-        measurement_file << " r_=" << index.num_intervals_m_lf();
-        measurement_file << " r__=" << index.num_intervals_m_phi();
-        measurement_file << " pattern_length=" << pattern_length;
-        index.log_data_structure_sizes(measurement_file);
-        measurement_file << " num_patterns=" << num_patterns;
-        measurement_file << " num_occurrences=" << num_occurrences;
-        measurement_file << " time_count=" << time_count;
-        measurement_file << std::endl;
-        measurement_file.close();
+    if (mf.is_open()) {
+        mf << "RESULT";
+        mf << " type=count";
+        mf << " text=" << name_text_file;
+        mf << " a=" << index.balancing_parameter();
+        mf << " n=" << index.input_size();
+        mf << " sigma=" << std::to_string(index.alphabet_size());
+        mf << " r=" << index.num_bwt_runs();
+        mf << " r_=" << index.num_intervals_m_lf();
+        mf << " r__=" << index.num_intervals_m_phi();
+        mf << " pattern_length=" << pattern_length;
+        index.log_data_structure_sizes(mf);
+        mf << " num_patterns=" << num_patterns;
+        mf << " num_occurrences=" << num_occurrences;
+        mf << " time_count=" << time_count;
+        mf << std::endl;
+        mf.close();
     }
 }
 

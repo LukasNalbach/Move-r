@@ -7,6 +7,7 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
     calculate_seperation_positions_for_I();
 
     if (log) {
+        if (mf != NULL) *mf << " time_build_pi=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("building T_out");
     }
@@ -19,9 +20,9 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
         uint16_t i_p = omp_get_thread_num();
 
         uint_t b = u[i_p];
-        uint_t e = u[i_p+1]-1;
+        uint_t e = u[i_p+1];
 
-        for (uint_t i=b; i<=e; i++) {
+        for (uint_t i=b; i<e; i++) {
             T_out_v5[i_p].emplace_hint(T_out_v5[i_p].end(),I[pi[i]]);
         }
     }
@@ -44,14 +45,20 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
     #pragma omp parallel num_threads(p)
     {
         uint16_t i_p = omp_get_thread_num();
-        T_in_v5[i_p].insert(&I[x[i_p]],&I[x[i_p+1]]);
+
+        if (x[i_p] < x[i_p+1]) {
+            T_in_v5[i_p].insert(&I[x[i_p]],&I[x[i_p+1]]);
+        }
     }
 
     x.clear();
     x.shrink_to_fit();
 
-    I.clear();
-    I.shrink_to_fit();
+    if (delete_i) {
+        // Now, we do not need I anymore.
+        I.clear();
+        I.shrink_to_fit();
+    }
 
     // make sure there is an input interval starting at s[0], s[1], ... s[p-1]
     for (uint16_t i=1; i<p; i++) {
@@ -195,10 +202,10 @@ void move_data_structure_phi<uint_t>::construction::build_dp_dq_v5() {
             *mf << " k_=" << k_;
         }
         std::cout << "k' = " << k_ << ", k'/k = " << k__k << std::endl;
-        log_message("buildnig D_p and D_q");
+        log_message("building D_p and D_q");
     }
 
-    (*reinterpret_cast<std::vector<no_init<uint_t>>*>(&D_q)).resize(k_+1);
+    no_init_resize(D_q,k_+1);
     D_q[k_] = n;
 
     // write the input interval starting positions to D_p (in the move data structure) and
@@ -208,11 +215,11 @@ void move_data_structure_phi<uint_t>::construction::build_dp_dq_v5() {
         uint16_t i_p = omp_get_thread_num();
 
         uint_t b = x[i_p];
-        uint_t e = x[i_p+1]-1;
+        uint_t e = x[i_p+1];
 
         tin_it_t_v5 tin_it = T_in_v5[i_p].begin();
 
-        for (uint_t i=b; i<=e; i++) {
+        for (uint_t i=b; i<e; i++) {
             mds.set_p(i,(*tin_it).first);
             D_q[i] = (*tin_it).second;
             tin_it++;
