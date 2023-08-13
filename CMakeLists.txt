@@ -71,7 +71,7 @@ target_include_directories(move_r INTERFACE include/)
 target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree malloc_count concurrentqueue)
 
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)
-option(MOVE_R_BUILD_BENCH_CLI "Builds the benchmark cli program" ON)
+option(MOVE_R_BUILD_BENCH_CLI "Build the benchmark cli program" ON)
 option(MOVE_R_BUILD_EXAMPLES "Build the example programs" OFF)
 
 ############################# move-r cli #############################

@@ -65,22 +65,9 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
         if (T_in_v5[i].empty() || (*T_in_v5[i].begin()).first != s[i]) {
             pair_t pr_split = *T_in_v5[i-1].rbegin();
             pair_t pr_new{s[i], pr_split.second + (s[i] - pr_split.first)};
-
-            uint16_t l = 0;
-            uint16_t r = p-1;
-            uint16_t m;
-
-            while (l != r) {
-                m = l+(r-l)/2+1;
-                if (s[m] > pr_new.second) {
-                    r = m-1;
-                } else {
-                    l = m;
-                }
-            }
-
+            uint16_t i_p_ = bin_search_max_leq<uint_t>(pr_new.second,0,p-1,[this](uint_t x){return s[x];});
             T_in_v5[i].emplace(pr_new);
-            T_out_v5[l].emplace(pr_new);
+            T_out_v5[i_p_].emplace(pr_new);
         }
     }
 
@@ -89,21 +76,8 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
         if (T_out_v5[i].empty() || (*T_out_v5[i].begin()).second != s[i]) {
             pair_t pr_split = *T_out_v5[i-1].rbegin();
             pair_t pr_new{pr_split.first + (s[i] - pr_split.second), s[i]};
-
-            uint16_t l = 0;
-            uint16_t r = p-1;
-            uint16_t m;
-
-            while (l != r) {
-                m = l+(r-l)/2+1;
-                if (s[m] > pr_new.first) {
-                    r = m-1;
-                } else {
-                    l = m;
-                }
-            }
-
-            T_in_v5[l].emplace(pr_new);
+            uint16_t i_p_ = bin_search_max_leq<uint_t>(pr_new.first,0,p-1,[this](uint_t x){return s[x];});
+            T_in_v5[i_p_].emplace(pr_new);
             T_out_v5[i].emplace(pr_new);
         }
     }
@@ -131,7 +105,6 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
         tin_it_t_v5 tn_I = T_in_v5[i_p].begin();
         pair_t pr_last = *tn_I;
         tn_I++;
-        uint_t l,m,r;
         
         while (tn_I != T_in_v5[i_p].end()) {
             while (((*tn_I).first - pr_last.first) > l_max) {
@@ -139,20 +112,10 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
                 pr_last = *tn_I;
                 tn_I++;
 
-                l = 0;
-                r = p-1;
-
-                while (l != r) {
-                    m = (l+r)/2+1;
-                    if (s[m] <= pr_last.second) {
-                        l = m;
-                    } else {
-                        r = m-1;
-                    }
-                }
+                uint16_t i_p_ = bin_search_max_leq<uint_t>(pr_last.second,0,p-1,[this](uint_t x){return s[x];});
 
                 // store each new pair in its corresponding tree in T_out_temp_v5
-                T_out_temp_v5[l][i_p].emplace(pr_last);
+                T_out_temp_v5[i_p_][i_p].emplace(pr_last);
             }
 
             pr_last = *tn_I;

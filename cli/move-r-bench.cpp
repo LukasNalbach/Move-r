@@ -40,7 +40,6 @@ uint64_t input_size;
 std::vector<int32_t> SA_32;
 std::vector<int64_t> SA_64;
 std::string BWT;
-std::string input_reverted;
 std::string path_mf;
 bool check_correctness = false;
 bool bench_a_bigbwt = false;
@@ -66,10 +65,9 @@ constexpr std::vector<sa_sint_t>& get_sa() {
 
 void help(std::string msg) {
     if (msg != "") std::cout << msg << std::endl;
-    std::cout << "move-r-bench: benchmarks construction-(, revert-) and query-performance of move-r, move-r-bigbwt, r-index, r-index-bigbwt," << std::endl;
+    std::cout << "move-r-bench: benchmarks construction- and query performance of move-r, move-r-bigbwt, r-index, r-index-bigbwt," << std::endl;
     std::cout << "              r-index-f, rcomp-lfig, rcomp-glfig, OnlineRLBWT and rle_bwt; has to be executed from the base folder." << std::endl << std::endl;
     std::cout << "usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>" << std::endl;
-    std::cout << "   -r                 measure revert performance" << std::endl;
     std::cout << "   -c                 check for correctnes if possible; disables the -m option; will not print" << std::endl;
     std::cout << "                      runtime data if the runtime could be affected by checking for correctness" << std::endl;
     std::cout << "   -m <m_file>        writes measurement data to m_file" << std::endl;
@@ -89,7 +87,7 @@ void help(std::string msg) {
     std::cout << "   <num_threads>   maximum number of threads to use" << std::endl;
     std::cout << std::endl;
     std::cout << "usage 3: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>" << std::endl;
-    std::cout << "                      constructs move_r using <num_threads> threads and measures revert-, count- and locate" << std::endl;
+    std::cout << "                      constructs move_r using <num_threads> threads and measures count- and locate" << std::endl;
     std::cout << "                      performance of move_r for a=2, a=4, ..., a=8192." << std::endl;
     std::cout << "   -m <m_file>        writes measurement data to m_file" << std::endl;
     std::cout << "   <input_file>       input file" << std::endl;
@@ -154,9 +152,6 @@ uint64_t build_index_from_sa_and_bwt(idx_t& index, uint16_t num_threads);
 template <typename idx_t>
 void destroy_index(idx_t& index);
 
-template <typename idx_t>
-void revert_index(idx_t& index, uint16_t num_threads);
-
 template <typename uint_t, typename idx_t>
 uint_t count_pattern(idx_t& index, std::string& pattern);
 
@@ -168,11 +163,6 @@ struct build_result {
     uint64_t time_build;
     uint64_t peak_memory_usage;
     uint64_t size_index;
-};
-
-struct revert_result {
-    uint16_t num_threads;
-    uint64_t time_revert;
 };
 
 struct query_result {
@@ -295,13 +285,12 @@ query_result locate_patterns(idx_t& index, std::ifstream& patterns_file) {
     return query_result{num_queries,pattern_length,num_occurrences,time_query};
 }
 
-template <typename uint_t, typename idx_t, bool alternative_build_mode, bool measure_revert, bool measure_count, bool measure_locate>
-void measure(std::string index_name, std::string index_log_name, uint16_t max_build_threads, uint16_t max_revert_threads) {
+template <typename uint_t, typename idx_t, bool alternative_build_mode, bool measure_count, bool measure_locate>
+void measure(std::string index_name, std::string index_log_name, uint16_t max_build_threads) {
     idx_t index;
     std::chrono::steady_clock::time_point t1,t2;
     uint64_t m1,m2;
     std::vector<build_result> results_build;
-    std::vector<revert_result> results_revert;
     query_result result_count,result_locate_1,result_locate_2;
     std::cout << "############## benchmarking " << index_name << " ##############" << std::endl << std::endl;
 
@@ -331,45 +320,6 @@ void measure(std::string index_name, std::string index_log_name, uint16_t max_bu
         std::cout << "build time: " << format_time(res.time_build) << std::endl;
         std::cout << "peak memory usage: " << format_size(res.peak_memory_usage) << std::endl;
         std::cout << "index size: " << format_size(res.size_index) << std::endl << std::endl;
-    }
-    
-    if constexpr (measure_revert) {
-        no_init_resize(input_reverted,input_size);
-
-        for (uint16_t cur_num_threads=1; cur_num_threads<=max_revert_threads; cur_num_threads*=2) {
-            std::cout << "reverting the index using " << format_threads(cur_num_threads) << std::flush;
-
-            std::memset(&input_reverted[0],0,input_reverted.size());
-            t1 = now();
-            revert_index<idx_t>(index,cur_num_threads);
-            t2 = now();
-
-            revert_result res{cur_num_threads,time_diff_ns(t1,t2)};
-            results_revert.emplace_back(res);
-            std::cout << std::endl << "revert time: " << format_time(res.time_revert) << std::endl;
-
-            if (check_correctness) {
-                std::cout << "checking correctness of the reverted text:" << std::flush;
-                bool correct = true;
-
-                for (uint64_t pos=0; pos<input_size-1; pos++) {
-                    if (input[pos] != input_reverted[pos]) {
-                        correct = false;
-                        break;
-                    }
-                }
-
-                if (correct) std::cout << " correct" << std::endl;
-                else std::cout << " not correct" << std::endl;
-            }
-            
-            std::cout << std::endl;
-        }
-
-        input_reverted.clear();
-        input_reverted.shrink_to_fit();
-
-        std::this_thread::sleep_for(1s);
     }
     
     if constexpr (measure_count) {
@@ -409,17 +359,6 @@ void measure(std::string index_name, std::string index_log_name, uint16_t max_bu
                 << " time_build=" << res.time_build
                 << " peak_memory_usage=" << res.peak_memory_usage
                 << " size_index=" << res.size_index
-                << std::endl;
-        }
-
-        for (revert_result& res : results_revert) {
-            mf << "RESULT"
-                << " type=comparison_revert"
-                << " implementation=" << index_log_name
-                << " text=" << name_text_file
-                << " num_threads=" << res.num_threads
-                << " time_revert=" << res.time_revert
-                << " size_index=" << size_index
                 << std::endl;
         }
 
@@ -513,10 +452,9 @@ void benchmark_a() {
     uint64_t m1,m2,size_index;
     std::chrono::steady_clock::time_point t1,t2;
     query_result result_count,result_locate_1,result_locate_2;
-    revert_result result_revert;
 
     for (uint16_t a=2; a<=8192; a*=2) {
-        std::cout << "############## benchmarking move_r with a = " << std::to_string(a) << " ##############" << std::endl;
+        std::cout << "############## benchmarking move-r with a = " << std::to_string(a) << " ##############" << std::endl;
 
         std::this_thread::sleep_for(1s);
 
@@ -534,22 +472,6 @@ void benchmark_a() {
         std::cout << "build time: " << format_time(time_diff_ns(t1,t2)) << std::endl;
         std::cout << "peak memory usage: " << format_size(malloc_count_peak()-m1) << std::endl;
         std::cout << "index size: " << format_size(size_index) << std::endl;
-
-        std::this_thread::sleep_for(1s);
-
-        std::cout << std::endl << "reverting move_r using 1 thread" << std::flush;
-        
-        no_init_resize(input_reverted,input_size);
-        std::memset(&input_reverted[0],0,input_reverted.size());
-
-        t1 = now();
-        revert_index<move_r<uint_t>>(index,1);
-        t2 = now();
-
-        input_reverted.clear();
-        input_reverted.shrink_to_fit();
-        result_revert = revert_result{1,time_diff_ns(t1,t2)};
-        std::cout << std::endl << "revert time: " << format_time(result_revert.time_revert) << std::endl;
 
         std::this_thread::sleep_for(1s);
         
@@ -575,14 +497,6 @@ void benchmark_a() {
         std::cout << std::endl;
 
         if (mf.is_open()) {
-            mf << "RESULT"
-                << " type=comparison_a_revert"
-                << " text=" << name_text_file
-                << " a=" << std::to_string(a)
-                << " time_revert=" << result_revert.time_revert
-                << " size_index=" << size_index
-                << std::endl;
-
             mf << "RESULT"
                 << " type=comparison_a_count"
                 << " text=" << name_text_file
@@ -614,15 +528,15 @@ void benchmark_a() {
 
 template <typename uint_t>
 void measure_all() {
-    measure<uint_t,move_r<uint_t>,false,true,true,true>("move-r","move_r",max_num_threads,max_num_threads);
-    measure<uint_t,move_r<uint_t>,true,false,false,false>("move-r-bigbwt","move_r_bigbwt",max_num_threads,0);
-    measure<uint_t,r_index_f<>,false,true,true,false>("r-index-f","r_index_f",1,1);
-    measure<uint_t,rcomp_lfig,false,true,true,true>("rcomp-lfig","rcomp_lfig",1,1);
-    measure<uint_t,rcomp_glfig_16,false,true,true,true>("rcomp-glfig","rcomp_glfig_g16",1,1);
-    measure<uint_t,ri::r_index<>,false,true,true,true>("r-index","r_index",1,1);
-    measure<uint_t,ri_mun::r_index<>,false,false,false,false>("r-index-bigbwt","r_index_bigbwt",1,1);
-    measure<uint_t,OnlineRlbwt,false,true,true,true>("OnlineRlbwt","online_rlbwt",1,1);
-    measure<uint_t,rle_bwt,false,true,true,false>("rle_bwt","rle_bwt",1,1);
+    measure<uint_t,move_r<uint_t>,false,true,true>("move-r","move_r",max_num_threads);
+    measure<uint_t,move_r<uint_t>,true,false,false>("move-r-bigbwt","move_r_bigbwt",max_num_threads);
+    measure<uint_t,r_index_f<>,false,true,false>("r-index-f","r_index_f",1);
+    measure<uint_t,rcomp_lfig,false,true,true>("rcomp-lfig","rcomp_lfig",1);
+    measure<uint_t,rcomp_glfig_16,false,true,true>("rcomp-glfig","rcomp_glfig_g16",1);
+    measure<uint_t,ri::r_index<>,false,true,true>("r-index","r_index",1);
+    measure<uint_t,ri_mun::r_index<>,false,false,false>("r-index-bigbwt","r_index_bigbwt",1);
+    measure<uint_t,OnlineRlbwt,false,true,true>("OnlineRlbwt","online_rlbwt",1);
+    measure<uint_t,rle_bwt,false,true,false>("rle_bwt","rle_bwt",1);
 }
 
 void preprocess_input() {
@@ -784,16 +698,6 @@ void destroy_index<move_r<uint64_t>>(move_r<uint64_t>& index) {
 }
 
 template <>
-void revert_index<move_r<uint32_t>>(move_r<uint32_t>& index, uint16_t num_threads) {
-    index.revert_range(input_reverted,0,input_size-2,0,input_size-2,num_threads);
-}
-
-template <>
-void revert_index<move_r<uint64_t>>(move_r<uint64_t>& index, uint16_t num_threads) {
-    index.revert_range(input_reverted,0,input_size-2,0,input_size-2,num_threads);
-}
-
-template <>
 uint32_t count_pattern<uint32_t,move_r<uint32_t>>(move_r<uint32_t>& index, std::string& pattern) {
     return index.count(pattern);
 }
@@ -834,18 +738,6 @@ void destroy_index<rcomp_lfig>(rcomp_lfig&) {}
 
 template <>
 void destroy_index<rcomp_glfig_16>(rcomp_glfig_16&) {}
-
-template <>
-void revert_index<rcomp_lfig>(rcomp_lfig& index, uint16_t) {
-    uint64_t pos = input_size-2;
-    index.decode_text([&pos](char c){input_reverted[pos--] = c;});
-}
-
-template <>
-void revert_index<rcomp_glfig_16>(rcomp_glfig_16& index, uint16_t) {
-    uint64_t pos = input_size-2;
-    index.decode_text([&pos](char c){input_reverted[pos--] = c;});
-}
 
 template <>
 uint32_t count_pattern<uint32_t,rcomp_lfig>(rcomp_lfig& index, std::string& pattern) {
@@ -920,11 +812,6 @@ uint64_t build_index_from_sa_and_bwt<int64_t,ri::r_index<>>(ri::r_index<>& index
 template <>
 void destroy_index<ri::r_index<>>(ri::r_index<>& index) {
     index = std::move(ri::r_index<>());
-}
-
-template <>
-void revert_index<ri::r_index<>>(ri::r_index<>& index, uint16_t) {
-    index.revert(input_reverted);
 }
 
 template <>
@@ -1003,11 +890,6 @@ void destroy_index<ri_mun::r_index<>>(ri_mun::r_index<>& index) {
 }
 
 template <>
-void revert_index<ri_mun::r_index<>>(ri_mun::r_index<>& index, uint16_t) {
-    index.revert(input_reverted);
-}
-
-template <>
 uint32_t count_pattern<uint32_t,ri_mun::r_index<>>(ri_mun::r_index<>& index, std::string& pattern) {
     auto range = index.count(pattern);
     return range.second - range.first + 1;
@@ -1040,11 +922,6 @@ void build_index<OnlineRlbwt,false>(OnlineRlbwt& index, uint16_t) {
 
 template <>
 void destroy_index<OnlineRlbwt>(OnlineRlbwt&) {}
-
-template <>
-void revert_index(OnlineRlbwt& index, uint16_t) {
-    index.revert(input_reverted);
-}
 
 template <>
 uint32_t count_pattern<uint32_t,OnlineRlbwt>(OnlineRlbwt& index, std::string& pattern) {
@@ -1115,11 +992,6 @@ void build_index<rle_bwt,false>(rle_bwt& index, uint16_t) {
 
 template <>
 void destroy_index<rle_bwt>(rle_bwt&) {}
-
-template <>
-void revert_index<rle_bwt>(rle_bwt& index, uint16_t) {
-    index.revert(input_reverted);
-}
 
 template <>
 uint32_t count_pattern<uint32_t,rle_bwt>(rle_bwt& index, std::string& pattern) {
@@ -1206,11 +1078,6 @@ uint32_t count_pattern<uint32_t,r_index_f<>>(r_index_f<>& index, std::string& pa
 template <>
 uint64_t count_pattern<uint64_t,r_index_f<>>(r_index_f<>& index, std::string& pattern) {
     return index.count(pattern);
-}
-
-template <>
-void revert_index<r_index_f<>>(r_index_f<>& index, uint16_t) {
-    index.invert(input_reverted);
 }
 
 // ############################# benchmarking framework #############################

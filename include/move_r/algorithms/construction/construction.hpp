@@ -65,8 +65,6 @@ class move_r<uint_t>::construction {
     std::vector<std::vector<std::pair<char,uint32_t>>> RLBWT_thr;
     /** [0..r-1] the RLBWT */
     interleaved_vectors<uint32_t> RLBWT;
-    /** [0..256] marks at position c whether the character c occurs in T */
-    std::vector<uint8_t> contains_uchar = {};
     /** [0..p] n_p[0] < n_p[1] < ... < n_p[p] = n; n_p[i] = start position of thread i's section in L and SA */
     std::vector<uint_t> n_p;
     /** [0..p] r_p[0] < r_p[1] < ... < r_p[p] = r; r_p[i] = index of the first run in L, that starts in
@@ -260,7 +258,7 @@ class move_r<uint_t>::construction {
      * @param support a vector containing move_r operations to build support for
      * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
      * @param p the number of threads to use during the construction
-     * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+     * @param a balancing parameter, 2 <= a
      * @param log controls, whether to print log messages
      * @param mf_idx measurement file for the index construciton
      * @param mf_mds measurement file for the move data structure construction
@@ -320,7 +318,7 @@ class move_r<uint_t>::construction {
      * @param support a vector containing move_r operations to build support for
      * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
      * @param p the number of threads to use during the construction
-     * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+     * @param a balancing parameter, 2 <= a
      * @param log controls, whether to print log messages
      * @param mf_idx measurement file for the index construciton
      * @param mf_mds measurement file for the move data structure construction
@@ -337,7 +335,7 @@ class move_r<uint_t>::construction {
         std::ostream* mf_idx,
         std::ostream* mf_mds,
         std::string name_text_file
-    ) : T(T_tmp), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
+    ) : T(T_tmp), idx(index), SA_32(SA_32_tmp), SA_64(SA_64_tmp), L(L_tmp) {
         this->support = support;
         this->p = p;
         this->a = a;
@@ -371,7 +369,7 @@ class move_r<uint_t>::construction {
      * @param bwt string containing the bwt of the input
      * @param support a vector containing move_r operations to build support for
      * @param p the number of threads to use during the construction
-     * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+     * @param a balancing parameter, 2 <= a
      * @param log controls, whether to print log messages
      * @param mf_idx measurement file for the index construciton
      * @param mf_mds measurement file for the move data structure construction
@@ -407,7 +405,7 @@ class move_r<uint_t>::construction {
      * @param bwt string containing the bwt of the input
      * @param support a vector containing move_r operations to build support for
      * @param p the number of threads to use during the construction
-     * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+     * @param a balancing parameter, 2 <= a
      * @param log controls, whether to print log messages
      * @param mf_idx measurement file for the index construciton
      * @param mf_mds measurement file for the move data structure construction

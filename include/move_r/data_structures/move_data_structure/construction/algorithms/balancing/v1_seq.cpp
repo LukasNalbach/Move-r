@@ -4,15 +4,15 @@ void move_data_structure_phi<uint_t>::construction::balance_v1_seq() {
 
     // build T_e_v1
     uint_t q_i,q_next;
-    t_node_t_v1* node_cur = T_in_v1.minimum();
-    t_node_t_v1* node_cur_2;
+    tin_node_t_v1* node_cur = T_in_v1.min();
+    tin_node_t_v1* node_cur_2;
     uint32_t e;
-    while (node_cur != T_in_v1.maximum()) {
+    while (node_cur != T_in_v1.max()) {
         /* For each output interval [q_i, q_i + d_i), find the first input interval connected
         to it in the permutation graph. */
         q_i = node_cur->v.second;
         q_next = q_i + node_cur->nxt()->v.first - node_cur->v.first;
-        node_cur_2 = T_in_v1.minimum_geq(pair_t{q_i,0});
+        node_cur_2 = T_in_v1.min_geq(pair_t{q_i,0});
         // Count the number of input intervals connected to it in the permutation graph.
         e = 0;
         while (node_cur_2 != NULL) {
@@ -20,7 +20,7 @@ void move_data_structure_phi<uint_t>::construction::balance_v1_seq() {
                 e++;
                 if (e == two_a) {
                     // If there are at least 2a, insert it's corresponding pair into T_e_v1.
-                    T_e_v1.insert_or_update(node_cur->v);
+                    T_e_v1.insert(node_cur->v);
                     break;
                 }
             } else {
@@ -40,12 +40,13 @@ void move_data_structure_phi<uint_t>::construction::balance_v1_seq() {
     // balance the disjoint interval sequence
     uint_t d,q_j,p_j,q_y,d_j,d_y;
     pair_t pair_NEW,pair_Y;
-    t_node_t_v1 *node_Ipa,*min,*node_NEW,*node_Y;
+    tin_node_t_v1 *node_Ipa;
+    tout_te_node_t_v1 *node_NEW,*node_Y,*min;
     std::vector<std::tuple<uint_t,uint_t,pair_t>> intervals_to_check;
     while (!T_e_v1.empty()) {
         /* Find the pair creating the first a-heavy output interval [q_j, q_j + d_j)
         and remove it from T_e_v1. */
-        min = T_e_v1.minimum();
+        min = T_e_v1.min();
         p_j = min->v.first;
         q_j = min->v.second;
         delete T_e_v1.remove(min->v);
@@ -53,20 +54,20 @@ void move_data_structure_phi<uint_t>::construction::balance_v1_seq() {
         // Find the a+1-st input interval in [q_j, q_j + d_j) and set d = p_{i+a} - q_j.
         /* d is the smallest integer, so that [q_j, q_j + d) has a incoming edges in the
         permutation graph. */
-        node_Ipa = T_in_v1.minimum_geq(std::make_pair(q_j,0));
+        node_Ipa = T_in_v1.min_geq(pair_t{q_j,0});
         for (uint16_t i=0; i<a; i++) {
             node_Ipa = node_Ipa->nxt();
         }
         d = node_Ipa->v.first-q_j;
 
         // Create the new pair (p_j + d, q_j + d) and insert it into T_in_v1 and T_out_v1.
-        pair_NEW = std::make_pair(p_j+d,q_j+d);
-        T_in_v1.insert_or_update(pair_NEW);
-        node_NEW = T_out_v1.insert_or_update(pair_NEW);
+        pair_NEW = pair_t{p_j+d,q_j+d};
+        T_in_v1.insert(pair_NEW);
+        node_NEW = T_out_v1.insert(pair_NEW);
 
         /* Find the output interval [q_y, q_y + d_y), [p_j + d, p_j + d_j) is connected
         to in the permutation graph. */
-        node_Y = T_out_v1.maximum_leq(std::make_pair(0,p_j+d));
+        node_Y = T_out_v1.max_leq(pair_t{0,p_j+d});
         pair_Y = node_Y->v;
         q_y = pair_Y.second;
 
@@ -83,7 +84,7 @@ void move_data_structure_phi<uint_t>::construction::balance_v1_seq() {
         for (auto tup : intervals_to_check) {
             /* Find the first input interval connected to the output interval in the
             permutation graph. */
-            node_cur = T_in_v1.minimum_geq(std::make_pair(std::get<0>(tup),0));
+            node_cur = T_in_v1.min_geq(pair_t{std::get<0>(tup),0});
 
             // Count the number of input intervals connected to it in the permutation graph.
             e = 0;
@@ -92,7 +93,7 @@ void move_data_structure_phi<uint_t>::construction::balance_v1_seq() {
                     e++;
                     // If there are at least 2a, insert it's corresponding pair into T_e_v1.
                     if (e == two_a) {
-                        T_e_v1.insert_or_update(std::get<2>(tup));
+                        T_e_v1.insert(std::get<2>(tup));
                         break;
                     }
                 } else {

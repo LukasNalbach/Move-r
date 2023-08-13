@@ -50,7 +50,7 @@ void move_r<uint_t>::construction::pfp(std::ifstream& t_file, bool delete_t_file
         .compute_sa_info=true
     },num_dictionary_words,false);
 
-    read_rlbwt = n > num_dictionary_words;
+    read_rlbwt = n > 160 * num_dictionary_words;
 
     if (delete_t_file) {
         t_file.close();
@@ -135,7 +135,7 @@ void move_r<uint_t>::construction::read_rlbwt_bwt() {
     std::filesystem::remove(bwt_file_name);
 
     if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_read_rbwt_bwt=" << time_diff_ns(time,now());
+        if (mf_idx != NULL) *mf_idx << " time_read_rlbwt_bwt=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }

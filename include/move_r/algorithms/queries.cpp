@@ -1,7 +1,7 @@
 template <typename uint_t>
 void move_r<uint_t>::setup_phi_move_pair(uint_t x, uint_t& i_s, uint_t& x_s) {
     // the index of the pair in M_Phi, that creates the output interval with start position i_s = SA[l'_{x+1}-1]
-    uint_t x_s_ = SA_idx(x);
+    uint_t x_s_ = SA_idx[x];
 
     // set x_s to the index of the input interval in M_Phi, that contains i_s
     x_s = M_Phi.idx(x_s_);
@@ -13,49 +13,15 @@ void move_r<uint_t>::setup_phi_move_pair(uint_t x, uint_t& i_s, uint_t& x_s) {
 template <typename uint_t>
 char move_r<uint_t>::access_bwt(uint_t i) {
     // find the run containing i with a binary search over the input intervals of M_LF
-    
-    uint_t l = 0;
-    uint_t r = r_-1;
-    uint_t m;
-
-    while (l != r) {
-        m = l+(r-l)/2;
-        if (M_LF.p(m) < i) {
-            l = m+1;
-        } else {
-            r = m;
-        }
-    }
-
-    return access_l_(l);
+    return access_l_(bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t p){return M_LF.p(p);}));
 }
 
 template <typename uint_t>
 uint_t move_r<uint_t>::access_sa(uint_t i) {
     // x = max x' in [1,r']: M_LF.p(x') <= i
-    uint_t x;
+    uint_t x = bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x_){return M_LF.p(x_);});
 
-    {
-        // Left interval limit of the binary search.
-        uint_t l = 0;
-        // Right interval limit of the binary search.
-        uint_t r = r_-1;
-        // Candidate position for the binary search.
-        uint_t m;
-
-        while (l != r) {
-            m = l+(r-l)/2;
-            if (M_LF.p(m) < i) {
-                l = m+1;
-            } else {
-                r = m;
-            }
-        }
-
-        x = l;
-    }
-
-    if (i == M_LF.p(x)) return M_Phi.p(SA_idx(x));
+    if (i == M_LF.p(x)) return M_Phi.p(SA_idx[x]);
 
     // begin iterating at the end of the x-th run, because there
     // is a suffix array sample at each run end position
@@ -233,54 +199,23 @@ void move_r<uint_t>::locate(const std::string& P, const std::function<void(uint_
     setup_phi_move_pair(hat_x_r_y,i_s,x_s);
     i_s -= y+1;
 
-    /* If SA_s[x'_{r,y}]-y-1 < M_Phi.p(SA_idx[x'_{r,y}]), i_s now lies in a input interval of M_Phi before the
-    SA_idx[x'_{r,y}]-th one, so we have to decrease x_s. To find the correct value for x_s, we perform an exponential
-    search to the left over the input interval starting positions of M_Phi starting at SA_idx[x'_{r,y}] = x_s. */
-    if (i_s < M_Phi.p(x_s)) {
-        // Current step size of the exponential search.
-        uint_t s = 1;
-        // Perform the first step.
-        x_s -= 1;
-
-        // Perform the exponential search.
-        while (i_s < M_Phi.p(x_s)) {
-            s *= 2;
-            if (s > x_s) {
-                x_s = 0;
-            } else {
-                x_s -= s;
-            }
-        }
-
-        // Left limit of the binary search range.
-        uint_t b = x_s;
-        // Right limit of the binary search range.
-        uint_t e = x_s + s - 1;
-        // Candidate positon in the middle of the binary search range.
-        uint_t c;
-
-        // Perform the binary search.
-        while (b != e) {
-            c = b+(e-b)/2+1;
-            if (i_s < M_Phi.p(c)) {
-                e = c-1;
-            } else {
-                b = c;
-            }
-        }
-
-        // Store the found posiiton in x_s.
-        x_s = b;
-    }
-
     /* Because i_s contains the value in the suffix array of the right limit of the suffix array
     interval of P, i_s is an occurrence position of P in T. */
     report(i_s);
-    
-    // Perform i_r-i_l Phi queries with (i_s,x_s) and at each step, report i_s.
-    for (uint_t i=i_l; i<i_r; i++) {
-        M_Phi.move(i_s,x_s);
-        report(i_s);
+
+    if (i_l < i_r) {
+        /* If SA_s[x'_{r,y}]-y-1 < M_Phi.p(SA_idx[x'_{r,y}]), i_s now lies in a input interval of M_Phi before the
+        SA_idx[x'_{r,y}]-th one, so we have to decrease x_s. To find the correct value for x_s, we perform an exponential
+        search to the left over the input interval starting positions of M_Phi starting at SA_idx[x'_{r,y}] = x_s. */
+        if (i_s < M_Phi.p(x_s)) {
+            x_s = exp_search_max_leq<uint_t,LEFT>(i_s,x_s-y-1,x_s,[this](uint_t x){return M_Phi.p(x);});
+        }
+        
+        // Perform i_r-i_l Phi queries with (i_s,x_s) and at each step, report i_s.
+        for (uint_t i=i_l; i<i_r; i++) {
+            M_Phi.move(i_s,x_s);
+            report(i_s);
+        }
     }
 }
 
@@ -302,37 +237,8 @@ void move_r<uint_t>::revert_range(const std::function<void(uint_t,char)>& report
         s_l = 0;
         s_r = 0;
     } else {
-        // Left interval limit of the binary search.
-        uint_t b = 0;
-        // Left interval limit of the binary search.
-        uint_t e = p_r-1;
-        // Candidate position for the binary search.
-        uint_t c;
-
-        while (b != e) {
-            c = b+(e-b)/2;
-            if (D_e[c].second < l) {
-                b = c+1;
-            } else {
-                e = c;
-            }
-        }
-
-        s_l = b;
-
-        b = 0;
-        e = p_r-1;
-
-        while (b != e) {
-            c = b+(e-b)/2;
-            if (r <= D_e[c].second) {
-                e = c;
-            } else {
-                b = c+1;
-            }
-        }
-
-        s_r = b;
+        s_l = bin_search_min_gt<uint_t>(l,0,p_r-1,[this](uint_t x){return D_e[x].second;});
+        s_r = bin_search_min_geq<uint_t>(r,0,p_r-1,[this](uint_t x){return D_e[x].second;});
     }
 
     uint16_t p = std::min({
@@ -416,28 +322,7 @@ void move_r<uint_t>::retrieve_bwt_range(const std::function<void(uint_t,char)>& 
 
         /* The position of the i-th character in L' (and therefore the index of the input interval
         in M_LF), in which i lies. */
-        uint_t x;
-
-        // Calculate x with a binary search over the input intervals of M_LF.
-        {
-            // Left interval limit of the binary search.
-            uint_t b = 0;
-            // Left interval limit of the binary search.
-            uint_t e = r_-1;
-            // Candidate position for the binary search.
-            uint_t c;
-
-            while (b != e) {
-                c = b+(e-b)/2+1;
-                if (M_LF.p(c) <= i) {
-                    b = c;
-                } else {
-                    e = c-1;
-                }
-            }
-
-            x = b;
-        }
+        uint_t x = bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x_){return M_LF.p(x_);});
 
         // start position of the next input interval in M_LF
         uint_t l_xp1;
@@ -491,24 +376,7 @@ void move_r<uint_t>::retrieve_sa_range(const std::function<void(uint_t,uint_t)>&
         uint_t i_r = i_p == p-1 ? r : l+(i_p+1)*((r-l+1)/p)-1;
 
         // the input interval in which i lies
-        uint_t x;
-        {
-            uint_t b = 0;
-            uint_t e = r_-1;
-            uint_t c;
-
-            while (b != e) {
-                c = b+(e-b)/2+1;
-                if (M_LF.p(c) <= i_r) {
-                    b = c;
-                } else {
-                    e = e-1;
-                }
-            }
-
-            x = b;
-        }
-
+        uint_t x = bin_search_max_leq<uint_t>(i_r,0,r_-1,[this](uint_t x_){return M_LF.p(x_);});
         // current position in the suffix array, initially the end position of the run, in which i_r lies
         uint_t i = M_LF.p(x+1)-1;
         // index of the input interval in M_Phi, in which i_s lies

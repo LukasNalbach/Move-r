@@ -52,8 +52,8 @@ class move_data_structure_phi<uint_t>::construction {
     // ############################# COMMON VARIABLES #############################
 
     static constexpr uint8_t v = 5; // construction method
-    /* maximum factor, by which the number of intervals can be increased in the process of splitting too
-     * long intervals*/
+    /* 1 + epsilon is the maximum factor, by which the number of intervals can be increased in the 
+     * process of splitting too long intervals*/
     static constexpr double epsilon = 0.125;
     move_data_structure_phi<uint_t>& mds; // the move data structure to construct
     pair_arr_t& I; // the disjoint interval sequence to construct the move data structure out of
@@ -217,11 +217,11 @@ class move_data_structure_phi<uint_t>::construction {
     void verify_correctness();
 
     // ############################# V1 #############################
-
-    using t_node_t_v1 = avl_node<pair_t>;
-
+    
     using tin_t_v1 = avl_tree<pair_t,in_cmp_v1v5>;
     using tout_te_t_v1 = avl_tree<pair_t,out_cmp_v1v5>;
+    using tin_node_t_v1 = typename tin_t_v1::avl_node;
+    using tout_te_node_t_v1 = typename tout_te_t_v1::avl_node;
     
     // stores the pairs in I sorted by p_i
     tin_t_v1 T_in_v1;
@@ -271,8 +271,8 @@ class move_data_structure_phi<uint_t>::construction {
 
     // ############################# V2/V3/V4 SEQUENTIAL/PARALLEL #############################
 
-    using lin_node_t_v2v3v4 = doubly_linked_list_node<pair_t>;
     using lin_t_v2v3v4 = doubly_linked_list<pair_t>;
+    using lin_node_t_v2v3v4 = typename lin_t_v2v3v4::doubly_linked_list_node;
 
     /**
      * @brief comparator for the list nodes in T_out_v2, T_e_v2, T_out_v3 and T_out_v5
@@ -283,8 +283,8 @@ class move_data_structure_phi<uint_t>::construction {
         }
     };
     
-    using tout_node_t_v2v3v4 = avl_node<lin_node_t_v2v3v4>;
     using tout_t_v2v3v4 = avl_tree<lin_node_t_v2v3v4,tout_cmp_v2v3v4>;
+    using tout_node_t_v2v3v4 = typename tout_t_v2v3v4::avl_node;
 
     /** 
      * @brief [0..p-1] doubly linked lists; L_in_v2v3v4[i_p] stores the pairs (p_i,q_i) in ascending order of p_i,
@@ -377,7 +377,6 @@ class move_data_structure_phi<uint_t>::construction {
     // ############################# V2 #############################
     
     using te_pair_t_v2 = std::pair<lin_node_t_v2v3v4*,tout_node_t_v2v3v4*>;
-    using te_node_t_v2 = avl_node<te_pair_t_v2>;
 
     /**
      * @brief comparator for the list nodes in T_out_v2, T_e_v2, T_out_v3 and T_out_v5
@@ -389,6 +388,7 @@ class move_data_structure_phi<uint_t>::construction {
     };
 
     using te_t_v2 = avl_tree<te_pair_t_v2,te_cmp_v2>;
+    using te_node_t_v2 = typename te_t_v2::avl_node;
 
     /* 
         contains pairs (lin_node_t_v2v3v4 *p1, lin_node_t_v2v3v4 *p2),

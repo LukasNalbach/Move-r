@@ -77,21 +77,12 @@ class move_r {
     /* [0..p_r-1], where D_e[i] = <x,j>, x in [0,r'-1] and j is minimal, s.t. SA_s[x]=j > i* lfloor (n-1)/p rfloor;
     see the parallel revert algorithm to understand why this is useful. */
     std::vector<std::pair<uint_t,uint_t>> D_e;
-    string_rank_select_support<uint_t> RS_L_; // rank-select data structure for L_ using sd-vectors
+    string_rank_select_support<uint_t> RS_L_; // rank-select data structure for L'
     move_data_structure_phi<uint_t> M_Phi; // The Move Data Structure for Phi.
     /* [0..r-1] SA_idx */
-    interleaved_vectors<uint_t> SA_idx_vec;
+    interleaved_vectors<uint_t> SA_idx;
 
     // ############################# INTERNAL METHODS #############################
-
-    /**
-     * @brief returns SA_idx[x]
-     * @param x [0..r-1]
-     * @return SA_idx[x]
-     */
-    inline uint_t SA_idx(uint_t x) {
-        return SA_idx_vec.template get<0>(x);
-    }
 
     /**
      * @brief returns SA_s[x]
@@ -99,7 +90,7 @@ class move_r {
      * @return SA_s[x]
      */
     inline uint_t SA_s(uint_t x) {
-        return M_Phi.q(SA_idx(x));
+        return M_Phi.q(SA_idx[x]);
     }
 
     /**
@@ -108,7 +99,7 @@ class move_r {
      * @param idx [0..r''-1]
      */
     inline void set_SA_idx(uint_t x, uint_t idx) {
-        SA_idx_vec.template set<0>(x,idx);
+        SA_idx.template set<0>(x,idx);
     }
 
     /**
@@ -196,7 +187,7 @@ class move_r {
      * @param support a vector containing move_r operations to build support for
      * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
      * @param num_threads maximum number of threads to use during the construction
-     * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+     * @param a balancing parameter, 2 <= a
      * @param log controls, whether to print log messages
      * @param mf_idx measurement file for the index construciton
      * @param mf_mds measurement file for the move data structure construction
@@ -213,8 +204,7 @@ class move_r {
         std::ostream* mf_mds = NULL,
         std::string name_text_file = ""
     ) {
-        construction mrc(*this,input,false,support,construction_mode,num_threads,a,
-        log,mf_idx,mf_mds,name_text_file);
+        construction mrc(*this,input,false,support,construction_mode,num_threads,a,log,mf_idx,mf_mds,name_text_file);
     }
 
     /**
@@ -223,7 +213,7 @@ class move_r {
      * @param support a vector containing move_r operations to build support for
      * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
      * @param num_threads maximum number of threads to use during the construction
-     * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+     * @param a balancing parameter, 2 <= a
      * @param log controls, whether to print log messages
      * @param mf_idx measurement file for the index construciton
      * @param mf_mds measurement file for the move data structure construction
@@ -240,24 +230,23 @@ class move_r {
         std::ostream* mf_mds = NULL,
         std::string name_text_file = ""
     ) {
-        construction mrc(*this,input,true,support,construction_mode,num_threads,a,
-        log,mf_idx,mf_mds,name_text_file);
+        construction mrc(*this,input,true,support,construction_mode,num_threads,a,log,mf_idx,mf_mds,name_text_file);
     }
 
     /**
      * @brief constructs a move_r index from an input file
-     * @param input input file
+     * @param input_file input file
      * @param support a vector containing move_r operations to build support for
      * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
      * @param num_threads maximum number of threads to use during the construction
-     * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+     * @param a balancing parameter, 2 <= a
      * @param log controls, whether to print log messages
      * @param mf_idx measurement file for the index construciton
      * @param mf_mds measurement file for the move data structure construction
      * @param name_text_file name of the input file (used only for measurement output)
      */
     move_r(
-        std::ifstream& input,
+        std::ifstream& input_file,
         std::vector<move_r_support> support = full_support,
         move_r_construction_mode construction_mode = move_r_construction_mode::runtime,
         uint16_t num_threads = omp_get_max_threads(),
@@ -267,8 +256,7 @@ class move_r {
         std::ostream* mf_mds = NULL,
         std::string name_text_file = ""
     ) {
-        construction mrc(*this,input,support,construction_mode,num_threads,a,log,
-        mf_idx,mf_mds,name_text_file);
+        construction mrc(*this,input_file,support,construction_mode,num_threads,a,log,mf_idx,mf_mds,name_text_file);
     }
 
     /**
@@ -278,7 +266,7 @@ class move_r {
      * @param bwt string containing the bwt of the input
      * @param support a vector containing move_r operations to build support for
      * @param num_threads maximum number of threads to use during the construction
-     * @param a balancing parameter, O(r*(a/(a-1))), 2 <= a
+     * @param a balancing parameter, 2 <= a
      * @param log controls, whether to print log messages
      * @param mf_idx measurement file for the index construciton
      * @param mf_mds measurement file for the move data structure construction
@@ -296,8 +284,7 @@ class move_r {
         std::ostream* mf_mds = NULL,
         std::string name_text_file = ""
     ) {
-        construction mrc(*this,suffix_array,bwt,support,num_threads,a,log,
-        mf_idx,mf_mds,name_text_file);
+        construction mrc(*this,suffix_array,bwt,support,num_threads,a,log,mf_idx,mf_mds,name_text_file);
     }
 
     // ############################# MISC PUBLIC METHODS #############################
@@ -397,7 +384,7 @@ class move_r {
             M_LF.size_in_bytes()+ // M_LF and L'
             RS_L_.size_in_bytes()+ // RS_L'
             M_Phi.size_in_bytes()+ // M_Phi
-            SA_idx_vec.size_in_bytes(); // SA_idx
+            SA_idx.size_in_bytes(); // SA_idx
     }
 
     /**
@@ -414,7 +401,7 @@ class move_r {
 
             if (does_support(move_r_support::locate)) {
                 std::cout << "M_Phi: " << format_size(M_Phi.size_in_bytes()) << std::endl;
-                std::cout << "SA_idx: " << format_size(SA_idx_vec.size_in_bytes()) << std::endl;
+                std::cout << "SA_idx: " << format_size(SA_idx.size_in_bytes()) << std::endl;
             }
         }
     }
@@ -433,7 +420,7 @@ class move_r {
 
             if (does_support(move_r_support::locate)) {
                 out << " size_m_phi=" << M_Phi.size_in_bytes();
-                out << " size_sa_idx=" << SA_idx_vec.size_in_bytes();
+                out << " size_sa_idx=" << SA_idx.size_in_bytes();
             }
         }
     }
@@ -713,6 +700,7 @@ class move_r {
     /**
      * @brief stores the index to an output stream
      * @param out output stream to store the index to
+     * @param support supported operations to store data structures for
      */
     void serialize(std::ostream& out, std::vector<move_r_support> support = full_support) {
         adjust_supports(support);
@@ -760,7 +748,7 @@ class move_r {
             M_Phi.serialize(out);
 
             out.write((char*)&omega_idx,1);
-            SA_idx_vec.serialize(out);
+            SA_idx.serialize(out);
         }
 
         std::streamoff offs_end = out.tellp()-pos_data_structure_offsets;
@@ -772,6 +760,7 @@ class move_r {
     /**
      * @brief reads a serialized index from an input stream
      * @param in an input stream storing a serialized index
+     * @param support supported operations to load data structures for
      */
     void load(std::istream& in, std::vector<move_r_support> support = full_support) {
         adjust_supports(support);
@@ -833,7 +822,7 @@ class move_r {
             M_Phi.load(in);
 
             in.read((char*)&omega_idx,1);
-            SA_idx_vec.load(in);
+            SA_idx.load(in);
         }
 
         in.seekg(pos_data_structure_offsets+offs_end,std::ios::beg);

@@ -135,7 +135,7 @@ void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its si
   for(int i=0;i<dwords-1;i++)
     assert(eos[i]<eos[i+1]);
 
-  bool rle = arg.n > 160 * dwords;
+  bool rle = arg.n > 160 * psize;
 
   // open output file
   FILE *fbwt = NULL;

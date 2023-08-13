@@ -50,22 +50,11 @@ inline typename move_data_structure_phi<uint_t>::construction::tout_it_t_v5 move
 
     // check, if the newly created has to be inserted into a tree in T_in_v5 of another thread
     if (p != 1 && !(s[i_p] <= pj_pd && pj_pd < s[i_p+1])) {
-        uint16_t l = 0;
-        uint16_t r = p-1;
-        uint16_t m;
-
         // calculate the index i_p' of the thread, into whiches tree in T_in_v5, the newly created pair has to be inserted
-        while (l != r) {
-            m = l+(r-l)/2+1;
-            if (pj_pd >= s[m]) {
-                l = m;
-            } else {
-                r = m-1;
-            }
-        }
+        uint16_t i_p_ = bin_search_max_leq<uint_t>(pj_pd,0,p-1,[this](uint_t x){return s[x];});
 
         // store the newly created pair in Q_v5[i_p'][i_p]
-        Q_v5[l][i_p].emplace_back(pr_new);
+        Q_v5[i_p_][i_p].emplace_back(pr_new);
     } else {
         // else the newly created pair can be inserted into the current thread's tree in T_in_v5
         tin_it_t_v5 tin_n_new = node(T_in_v5[i_p].emplace(pr_new));

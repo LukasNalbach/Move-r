@@ -14,6 +14,7 @@ template <typename uint_t = uint32_t, bool build_rank_support = false, bool buil
 class hybrid_bit_vector {
     static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
 
+    public:
     using plain_bv_t = plain_bit_vector<uint_t,build_rank_support,build_select_0_support,build_select_1_support>;
 
     /* if there are less than (compression_threshold * size of the bitvector)
@@ -58,6 +59,22 @@ class hybrid_bit_vector {
         } else {
             this->plain_bit_vec = std::move(plain_bv_t(std::move(plain_bit_vec)));
         }
+    }
+
+    /**
+     * @brief constructs a new hybrid_bit_vector from an sd_vector
+     * @param sd_vec an sd_vector
+     */
+    hybrid_bit_vector(const sdsl::sd_vector<>& sd_vec) {
+        sd_arr = std::move(sd_array<uint_t>(sd_vec));
+    }
+
+    /**
+     * @brief constructs a new hybrid_bit_vector from an sd_vector
+     * @param sd_vec an sd_vector
+     */
+    hybrid_bit_vector(sdsl::sd_vector<>&& sd_vec) {
+        sd_arr = std::move(sd_array<uint_t>(std::move(sd_vec)));
     }
 
     inline bool is_initialized() {

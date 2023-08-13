@@ -75,7 +75,7 @@ void move_data_structure_phi<uint_t>::construction::balance_v2_seq() {
         [p_j + d, p_j + d_j). */
         tn_NEW = new_nodes_2v3v4[0].emplace_back(tout_node_t_v2v3v4(lin_node_t_v2v3v4(pair_t{p_j + d, q_j + d})));
         L_in_v2v3v4[0].insert_after_node(&tn_NEW->v,&tn_J->v);
-        T_out_v2v3v4[0].insert_node_in(tn_NEW,tn_J);
+        T_out_v2v3v4[0].insert_hint(tn_NEW,tn_J);
 
         // Check if [q_j + d, q_j + d_j) is a-heavy.
         i_ = 1;
@@ -87,7 +87,7 @@ void move_data_structure_phi<uint_t>::construction::balance_v2_seq() {
         if (p_j + d < q_j || q_j + d_j <= p_j + d) {
             /* Else find the output interval [q_y, q_y + d_y), to which [p_j + d, p_j + d_j) is connected
             in the permutation graph. */
-            tn_Y = T_out_v2v3v4[0].maximum_leq(lin_node_t_v2v3v4(pair_t{0,p_j + d}));
+            tn_Y = T_out_v2v3v4[0].max_leq(lin_node_t_v2v3v4(pair_t{0,p_j + d}));
             q_y = tn_Y->v.v.second;
 
             /*
@@ -132,17 +132,17 @@ void move_data_structure_phi<uint_t>::construction::balance_v2_seq() {
                 if (ln_ZpA->v.first < ln_Ip2A->v.first) {
                     // and [q_y, q_y + d_y) lies before [q_j + d, q_j + d_j)
                     min->v = te_pair_t_v2{ln_Ip2A,tn_NEW};
-                    T_e_v2.insert_or_update_in(te_pair_t_v2{ln_ZpA,tn_Y},min);
+                    T_e_v2.emplace_hint(te_pair_t_v2{ln_ZpA,tn_Y},min);
                 } else {
                     // and [q_y, q_y + d_y) lies after [q_j + d, q_j + d_j)
                     if (T_e_v2.size() == 1 || tn_Y->v.v.second < T_e_v2.second_smallest()->v.second->v.v.second) {
                         // and is the second a-heavy output interval
                         min->v = te_pair_t_v2{ln_ZpA,tn_Y};
-                        T_e_v2.insert_or_update_in(te_pair_t_v2{ln_Ip2A,tn_NEW},min);
+                        T_e_v2.emplace_hint(te_pair_t_v2{ln_Ip2A,tn_NEW},min);
                     } else {
                         // and is not the second a-heavy output interval
                         min->v = te_pair_t_v2{ln_Ip2A,tn_NEW};
-                        T_e_v2.insert_or_update(te_pair_t_v2{ln_ZpA,tn_Y});
+                        T_e_v2.insert(te_pair_t_v2{ln_ZpA,tn_Y});
                     }
                 }
             } else {
@@ -156,7 +156,7 @@ void move_data_structure_phi<uint_t>::construction::balance_v2_seq() {
                     if (min < &nodes_te.front() || &nodes_te.back() < min) {
                         delete min;
                     }
-                    T_e_v2.insert_or_update(te_pair_t_v2{ln_ZpA,tn_Y});
+                    T_e_v2.insert(te_pair_t_v2{ln_ZpA,tn_Y});
                 }
             }
         } else {

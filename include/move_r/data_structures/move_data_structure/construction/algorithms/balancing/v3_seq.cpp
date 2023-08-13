@@ -15,7 +15,7 @@ inline typename move_data_structure_phi<uint_t>::construction::tout_node_t_v2v3v
 
     // Create the pair (p_j + d, q_j + d), which creates two new input intervals [p_j, p_j + d) and [p_j + d, p_j + d_j).
     tout_node_t_v2v3v4 *tn_NEW = new_nodes_2v3v4[0].emplace_back(tout_node_t_v2v3v4(lin_node_t_v2v3v4(pair_t{p_j + d, q_j + d})));
-    T_out_v2v3v4[0].insert_node_in(tn_NEW,tn_J);
+    T_out_v2v3v4[0].insert_hint(tn_NEW,tn_J);
     L_in_v2v3v4[0].insert_after_node(&tn_NEW->v,&tn_J->v);
 
     /*
@@ -38,7 +38,7 @@ inline typename move_data_structure_phi<uint_t>::construction::tout_node_t_v2v3v
     if (p_j + d < q_u) {
         if (p_j + d < q_j || q_j + d_j <= p_j + d) {
             // find [q_y, q_y + d_y)
-            tout_node_t_v2v3v4 *tn_Y = T_out_v2v3v4[0].maximum_leq(lin_node_t_v2v3v4(pair_t{0,p_j + d}));
+            tout_node_t_v2v3v4 *tn_Y = T_out_v2v3v4[0].max_leq(lin_node_t_v2v3v4(pair_t{0,p_j + d}));
 
             // find the first input interval [p_z, p_z + d_z), that is connected to [q_y, q_y + d_y) in the permutation graph
             lin_node_t_v2v3v4 *ln_Z = &tn_NEW->v;

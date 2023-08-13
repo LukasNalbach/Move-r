@@ -33,9 +33,9 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std:
             n_ -= current_buffer_size;
         }
     }
-
+    
     // contains_uchar[c] = 1 <=> c in T[0..n-2].
-    contains_uchar.resize(256,0);
+    std::vector<uint8_t> contains_uchar(256,0);
 
     /* Combine the results of each thread's sections in contains_uchar_thr[0..i_p-1][0..255]
     into contains_uchar[0..255]. */
@@ -112,17 +112,6 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std:
             }
         }
 
-        // unmark the invalid chars
-        for (uint8_t cur_uchar=0; cur_uchar<min_valid_char; cur_uchar++) {
-            contains_uchar[cur_uchar] = 0;
-        }
-
-        /* Since the largest character, that has been remapped, has been mapped to j-1,
-        T now also contains c for each min_valid_char <= c < j */
-        for (uint16_t cur_uchar=min_valid_char; cur_uchar<=max_remapped_to_uchar; cur_uchar++) {
-            contains_uchar[cur_uchar] = 1;
-        }
-
         // Apply map_char to T.
         if (map_t) {
             #pragma omp parallel for num_threads(p)
@@ -132,13 +121,6 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std:
                 }
             }
         }
-    }
-
-    contains_uchar[terminator] = 1;
-    
-    if (!build_count_support) {
-        contains_uchar.clear();
-        contains_uchar.shrink_to_fit();
     }
 
     if (log) {
@@ -237,7 +219,7 @@ void move_r<uint_t>::construction::build_ilf() {
     C.shrink_to_fit();
 
     if (log) {
-        if (mf_idx != NULL) *mf_idx << "time_build_ilf" << time_diff_ns(time,now());
+        if (mf_idx != NULL) *mf_idx << " time_build_ilf=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }
@@ -297,25 +279,9 @@ void move_r<uint_t>::construction::build_l__sas() {
         uint_t e_r = r_p[i_p+1];
 
         // Index of the current input interval in M_LF, initially the index of the input interval of M_LF, in which b lies.
-        uint_t j;
-        {
-            uint_t x,y,z;
-            x = 0;
-            z = r_-1;
-
-            while (x != z) {
-                y = (x+z)/2+1;
-                if (idx.M_LF.p(y) <= b) {
-                    x = y;
-                } else {
-                    z = y-1;
-                }
-            }
-
-            j = x;
-        }
-
-        uint_t l_ = b; // Starting position of the next bwt run.
+        uint_t j = bin_search_max_leq<uint_t>(b,0,r_-1,[this](uint_t x){return idx.M_LF.p(x);});
+        // Starting position of the next bwt run.
+        uint_t l_ = b;
 
         for (uint_t i=b_r; i<e_r; i++) {
             idx.M_LF.template set_character(j,run_char(i));
@@ -421,7 +387,7 @@ void move_r<uint_t>::construction::build_saidx() {
 
     omega_idx = idx.M_Phi.width_idx();
     idx.omega_idx = omega_idx;
-    idx.SA_idx_vec = std::move(interleaved_vectors<uint_t>({(uint8_t)(omega_idx/8)},r_,false));
+    idx.SA_idx = std::move(interleaved_vectors<uint_t>({(uint8_t)(omega_idx/8)},r_,false));
 
     /* Now we will divide the range [0..n-1] up into p non-overlapping sub-ranges [s[i_p]..s[i_p+1]-1],
     for each i_p in [0..p-1], with 0 = s[0] < s[1] < ... < s[p] = n, where
@@ -580,25 +546,8 @@ void move_r<uint_t>::construction::build_de() {
     
     #pragma omp parallel for num_threads(p)
     for (uint16_t i=0; i<p_r-1; i++) {
-        uint_t opt = (i+1)*((n-1)/p_r);
-
-        // Left interval limit of the binary search.
-        uint_t b = 0;
-        // Left interval limit of the binary search.
-        uint_t e = r-1;
-        // Candidate position for the binary search.
-        uint_t c;
-
-        while (b != e) {
-            c = b+(e-b)/2;
-            if (opt <= (((int64_t)SA_s[pi_[c]])-1)%n) {
-                e = c;
-            } else {
-                b = c+1;
-            }
-        }
-
-        idx.D_e[i] = std::make_pair(pi_[b],(uint_t)((((int64_t)SA_s[pi_[b]])-1)%n));
+        uint_t x = bin_search_min_geq<uint_t>((i+1)*((n-1)/p_r),0,r-1,[this](uint_t x){return (((int64_t)SA_s[pi_[x]])-1)%n;});
+        idx.D_e[i] = std::make_pair(pi_[x],(uint_t)((((int64_t)SA_s[pi_[x]])-1)%n));
     }
 
     SA_s.clear();
@@ -615,23 +564,7 @@ void move_r<uint_t>::construction::build_rsl_() {
         std::cout << "building RS_L'" << std::flush;
     }
     
-    std::vector<char> chars;
-
-    if (!build_from_sa_and_l) {
-        for (uint16_t i=0; i<256; i++) {
-            if (contains_uchar[i] == 1) {
-                chars.emplace_back(uchar_to_char((uint8_t)i));
-            }
-        }
-    }
-
-    contains_uchar.clear();
-    contains_uchar.shrink_to_fit();
-    
-    idx.RS_L_ = std::move(string_rank_select_support<uint_t>([this](uint_t i){return idx.L_(i);},0,r_-1,chars,p));
-
-    chars.clear();
-    chars.shrink_to_fit();
+    idx.RS_L_ = std::move(string_rank_select_support<uint_t>([this](uint_t i){return idx.L_(i);},0,r_-1,p));
 
     if (log) {
         if (mf_idx != NULL) *mf_idx << " time_build_rsl_=" << time_diff_ns(time,now());

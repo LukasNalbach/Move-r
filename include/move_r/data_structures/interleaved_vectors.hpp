@@ -32,7 +32,7 @@ class interleaved_vectors {
      *        of the first entry of the vector with index vec
      */
     std::array<char*,16> bases = {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-                                     NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL};
+                                  NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL};
 
     /**
      * @brief [0..vecs-1] masks that are used to mask off data of other vector entries when
@@ -68,22 +68,22 @@ class interleaved_vectors {
      * @param other another interleaved_vectors object
      */
     void move_from_other(interleaved_vectors&& other) {
-        size = std::move(other.size);
-        vecs = std::move(other.vecs);
-        width_entry = std::move(other.width_entry);
+        size = other.size;
+        vecs = other.vecs;
+        width_entry = other.width_entry;
+
         data = std::move(other.data);
-        widths = std::move(other.widths);
-        bases = std::move(other.bases);
-        masks = std::move(other.masks);
-        set_bases();
+        widths = other.widths;
+        bases = other.bases;
+        masks = other.masks;
 
         other.size = 0;
         other.vecs = 0;
         other.width_entry = 0;
 
         for (uint8_t i=0; i<16; i++) {
-            other.bases[i] = NULL;
             other.widths[i] = 0;
+            other.bases[i] = NULL;
             other.masks[i] = 0;
         }
     }
@@ -186,10 +186,19 @@ class interleaved_vectors {
     }
 
     /**
+     * @brief returns the i-th entry of the vector with index 0
+     * @param i entry index (0 <= i < size)
+     * @return i-th entry of the vector with index 0 
+     */
+    uint_t operator[](uint_t i) {
+        return get<0>(i);
+    }
+
+    /**
      * @brief sets the i-th entry in the vector with index vec to v
      * @tparam vec vector index (0 <= vec < vecs)
      * @param i entry index (0 <= i < size)
-     * @param value to store
+     * @param v value to store
      */
     template <uint8_t vec>
     inline void set(uint_t i, uint_t v) {
@@ -207,7 +216,7 @@ class interleaved_vectors {
      * @tparam vec vector index (0 <= vec < vecs)
      * @tparam T type to treat the i-th entry in the vector with index vec as
      * @param i entry index (0 <= i < size)
-     * @param value to store
+     * @param v value to store
      */
     template <uint8_t vec, typename T>
     inline void set_unsafe(uint_t i, T v) {

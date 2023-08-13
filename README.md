@@ -140,10 +140,9 @@ usage: move-r-patterns <file> <length> <number> <patterns file> <forbidden>
 
 ### move-r-bench: benchmarks construction-, revert- and query-performance.
 ```
-move-r-bench: benchmarks construction-(, revert-) and query-performance of move-r, r-index-f, rcomp, r-index
-              (Prezza), r-index (Mun), OnlineRLBWT and DYNAMIC; has to be executed from the base folder.
-usage: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>
-   -r                 measure revert performance
+move-r-bench: benchmarks construction- and query performance of move-r, move-r-bigbwt, r-index, r-index-bigbwt,
+              r-index-f, rcomp-lfig, rcomp-glfig, OnlineRLBWT and rle_bwt; has to be executed from the base folder.
+usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>
    -c                 check for correctnes if possible; disables the -m option; will not print
                       runtime data if the runtime could be affected by checking for correctness
    -m <m_file>        writes measurement data to m_file
@@ -153,13 +152,22 @@ usage: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2> <
    <patterns_file_2>  file containing patterns (pattern length << number of occurrences) from <input_file>
                       to locate
    <num_threads>      maximum number of threads to use
-
-alternative usage: move-r-bench -sa [options] <input_file> <num_threads>
-                   builds the suffix array and bwt once using libsais and constructs only the static indexes
-                   from the suffix array and the bwt (move-r and r-index (Prezza))
-                   or from the prefix-free parsing (r-index (Mun) and r-index-f)
+usage 2: move-r-bench -sa [options] <input_file> <num_threads>
+                   builds the suffix array and bwt once using libsais and constructs only the
+                   static indexes from the suffix array and the bwt (move-r and r-index)
+                   or from the output of  prefix-free parsing (r-index-bigbwt and r-index-f).
    -m <m_file>     writes measurement data to m_file
    <input_file>    input file
+   <num_threads>   maximum number of threads to use
+usage 3: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>
+                      constructs move_r using <num_threads> threads and measures count- and locate
+                      performance of move_r for a=2, a=4, ..., a=8192.
+   -m <m_file>        writes measurement data to m_file
+   <input_file>       input file
+   <patterns_file_1>  file containing patterns (pattern length ~ number of occurrences) from <input_file>
+                      to count and locate
+   <patterns_file_2>  file containing patterns (pattern length << number of occurrences) from <input_file>
+                      to locate
    <num_threads>   maximum number of threads to use
 ```
 GitHub-repositories of the other indexes can be found in the folder `external/`.

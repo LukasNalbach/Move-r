@@ -34,15 +34,12 @@ class string_rank_select_support {
      * @param string the input string
      * @param l left range limit (l <= r)
      * @param r right range limit (l <= r)
-     * @param characters vector that contains exactly the characters occurring in the input string in the range [l,r]
-     * (optional, saves one scan over the input string)
      * @param p the number of threads to use
      */
     string_rank_select_support(
         const std::string& string,
         uint_t l = 1,
         uint_t r = 0,
-        const std::vector<char>& characters = {},
         uint16_t p = omp_get_max_threads()
     ) {
         r = std::max(r,string.size()-1);
@@ -52,7 +49,7 @@ class string_rank_select_support {
             r = string.size()-1;
         }
 
-        *this = std::move(string_rank_select_support([&string](uint i){return string[i];},l,r,characters,p));
+        *this = std::move(string_rank_select_support([&string](uint i){return string[i];},l,r,p));
     }
     
     /**
@@ -61,60 +58,76 @@ class string_rank_select_support {
      * as a parameter and must return the character of the input string at index i
      * @param l left range limit (l <= r)
      * @param r right range limit (l <= r)
-     * @param chars vector that contains exactly the characters occurring in the input
-     * string (optional, saves one scan over the input string)
      * @param p the number of threads to use
      */
     string_rank_select_support(
         const std::function<char(uint_t)>& read,
         uint_t l = 1,
         uint_t r = 0,
-        const std::vector<char>& chars = {},
         uint16_t p = omp_get_max_threads()
     ) {
         size = r-l+1;
-
-        if (chars.empty()) {
-            std::vector<std::vector<uint8_t>> contains_uchar_thr(p,std::vector<uint8_t>(256,0));
-
-            #pragma omp parallel for num_threads(p)
-            for (uint64_t i=l; i<=r; i++) {
-                contains_uchar_thr[omp_get_thread_num()][char_to_uchar(read(i))] = 1;
-            }
-
-            for (uint16_t i=0; i<256; i++) {
-                for (uint16_t i_p=0; i_p<p; i_p++) {
-                    if (contains_uchar_thr[i_p][i] == 1) {
-                        characters.emplace_back(uchar_to_char((uint8_t)i));
-                        break;
-                    }
-                }
-            }
-        } else {
-            characters = chars;
-        }
-
-        std::vector<sdsl::bit_vector> plain_bvs(256);
-        uint16_t num_chars = characters.size();
-
-        #pragma omp parallel for num_threads(p)
-        for (uint16_t i=0; i<num_chars; i++) {
-            plain_bvs[char_to_uchar(characters[i])] = std::move(sdsl::bit_vector(size));
-        }
+        std::vector<std::vector<uint_t>> occurrences_thr(p,std::vector<uint_t>(256,0));
 
         #pragma omp parallel for num_threads(p)
         for (uint64_t i=l; i<=r; i++) {
-            plain_bvs[char_to_uchar(read(i))][i] = 1;
+            occurrences_thr[omp_get_thread_num()][char_to_uchar(read(i))]++;
         }
 
-        hyb_bit_vecs.resize(256);
         occurrences.resize(256);
+
+        for (uint16_t cur_char=0; cur_char<256; cur_char++) {
+            for (uint16_t i_p=0; i_p<p; i_p++) {
+                occurrences[cur_char] += occurrences_thr[i_p][cur_char];
+            }
+
+            if (occurrences[cur_char] != 0) {
+                characters.emplace_back(uchar_to_char((uint8_t)cur_char));
+            }
+        }
+
+        occurrences_thr.clear();
+        occurrences_thr.shrink_to_fit();
+        uint16_t num_chars = characters.size();
+        std::vector<uint8_t> is_compressed(256,1);
+        std::vector<sdsl::sd_vector_builder> sdv_builders(256);
+        std::vector<sdsl::bit_vector> plain_bvs(256);
 
         #pragma omp parallel for num_threads(p)
         for (uint16_t i=0; i<num_chars; i++) {
-            hyb_bit_vecs[char_to_uchar(characters[i])] = std::move(hybrid_bv_t(std::move(plain_bvs[char_to_uchar(characters[i])])));
-            plain_bvs[char_to_uchar(characters[i])] = sdsl::bit_vector();
-            occurrences[char_to_uchar(characters[i])] = hyb_bit_vecs[char_to_uchar(characters[i])].num_ones();
+            uint8_t cur_char = char_to_uchar(characters[i]);
+
+            if (occurrences[cur_char] > size * hybrid_bit_vector<uint_t>::compression_threshold) {
+                is_compressed[cur_char] = 0;
+                plain_bvs[cur_char] = std::move(sdsl::bit_vector(size));
+            } else {
+                sdv_builders[cur_char] = std::move(sdsl::sd_vector_builder(size,occurrences[cur_char]));
+            }
+        }
+
+        uint8_t cur_char;
+
+        for (uint64_t i=l; i<=r; i++) {
+            cur_char = char_to_uchar(read(i));
+
+            if (is_compressed[cur_char]) {
+                sdv_builders[cur_char].set(i-l);
+            } else {
+                plain_bvs[cur_char][i-l] = 1;
+            }
+        }
+
+        hyb_bit_vecs.resize(256);
+
+        #pragma omp parallel for num_threads(p)
+        for (uint16_t i=0; i<num_chars; i++) {
+            uint8_t cur_char = char_to_uchar(characters[i]);
+
+            if (is_compressed[cur_char]) {
+                hyb_bit_vecs[cur_char] = std::move(hybrid_bv_t(std::move(sdsl::sd_vector<>(sdv_builders[cur_char]))));
+            } else {
+                hyb_bit_vecs[cur_char] = std::move(hybrid_bv_t(std::move(plain_bvs[cur_char])));
+            }
         }
     }
 

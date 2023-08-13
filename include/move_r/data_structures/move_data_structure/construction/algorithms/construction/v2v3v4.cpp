@@ -73,7 +73,7 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
     calculate_seperation_positions_for_I();
 
     // write I into nodes_v2v3v4 and build L_in_v2v3v4[0..p-1]
-    (*reinterpret_cast<std::vector<avl_node<doubly_linked_list_node<std::pair<no_init<uint_t>,no_init<uint_t>>>>>*>(&nodes_v2v3v4)).resize(k);
+    (*reinterpret_cast<std::vector<typename avl_tree<typename doubly_linked_list<std::pair<no_init<uint_t>,no_init<uint_t>>>::doubly_linked_list_node>::avl_node>*>(&nodes_v2v3v4)).resize(k);
 
     std::vector<std::queue<lin_node_t_v2v3v4*>> Q_i(2*p);
 
@@ -137,7 +137,7 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
 
     /* This function returns for the value i in [0,k-1] the node in nodes_v2v3v4[0..k-1],
     that stores the pair, which creates the i-th output interval. */
-    static constexpr std::function<tout_node_t_v2v3v4*(uint_t)> at = [this](uint_t i){
+    std::function<tout_node_t_v2v3v4*(uint_t)> at = [this](uint_t i){
         return &nodes_v2v3v4[pi[i]];
     };
 
@@ -185,8 +185,8 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
     /* make sure each avl tree T_out_v2v3v4[i], with i in [0..p-1], contains a pair creating
     an output interval starting at s[i] */
     for (uint16_t i=1; i<p; i++) {
-        if (T_out_v2v3v4[i].empty() || T_out_v2v3v4[i].minimum()->v.v.second != s[i]) {
-            lin_node_t_v2v3v4 *ln = &T_out_v2v3v4[i-1].maximum()->v;
+        if (T_out_v2v3v4[i].empty() || T_out_v2v3v4[i].min()->v.v.second != s[i]) {
+            lin_node_t_v2v3v4 *ln = &T_out_v2v3v4[i-1].max()->v;
 
             tout_node_t_v2v3v4 *tn = new_nodes_2v3v4[i].emplace_back(
                 tout_node_t_v2v3v4(lin_node_t_v2v3v4(pair_t{
@@ -195,18 +195,7 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
             );
 
             // find i_ in [0,p-1], so that s[i_] <= tn->v.first < s[i_+1]
-            uint16_t l = 0;
-            uint16_t r = p-1;
-            uint16_t m;
-            while (l != r) {
-                m = l+(r-l)/2+1;
-                if (s[m] > ln->v.first) {
-                    r = m-1;
-                } else {
-                    l = m;
-                }
-            }
-            uint16_t i_ = l;
+            uint16_t i_ = bin_search_max_leq<uint_t>(ln->v.first,0,p-1,[this](uint_t x){return s[x];});
 
             L_in_v2v3v4[i_].insert_after_node(&tn->v,ln);
             T_out_v2v3v4[i].insert_node(tn);
@@ -242,18 +231,7 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
             );
 
             // find i_ in [0,p-1], so that s[i_] <= tn->v.v.second < s[i_+1]
-            uint16_t l = 0;
-            uint16_t r = p-1;
-            uint16_t m;
-            while (l != r) {
-                m = l+(r-l)/2+1;
-                if (s[m] > tn->v.v.second) {
-                    r = m-1;
-                } else {
-                    l = m;
-                }
-            }
-            uint16_t i_ = l;
+            uint16_t i_ = bin_search_max_leq<uint_t>(tn->v.v.second,0,p-1,[this](uint_t x){return s[x];});
 
             T_out_v2v3v4[i_].insert_node(tn);
             L_in_v2v3v4[i].push_front_node(&tn->v);
@@ -305,18 +283,7 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
                 
                 if (ln_cur->sc != NULL && ln_cur->sc->v.first - ln_cur->v.first > l_max) {
                     // find i_p' in [0,p-1], so that s[i_p'] <= tn->v.v.second < s[i_p'+1]
-                    uint16_t l = 0;
-                    uint16_t r = p-1;
-                    uint16_t m;
-                    while (l != r) {
-                        m = l+(r-l)/2+1;
-                        if (s[m] > ln_cur->v.second) {
-                            r = m-1;
-                        } else {
-                            l = m;
-                        }
-                    }
-                    uint16_t i_p_ = l;
+                    uint16_t i_p_ = bin_search_max_leq<uint_t>(ln_cur->v.second,0,p-1,[this](uint_t x){return s[x];});
 
                     do {
                         ln_last = ln_cur;
@@ -380,7 +347,7 @@ void move_data_structure_phi<uint_t>::construction::build_dp_dq_v2v3v4() {
 
     for (uint16_t i=0; i<p; i++) {
         // remove the pairs (s[i+1],s[i+1]) from T_out_v2v3v4[i], for each i in [0..p-1]
-        T_out_v2v3v4[i].remove_node(T_out_v2v3v4[i].maximum());
+        T_out_v2v3v4[i].remove_node(T_out_v2v3v4[i].max());
 
         // calculate x
         x[i+1] = x[i] + L_in_v2v3v4[i].size();

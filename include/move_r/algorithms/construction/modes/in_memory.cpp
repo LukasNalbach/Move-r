@@ -118,7 +118,6 @@ void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
 
             if (cur_char != prev_char) {
                 RLBWT_thr[i_p].emplace_back(std::make_pair(prev_char,i-i_));
-
                 prev_char = cur_char;
                 i_ = i;
             }
@@ -194,28 +193,10 @@ void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
 
         // Iterator pointing to the current RLBWT pair in RLBWT_thr[i_p].
         auto rlbwt_it = RLBWT_thr[i_p].begin();
-
         // Current position in L.
         uint_t j = n_p[i_p];
-
         // Index of the current section in r_p_new.
-        uint_t cur_rp;
-        {
-            uint_t x,y,z;
-            x = 0;
-            z = p-1;
-
-            while (x != z) {
-                y = (x+z)/2+1;
-                if (r_p_new[y] <= b_r) {
-                    x = y;
-                } else {
-                    z = y-1;
-                }
-            }
-
-            cur_rp = x;
-        }
+        uint_t cur_rp = bin_search_max_leq<uint_t>(b_r,0,p-1,[&r_p_new](uint_t x){return r_p_new[x];});
 
         if (b_r == r_p_new[cur_rp]) {
             n_p_new[cur_rp] = j;

@@ -7,7 +7,9 @@
 #include <fstream>
 #include <climits>
 #include <string>
+#include <functional>
 #include <unistd.h>
+
 #include <malloc_count.h>
 
 uint64_t ram_size() {
@@ -252,4 +254,96 @@ void no_init_resize(std::vector<std::pair<T1,T2>>& vec, size_t size) {
 template <typename T>
 void no_init_resize(std::vector<std::tuple<T,T,T>>& vec, size_t size) {
     (*reinterpret_cast<std::vector<std::tuple<no_init<T>,no_init<T>,no_init<T>>>*>(&vec)).resize(size);
+}
+
+template <typename uint_t>
+uint_t bin_search_max_leq(uint_t value, uint_t left, uint_t right, std::function<uint_t(uint_t)> value_at) {
+    uint_t middle;
+
+    while (left != right) {
+        middle = left+(right-left)/2+1;
+
+        if (value_at(middle) <= value) {
+            left = middle;
+        } else {
+            right = middle-1;
+        }
+    }
+
+    return left;
+}
+
+template <typename uint_t>
+uint_t bin_search_min_geq(uint_t value, uint_t left, uint_t right, std::function<uint_t(uint_t)> value_at) {
+    uint_t middle;
+
+    while (left != right) {
+        middle = left+(right-left)/2;
+
+        if (value <= value_at(middle)) {
+            right = middle;
+        } else {
+            left = middle+1;
+        }
+    }
+
+    return left;
+}
+
+template <typename uint_t>
+uint_t bin_search_min_gt(uint_t value, uint_t left, uint_t right, std::function<uint_t(uint_t)> value_at) {
+    uint_t middle;
+
+    while (left != right) {
+        middle = left+(right-left)/2;
+
+        if (value < value_at(middle)) {
+            right = middle;
+        } else {
+            left = middle+1;
+        }
+    }
+
+    return left;
+}
+
+enum exp_search_dir {LEFT,RIGHT};
+
+template <typename uint_t, exp_search_dir search_dir>
+uint_t exp_search_max_leq(uint_t value, uint_t left, uint_t right, std::function<uint_t(uint_t)> value_at) {
+    uint_t cur_step_size = 1;
+
+    if constexpr (search_dir == LEFT) {
+        right -= cur_step_size;
+
+        while (value < value_at(right)) {
+            cur_step_size *= 2;
+
+            if (right < left+cur_step_size) {
+                cur_step_size = right;
+                right = 0;
+                break;
+            }
+
+            right -= cur_step_size;
+        }
+
+        return bin_search_max_leq<uint_t>(value,right,right+cur_step_size-1,value_at);
+    } else {
+        left += cur_step_size;
+
+        while (value_at(left) < value) {
+            cur_step_size *= 2;
+
+            if (right < cur_step_size || right-cur_step_size < left) {
+                cur_step_size = right-left;
+                left = right;
+                break;
+            }
+
+            left += cur_step_size;
+        }
+
+        return bin_search_max_leq<uint_t>(value,left-cur_step_size+1,left,value_at);
+    }
 }
