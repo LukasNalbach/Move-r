@@ -82,7 +82,7 @@ void move_data_structure_phi<uint_t>::construction::balance_v2_seq() {
         ln_Ip2A = is_a_heavy_v2v3v4(&ln_IpA,&i_,tn_NEW);
 
         ln_ZpA = NULL;
-        /* If p_j + d lies in [q_j, q_j + d) or [q_j + d, q_j + d_j), [q_j + d, q_j + d_j) is the only
+        /* If p_j + d \in [q_j, q_j + d) or [q_j + d, q_j + d_j), [q_j + d, q_j + d_j) is the only
         possibly new a-heavy output interval. */
         if (p_j + d < q_j || q_j + d_j <= p_j + d) {
             /* Else find the output interval [q_y, q_y + d_y), to which [p_j + d, p_j + d_j) is connected
@@ -92,10 +92,10 @@ void move_data_structure_phi<uint_t>::construction::balance_v2_seq() {
 
             /*
                 Find the first input interval [p_z, p_z + d_z), that is connected to [q_y, q_y + d_y) in the permutation graph.
-                Case 1: [p_z, p_z + d_z) lies before q_j.
+                Case 1: [p_z, p_z + d_z) ends before q_j.
                     Then [q_y, q_y + d_y) does as well and because [q_y, q_y + d_y) was not a-heavy before [q_j + d, q_j + d_j) has been
                     created, [p_z, p_z + d_z) can be reached by iterating backwards in L_in_v2v3v4 at most 2a-1 steps starting from (p_j + d, q_j + d).
-                Case 2: [p_z, p_z + d_z) lies after q_j + d_j.
+                Case 2: [p_z, p_z + d_z) starts after q_j + d_j.
                     Case 2.1: [p_z, p_z + d_z) is found by iterating backwards at most 2a-1 steps in L_in_v2v3v4 starting from (p_j + d, q_j + d).
                         Then check if [q_y, q_y + d_y) is a-heavy and insert ((p_{z+a},q_{z+a}),(p_y,q_y)) into T_e if it is.
                     Case 2.2: [p_z, p_z + d_z) is not found by iterating backwards at most 2a-1 steps in L_in_v2v3v4 starting from (p_j + d, q_j + d).
@@ -130,11 +130,11 @@ void move_data_structure_phi<uint_t>::construction::balance_v2_seq() {
             if (ln_Ip2A != NULL) {
                 // [q_j + d, q_j + d_j) and [q_y, q_y + d_y) are both new a-heavy output intervals
                 if (ln_ZpA->v.first < ln_Ip2A->v.first) {
-                    // and [q_y, q_y + d_y) lies before [q_j + d, q_j + d_j)
+                    // and [q_y, q_y + d_y) ends before [q_j + d, q_j + d_j)
                     min->v = te_pair_t_v2{ln_Ip2A,tn_NEW};
                     T_e_v2.emplace_hint(te_pair_t_v2{ln_ZpA,tn_Y},min);
                 } else {
-                    // and [q_y, q_y + d_y) lies after [q_j + d, q_j + d_j)
+                    // and [q_y, q_y + d_y) starts after [q_j + d, q_j + d_j)
                     if (T_e_v2.size() == 1 || tn_Y->v.v.second < T_e_v2.second_smallest()->v.second->v.v.second) {
                         // and is the second a-heavy output interval
                         min->v = te_pair_t_v2{ln_ZpA,tn_Y};

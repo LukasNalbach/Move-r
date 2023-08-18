@@ -256,7 +256,7 @@ template <typename uint_t>
 void move_r<uint_t>::construction::build_l__sas() {
     if (log) {
         time = now();
-        std::cout << "building L'" << std::flush;
+        std::cout << "building L'" << (std::string)(build_locate_support ? " and SA_s" : "") << std::flush;
     }
 
     if (build_locate_support) {
@@ -278,7 +278,7 @@ void move_r<uint_t>::construction::build_l__sas() {
         // Bwt runs iteration range end position of thread i_p.
         uint_t e_r = r_p[i_p+1];
 
-        // Index of the current input interval in M_LF, initially the index of the input interval of M_LF, in which b lies.
+        // Index of the current input interval in M_LF, initially the index of the input interval of M_LF containing b
         uint_t j = bin_search_max_leq<uint_t>(b,0,r_-1,[this](uint_t x){return idx.M_LF.p(x);});
         // Starting position of the next bwt run.
         uint_t l_ = b;
@@ -369,7 +369,7 @@ void move_r<uint_t>::construction::build_mphi() {
 template <typename uint_t>
 void move_r<uint_t>::construction::build_saidx() {
     time = now();
-    if (log) std::cout << "building SA_idx" << std::flush;
+    if (log) std::cout << "building SA_idx_phi" << std::flush;
 
     no_init_resize(pi_,r_);
 
@@ -387,7 +387,7 @@ void move_r<uint_t>::construction::build_saidx() {
 
     omega_idx = idx.M_Phi.width_idx();
     idx.omega_idx = omega_idx;
-    idx.SA_idx = std::move(interleaved_vectors<uint_t>({(uint8_t)(omega_idx/8)},r_,false));
+    idx.SA_idx_phi = std::move(interleaved_vectors<uint_t>({(uint8_t)(omega_idx/8)},r_,false));
 
     /* Now we will divide the range [0..n-1] up into p non-overlapping sub-ranges [s[i_p]..s[i_p+1]-1],
     for each i_p in [0..p-1], with 0 = s[0] < s[1] < ... < s[p] = n, where
@@ -517,7 +517,7 @@ void move_r<uint_t>::construction::build_saidx() {
                     i++;
                 }
 
-                idx.set_SA_idx(pi_[j],pi_mphi[i]);
+                idx.set_SA_idx_phi(pi_[j],pi_mphi[i]);
                 
                 i++;
                 j++;

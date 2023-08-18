@@ -532,7 +532,7 @@ void measure_all() {
     measure<uint_t,move_r<uint_t>,true,false,false>("move-r-bigbwt","move_r_bigbwt",max_num_threads);
     measure<uint_t,r_index_f<>,false,true,false>("r-index-f","r_index_f",1);
     measure<uint_t,rcomp_lfig,false,true,true>("rcomp-lfig","rcomp_lfig",1);
-    measure<uint_t,rcomp_glfig_16,false,true,true>("rcomp-glfig","rcomp_glfig_g16",1);
+    measure<uint_t,rcomp_glfig_16,false,true,true>("rcomp-glfig","rcomp_glfig",1);
     measure<uint_t,ri::r_index<>,false,true,true>("r-index","r_index",1);
     measure<uint_t,ri_mun::r_index<>,false,false,false>("r-index-bigbwt","r_index_bigbwt",1);
     measure<uint_t,OnlineRlbwt,false,true,true>("OnlineRlbwt","online_rlbwt",1);
@@ -947,7 +947,7 @@ uint64_t count_pattern<uint64_t,OnlineRlbwt>(OnlineRlbwt& index, std::string& pa
 
 template <>
 void locate_pattern<uint32_t,OnlineRlbwt>(OnlineRlbwt& index, std::string& pattern, std::vector<uint32_t>& occurrences) {
-       OnlineRlbwt::PatTracker tracker = index.getInitialPatTracker();
+    OnlineRlbwt::PatTracker tracker = index.getInitialPatTracker();
 
     for (uint32_t pos=0; pos<pattern.size(); pos++) {
         index.lfMap(tracker,pattern[pos]);
@@ -959,13 +959,13 @@ void locate_pattern<uint32_t,OnlineRlbwt>(OnlineRlbwt& index, std::string& patte
 
     for (uint32_t pos=1; pos<numOcc; pos++) {
         curPos = index.calcNextPos(curPos);
-          occurrences.emplace_back(curPos-pattern.size());
+        occurrences.emplace_back(curPos-pattern.size());
     }
 }
 
 template <>
 void locate_pattern<uint64_t,OnlineRlbwt>(OnlineRlbwt& index, std::string& pattern, std::vector<uint64_t>& occurrences) {
-       OnlineRlbwt::PatTracker tracker = index.getInitialPatTracker();
+    OnlineRlbwt::PatTracker tracker = index.getInitialPatTracker();
 
     for (uint64_t pos=0; pos<pattern.size(); pos++) {
         index.lfMap(tracker,pattern[pos]);
@@ -977,7 +977,7 @@ void locate_pattern<uint64_t,OnlineRlbwt>(OnlineRlbwt& index, std::string& patte
 
     for (uint64_t pos=1; pos<numOcc; pos++) {
         curPos = index.calcNextPos(curPos);
-          occurrences.emplace_back(curPos-pattern.size());
+        occurrences.emplace_back(curPos-pattern.size());
     }
 }
 

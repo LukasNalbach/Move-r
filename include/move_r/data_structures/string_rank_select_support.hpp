@@ -164,13 +164,24 @@ class string_rank_select_support {
 
     /**
      * @brief returns the number of occurrences of c before index i
-     * @param c a character
+     * @param c a character that occurs in the input string
      * @param i [0..size]
      * @return number of occurrences of c before index i
      */
     inline uint_t rank(char c, uint_t i) {
         static_assert(build_rank_support);
         return hyb_bit_vecs[char_to_uchar(c)].rank_1(i);
+    }
+
+    /**
+     * @brief returns the number of occurrences of characters other than c before index i
+     * @param c a character that occurs in the input string
+     * @param i [0..size]
+     * @return number of occurrences of characters other than c before index i
+     */
+    inline uint_t rank_other(char c, uint_t i) {
+        static_assert(build_rank_support);
+        return hyb_bit_vecs[char_to_uchar(c)].rank_0(i);
     }
     
     /**
@@ -180,7 +191,7 @@ class string_rank_select_support {
      * @return index of the i-th occurrence of c
      */
     inline uint_t select(char c, uint_t i) {
-        static_assert(build_rank_support);
+        static_assert(build_select_support);
         return hyb_bit_vecs[char_to_uchar(c)].select_1(i);
     }
 
@@ -191,8 +202,8 @@ class string_rank_select_support {
      * @return i-th index, at which there is a character other than c
      */
     inline uint_t select_other(char c, uint_t i) {
-        static_assert(build_rank_support);
-        return hyb_bit_vecs[char_to_uchar(c)].select_1(i);
+        static_assert(build_select_other_support);
+        return hyb_bit_vecs[char_to_uchar(c)].select_0(i);
     }
 
     /**
@@ -263,7 +274,6 @@ class string_rank_select_support {
      * @return whether c occurs before index i
      */
     inline bool occurs_before(char c, uint_t i) {
-        static_assert(build_rank_support);
         return rank(char_to_uchar(c),i) != 0;
     }
 
@@ -274,7 +284,6 @@ class string_rank_select_support {
      * @return whether c occurs after index i
      */
     inline bool occurs_after(char c, uint_t i) {
-        static_assert(build_rank_support);
         return rank(char_to_uchar(c),i+1) < occurrences[c];
     }
 

@@ -30,7 +30,7 @@ class move_r<uint_t>::construction {
     std::chrono::steady_clock::time_point time_start; // time of the start of the whole build phase
     uint64_t baseline_memory_allocation = 0; // memory allocation at the start of the construction
     bool build_count_support = false; // = true <=> build support for count (RS_L')
-    bool build_locate_support = false; // = true <=> build support for locate (SA_idx and M_Phi) and build parallel revert support (D_e)
+    bool build_locate_support = false; // = true <=> build support for locate (SA_idx_phi and M_Phi) and build parallel revert support (D_e)
     bool read_rlbwt = false; // = true <=> read the run-length encoded BWT
     uint8_t terminator = 0; // terminator (dollar) symbol
     uint8_t min_valid_char = 0; // the minimum valid character that is allowed to occur in T
@@ -47,7 +47,7 @@ class move_r<uint_t>::construction {
     uint_t r__ = 0; // r'', the number of input/output intervals in M_Phi
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))), 2 <= a
     uint16_t p_r = 0; // maximum possible number of threads to use while reverting the index
-    uint8_t omega_idx = 0; // word width of SA_idx
+    uint8_t omega_idx = 0; // word width of SA_idx_phi
 
     // ############################# CONSTRUCTION DATA STRUCTURE VARIABLES #############################
 
@@ -450,14 +450,10 @@ class move_r<uint_t>::construction {
         prepare_phase_1();
         prepare_phase_2();
         build_rlbwt_c_in_memory<sa_sint_t,true>();
-
         if (log) log_statistics();
-
         build_ilf();
         build_mlf();
-
         if (build_locate_support) build_iphi_in_memory<sa_sint_t>();
-
         build_l__sas();
 
         if (build_locate_support) {
@@ -468,7 +464,6 @@ class move_r<uint_t>::construction {
         }
 
         if (build_count_support) build_rsl_();
-
         if (log) log_finished();
     }
 
@@ -497,14 +492,10 @@ class move_r<uint_t>::construction {
         prepare_phase_2();
         build_sa_in_memory<sa_sint_t>();
         build_rlbwt_c_in_memory<sa_sint_t,false>();
-
         if (log) log_statistics();
-
         build_ilf();
-        build_mlf();
-        
         if (build_locate_support) build_iphi_in_memory<sa_sint_t>();
-
+        build_mlf();
         build_l__sas();
 
         if (build_locate_support) {
@@ -607,7 +598,7 @@ class move_r<uint_t>::construction {
     void build_mphi();
 
     /**
-     * @brief builds SA_idx
+     * @brief builds SA_idx_phi
      */
     void build_saidx();
 

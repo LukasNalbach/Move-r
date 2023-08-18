@@ -50,7 +50,7 @@ void move_r<uint_t>::construction::pfp(std::ifstream& t_file, bool delete_t_file
         .compute_sa_info=true
     },num_dictionary_words,false);
 
-    read_rlbwt = n > 160 * num_dictionary_words;
+    read_rlbwt = n > 100 * num_dictionary_words;
 
     if (delete_t_file) {
         t_file.close();

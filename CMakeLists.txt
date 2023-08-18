@@ -5,8 +5,9 @@ find_package(Git REQUIRED)
 
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/external/libsais/LICENSE")
   execute_process(COMMAND git submodule update --init --recursive WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-  execute_process(COMMAND cp -rf "${CMAKE_SOURCE_DIR}/patched-files/*" "${CMAKE_SOURCE_DIR}")
 endif()
+
+execute_process(COMMAND cp -rf "${CMAKE_SOURCE_DIR}/patched-files/*" "${CMAKE_SOURCE_DIR}")
 
 project (move-r LANGUAGES C CXX)
 
@@ -62,7 +63,6 @@ target_include_directories(sdsl PUBLIC "${CMAKE_BINARY_DIR}/external/sdsl-lite/e
 # abseil
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/abseil-cpp/")
-
 ############################# move-r #############################
 
 # move-r

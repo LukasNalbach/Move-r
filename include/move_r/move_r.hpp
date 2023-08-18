@@ -59,7 +59,7 @@ class move_r {
     uint_t r__ = 0; // r'', the number of input/output intervals in M_Phi
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))), 2 <= a
     uint16_t p_r = 0; // maximum possible number of threads to use while reverting the index
-    uint8_t omega_idx = 0; // word width of SA_idx
+    uint8_t omega_idx = 0; // word width of SA_idx_phi
 
     std::vector<move_r_support> support; // contains all supported operations
     /* true <=> the characters of the input string have been remapped internally, because the input
@@ -79,8 +79,8 @@ class move_r {
     std::vector<std::pair<uint_t,uint_t>> D_e;
     string_rank_select_support<uint_t> RS_L_; // rank-select data structure for L'
     move_data_structure_phi<uint_t> M_Phi; // The Move Data Structure for Phi.
-    /* [0..r-1] SA_idx */
-    interleaved_vectors<uint_t> SA_idx;
+    /* [0..r-1] SA_idx_phi */
+    interleaved_vectors<uint_t> SA_idx_phi;
 
     // ############################# INTERNAL METHODS #############################
 
@@ -90,16 +90,16 @@ class move_r {
      * @return SA_s[x]
      */
     inline uint_t SA_s(uint_t x) {
-        return M_Phi.q(SA_idx[x]);
+        return M_Phi.q(SA_idx_phi[x]);
     }
 
     /**
-     * @brief sets SA_idx[x] to idx
+     * @brief sets SA_idx_phi[x] to idx
      * @param x [0..r-1]
      * @param idx [0..r''-1]
      */
-    inline void set_SA_idx(uint_t x, uint_t idx) {
-        SA_idx.template set<0>(x,idx);
+    inline void set_SA_idx_phi(uint_t x, uint_t idx) {
+        SA_idx_phi.template set<0>(x,idx);
     }
 
     /**
@@ -134,10 +134,10 @@ class move_r {
     /**
      * @brief Sets the up a Phi-move-pair for the suffix array sample at the end position of the x-th input interval in M_LF
      * @param x an input interval in M_LF (the end position of the x-th input interval in M_LF must be an end position of a BWT run)
-     * @param i_s variable to store the suffix array sample at position l'_{x+1}-1
-     * @param x_s variable to store the index of the input interval in M_Phi, in that i_s lies
+     * @param s variable to store the suffix array sample at position l'_{x+1}-1
+     * @param s_ variable to store the index of the input interval in M_Phi containing s
      */
-    void setup_phi_move_pair(uint_t x, uint_t& i_s, uint_t& x_s);
+    void setup_phi_move_pair(uint_t x, uint_t& s, uint_t& s_);
 
     /**
      * @brief adds implicitly supported move_r operations to the vector support and sorts it afterwards
@@ -339,7 +339,7 @@ class move_r {
     }
 
     /**
-     * @brief returns the number omega_idx of bits used by one entry in SA_idx (word width of SA_idx)
+     * @brief returns the number omega_idx of bits used by one entry in SA_idx_phi (word width of SA_idx_phi)
      * @return omega_idx
      */
     inline uint8_t width_saidx() {
@@ -384,7 +384,7 @@ class move_r {
             M_LF.size_in_bytes()+ // M_LF and L'
             RS_L_.size_in_bytes()+ // RS_L'
             M_Phi.size_in_bytes()+ // M_Phi
-            SA_idx.size_in_bytes(); // SA_idx
+            SA_idx_phi.size_in_bytes(); // SA_idx_phi
     }
 
     /**
@@ -401,7 +401,7 @@ class move_r {
 
             if (does_support(move_r_support::locate)) {
                 std::cout << "M_Phi: " << format_size(M_Phi.size_in_bytes()) << std::endl;
-                std::cout << "SA_idx: " << format_size(SA_idx.size_in_bytes()) << std::endl;
+                std::cout << "SA_idx_phi: " << format_size(SA_idx_phi.size_in_bytes()) << std::endl;
             }
         }
     }
@@ -420,7 +420,7 @@ class move_r {
 
             if (does_support(move_r_support::locate)) {
                 out << " size_m_phi=" << M_Phi.size_in_bytes();
-                out << " size_sa_idx=" << SA_idx.size_in_bytes();
+                out << " size_sa_idx=" << SA_idx_phi.size_in_bytes();
             }
         }
     }
@@ -748,7 +748,7 @@ class move_r {
             M_Phi.serialize(out);
 
             out.write((char*)&omega_idx,1);
-            SA_idx.serialize(out);
+            SA_idx_phi.serialize(out);
         }
 
         std::streamoff offs_end = out.tellp()-pos_data_structure_offsets;
@@ -822,7 +822,7 @@ class move_r {
             M_Phi.load(in);
 
             in.read((char*)&omega_idx,1);
-            SA_idx.load(in);
+            SA_idx_phi.load(in);
         }
 
         in.seekg(pos_data_structure_offsets+offs_end,std::ios::beg);
