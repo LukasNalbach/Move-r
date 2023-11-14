@@ -21,7 +21,12 @@ uint_t move_r<uint_t>::access_sa(uint_t i) {
     // index of the input interval in M_LF containing i.
     uint_t x = bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x_){return M_LF.p(x_);});
 
-    if (i == M_LF.p(x)) return M_Phi.p(SA_phi[x-1]);
+    /* if i is a run start position (i = M_LF.p(x)), then
+        SA[i] = Phi^{-1}(SA_s[(x-1) mod r'])
+              = Phi^{-1}(M_Phi.q(SA_phi[(x-1) mod r']))
+              =          M_Phi.p(SA_phi[(x-1) mod r'])
+    */
+    if (i == M_LF.p(x)) return M_Phi.p(SA_phi[x == 0 ? r_-1 : x-1]);
 
     // begin iterating at the end of the x-th run, because there
     // is a suffix array sample at each run end position
