@@ -255,7 +255,7 @@ class doubly_linked_list {
 
     /**
      * @brief inserts the node n1 before the node n2
-     * @param n1 a node, that is not in the list
+     * @param n1 a node that is not in the list
      * @param n2 a node in the list, n1 != n2
      */
     inline void insert_before_node(doubly_linked_list_node *n1, doubly_linked_list_node *n2) {
@@ -272,7 +272,7 @@ class doubly_linked_list {
 
     /**
      * @brief inserts the node n1 after the node n2
-     * @param n1 a node, that is not in the list
+     * @param n1 a node that is not in the list
      * @param n2 a node in the list, n1 != n2
      */
     inline void insert_after_node(doubly_linked_list_node *n1, doubly_linked_list_node *n2) {
@@ -289,7 +289,7 @@ class doubly_linked_list {
 
     /**
      * @brief inserts the node n before the head of the list
-     * @param n a node, that is not in the list
+     * @param n a node that is not in the list
      */
     inline void push_front_node(doubly_linked_list_node *n) {
         if (empty()) {
@@ -302,7 +302,7 @@ class doubly_linked_list {
 
     /**
      * @brief inserts the node n after the tail of the list
-     * @param n a node, that is not in the list
+     * @param n a node that is not in the list
      */
     inline doubly_linked_list_node* push_back_node(doubly_linked_list_node *n) {
         if (empty()) {

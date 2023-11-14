@@ -103,22 +103,22 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
         uint16_t i_p = omp_get_thread_num();
 
         tin_it_t_v5 tn_I = T_in_v5[i_p].begin();
-        pair_t pr_last = *tn_I;
+        pair_t pr_Im1 = *tn_I;
         tn_I++;
         
         while (tn_I != T_in_v5[i_p].end()) {
-            while (((*tn_I).first - pr_last.first) > l_max) {
-                tn_I = T_in_v5[i_p].emplace_hint(tn_I,pair_t{pr_last.first + l_max, pr_last.second + l_max});
-                pr_last = *tn_I;
+            while (((*tn_I).first - pr_Im1.first) > l_max) {
+                tn_I = T_in_v5[i_p].emplace_hint(tn_I,pair_t{pr_Im1.first + l_max, pr_Im1.second + l_max});
+                pr_Im1 = *tn_I;
                 tn_I++;
 
-                uint16_t i_p_ = bin_search_max_leq<uint_t>(pr_last.second,0,p-1,[this](uint_t x){return s[x];});
+                uint16_t i_p_ = bin_search_max_leq<uint_t>(pr_Im1.second,0,p-1,[this](uint_t x){return s[x];});
 
                 // store each new pair in its corresponding tree in T_out_temp_v5
-                T_out_temp_v5[i_p_][i_p].emplace(pr_last);
+                T_out_temp_v5[i_p_][i_p].emplace(pr_Im1);
             }
 
-            pr_last = *tn_I;
+            pr_Im1 = *tn_I;
             tn_I++;
         }
     }

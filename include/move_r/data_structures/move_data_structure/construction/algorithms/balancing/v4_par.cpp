@@ -35,9 +35,9 @@ inline typename move_data_structure_phi<uint_t>::construction::tout_node_t_v2v3v
                 uint_t q_y = tn_Y->v.v.second;
 
                 // find the output interval starting after [q_y, q_y + d_y)
-                tout_node_t_v2v3v4 *tn_Y_nxt = tn_Y->nxt();
+                tout_node_t_v2v3v4 *tn_Yp1 = tn_Y->nxt();
 
-                // find the first input interval [p_z, p_z + d_z), that is connected to [q_y, q_y + d_y) in the permutation graph
+                // find the first input interval [p_z, p_z + d_z) connected to [q_y, q_y + d_y) in the permutation graph
                 lin_node_t_v2v3v4 *ln_Z = &tn_NEW->v;
                 uint_t i__ = 1;
                 while (ln_Z->pr != NULL && ln_Z->pr->v.first >= q_y) {
@@ -46,9 +46,9 @@ inline typename move_data_structure_phi<uint_t>::construction::tout_node_t_v2v3v
                 }
                 ln_Z = &tn_NEW->v;
 
-                lin_node_t_v2v3v4 *ln_ZpA = is_a_heavy_v2v3v4(&ln_Z,&i__,tn_Y,tn_Y_nxt);
+                lin_node_t_v2v3v4 *ln_ZpA = is_a_heavy_v2v3v4(&ln_Z,&i__,tn_Y,tn_Yp1);
                 if (ln_ZpA != NULL) {
-                    balance_upto_v4_par(ln_ZpA,tn_Y,tn_Y_nxt,q_u,p_cur,i_);
+                    balance_upto_v4_par(ln_ZpA,tn_Y,tn_Yp1,q_u,p_cur,i_);
                 }
             }
         } else if (p_j + d < p_cur) {
@@ -83,9 +83,9 @@ void move_data_structure_phi<uint_t>::construction::balance_v4_par() {
         // points to to the pair (p_i,q_i).
         lin_node_t_v2v3v4 *ln_I = L_in_v2v3v4[i_p].head();
         // points to the pair (p_j,q_j).
-        typename tout_t_v2v3v4::avl_it it_outp_cur = T_out_v2v3v4[i_p].iterator();
+        typename tout_t_v2v3v4::avl_it tn_J = T_out_v2v3v4[i_p].iterator();
         // points to the pair (p_{j'},q_{j'}), where q_j + d_j = q_{j'}.
-        typename tout_t_v2v3v4::avl_it it_outp_nxt = T_out_v2v3v4[i_p].iterator(T_out_v2v3v4[i_p].second_smallest());
+        typename tout_t_v2v3v4::avl_it tn_Jp1 = T_out_v2v3v4[i_p].iterator(T_out_v2v3v4[i_p].second_smallest());
 
         // temporary variables
         lin_node_t_v2v3v4 *ln_IpA;
@@ -94,24 +94,24 @@ void move_data_structure_phi<uint_t>::construction::balance_v4_par() {
         // At the start of each iteration, [p_i, p_i + d_i) is the first input interval connected to [q_j, q_j + d_j) in the permutation graph
         bool stop = false;
         while (!stop) {
-            ln_IpA = is_a_heavy_v2v3v4(&ln_I,&i_,it_outp_cur.current(),it_outp_nxt.current());
+            ln_IpA = is_a_heavy_v2v3v4(&ln_I,&i_,tn_J.current(),tn_Jp1.current());
 
-            // If [q_j, q_j + d_j) is a-heavy, balance it and all output intervals starting before it, that might get a-heavy in the process.
+            // If [q_j, q_j + d_j) is a-heavy, balance it and all output intervals that start before it and become a-heavy in the process.
             if (ln_IpA != NULL) {
-                it_outp_cur.set(balance_upto_v4_par(ln_IpA,it_outp_cur.current(),it_outp_nxt.current(),it_outp_cur.current()->v.v.second,ln_I->v.first,&i_));
+                tn_J.set(balance_upto_v4_par(ln_IpA,tn_J.current(),tn_Jp1.current(),tn_J.current()->v.v.second,ln_I->v.first,&i_));
                 continue;
             }
 
             // Find the next output interval with an incoming edge in the permutation graph and the first input interval connected to it.
             do {
-                if (!it_outp_nxt.has_next()) {stop = true; break;}
-                it_outp_cur.set(it_outp_nxt.current());
-                it_outp_nxt.next();
-                while (ln_I->v.first < it_outp_cur.current()->v.v.second) {
+                if (!tn_Jp1.has_next()) {stop = true; break;}
+                tn_J.set(tn_Jp1.current());
+                tn_Jp1.next();
+                while (ln_I->v.first < tn_J.current()->v.v.second) {
                     if (ln_I->sc == NULL) {stop = true; break;}
                     ln_I = ln_I->sc;
                 }
-            } while (!stop && ln_I->v.first >= it_outp_nxt.current()->v.v.second);
+            } while (!stop && ln_I->v.first >= tn_Jp1.current()->v.v.second);
             i_ = 1;
         }
     }
@@ -130,7 +130,7 @@ void move_data_structure_phi<uint_t>::construction::balance_v4_par() {
         // temporary variables
         q_node_t_v34 pair_ins;
         lin_node_t_v2v3v4 *ln_I,*ln_Im1,*ln_Z,*ln_ZpA;
-        tout_node_t_v2v3v4 *tn_Y,*tn_Y_nxt;
+        tout_node_t_v2v3v4 *tn_Y,*tn_Yp1;
         bool done_this,done_other;
         uint_t i_ = 1;
         uint_t q_y;
@@ -141,6 +141,7 @@ void move_data_structure_phi<uint_t>::construction::balance_v4_par() {
         while (!done_other || !done_this) {
             done_this = true;
 
+            // Consider all ((p_i,q_i),(p_{i-1},q_{i-1})), where (p_i,q_i) must be inserted into L_in[i_p] after (p_{i-1},q_{i-1})
             for (uint16_t i=0; i<p; i++) {
                 while (Q_v4[i_p][i].try_dequeue(pair_ins)) {
                     if (done_this) {
@@ -153,16 +154,17 @@ void move_data_structure_phi<uint_t>::construction::balance_v4_par() {
                     ln_I = pair_ins.first;
                     ln_Im1 = pair_ins.second;
 
+                    // Insert (p_i,q_i) into L_in[i_p] after (p_{i-1},q_{i-1})
                     L_in_v2v3v4[i_p].insert_after_node(ln_I,ln_Im1);
 
-                    // check if an output interval could have become a-heavy by inserting the new pair
+                    // check if an output interval could have become a-heavy by inserting (p_i,q_i)
                     tn_Y = T_out_v2v3v4[i_p].max_leq(lin_node_t_v2v3v4(pair_t{0,ln_I->v.first}));
                     q_y = tn_Y->v.v.second;
 
                     // find the output interval starting after [q_y, q_y + d_y)
-                    tn_Y_nxt = tn_Y->nxt();
+                    tn_Yp1 = tn_Y->nxt();
 
-                    // find the first input interval [p_z, p_z + d_z), that is connected to [q_y, q_y + d_y) in the permutation graph
+                    // find the first input interval [p_z, p_z + d_z) connected to [q_y, q_y + d_y) in the permutation graph
                     ln_Z = ln_I;
                     i_ = 1;
                     while (ln_Z->pr != NULL && ln_Z->pr->v.first >= q_y) {
@@ -171,9 +173,11 @@ void move_data_structure_phi<uint_t>::construction::balance_v4_par() {
                     }
                     ln_Z = ln_I;
 
-                    ln_ZpA = is_a_heavy_v2v3v4(&ln_Z,&i_,tn_Y,tn_Y_nxt);
+                    /* check if [q_y, q_y + d_y) is a-heavy and if yes, balance it and all output intervals starting before it,
+                       that might get a-heavy in the process. */
+                    ln_ZpA = is_a_heavy_v2v3v4(&ln_Z,&i_,tn_Y,tn_Yp1);
                     if (ln_ZpA != NULL) {
-                        balance_upto_v4_par(ln_ZpA,tn_Y,tn_Y_nxt,s[i_p+1],s[i_p+1],&i_);
+                        balance_upto_v4_par(ln_ZpA,tn_Y,tn_Yp1,s[i_p+1],s[i_p+1],&i_);
                     }
                 }
             }

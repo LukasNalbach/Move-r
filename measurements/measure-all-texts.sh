@@ -5,9 +5,8 @@ do
     esac
 done
 
-./measure-text.sh -p $p -t einstein.de.txt
-./measure-text.sh -p $p -t Horspool
-./measure-text.sh -p $p -t dewiki.8GiB
-./measure-text.sh -p $p -t dna.001.1
-./measure-text.sh -p $p -t english.200MB
-./measure-text.sh -p $p -t dna.200MB
+./measure-text.sh -p $p -t einstein.en.txt
+./measure-text.sh -p $p -t english
+./measure-text.sh -p $p -t dewiki.64GiB
+./measure-text.sh -p $p -t chr.19.1000
+./measure-text.sh -p $p -t sars.cov.2

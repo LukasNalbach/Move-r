@@ -61,14 +61,14 @@ inline typename move_data_structure_phi<uint_t>::construction::tout_it_t_v5 move
 
         // check whether the output interval containing p_j + d can have become unbalanced by splitting [p_j, p_j + d_j)
         if (pj_pd < q_u && (pj_pd < q_j || q_J_ <= pj_pd)) {
-            // if yes, find the node in T_out_v5[i_p], that creates the pair (p_y,q_y), where p_j + d in [q_j, q_y + d_y)
+            // if yes, find the node in T_out_v5[i_p] creating the pair (p_y,q_y), where p_j + d in [q_j, q_y + d_y)
             tout_it_t_v5 tn_Y = T_out_v5[i_p].lower_bound(pair_t{0,pj_pd});
 
             if (pj_pd < (*tn_Y).second) {
                 tn_Y--;
             }
 
-            // find the node in T_in_v5[i_p], that creates the first input interval starting in [q_j, q_y + d_y)
+            // find the node in T_in_v5[i_p] creating the first input interval starting in [q_j, q_y + d_y)
             while ((*tn_Y).second < (*tin_n_new).first) {
                 tin_n_new--;
             }
@@ -124,9 +124,9 @@ void move_data_structure_phi<uint_t>::construction::balance_v5_seq_par() {
         // Index in [0..p-1] of the current thread.
         uint16_t i_p = omp_get_thread_num();
 
-        tin_it_t_v5 tn_I = T_in_v5[i_p].begin(); // iterator pointing to the pair in T_in_v5[i_p], that creates (p_i,q_i)
-        tout_it_t_v5 tn_J = T_out_v5[i_p].begin(); // iterator pointing to the pair in T_out_v5[i_p], that creates (p_j,q_j)
-        /* iterator pointing to the pair in T_out_v5[i_p], that creates (p_j',q_j'), where [q_j', q_j' + d_j') is the output interval,
+        tin_it_t_v5 tn_I = T_in_v5[i_p].begin(); // iterator pointing to the pair in T_in_v5[i_p] creating (p_i,q_i)
+        tout_it_t_v5 tn_J = T_out_v5[i_p].begin(); // iterator pointing to the pair in T_out_v5[i_p] creating (p_j,q_j)
+        /* iterator pointing to the pair in T_out_v5[i_p] creating (p_j',q_j'), where [q_j', q_j' + d_j') is the output interval,
            that starts direclty after [q_j, q_j + d_j) */
         tout_it_t_v5 tn_J_ = tn_J; 
         tn_J_++;
@@ -234,7 +234,7 @@ void move_data_structure_phi<uint_t>::construction::balance_v5_seq_par() {
                             tn_Y--;
                         }
 
-                        // find the node in T_in_v5[i_p], that creates the first input interval starting in [q_j, q_y + d_y)
+                        // find the node in T_in_v5[i_p] creating the first input interval starting in [q_j, q_y + d_y)
                         while ((*tn_Y).second < (*tn_new).first) {
                             tn_new--;
                         }
@@ -246,9 +246,9 @@ void move_data_structure_phi<uint_t>::construction::balance_v5_seq_par() {
                         // iterate one step with tn_Y, s.t. it now points to the output interval starting direclty after [q_y, q_y + d_y)
                         tn_Y++;
 
-                        // check if [q_y, q_y + d_y) is a-heavy and balanced
+                        // check if [q_y, q_y + d_y) is a-heavy
                         if ((qy_pd = is_a_heavy_v5_seq_par(tn_new,(*tn_Y).second))) {
-                            // if yes, balance it and all a-heavy output intervals in [s[i_p],s[i_p+1]), that become a-heavy in the process
+                            // if yes, balance it and all a-heavy output intervals in [s[i_p],s[i_p+1]) becoming a-heavy in the process
                             balance_upto_v5_seq_par(tn_Y,qy_pd,n);
                         }
                     }

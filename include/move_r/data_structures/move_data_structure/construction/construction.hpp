@@ -71,7 +71,7 @@ class move_data_structure_phi<uint_t>::construction {
     std::chrono::steady_clock::time_point time; // time point of the start of the last construction phase
     std::chrono::steady_clock::time_point time_start; // time point of the start of the entire construction
     std::vector<uint_t> D_q; // [0..k'-1] output interval starting positions (ordered by the input interval starting positions)
-    std::vector<uint_t> pi; // [0..k'-1] permutation, that stores the order of the output interval starting postions
+    std::vector<uint_t> pi; // [0..k'-1] permutation storing the order of the output interval starting postions
 
     /**
      * @brief [0..p-1] section start positions in the range [0..n], 0 = s[0] < s[1] < ... < s[p-1] = n.
@@ -141,7 +141,7 @@ class move_data_structure_phi<uint_t>::construction {
         this->p = p;
         omp_set_num_threads(p);
 
-        /* set omega_offs <- {min omega in {8,16,24,32,40}, s.t. n/(k2^omega) <= epsilon}, which ensures
+        /* set omega_offs <- min {omega in {8,16,24,32,40} | n/(k2^omega) <= epsilon}, which ensures
          * k' <= k*(1+epsilon)*a/(a-1) */
         for (uint8_t omega=8; omega<=40; omega+=8) {
             if (n/((pow(2,omega)-1)*(double)k) <= epsilon) {
@@ -150,7 +150,7 @@ class move_data_structure_phi<uint_t>::construction {
             }
         }
 
-        /* in order to store D_offs with at most omega_offs bits, we have to limit the interval lenght
+        /* in order to store D_offs with at most omega_offs bits, we have to limit the interval length
          * to l_max = 2^omega_offs */
         l_max = pow(2,mds.omega_offs)-1;
 
@@ -229,7 +229,7 @@ class move_data_structure_phi<uint_t>::construction {
     // stores the pairs in I sorted by q_i
     tout_te_t_v1 T_out_v1;
 
-    /* stores the pairs in I sorted by p_i, whiches output intervals have at least 4 incoming edges in
+    /* stores the pairs in I sorted by p_i creating output intervals with at least 4 incoming edges in
     the permutation graph */
     tout_te_t_v1 T_e_v1;
 
@@ -531,7 +531,7 @@ class move_data_structure_phi<uint_t>::construction {
     std::vector<tout_t_v5> T_out_v5;
 
     /**
-     * @brief [0..p-1][0..p-1] b-trees, that temporarily store the pairs that have been inserted into
+     * @brief [0..p-1][0..p-1] b-trees temporarily storing the pairs that have been inserted into
      *        T_in_v5[0..p-1] in order to split the too long intervals; T_out_temp_v5[i][j] stores the
      *        pairs that have already been inserted into T_in_v5[j] and have to be inserted into T_out_v5[i]
      */

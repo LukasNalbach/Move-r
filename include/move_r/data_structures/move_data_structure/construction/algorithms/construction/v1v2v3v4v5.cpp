@@ -243,7 +243,7 @@ void move_data_structure_phi<uint_t>::construction::build_didx_doffs_v2v3v4v5() 
         // Index in [0..p-1] of the current thread.
         uint16_t i_p = omp_get_thread_num();
 
-        // Check if the range [u[i_p]..u[i_p+1]-1], over which the thread i_p has to iterate in D_q, is empty.
+        // Check if thread i_p's section D_q[u[i_p]..u[i_p+1]-1] is empty.
         if (u[i_p] < u[i_p+1]) {
             // Iteration range start position in D_p.
             uint_t i = x[i_p];
@@ -252,12 +252,12 @@ void move_data_structure_phi<uint_t>::construction::build_didx_doffs_v2v3v4v5() 
             // Iteration range end position in D_q + 1.
             uint_t j_ = u[i_p+1];
 
-            // Check if the first value in D_q lies before the x[i_p]-th input interval.
+            // Check if the first value D_q[pi[j]] lies before the x[i_p]-th input interval.
             while (D_q[pi[j]] < mds.p(i)) {
                 i--;
             }
 
-            // Check if the first value in D_q lies after the x[i_p]-th input interval.
+            // Check if the first value D_q[pi[j]] lies after the x[i_p]-th input interval.
             while (mds.p(i+1) <= D_q[pi[j]]) {
                 i++;
             }

@@ -21,7 +21,7 @@ class string_rank_select_support {
 
     /**
      * @brief hyb_bit_vecs[c] contains a hybrid bit vector [0..size-1] that marks (with ones) the occurrences of c
-     *        in the input string, for each character c, that occurs in the input string
+     *        in the input string, for each character c occurring in the input string
      */
     std::vector<hybrid_bv_t> hyb_bit_vecs;
 

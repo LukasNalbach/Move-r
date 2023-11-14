@@ -72,9 +72,9 @@ void move_data_structure_phi<uint_t>::construction::build_didx_doffs_v1() {
     if (log) log_message("building D_idx and D_offs");
     
     for (uint_t j=0; j<k_; j++) {
-        /* For each output interval [q_j, q_j + d_j), find the input interval [p_i, p_i + d_i),
-        q_j is in and set D_idx[j] = i. Find the maximum integer i in [0,k'-1], so that p_i <= q_j
-        with a binary search over D_pair. */
+        /* For each output interval [q_j, q_j + d_j), find the input interval [p_i, p_i + d_i)
+        containing q_j and set D_idx[j] = i. Find the maximum integer i in [0,k'-1], s.t.
+        p_i <= q_j with a binary search over D_pair. */
         uint_t i = bin_search_max_leq<uint_t>(D_q[j],0,k_-1,[this](uint_t x){return mds.p(x);});
 
         mds.set_idx(j,i);

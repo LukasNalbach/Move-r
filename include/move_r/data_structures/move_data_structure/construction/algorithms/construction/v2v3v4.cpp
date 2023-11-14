@@ -23,7 +23,8 @@ inline typename move_data_structure_phi<uint_t>::construction::lin_node_t_v2v3v4
     connected to [l,r] in the permutation graph. */
     if (rp1-tn_J->v.v.second < two_a) return NULL;
 
-    uint_t i_start = *i_;
+    // Temporarily store the initial value i'' of i'
+    uint_t i__ = *i_;
 
     /* Count the number i of input intervals connected to [l,r]
     in the permutation graph and stop as soon as i > a. */
@@ -35,15 +36,17 @@ inline typename move_data_structure_phi<uint_t>::construction::lin_node_t_v2v3v4
         if ((*ln_IpI_)->v.first >= rp1) return NULL;
     }
 
+    /* Temporarily store a pointer to (p_{i''},q_{i''}) in L_in_v2v3v4[i_p] (this
+       saves some iteration steps in practice, but not asymptotically) */
     lin_node_t_v2v3v4 *ln_IpA = *ln_IpI_;
 
     // Count further and stop as soon as i >= 2a.
     while (true) {
         if (*i_ >= two_a) {
-            // if i_ > a+1 held in the beginning, correct ln_IpA
-            while (i_start > a+1) {
+            // if i'' > a+1, correct ln_IpA to store (p_{i+a},q_{i+a})
+            while (i__ > a+1) {
                 ln_IpA = ln_IpA->pr;
-                i_start--;
+                i__--;
             }
             *i_ = a;
             return ln_IpA;
@@ -72,11 +75,19 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
 
     calculate_seperation_positions_for_I();
 
-    // write I into nodes_v2v3v4 and build L_in_v2v3v4[0..p-1]
-    (*reinterpret_cast<std::vector<typename avl_tree<typename doubly_linked_list<std::pair<no_init<uint_t>,no_init<uint_t>>>::doubly_linked_list_node>::avl_node>*>(&nodes_v2v3v4)).resize(k);
+    (*reinterpret_cast<
+        std::vector<
+            typename avl_tree<
+                typename doubly_linked_list<
+                    std::pair<no_init<uint_t>,no_init<uint_t>>
+                >::doubly_linked_list_node
+            >::avl_node
+        >*
+    >(&nodes_v2v3v4)).resize(k);
 
     std::vector<std::queue<lin_node_t_v2v3v4*>> Q_i(2*p);
 
+    // write I into nodes_v2v3v4 and build L_in_v2v3v4[0..p-1] and Q_i[0..p-1]
     #pragma omp parallel num_threads(p)
     {
         #pragma omp single
@@ -98,6 +109,7 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
                             nodes_v2v3v4[i].v.pr = &nodes_v2v3v4[i-1].v;
                             nodes_v2v3v4[i].v.sc = &nodes_v2v3v4[i+1].v;
 
+                            // If |[p_i, p_i + d_i)| > l_max, insert (p_i,q_i) into Q_i[i_p]
                             if (I[i+1].first - I[i].first > l_max) {
                                 Q_i[i_p].emplace(&nodes_v2v3v4[i].v);
                             }
@@ -136,7 +148,7 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
     }
 
     /* This function returns for the value i in [0,k-1] the node in nodes_v2v3v4[0..k-1],
-    that stores the pair, which creates the i-th output interval. */
+    that stores the pair creating the i-th output interval. */
     std::function<tout_node_t_v2v3v4*(uint_t)> at = [this](uint_t i){
         return &nodes_v2v3v4[pi[i]];
     };
@@ -151,9 +163,9 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
                 if (u[i+1] > u[i]) {
                     #pragma omp task
                     {
-                        /* Build T_out_v2v3v4[i] out of the pairs, that create the output starting
-                        in the range[s[i]..s[i+1]-1], which are located at the positions
-                        at[u[i]], at[u[i+1]], ..., at[u[i+1]-1]. */
+                        /* Build T_out_v2v3v4[i] out of the pairs creating the output starting
+                        in the range[s[i]..s[i+1]-1]. Those are located at the positions
+                        at[u[i]], at[u[i+1]], ..., at[u[i+1]-1] in nodes_v2v3v4[0..k-1]. */
                         T_out_v2v3v4[i].insert_array(u[i],u[i+1]-1,at,2);
                     }
                 }
@@ -268,47 +280,58 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
 
     std::vector<std::vector<std::queue<tout_node_t_v2v3v4*>>> Q_o(p,std::vector<std::queue<tout_node_t_v2v3v4*>>(p));
 
+    // consider the pairs (p_i,q_i) in L_in_v2v3v4[i_p] creating input intervals with length > l_max
     #pragma omp parallel num_threads(p)
     {
         // Index in [0..p-1] of the current thread.
         uint16_t i_p = omp_get_thread_num();
 
-        lin_node_t_v2v3v4 *ln_cur,*ln_last;
-        tout_node_t_v2v3v4 *tn_tmp;
+        lin_node_t_v2v3v4 *ln_I; // points to the node (p_i,q_i) in L_in_v2v3v4[i_p]
+        lin_node_t_v2v3v4 *ln_Im1; // points to the node (p_{i-1},q_{i-1}) in L_in_v2v3v4[i_p]
+        tout_node_t_v2v3v4 *tn_J; // points to the node (p_j,q_j) in T_out_v2v3v4[0..p-1], where q_j <= p_i < q_j + d_j
 
         for (uint16_t i=2*i_p; i<2*(i_p+1); i++) {
             while (!Q_i[i].empty()) {
-                ln_cur = Q_i[i].front();
+                ln_I = Q_i[i].front();
                 Q_i[i].pop();
                 
-                if (ln_cur->sc != NULL && ln_cur->sc->v.first - ln_cur->v.first > l_max) {
-                    // find i_p' in [0,p-1], so that s[i_p'] <= tn->v.v.second < s[i_p'+1]
-                    uint16_t i_p_ = bin_search_max_leq<uint_t>(ln_cur->v.second,0,p-1,[this](uint_t x){return s[x];});
+                // check if [p_i, p_i + d_i) still is too long
+                if (ln_I->sc != NULL && ln_I->sc->v.first - ln_I->v.first > l_max) {
+                    // find i_p' in [0,p-1], so that s[i_p'] <= q_j < s[i_p'+1]
+                    uint16_t i_p_ = bin_search_max_leq<uint_t>(ln_I->v.second,0,p-1,[this](uint_t x){return s[x];});
 
+                    /* iteratively split [p_i, p_i + d_i) from left to right into new input intervals of length <= l_max,
+                       s.t. in the end all input intervals in starting in the range [p_i, p_i + d_i) have length <= l_max */
                     do {
-                        ln_last = ln_cur;
+                        ln_Im1 = ln_I;
 
-                        tn_tmp = new_nodes_2v3v4[i_p].emplace_back(
+                        // insert (p_{i-1} + l_max, q_{i-1} + l_max) into Q_o[i_p_] (because it has to be inserted into T_out[i_p_])
+                        tn_J = new_nodes_2v3v4[i_p].emplace_back(
                             tout_node_t_v2v3v4(lin_node_t_v2v3v4(pair_t{
-                                ln_last->v.first+l_max,
-                                ln_last->v.second+l_max
+                                ln_Im1->v.first+l_max,
+                                ln_Im1->v.second+l_max
                             }))
                         );
 
-                        ln_cur = &tn_tmp->v;
-                        L_in_v2v3v4[i_p].insert_after_node(ln_cur,ln_last);
+                        // redefine i <- i+1
+                        ln_I = &tn_J->v;
 
-                        while (ln_cur->v.second >= s[i_p_+1]) {
+                        // insert (p_i,q_i) into L_in_v2v3v4[i_p] after (p_{i-1} + l_max, q_{i-1} + l_max)
+                        L_in_v2v3v4[i_p].insert_after_node(ln_I,ln_Im1);
+
+                        // correct the section index i_p_
+                        while (ln_I->v.second >= s[i_p_+1]) {
                             i_p_++;
                         }
                         
-                        Q_o[i_p_][i_p].emplace(tn_tmp);
-                    } while (ln_cur->sc != NULL && ln_cur->sc->v.first - ln_cur->v.first > l_max);
+                        Q_o[i_p_][i_p].emplace(tn_J);
+                    } while (ln_I->sc != NULL && ln_I->sc->v.first - ln_I->v.first > l_max);
                 }
             }
         }
     }
 
+    // remove the temporary dummy pairs (s[i+1],s[i+1]) from L_in_v2v3v4[i], for each i \in [0..p-1]
     for (uint16_t i=0; i<p; i++) {
         L_in_v2v3v4[i].remove_node(L_in_v2v3v4[i].tail());
     }
@@ -319,7 +342,8 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
     {
         // Index in [0..p-1] of the current thread.
         uint16_t i_p = omp_get_thread_num();
-
+        
+        // merge T_out[i_p_] with Q_o[i_p_] (this ensures thread-safe access to T_out[i_p_])
         for (uint16_t i=0; i<p; i++) {
             while (!Q_o[i_p][i].empty()) {
                 T_out_v2v3v4[i_p].insert_node(Q_o[i_p][i].front());
@@ -370,6 +394,7 @@ void move_data_structure_phi<uint_t>::construction::build_dp_dq_v2v3v4() {
     no_init_resize(D_q,k_+1);
     D_q[k_] = n;
 
+    // write the pairs L_in[0..p-1] to D_p in mds and D_q
     #pragma omp parallel num_threads(p)
     {
         #pragma omp single
@@ -378,12 +403,12 @@ void move_data_structure_phi<uint_t>::construction::build_dp_dq_v2v3v4() {
                 uint_t l = x[i_p];
                 uint_t r = x[i_p+1];
 
-                auto ln_cur = L_in_v2v3v4[i_p].head();
+                auto ln_I = L_in_v2v3v4[i_p].head();
 
                 for (uint_t i=l; i<r; i++) {
-                    mds.set_p(i,ln_cur->v.first);
-                    D_q[i] = ln_cur->v.second;
-                    ln_cur = ln_cur->sc;
+                    mds.set_p(i,ln_I->v.first);
+                    D_q[i] = ln_I->v.second;
+                    ln_I = ln_I->sc;
                 }
             }
 

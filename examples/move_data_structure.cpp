@@ -23,7 +23,7 @@ int main() {
     move_data_structure_lf<> mds_lf({{0,4},{1,5},{2,6},{3,7},{4,0}},8,4,2);
 
     // this disjoint interval sequence is not 2-balanced, because the output
-    // interval [0,3] containes 4 >= 2a = 4 input intervals
+    // interval [0,3] contains 4 >= 2a = 4 input intervals
 
     // print the pairs of the resulting disjoint interval sequence
     for (uint32_t i=0; i<mds_lf.num_intervals(); i++) {

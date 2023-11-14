@@ -47,3 +47,9 @@
 	path = external/malloc_count
 	url = git@github.com:ByteHamster-etc/malloc_count.git
 	branch = aligned_alloc
+[submodule "external/block_RLBWT"]
+	path = external/block_RLBWT
+	url = git@github.com:saskeli/block_RLBWT.git
+[submodule "external/grlBWT"]
+	path = external/grlBWT
+	url = git@github.com:ddiazdom/grlBWT.git

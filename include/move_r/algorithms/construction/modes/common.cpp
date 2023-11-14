@@ -81,7 +81,7 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std:
 
         idx.chars_remapped = true;
         
-        // build the mapping function map_char, that remaps the characters of T, so it does
+        // build the mapping function map_char that remaps the characters of T, s.t. it does
         // not contain 0 or 1; also build its inverse function unmap_char
 
         idx.map_char.resize(256,0);
@@ -290,7 +290,7 @@ void move_r<uint_t>::construction::build_l__sas() {
             // update l_ to the next run start position
             l_ += run_length(i);
 
-            // iterate over all input intervals in M_LF within the i-th bwt run, that have been created by the balancing algorithm
+            // iterate over all input intervals in M_LF within the i-th bwt run that have been created by the balancing algorithm
             while (idx.M_LF.p(j) < l_) {
                 if (build_locate_support) SA_s[j-1] = n;
                 idx.M_LF.template set_character(j,run_char(i));
@@ -369,7 +369,7 @@ void move_r<uint_t>::construction::build_mphi() {
 template <typename uint_t>
 void move_r<uint_t>::construction::build_saidx() {
     time = now();
-    if (log) std::cout << "building SA_idx_phi" << std::flush;
+    if (log) std::cout << "building SA_phi" << std::flush;
 
     no_init_resize(pi_,r_);
 
@@ -387,7 +387,7 @@ void move_r<uint_t>::construction::build_saidx() {
 
     omega_idx = idx.M_Phi.width_idx();
     idx.omega_idx = omega_idx;
-    idx.SA_idx_phi = std::move(interleaved_vectors<uint_t>({(uint8_t)(omega_idx/8)},r_,false));
+    idx.SA_phi = std::move(interleaved_vectors<uint_t>({(uint8_t)(omega_idx/8)},r_,false));
 
     /* Now we will divide the range [0..n-1] up into p non-overlapping sub-ranges [s[i_p]..s[i_p+1]-1],
     for each i_p in [0..p-1], with 0 = s[0] < s[1] < ... < s[p] = n, where
@@ -395,7 +395,7 @@ void move_r<uint_t>::construction::build_saidx() {
                     x[i_p] = min {x' in [0,r''-1], s.t. M_Phi.q(x') >= s'} and
                     u[i_p] = min {u' in [0,r-1], s.t. SA_s[u'] >= s'}
     }.
-    By doing so, we ensure, that the number of the output intervals of M_Phi starting in the range
+    By doing so, we ensure that the number of the output intervals of M_Phi starting in the range
     [s[i_p]..s[i_p+1]-1] plus the number of suffix array samples in SA_s lying in the range
     [s[i_p]..s[i_p+1]-1] is lfloor (r+r'')/p rfloor +- 1. This property is useful, because it
     ensures that if with each thread i_p, we simultaneously iterate over those, then each thread
@@ -517,7 +517,7 @@ void move_r<uint_t>::construction::build_saidx() {
                     i++;
                 }
 
-                idx.set_SA_idx_phi(pi_[j],pi_mphi[i]);
+                idx.set_SA_phi(pi_[j],pi_mphi[i]);
                 
                 i++;
                 j++;

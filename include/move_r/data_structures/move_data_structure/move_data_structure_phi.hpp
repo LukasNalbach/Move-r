@@ -214,28 +214,12 @@ class move_data_structure_phi {
     }
 
     /**
-     * @brief returns D_idx[x]
+     * @brief returns D_offs[x]
      * @param x [0..k_'-1]
-     * @return D_idx[x]
+     * @return D_offs[x]
      */
     inline uint_t offs(uint_t x) {
         return data.template get<2>(x);
-    }
-
-    /**
-     * @brief performs the move query Move(I,i,x) = (i',x') by changing ix = (i,x) to
-     *        (i',x'), with i' = f_I(i) and i' in [p_x', p_x' + d_x') and returns (i',x')
-     * @param i [0..n-1]
-     * @param x [0..k_'-1], where i in [p_x, p_x + d_x)
-     * @returns
-     */
-    inline std::pair<uint_t,uint_t> move(std::pair<uint_t,uint_t> ix) {
-        ix.first = q(ix.second)+(ix.first-p(ix.second));
-        ix.second = idx(ix.second);
-        while (ix.first >= p(ix.second+1)) {
-            ix.second++;
-        }
-        return ix;
     }
 
     /**
@@ -250,6 +234,18 @@ class move_data_structure_phi {
         while (i >= p(x+1)) {
             x++;
         }
+    }
+
+    /**
+     * @brief performs the move query Move(I,i,x) = (i',x') by changing ix = (i,x) to
+     *        (i',x'), with i' = f_I(i) and i' in [p_x', p_x' + d_x') and returns (i',x')
+     * @param i [0..n-1]
+     * @param x [0..k_'-1], where i in [p_x, p_x + d_x)
+     * @returns
+     */
+    inline std::pair<uint_t,uint_t> move(std::pair<uint_t,uint_t> ix) {
+        move(ix.first,ix.second);
+        return ix;
     }
 
     /**

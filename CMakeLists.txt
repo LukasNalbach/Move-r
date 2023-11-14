@@ -63,11 +63,12 @@ target_include_directories(sdsl PUBLIC "${CMAKE_BINARY_DIR}/external/sdsl-lite/e
 # abseil
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/abseil-cpp/")
+
 ############################# move-r #############################
 
 # move-r
 add_library(move_r INTERFACE)
-target_include_directories(move_r INTERFACE include/)
+target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
 target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree malloc_count concurrentqueue)
 
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)
@@ -175,9 +176,49 @@ if(MOVE_R_BUILD_BENCH_CLI)
     "${CMAKE_SOURCE_DIR}/external/hopscotch-map/include"
   )
 
+  # grlBWT
+  set(GRLBWT_ROOT "${CMAKE_SOURCE_DIR}/external/grlBWT")
+  add_subdirectory("${GRLBWT_ROOT}/external/cdt")
+  add_subdirectory("${GRLBWT_ROOT}/external/bioparsers")
+  add_library(grlbwt STATIC
+    "${GRLBWT_ROOT}/lib/exact_algo/exact_ind_phase.cpp"
+    "${GRLBWT_ROOT}/lib/exact_algo/exact_par_phase.cpp"
+    "${GRLBWT_ROOT}/lib/opt_algo/opt_ind_phase.cpp"
+    "${GRLBWT_ROOT}/lib/opt_algo/opt_par_phase.cpp"
+    "${GRLBWT_ROOT}/external/malloc_count-master/malloc_count.c"
+  )
+  target_link_libraries(grlbwt PUBLIC z pthread cdt dl sdsl malloc_count biopar)
+  target_include_directories(grlbwt PUBLIC
+    "${GRLBWT_ROOT}/include/"
+    "${GRLBWT_ROOT}/include/exact_algo/"
+    "${GRLBWT_ROOT}/include/opt_algo/"
+    "${GRLBWT_ROOT}/external/"
+  )
+  add_executable(grlbwt-cli "${GRLBWT_ROOT}/main.cpp")
+  add_executable(grl2plain "${GRLBWT_ROOT}/scripts/grl2plain.cpp")
+  target_link_libraries(grlbwt-cli PRIVATE grlbwt)
+  target_link_libraries(grl2plain PRIVATE grlbwt)
+  set_target_properties(grlbwt-cli grl2plain
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+    "${CMAKE_BINARY_DIR}/external/grlBWT/"
+  )
+
+  # block_RLBWT
+  if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/block_RLBWT/")
+    execute_process(COMMAND mkdir "${CMAKE_BINARY_DIR}/external/block_RLBWT/")
+  endif()
+  execute_process(
+    COMMAND make "${CMAKE_SOURCE_DIR}/external/block_RLBWT/make_alphabet_header"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/block_RLBWT/"
+  )
+  execute_process(COMMAND mv
+    "${CMAKE_SOURCE_DIR}/external/block_RLBWT/make_alphabet_header"
+    "${CMAKE_BINARY_DIR}/external/block_RLBWT/make_alphabet_header"
+  )
+
   ############################# move-r #############################
 
-  add_executable(move-r-bench cli/move-r-bench.cpp)
+  add_executable(move-r-bench cli/move-r-bench/move-r-bench.cpp)
   target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index r-index-bigbwt OnlineRlbwt DYNAMIC)
   set_target_properties(move-r-bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
 endif()

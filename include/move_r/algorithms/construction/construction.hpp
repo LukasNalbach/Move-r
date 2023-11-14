@@ -30,12 +30,12 @@ class move_r<uint_t>::construction {
     std::chrono::steady_clock::time_point time_start; // time of the start of the whole build phase
     uint64_t baseline_memory_allocation = 0; // memory allocation at the start of the construction
     bool build_count_support = false; // = true <=> build support for count (RS_L')
-    bool build_locate_support = false; // = true <=> build support for locate (SA_idx_phi and M_Phi) and build parallel revert support (D_e)
+    bool build_locate_support = false; // = true <=> build support for locate (SA_phi and M_Phi) and build parallel revert support (D_e)
     bool read_rlbwt = false; // = true <=> read the run-length encoded BWT
     uint8_t terminator = 0; // terminator (dollar) symbol
     uint8_t min_valid_char = 0; // the minimum valid character that is allowed to occur in T
-    uint8_t max_remapped_uchar = 0; // the maximum character in T, that has been remappd
-    uint8_t max_remapped_to_uchar = 0; // the maximum character in T, that a character has been remappd to
+    uint8_t max_remapped_uchar = 0; // the maximum character in T that has been remappd
+    uint8_t max_remapped_to_uchar = 0; // the maximum character in T that a character has been remappd to
 
     // ############################# INDEX VARIABLES #############################
 
@@ -47,7 +47,7 @@ class move_r<uint_t>::construction {
     uint_t r__ = 0; // r'', the number of input/output intervals in M_Phi
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))), 2 <= a
     uint16_t p_r = 0; // maximum possible number of threads to use while reverting the index
-    uint8_t omega_idx = 0; // word width of SA_idx_phi
+    uint8_t omega_idx = 0; // word width of SA_phi
 
     // ############################# CONSTRUCTION DATA STRUCTURE VARIABLES #############################
 
@@ -67,7 +67,7 @@ class move_r<uint_t>::construction {
     interleaved_vectors<uint32_t> RLBWT;
     /** [0..p] n_p[0] < n_p[1] < ... < n_p[p] = n; n_p[i] = start position of thread i's section in L and SA */
     std::vector<uint_t> n_p;
-    /** [0..p] r_p[0] < r_p[1] < ... < r_p[p] = r; r_p[i] = index of the first run in L, that starts in
+    /** [0..p] r_p[0] < r_p[1] < ... < r_p[p] = r; r_p[i] = index of the first run in L starting in
      * [n_p[i]..n_p[i+1]-1]; there is a run starting at n_p[i] */
     std::vector<uint_t> r_p;
     /** [0..p][0..255] see the code to see how this variable is used */
@@ -79,15 +79,15 @@ class move_r<uint_t>::construction {
     /** [0..r'-1] if the end position of the i-th input interval of M_LF is the end position of a BWT run, then
      * SA_[i] is the suffix array sample at the end position of the i-th input interval of M_LF; else SA_s[i] = n */
     std::vector<uint_t> SA_s;
-    /** [0..r'-1] Permutation, that stores the order of the values in SA_s */
+    /** [0..r'-1] Permutation storing the order of the values in SA_s */
     std::vector<uint_t> pi_;
-    /** [0..r''-1] Permutation, that stores the order of the output interval starting positions of M_Phi */
+    /** [0..r''-1] Permutation storing the order of the output interval starting positions of M_Phi */
     std::vector<uint_t> pi_mphi;
 
     // ############################# COMMON MISC METHODS #############################
 
     /**
-     * @brief reports the operations, that are supported by this index
+     * @brief reports the operations supported by this index
      */
     void report_supports() {
         std::cout << "building an index with the following support:" << std::endl;
@@ -562,7 +562,7 @@ class move_r<uint_t>::construction {
     /**
      * @brief builds the RLBWT and C in-memory
      * @tparam sa_sint_t suffix array signed integer type
-     * @tparam whether the RLBWT should be read from L
+     * @tparam read_l whether the RLBWT should be read from L
      */
     template <typename sa_sint_t = int32_t, bool read_l>
     void build_rlbwt_c_in_memory();
@@ -598,7 +598,7 @@ class move_r<uint_t>::construction {
     void build_mphi();
 
     /**
-     * @brief builds SA_idx_phi
+     * @brief builds SA_phi
      */
     void build_saidx();
 

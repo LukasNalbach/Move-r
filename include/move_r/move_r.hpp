@@ -10,18 +10,18 @@
 #include <move_r/data_structures/move_data_structure/move_data_structure_lf.hpp>
 
 /**
- * @brief an operation, that can be supported by a move_r object
+ * @brief an operation that can be supported by a move_r object
  */
 enum move_r_support {
     /* support for retrieving (a range of) the input string from the index (reverting
        the index); this also includes support for accessing or retrieving (a range in)
        the bwt (reverting in parallel requires the index to be built with locate support) */
     revert = 0,
-    count = 2, // support for counting the occurrences of a pattern in the input string
+    count = 1, // support for counting the occurrences of a pattern in the input string
     /* support for calculating the positions of occurrences of a pattern in the input
        string; this also adds support for accessing and retrieving (a range in)
        the suffix array (also in parallel) */
-    locate = 3
+    locate = 2
 };
 
 /**
@@ -59,7 +59,7 @@ class move_r {
     uint_t r__ = 0; // r'', the number of input/output intervals in M_Phi
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))), 2 <= a
     uint16_t p_r = 0; // maximum possible number of threads to use while reverting the index
-    uint8_t omega_idx = 0; // word width of SA_idx_phi
+    uint8_t omega_idx = 0; // word width of SA_phi
 
     std::vector<move_r_support> support; // contains all supported operations
     /* true <=> the characters of the input string have been remapped internally, because the input
@@ -79,8 +79,7 @@ class move_r {
     std::vector<std::pair<uint_t,uint_t>> D_e;
     string_rank_select_support<uint_t> RS_L_; // rank-select data structure for L'
     move_data_structure_phi<uint_t> M_Phi; // The Move Data Structure for Phi.
-    /* [0..r-1] SA_idx_phi */
-    interleaved_vectors<uint_t> SA_idx_phi;
+    interleaved_vectors<uint_t> SA_phi; // [0..r'-1] SA_phi
 
     // ############################# INTERNAL METHODS #############################
 
@@ -90,16 +89,16 @@ class move_r {
      * @return SA_s[x]
      */
     inline uint_t SA_s(uint_t x) {
-        return M_Phi.q(SA_idx_phi[x]);
+        return M_Phi.q(SA_phi[x]);
     }
 
     /**
-     * @brief sets SA_idx_phi[x] to idx
+     * @brief sets SA_phi[x] to idx
      * @param x [0..r-1]
      * @param idx [0..r''-1]
      */
-    inline void set_SA_idx_phi(uint_t x, uint_t idx) {
-        SA_idx_phi.template set<0>(x,idx);
+    inline void set_SA_phi(uint_t x, uint_t idx) {
+        SA_phi.template set<0>(x,idx);
     }
 
     /**
@@ -331,7 +330,7 @@ class move_r {
     }
 
     /**
-     * @brief returns the balancing parameter, that the index has been built with
+     * @brief returns the balancing parameter the index has been built with
      * @return balancing parameter 
      */
     uint16_t balancing_parameter() {
@@ -339,7 +338,7 @@ class move_r {
     }
 
     /**
-     * @brief returns the number omega_idx of bits used by one entry in SA_idx_phi (word width of SA_idx_phi)
+     * @brief returns the number omega_idx of bits used by one entry in SA_phi (word width of SA_phi)
      * @return omega_idx
      */
     inline uint8_t width_saidx() {
@@ -355,17 +354,17 @@ class move_r {
     }
 
     /**
-     * @brief returns a vector containing the move_r operations, that are supported by this index object
-     * @return vector containing the move_r operations
+     * @brief returns a vector containing the supported operations of this index
+     * @return vector containing the operations
      */
     std::vector<move_r_support> supported_operations() {
         return support;
     }
 
     /**
-     * @brief returns whether the provided operation is supported by this index object
+     * @brief returns whether the provided operation is supported by this index
      * @param operation a move_r operation
-     * @return whether operation is supported by this index object
+     * @return whether operation is supported by this index
      */
     bool does_support(move_r_support operation) {
         return contains(support,operation);
@@ -384,7 +383,7 @@ class move_r {
             M_LF.size_in_bytes()+ // M_LF and L'
             RS_L_.size_in_bytes()+ // RS_L'
             M_Phi.size_in_bytes()+ // M_Phi
-            SA_idx_phi.size_in_bytes(); // SA_idx_phi
+            SA_phi.size_in_bytes(); // SA_phi
     }
 
     /**
@@ -401,7 +400,7 @@ class move_r {
 
             if (does_support(move_r_support::locate)) {
                 std::cout << "M_Phi: " << format_size(M_Phi.size_in_bytes()) << std::endl;
-                std::cout << "SA_idx_phi: " << format_size(SA_idx_phi.size_in_bytes()) << std::endl;
+                std::cout << "SA_phi: " << format_size(SA_phi.size_in_bytes()) << std::endl;
             }
         }
     }
@@ -420,7 +419,7 @@ class move_r {
 
             if (does_support(move_r_support::locate)) {
                 out << " size_m_phi=" << M_Phi.size_in_bytes();
-                out << " size_sa_idx=" << SA_idx_phi.size_in_bytes();
+                out << " size_sa_idx=" << SA_phi.size_in_bytes();
             }
         }
     }
@@ -706,7 +705,7 @@ class move_r {
         adjust_supports(support);
 
         if (!is_subset_of(support,this->support)) {
-            std::cout << "error: cannot store an index with support, that it has not been built with" << std::flush;
+            std::cout << "error: cannot store an index with support it has not been built with" << std::flush;
             return;
         }
 
@@ -748,7 +747,7 @@ class move_r {
             M_Phi.serialize(out);
 
             out.write((char*)&omega_idx,1);
-            SA_idx_phi.serialize(out);
+            SA_phi.serialize(out);
         }
 
         std::streamoff offs_end = out.tellp()-pos_data_structure_offsets;
@@ -784,7 +783,7 @@ class move_r {
         in.read((char*)&this->support[0],num_supports*sizeof(move_r_support));
 
         if (!is_subset_of(support,this->support)) {
-            std::cout << "error: cannot load an index with support, that it has not been built with" << std::flush;
+            std::cout << "error: cannot load an index with support it has not been built with" << std::flush;
             return;
         }
 
@@ -822,7 +821,7 @@ class move_r {
             M_Phi.load(in);
 
             in.read((char*)&omega_idx,1);
-            SA_idx_phi.load(in);
+            SA_phi.load(in);
         }
 
         in.seekg(pos_data_structure_offsets+offs_end,std::ios::beg);

@@ -14,7 +14,7 @@ This is an optimized and parallelized implementation of the modified r-index des
 - [sdsl-lite](https://github.com/simongog/sdsl-lite)
 
 ## CLI Build Instructions
-This implementation has been tested on Ubuntu 20.04 with GCC 10.3.0, libtbb-dev, libomp-dev and libz-dev installed.
+This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev and libz-dev installed.
 ```
 clone https://github.com/LukasNalbach/move-r.git
 mkdir build
@@ -142,7 +142,7 @@ usage: move-r-patterns <file> <length> <number> <patterns file> <forbidden>
 ```
 move-r-bench: benchmarks construction- and query performance of move-r, move-r-bigbwt, r-index, r-index-bigbwt,
               r-index-f, rcomp-lfig, rcomp-glfig, OnlineRLBWT and rle_bwt; has to be executed from the base folder.
-usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>
+usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2>
    -c                 check for correctnes if possible; disables the -m option; will not print
                       runtime data if the runtime could be affected by checking for correctness
    -m <m_file>        writes measurement data to m_file
@@ -151,15 +151,7 @@ usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2>
                       to count and locate
    <patterns_file_2>  file containing patterns (pattern length << number of occurrences) from <input_file>
                       to locate
-   <num_threads>      maximum number of threads to use
-usage 2: move-r-bench -sa [options] <input_file> <num_threads>
-                   builds the suffix array and bwt once using libsais and constructs only the
-                   static indexes from the suffix array and the bwt (move-r and r-index)
-                   or from the output of  prefix-free parsing (r-index-bigbwt and r-index-f).
-   -m <m_file>     writes measurement data to m_file
-   <input_file>    input file
-   <num_threads>   maximum number of threads to use
-usage 3: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>
+usage 2: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>
                       constructs move_r using <num_threads> threads and measures count- and locate
                       performance of move_r for a=2, a=4, ..., a=8192.
    -m <m_file>        writes measurement data to m_file
