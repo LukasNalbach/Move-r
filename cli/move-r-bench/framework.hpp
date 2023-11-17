@@ -45,9 +45,14 @@ void preprocess_input() {
         }
     }
 
+    // make sure the input does not contain '\n' = 10
+    if (contains_uchar[10] == 1) {
+        contains_invalid_char = true;
+    }
+
     if (contains_invalid_char) {
-        if (alphabet_size > 252) {
-            std::cout << "Error: the input contains more than 252 distinct characters" << std::endl;
+        if (alphabet_size > 251) {
+            std::cout << "Error: the input contains more than 251 distinct characters" << std::endl;
         }
 
         chars_remapped = true;
@@ -59,6 +64,11 @@ void preprocess_input() {
             if (contains_uchar[cur_char] == 1) {
                 map_char[cur_char] = next_valid_char;
                 next_valid_char++;
+
+                // make sure the input does not contain '\n' = 10
+                if (next_valid_char == 10) {
+                    next_valid_char++;
+                }
             }
         }
 
@@ -83,7 +93,6 @@ void update_peak_memory_usage(std::ifstream& log_file) {
     uint64_t cur_peak = 0;
     std::string str_cur_peak;
     
-
     while ((pos = log_file_content.find(", peak",pos)) != -1) {
         while (!('0' <= log_file_content[pos] && log_file_content[pos] <= '9')) {
             pos++;

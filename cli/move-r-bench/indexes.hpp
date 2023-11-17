@@ -386,7 +386,7 @@ uint64_t count_pattern<uint64_t,r_index_f<>>(r_index_f<>& index, std::string& pa
 
 // ############################# block_RLBWT #############################
 
-uint64_t write_blockrlbwt_patterns_file(std::ifstream& patterns_input_file, std::ofstream& patterns_output_file) {
+void write_blockrlbwt_patterns_file(std::ifstream& patterns_input_file, std::ofstream& patterns_output_file) {
     patterns_input_file.seekg(0);
     std::string header;
     std::getline(patterns_input_file,header);
@@ -399,9 +399,8 @@ uint64_t write_blockrlbwt_patterns_file(std::ifstream& patterns_input_file, std:
         patterns_input_file.read((char*)&pattern[0],pattern_length);
         if (chars_remapped) map_string<uint_t>(pattern);
         patterns_output_file.write((char*)&pattern[0],pattern_length);
+        patterns_output_file << std::endl;
     }
-
-    return pattern_length;
 }
 
 void measure_blockrlbwt(std::string index_name) {
@@ -457,7 +456,8 @@ void measure_blockrlbwt(std::string index_name) {
     system("mv external/block_RLBWT/make_bwt build/external/block_RLBWT/make_bwt");
     system("mv external/block_RLBWT/count_matches build/external/block_RLBWT/count_matches");
     t1 = now();
-    system(("build/external/block_RLBWT/make_bwt " + blockrlbwt_param + " -i " + prefix_tmp_files + ".bwt " + prefix_tmp_files + ".rlbwt >log_1 2>log_2").c_str());
+    system(("build/external/block_RLBWT/make_bwt " + blockrlbwt_param + " -i " + prefix_tmp_files + ".bwt " + prefix_tmp_files +
+            ".rlbwt >log_1 2>log_2").c_str());
     time_build += time_diff_ns(t1,now());
     size_index = std::filesystem::file_size(prefix_tmp_files + ".rlbwt") + std::filesystem::file_size(prefix_tmp_files + "_data.rlbwt");
     log_file.open("log_2");
@@ -473,14 +473,14 @@ void measure_blockrlbwt(std::string index_name) {
     std::cout << "index size: " << format_size(size_index) << std::endl << std::endl;
 
     std::ofstream blockrlbwt_patterns_file((prefix_tmp_files + "-blockrlbwt-patterns-bal").c_str());
-    uint64_t pattern_length = write_blockrlbwt_patterns_file(patterns_file_1,blockrlbwt_patterns_file);
+    write_blockrlbwt_patterns_file(patterns_file_1,blockrlbwt_patterns_file);
     blockrlbwt_patterns_file.close();
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
     std::cout << "counting the first set of patterns" << std::flush;
 
     system(("build/external/block_RLBWT/count_matches " + blockrlbwt_param + " " + prefix_tmp_files + ".rlbwt " + prefix_tmp_files +
-        "-blockrlbwt-patterns-bal " + std::to_string(pattern_length) + " >log_1 2>log_2").c_str());
+            "-blockrlbwt-patterns-bal >log_1 2>log_2").c_str());
     std::ifstream results_file("blockrlbwt_count_result.txt");
     results_file.read((char*)&time_query,sizeof(uint64_t));
     results_file.read((char*)&num_queries,sizeof(uint64_t));
