@@ -1,5 +1,5 @@
 template <typename uint_t>
-inline typename move_data_structure_phi<uint_t>::construction::tout_node_t_v2v3v4* move_data_structure_phi<uint_t>::construction::balance_upto_v4_par(
+inline typename move_data_structure<uint_t>::construction::tout_node_t_v2v3v4* move_data_structure<uint_t>::construction::balance_upto_v4_par(
     lin_node_t_v2v3v4 *ln_IpA,
     tout_node_t_v2v3v4 *tn_J,
     tout_node_t_v2v3v4* tn_J_,
@@ -62,7 +62,7 @@ inline typename move_data_structure_phi<uint_t>::construction::tout_node_t_v2v3v
  * @brief balances the disjoint interval sequence in L_in_v2v3v4[0..p-1] and T_out_v2v3v4[0..p-1] in parallel
  */
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::balance_v4_par() {
+void move_data_structure<uint_t>::construction::balance_v4_par() {
     if (log) log_message("balancing (phase 1)");
 
     Q_v4.resize(p);

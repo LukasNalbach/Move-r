@@ -1,7 +1,7 @@
 #include <ips4o.hpp>
 
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_pi_for_I() {
+void move_data_structure<uint_t>::construction::build_pi_for_I() {
     no_init_resize(pi,k);
     
     // write the identity permutation of [0..k-1] to pi
@@ -20,7 +20,7 @@ void move_data_structure_phi<uint_t>::construction::build_pi_for_I() {
 }
 
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_pi_for_dq() {
+void move_data_structure<uint_t>::construction::build_pi_for_dq() {
     no_init_resize(pi,k_+1);
 
     // write the identity permutation of [0..k'] to pi
@@ -39,7 +39,7 @@ void move_data_structure_phi<uint_t>::construction::build_pi_for_dq() {
 }
 
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::calculate_seperation_positions_for_I() {
+void move_data_structure<uint_t>::construction::calculate_seperation_positions_for_I() {
     s.resize(p+1);
     s[0] = 0;
     s[p] = n;
@@ -136,7 +136,7 @@ void move_data_structure_phi<uint_t>::construction::calculate_seperation_positio
 }
 
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::calculate_seperation_positions_for_dq_and_mds() {
+void move_data_structure<uint_t>::construction::calculate_seperation_positions_for_dq_and_mds() {
     x.resize(p+1);
     x[0] = 0;
     x[p] = k_;
@@ -231,7 +231,7 @@ void move_data_structure_phi<uint_t>::construction::calculate_seperation_positio
  * @brief builds D_offs and D_idx
  */
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_didx_doffs_v2v3v4v5() {
+void move_data_structure<uint_t>::construction::build_didx_doffs_v2v3v4v5() {
     if (log) log_message("building D_offs and D_idx");
 
     build_pi_for_dq();

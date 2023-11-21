@@ -1,12 +1,12 @@
 #include <ips4o.hpp>
 
 template <typename uint_t>
-inline uint_t move_data_structure_phi<uint_t>::construction::interval_length_v2v3_seq(lin_node_t_v2v3v4 *ln) {
+inline uint_t move_data_structure<uint_t>::construction::interval_length_v2v3_seq(lin_node_t_v2v3v4 *ln) {
     return (ln->sc != NULL ? ln->sc->v.first : n) - ln->v.first;
 }
 
 template <typename uint_t>
-inline typename move_data_structure_phi<uint_t>::construction::lin_node_t_v2v3v4* move_data_structure_phi<uint_t>::construction::is_a_heavy_v2v3v4(
+inline typename move_data_structure<uint_t>::construction::lin_node_t_v2v3v4* move_data_structure<uint_t>::construction::is_a_heavy_v2v3v4(
     lin_node_t_v2v3v4 **ln_IpI_,
     uint_t* i_,
     tout_node_t_v2v3v4 *tn_J,
@@ -59,7 +59,7 @@ inline typename move_data_structure_phi<uint_t>::construction::lin_node_t_v2v3v4
 }
 
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
+void move_data_structure<uint_t>::construction::build_lin_tout_v2v3v4() {
     L_in_v2v3v4.resize(p);
     T_out_v2v3v4.resize(p);
 
@@ -361,7 +361,7 @@ void move_data_structure_phi<uint_t>::construction::build_lin_tout_v2v3v4() {
 }
 
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_dp_dq_v2v3v4() {
+void move_data_structure<uint_t>::construction::build_dp_dq_v2v3v4() {
     s.clear();
     s.shrink_to_fit();
     

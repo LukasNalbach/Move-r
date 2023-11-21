@@ -1,5 +1,5 @@
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
+void move_data_structure<uint_t>::construction::build_tin_tout_v5() {
     if (log) log_message("building pi");
         
     // build pi to construct T_out faster
@@ -143,7 +143,7 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v5() {
 }
 
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_dp_dq_v5() {
+void move_data_structure<uint_t>::construction::build_dp_dq_v5() {
     // recalculate the indices x of the seperation positions in the interval sequence
     x.resize(p+1);
     x[0] = 0;

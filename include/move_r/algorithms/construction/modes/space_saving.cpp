@@ -233,7 +233,7 @@ void move_r<uint_t>::construction::store_mlf() {
 
     std::ofstream file_mlf(prefix_tempfiles + ".mlf");
     idx.M_LF.serialize(file_mlf);
-    idx.M_LF = std::move(move_data_structure_lf<uint_t>());
+    idx.M_LF = std::move(move_data_structure_str<uint_t>());
     file_mlf.close();
 
     if (log) {

@@ -1,5 +1,5 @@
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::verify_correctness() {
+void move_data_structure<uint_t>::construction::verify_correctness() {
     std::cout << "verifying correctness of the interval sequence:" << std::endl;
     bool correct = true;
 

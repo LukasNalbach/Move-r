@@ -1,5 +1,5 @@
 template <typename uint_t>
-inline uint_t move_data_structure_phi<uint_t>::construction::is_a_heavy_v5_seq_par(tin_it_t_v5& tn_I, uint_t q_J_) {
+inline uint_t move_data_structure<uint_t>::construction::is_a_heavy_v5_seq_par(tin_it_t_v5& tn_I, uint_t q_J_) {
     // current number of input interval starting in [q_j, q_j + d_j)
     uint16_t e = 1;
 
@@ -34,7 +34,7 @@ inline uint_t move_data_structure_phi<uint_t>::construction::is_a_heavy_v5_seq_p
 }
 
 template <typename uint_t>
-inline typename move_data_structure_phi<uint_t>::construction::tout_it_t_v5 move_data_structure_phi<uint_t>::construction::balance_upto_v5_seq_par(tout_it_t_v5& tn_J_, uint_t qj_pd, uint_t q_u) {
+inline typename move_data_structure<uint_t>::construction::tout_it_t_v5 move_data_structure<uint_t>::construction::balance_upto_v5_seq_par(tout_it_t_v5& tn_J_, uint_t qj_pd, uint_t q_u) {
     // Index in [0..p-1] of the current thread.
     uint16_t i_p = omp_get_thread_num();
 
@@ -99,7 +99,7 @@ inline typename move_data_structure_phi<uint_t>::construction::tout_it_t_v5 move
 }
 
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::balance_v5_seq_par() {
+void move_data_structure<uint_t>::construction::balance_v5_seq_par() {
     if (log) {
         std::string msg = "balancing";
         if (p > 1) msg.append(" (phase 1)");

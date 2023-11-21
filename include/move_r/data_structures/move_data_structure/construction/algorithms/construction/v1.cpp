@@ -1,5 +1,5 @@
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_tin_tout_v1() {
+void move_data_structure<uint_t>::construction::build_tin_tout_v1() {
     if (log) log_message("building T_in");
 
     // build T_in_v1 and T_out_v1
@@ -43,7 +43,7 @@ void move_data_structure_phi<uint_t>::construction::build_tin_tout_v1() {
 }
 
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_dp_dq_v1() {
+void move_data_structure<uint_t>::construction::build_dp_dq_v1() {
     if (log) log_message("building D_p and D_q");
 
     mds.resize(n,k_);
@@ -68,7 +68,7 @@ void move_data_structure_phi<uint_t>::construction::build_dp_dq_v1() {
 }
 
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::build_didx_doffs_v1() {
+void move_data_structure<uint_t>::construction::build_didx_doffs_v1() {
     if (log) log_message("building D_idx and D_offs");
     
     for (uint_t j=0; j<k_; j++) {

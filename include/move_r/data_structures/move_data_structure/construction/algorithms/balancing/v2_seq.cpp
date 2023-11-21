@@ -1,5 +1,5 @@
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::balance_v2_seq() {
+void move_data_structure<uint_t>::construction::balance_v2_seq() {
     if (log) log_message("building T_e");
     
     std::vector<te_node_t_v2> nodes_te = std::vector<te_node_t_v2>();

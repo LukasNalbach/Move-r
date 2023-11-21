@@ -15,7 +15,7 @@
  * @tparam uint_t unsigned integer type of the interval starting positions
  */
 template <typename uint_t>
-class move_data_structure_phi<uint_t>::construction {
+class move_data_structure<uint_t>::construction {
     static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
 
     public:
@@ -55,7 +55,7 @@ class move_data_structure_phi<uint_t>::construction {
     /* 1 + epsilon is the maximum factor, by which the number of intervals can be increased in the 
      * process of splitting too long intervals*/
     static constexpr double epsilon = 0.125;
-    move_data_structure_phi<uint_t>& mds; // the move data structure to construct
+    move_data_structure<uint_t>& mds; // the move data structure to construct
     pair_arr_t& I; // the disjoint interval sequence to construct the move data structure out of
     uint_t n; // maximum value, n = p_{k-1} + d_{k-1}, k <= n
     uint_t k; // number of intervals in the (possibly a-heavy) inteval sequence I, 0 < k
@@ -107,7 +107,7 @@ class move_data_structure_phi<uint_t>::construction {
      * @param mf output stream to write runtime and space usage to if log is enabled
      */
     construction(
-        move_data_structure_phi<uint_t>& mds,
+        move_data_structure<uint_t>& mds,
         std::vector<std::pair<uint_t,uint_t>>& I,
         uint_t n,
         uint16_t p = omp_get_max_threads(),

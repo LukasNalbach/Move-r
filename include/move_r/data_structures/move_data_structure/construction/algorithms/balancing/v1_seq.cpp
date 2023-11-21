@@ -1,5 +1,5 @@
 template <typename uint_t>
-void move_data_structure_phi<uint_t>::construction::balance_v1_seq() {
+void move_data_structure<uint_t>::construction::balance_v1_seq() {
     if (log) log_message("building T_e");
 
     // build T_e_v1

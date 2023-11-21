@@ -6,8 +6,8 @@
 #include <move_r/data_structures/hybrid_bit_vector.hpp>
 #include <move_r/data_structures/string_rank_select_support.hpp>
 #include <move_r/data_structures/interleaved_vectors.hpp>
-#include <move_r/data_structures/move_data_structure/move_data_structure_phi.hpp>
-#include <move_r/data_structures/move_data_structure/move_data_structure_lf.hpp>
+#include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
+#include <move_r/data_structures/move_data_structure/move_data_structure_str.hpp>
 
 /**
  * @brief an operation that can be supported by a move_r object
@@ -73,12 +73,12 @@ class move_r {
     std::vector<uint8_t> unmap_char; // inverse function of map_char
     /* The Move Data Structure for LF. It also stores L', which can be accessed at
     position i with M_LF.L_(i). */
-    move_data_structure_lf<uint_t> M_LF;
+    move_data_structure_str<uint_t> M_LF;
     /* [0..p_r-1], where D_e[i] = <x,j>, x in [0,r'-1] and j is minimal, s.t. SA_s[x]=j > i* lfloor (n-1)/p rfloor;
     see the parallel revert algorithm to understand why this is useful. */
     std::vector<std::pair<uint_t,uint_t>> D_e;
     string_rank_select_support<uint_t> RS_L_; // rank-select data structure for L'
-    move_data_structure_phi<uint_t> M_Phi; // The Move Data Structure for Phi.
+    move_data_structure<uint_t> M_Phi; // The Move Data Structure for Phi.
     interleaved_vectors<uint_t> SA_phi; // [0..r'-1] SA_phi
 
     // ############################# INTERNAL METHODS #############################
@@ -462,7 +462,7 @@ class move_r {
      * @brief returns a reference to M_LF
      * @return M_LF
      */
-    const move_data_structure_lf<uint_t>& m_lf() {
+    const move_data_structure_str<uint_t>& m_lf() {
         return M_LF;
     }
 
@@ -470,7 +470,7 @@ class move_r {
      * @brief returns a reference to M_Phi
      * @return M_Phi
      */
-    const move_data_structure_phi<uint_t>& m_phi() {
+    const move_data_structure<uint_t>& m_phi() {
         return M_Phi;
     }
 
