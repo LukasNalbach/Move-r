@@ -98,8 +98,11 @@ void update_peak_memory_usage(std::ifstream& log_file) {
             pos++;
         }
 
-        while ('0' <= log_file_content[pos] && log_file_content[pos] <= '9') {
-            str_cur_peak.push_back(log_file_content[pos]);
+        while (('0' <= log_file_content[pos] && log_file_content[pos] <= '9') || log_file_content[pos] == '.') {
+            if (log_file_content[pos] != '.') {
+                str_cur_peak.push_back(log_file_content[pos]);
+            }
+            
             pos++;
         }
 

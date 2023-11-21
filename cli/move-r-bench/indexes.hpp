@@ -429,7 +429,7 @@ void measure_blockrlbwt(std::string index_name) {
     grlbwt_input_file.write(&input[0],input_size);
     grlbwt_input_file.close();
     auto t1 = now();
-    system(("build/external/grlBWT/grlbwt-cli " + prefix_tmp_files + ".grlbwt -o " + prefix_tmp_files + " >log_1 2>log_2").c_str());
+    system(("build/external/grlBWT/grlbwt-cli -T . " + prefix_tmp_files + ".grlbwt -o " + prefix_tmp_files + " >log_1 2>log_2").c_str());
     time_build += time_diff_ns(t1,now());
     std::ifstream log_file("log_2");
     update_peak_memory_usage(log_file);
