@@ -14,7 +14,6 @@ std::vector<int64_t> SA_64;
 std::string BWT;
 std::string path_mf;
 bool check_correctness = false;
-bool bench_a_bigbwt = false;
 uint64_t external_peak_memory_usage;
 std::ofstream mf;
 std::ifstream input_file;

@@ -386,7 +386,7 @@ uint64_t count_pattern<uint64_t,r_index_f<>>(r_index_f<>& index, std::string& pa
 
 // ############################# block_RLBWT #############################
 
-void write_blockrlbwt_patterns_file(std::ifstream& patterns_input_file, std::ofstream& patterns_output_file) {
+uint64_t write_blockrlbwt_patterns_file(std::ifstream& patterns_input_file, std::ofstream& patterns_output_file) {
     patterns_input_file.seekg(0);
     std::string header;
     std::getline(patterns_input_file,header);
@@ -401,6 +401,8 @@ void write_blockrlbwt_patterns_file(std::ifstream& patterns_input_file, std::ofs
         patterns_output_file.write((char*)&pattern[0],pattern_length);
         patterns_output_file << std::endl;
     }
+
+    return pattern_length;
 }
 
 void measure_blockrlbwt(std::string index_name) {
@@ -409,6 +411,7 @@ void measure_blockrlbwt(std::string index_name) {
     uint64_t time_query;
     uint64_t num_queries;
     uint64_t num_occurrences;
+    uint64_t pattern_length;
     std::string blockrlbwt_param = "";
 
     if (index_name == "block_rlbwt_vbyte") {
@@ -435,7 +438,7 @@ void measure_blockrlbwt(std::string index_name) {
     std::filesystem::remove("log_1");
     std::filesystem::remove("log_2");
     t1 = now();
-    system(("build/external/grlBWT/grl2plain " + prefix_tmp_files + ".rl_bwt " + prefix_tmp_files + ".bwt >log_1 2>log_2").c_str());
+    system(("build/external/grlBWT/grlbwt2rle " + prefix_tmp_files + ".rl_bwt " + prefix_tmp_files + " >log_1 2>log_2").c_str());
     time_build += time_diff_ns(t1,now());
     log_file.open("log_2");
     update_peak_memory_usage(log_file);
@@ -444,10 +447,9 @@ void measure_blockrlbwt(std::string index_name) {
     std::filesystem::remove("log_2");
     std::filesystem::remove(prefix_tmp_files + ".rl_bwt");
 
-    std::cerr.rdbuf(NULL);
     t1 = now();
-    system(("build/external/block_RLBWT/make_alphabet_header -i " + prefix_tmp_files +
-        ".bwt > external/block_RLBWT/include/custom_alphabet.hpp 2>log_2").c_str());
+    system(("build/external/block_RLBWT/make_alphabet_header -h " + prefix_tmp_files + ".syms -r " + prefix_tmp_files +
+            ".len  > external/block_RLBWT/include/custom_alphabet.hpp 2>log_2").c_str());
     time_build += time_diff_ns(t1,now());
     std::filesystem::remove("log_2");
     t1 = now();
@@ -456,8 +458,8 @@ void measure_blockrlbwt(std::string index_name) {
     system("mv external/block_RLBWT/make_bwt build/external/block_RLBWT/make_bwt");
     system("mv external/block_RLBWT/count_matches build/external/block_RLBWT/count_matches");
     t1 = now();
-    system(("build/external/block_RLBWT/make_bwt " + blockrlbwt_param + " -i " + prefix_tmp_files + ".bwt " + prefix_tmp_files +
-            ".rlbwt >log_1 2>log_2").c_str());
+    system(("build/external/block_RLBWT/make_bwt -h " + prefix_tmp_files + ".syms -r " + prefix_tmp_files + ".len " +
+            blockrlbwt_param + " " + prefix_tmp_files + ".rlbwt >log_1 2>log_2").c_str());
     time_build += time_diff_ns(t1,now());
     size_index = std::filesystem::file_size(prefix_tmp_files + ".rlbwt") + std::filesystem::file_size(prefix_tmp_files + "_data.rlbwt");
     log_file.open("log_2");
@@ -465,7 +467,8 @@ void measure_blockrlbwt(std::string index_name) {
     log_file.close();
     std::filesystem::remove("log_1");
     std::filesystem::remove("log_2");
-    std::filesystem::remove(prefix_tmp_files + ".bwt");
+    std::filesystem::remove(prefix_tmp_files + ".syms");
+    std::filesystem::remove(prefix_tmp_files + ".len");
     
     std::cout << std::endl << std::endl;
     std::cout << "build time: " << format_time(time_build) << std::endl;
@@ -473,7 +476,7 @@ void measure_blockrlbwt(std::string index_name) {
     std::cout << "index size: " << format_size(size_index) << std::endl << std::endl;
 
     std::ofstream blockrlbwt_patterns_file((prefix_tmp_files + "-blockrlbwt-patterns-bal").c_str());
-    write_blockrlbwt_patterns_file(patterns_file_1,blockrlbwt_patterns_file);
+    pattern_length = write_blockrlbwt_patterns_file(patterns_file_1,blockrlbwt_patterns_file);
     blockrlbwt_patterns_file.close();
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -496,4 +499,10 @@ void measure_blockrlbwt(std::string index_name) {
     std::filesystem::remove("blockrlbwt_count_result.txt");
     std::filesystem::remove("log_1");
     std::filesystem::remove("log_2");
+
+    write_measurement_data(
+        true,false,index_name,size_index,
+        build_result{1,time_build,external_peak_memory_usage,size_index},
+        query_result{num_queries,pattern_length,num_occurrences,time_query}
+    );
 }

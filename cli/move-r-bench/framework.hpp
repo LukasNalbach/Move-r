@@ -247,6 +247,57 @@ query_result locate_patterns(idx_t& index, std::ifstream& patterns_file) {
     return query_result{num_queries,pattern_length,num_occurrences,time_query};
 }
 
+void write_measurement_data(
+    bool bench_index_count,
+    bool bench_index_locate,
+    std::string index_log_name,
+    uint64_t size_index,
+    build_result result_build = build_result{},
+    query_result result_count = query_result{},
+    query_result result_locate_1 = query_result{},
+    query_result result_locate_2 = query_result{}
+) {
+    mf << "RESULT"
+        << " type=comparison_build"
+        << " implementation=" << index_log_name
+        << " text=" << name_text_file
+        << " num_threads=" << result_build.num_threads
+        << " time_build=" << result_build.time_build
+        << " peak_memory_usage=" << result_build.peak_memory_usage
+        << " size_index=" << size_index
+        << std::endl;
+
+    if (bench_index_count) {
+        mf << "RESULT"
+            << " type=comparison_count"
+            << " implementation=" << index_log_name
+            << " text=" << name_text_file
+            << " num_queries=" << result_count.num_queries
+            << " pattern_length=" << result_count.pattern_length
+            << " num_occurrences=" << result_count.num_occurrences
+            << " time_query=" << result_count.time_query
+            << " size_index=" << size_index
+            << std::endl;
+    }
+
+    if (bench_index_locate) {
+        std::vector<query_result> locate_results = {result_locate_1,result_locate_2};
+
+        for (query_result& res : locate_results) {
+            mf << "RESULT"
+                << " type=comparison_locate"
+                << " implementation=" << index_log_name
+                << " text=" << name_text_file
+                << " num_queries=" << res.num_queries
+                << " pattern_length=" << res.pattern_length
+                << " num_occurrences=" << result_count.num_occurrences
+                << " time_query=" << res.time_query
+                << " size_index=" << result_build.size_index
+                << std::endl;
+        }
+    }
+}
+
 template <typename uint_t, typename idx_t, bool alternative_build_mode, bool bench_index_count, bool bench_index_locate>
 void bench_index(std::string index_name, std::string index_log_name) {
     idx_t index;
@@ -267,12 +318,7 @@ void bench_index(std::string index_name, std::string index_log_name) {
     t2 = now();
     m2 = malloc_count_current();
     
-    result_build = build_result{
-        .num_threads = 1,
-        .time_build = time_diff_ns(t1,t2),
-        .peak_memory_usage = std::max(malloc_count_peak()-m1,external_peak_memory_usage),
-        .size_index = m2-m1
-    };
+    result_build = build_result{1,time_diff_ns(t1,t2),std::max(malloc_count_peak()-m1,external_peak_memory_usage),m2-m1};
 
     std::cout << std::endl;
     std::cout << "build time: " << format_time(result_build.time_build) << std::endl;
@@ -307,47 +353,16 @@ void bench_index(std::string index_name, std::string index_log_name) {
     if constexpr (bench_index_count || bench_index_locate) std::cout << std::endl;
 
     if (mf.is_open()) {
-        uint64_t size_index = result_build.size_index;
-
-        mf << "RESULT"
-            << " type=comparison_build"
-            << " implementation=" << index_log_name
-            << " text=" << name_text_file
-            << " num_threads=" << result_build.num_threads
-            << " time_build=" << result_build.time_build
-            << " peak_memory_usage=" << result_build.peak_memory_usage
-            << " size_index=" << result_build.size_index
-            << std::endl;
-
-        if constexpr (bench_index_count) {
-            mf << "RESULT"
-                << " type=comparison_count"
-                << " implementation=" << index_log_name
-                << " text=" << name_text_file
-                << " num_queries=" << result_count.num_queries
-                << " pattern_length=" << result_count.pattern_length
-                << " num_occurrences=" << result_count.num_occurrences
-                << " time_query=" << result_count.time_query
-                << " size_index=" << size_index
-                << std::endl;
-        }
-
-        if constexpr (bench_index_locate) {
-            std::vector<query_result> locate_results = {result_locate_1,result_locate_2};
-
-            for (query_result& res : locate_results) {
-                mf << "RESULT"
-                    << " type=comparison_locate"
-                    << " implementation=" << index_log_name
-                    << " text=" << name_text_file
-                    << " num_queries=" << res.num_queries
-                    << " pattern_length=" << res.pattern_length
-                    << " num_occurrences=" << result_count.num_occurrences
-                    << " time_query=" << res.time_query
-                    << " size_index=" << result_build.size_index
-                    << std::endl;
-            }
-        }
+        write_measurement_data(
+            bench_index_count,
+            bench_index_locate,
+            index_log_name,
+            result_build.size_index,
+            result_build,
+            result_count,
+            result_locate_1,
+            result_locate_2
+        );
     }
 }
 

@@ -187,18 +187,19 @@ if(MOVE_R_BUILD_BENCH_CLI)
     "${GRLBWT_ROOT}/lib/opt_algo/opt_par_phase.cpp"
     "${GRLBWT_ROOT}/external/malloc_count-master/malloc_count.c"
   )
-  target_link_libraries(grlbwt PUBLIC z pthread cdt dl sdsl malloc_count biopar)
+  target_link_libraries(grlbwt PUBLIC z pthread cdt dl sdsl biopar)
   target_include_directories(grlbwt PUBLIC
     "${GRLBWT_ROOT}/include/"
     "${GRLBWT_ROOT}/include/exact_algo/"
     "${GRLBWT_ROOT}/include/opt_algo/"
     "${GRLBWT_ROOT}/external/"
+    "${GRLBWT_ROOT}/external/malloc_count-master/"
   )
   add_executable(grlbwt-cli "${GRLBWT_ROOT}/main.cpp")
-  add_executable(grl2plain "${GRLBWT_ROOT}/scripts/grl2plain.cpp")
+  add_executable(grlbwt2rle "${GRLBWT_ROOT}/scripts/grlbwt2rle.cpp")
   target_link_libraries(grlbwt-cli PRIVATE grlbwt)
-  target_link_libraries(grl2plain PRIVATE grlbwt)
-  set_target_properties(grlbwt-cli grl2plain
+  target_link_libraries(grlbwt2rle PRIVATE grlbwt)
+  set_target_properties(grlbwt-cli grlbwt2rle
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY
     "${CMAKE_BINARY_DIR}/external/grlBWT/"
   )

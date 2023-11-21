@@ -6,7 +6,10 @@
 #include "include/reader.hpp"
 #include "include/types.hpp"
 
-#include "../malloc_count/malloc_count.h"
+#include "../grlBWT/external/malloc_count-master/malloc_count.h"
+extern "C" {
+    #include "../grlBWT/external/malloc_count-master/malloc_count.c"
+}
 
 void help() {
     std::cout << "Create RLBWT data structure and output it to file.\n\n"

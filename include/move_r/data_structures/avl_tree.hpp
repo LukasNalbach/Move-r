@@ -172,11 +172,11 @@ class avl_tree {
     uint64_t s = 0; // size
     uint8_t h = 0; // height
 
-    static bool eq(const T& v1, const T& v2) {return !Compare()(v1,v2) && !Compare()(v2,v1);}; // comparison function "equals" on values of type T
-    static bool lt(const T& v1, const T& v2) {return Compare()(v1,v2);}; // comparison function "less than" on values of type T
-    static bool gt(const T& v1, const T& v2) {return Compare()(v2,v1);}; // comparison function "greater than" on values of type T
-    static bool leq(const T& v1, const T& v2) {return Compare()(v1,v2) || !Compare()(v2,v1);}; // comparison function "less than or equal to" on values of type T
-    static bool geq(const T& v1, const T& v2) {return Compare()(v2,v1) || !Compare()(v1,v2);}; // comparison function "greater than or equal to" on values of type T
+    inline static bool lt(const T& v1, const T& v2) {return Compare()(v1,v2);}; // comparison function "less than" on values of type T
+    inline static bool gt(const T& v1, const T& v2) {return Compare()(v2,v1);}; // comparison function "greater than" on values of type T
+    inline static bool eq(const T& v1, const T& v2) {return !lt(v1,v2) && !gt(v1,v2);}; // comparison function "equals" on values of type T
+    inline static bool leq(const T& v1, const T& v2) {return !gt(v1,v2);}; // comparison function "less than or equal to" on values of type T
+    inline static bool geq(const T& v1, const T& v2) {return !lt(v1,v2);}; // comparison function "greater than or equal to" on values of type T
 
     /**
      * @brief returns the hight of the node n if n != NULL, else returns 0
