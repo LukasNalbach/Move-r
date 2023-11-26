@@ -436,7 +436,7 @@ class move_r {
     }
 
     /**
-     * @brief returns L[i]
+     * @brief returns L[i], where $ = 0, so if the input contained 0, the output is not equal to the real bwt
      * @param x [0..input size]
      * @return L[i]
      */
@@ -489,7 +489,17 @@ class move_r {
      * @param P the pattern to count in the input string
      * @return the number of occurrences of P in the input string
      */
-    uint_t count(const std::string& P);
+    uint_t count(const std::string& P) {
+        return count(P.size(),[&P](uint_t i){return P[i];});
+    }
+
+    /**
+     * @brief returns the number of occurrences of a pattern in the input string
+     * @param pattern_length length of the query pattern
+     * @param read read(i) must return the character of the query pattern at position i, for each i \in [0,pattern_length)
+     * @return the number of occurrences of the pattern in the input string
+     */
+    uint_t count(uint_t pattern_length, const std::function<char(uint_t)>& read);
 
     /**
      * @brief locates the pattern P in the input string
@@ -515,13 +525,24 @@ class move_r {
      * @param P the pattern to locate in the input string
      * @param report function that is called with every occurrence of P in the input string as a parameter
      */
-    void locate(const std::string& P, const std::function<void(uint_t)>& report);
+    void locate(const std::string& P, const std::function<void(uint_t)>& report) {
+        locate(P.size(),[&P](uint_t i){return P[i];},report);
+    }
+
+    /**
+     * @brief locates a pattern in the input string
+     * @param pattern_length length of the query pattern
+     * @param read read(i) must return the character of the query pattern at position i, for each i \in [0,pattern_length)
+     * @param report function that is called with every occurrence of the pattern in the input string as a parameter
+     */
+    void locate(uint_t pattern_length, const std::function<char(uint_t)>& read, const std::function<void(uint_t)>& report);
 
     // ############################# RETRIEVE-RANGE METHODS #############################
 
     /**
      * @brief returns the bwt in the range [l,r] (0 <= l <= r <= input size), else
-     * if l > r, then the whole bwt is returned (default)
+     * if l > r, then the whole bwt is returned (default); $ = 0, so if the input contained 0, the output is not
+     * equal to the real bwt
      * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = L[i]
      * @param l left range limit
      * @param r right range limit
@@ -542,8 +563,8 @@ class move_r {
     }
 
     /**
-     * @brief reports the characters in the bwt in the range [l,r] (0 <= l <= r <= input size), else if l > r, then
-     * all characters of the bwt are reported (default)
+     * @brief reports the characters in the bwt in the range [l,r] (0 <= l <= r <= input size), else if l > r, then all
+     * characters of the bwt are reported (default); $ = 0, so if the input contained 0, the output is not equal to the real bwt
      * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = L[i]
      * @param l left range limit
      * @param r right range limit
@@ -553,8 +574,8 @@ class move_r {
     void retrieve_bwt_range(const std::function<void(uint_t,char)>& report, uint_t l = 1, uint_t r = 0, uint16_t num_threads = omp_get_max_threads());
 
     /**
-     * @brief writes the characters in the bwt in the range [l,r] blockwise to the file out (0 <= l <= r <= input size),
-     * else if l > r, then the whole bwt is written (default)
+     * @brief writes the characters in the bwt in the range [l,r] blockwise to the file out (0 <= l <= r <= input size), else if
+     * l > r, then the whole bwt is written (default); $ = 0, so if the input contained 0, the output is not equal to the real bwt
      * @param out file to write the bwt to
      * @param l left range limit
      * @param r right range limit

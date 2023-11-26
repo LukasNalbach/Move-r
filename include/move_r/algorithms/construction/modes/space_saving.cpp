@@ -124,8 +124,18 @@ void move_r<uint_t>::construction::read_rlbwt_bwt() {
     std::ifstream bwt_file(bwt_file_name);
 
     if (read_rlbwt) {
-        RLBWT = std::move(interleaved_vectors<uint32_t>({1,4},r,false));
-        read_from_file(bwt_file,RLBWT.get_data(),5*r);
+        for (uint16_t i=0; i<p; i++) {
+            r_p.emplace_back(i*(r/p));
+        }
+
+        r_p.emplace_back(r);
+        RLBWT.resize(p,std::move(interleaved_vectors<uint32_t>({1,4})));
+        
+        for (uint16_t i_p=0; i_p<p; i_p++) {
+            uint_t rp_diff = r_p[i_p+1]-r_p[i_p];
+            RLBWT[i_p].resize_no_init(rp_diff);
+            read_from_file(bwt_file,RLBWT[i_p].data(),5*rp_diff);
+        }
     } else {
         no_init_resize(L,n);
         read_from_file(bwt_file,&L[0],n);
@@ -150,25 +160,17 @@ void move_r<uint_t>::construction::preprocess_rlbwt_space_saving() {
     C.resize(p+1,std::vector<uint_t>(256));
     n_p.resize(p+1);
 
-    for (uint16_t i=0; i<p; i++) {
-        r_p.emplace_back(i*(r/p));
-    }
-
-    r_p.emplace_back(r);
-
     #pragma omp parallel num_threads(p)
     {
         // Index in [0..p-1] of the current thread.
         uint16_t i_p = omp_get_thread_num();
 
-        // Iteration range start position of thread i_p.
-        uint_t b_r = r_p[i_p];
-        // Iteration range end position of thread i_p.
-        uint_t e_r = r_p[i_p+1];
+        // Number of BWT runs in thread i_p's section.
+        uint_t rp_diff = r_p[i_p+1]-r_p[i_p];
 
-        for (uint_t i=b_r; i<e_r; i++) {
-            n_p[i_p] += run_length(i);
-            C[i_p][run_uchar(i)] += run_length(i);
+        for (uint_t i=0; i<rp_diff; i++) {
+            n_p[i_p] += run_length(i_p,i);
+            C[i_p][run_uchar(i_p,i)] += run_length(i_p,i);
         }
     }
 
@@ -204,9 +206,10 @@ void move_r<uint_t>::construction::read_iphi_space_saving() {
         read_from_file(I_Phi_file,(char*)&I_Phi[1],8*(r-1));
         read_from_file(I_Phi_file,(char*)&I_Phi[0],8);
     } else {
-        interleaved_vectors<uint64_t> I_Phi_tmp({5,5},r,false);
-        read_from_file(I_Phi_file,I_Phi_tmp.get_data()+10,10*(r-1));
-        read_from_file(I_Phi_file,I_Phi_tmp.get_data(),10);
+        interleaved_vectors<uint64_t> I_Phi_tmp({5,5});
+        I_Phi_tmp.resize_no_init(r);
+        read_from_file(I_Phi_file,I_Phi_tmp.data()+10,10*(r-1));
+        read_from_file(I_Phi_file,I_Phi_tmp.data(),10);
 
         #pragma omp parallel for num_threads(p)
         for (uint64_t i=0; i<r; i++) {

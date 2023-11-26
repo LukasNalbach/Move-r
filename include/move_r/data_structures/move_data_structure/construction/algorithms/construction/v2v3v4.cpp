@@ -137,9 +137,11 @@ void move_data_structure<uint_t>::construction::build_lin_tout_v2v3v4() {
     x.clear();
     x.shrink_to_fit();
 
-    // Now, we do not need I anymore.
-    I.clear();
-    I.shrink_to_fit();
+    if (delete_i) {
+        // Now, we do not need I anymore.
+        I.clear();
+        I.shrink_to_fit();
+    }
 
     if (log) {
         if (mf != NULL) *mf << " time_build_lin=" << time_diff_ns(time);
@@ -390,9 +392,9 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v2v3v4() {
     }
 
     mds.resize(n,k_);
-
-    no_init_resize(D_q,k_+1);
-    D_q[k_] = n;
+    D_q = interleaved_vectors<uint_t>({(uint8_t)(mds.omega_p/8)});
+    D_q.resize_no_init(k_+1);
+    D_q.template set<0>(k_,n);
 
     // write the pairs L_in[0..p-1] to D_p in mds and D_q
     #pragma omp parallel num_threads(p)
@@ -407,7 +409,7 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v2v3v4() {
 
                 for (uint_t i=l; i<r; i++) {
                     mds.set_p(i,ln_I->v.first);
-                    D_q[i] = ln_I->v.second;
+                    D_q.template set<0>(i,ln_I->v.second);
                     ln_I = ln_I->sc;
                 }
             }

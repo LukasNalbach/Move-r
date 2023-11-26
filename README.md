@@ -38,6 +38,7 @@ add_subdirectory(move_r/)
 set(MOVE_R_BUILD_CLI OFF)
 set(MOVE_R_BUILD_BENCH_CLI OFF)
 set(MOVE_R_BUILD_EXAMPLES OFF)
+set(MOVE_R_BUILD_TESTS OFF)
 ```
 
 ### C++

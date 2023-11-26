@@ -47,15 +47,15 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v1() {
     if (log) log_message("building D_p and D_q");
 
     mds.resize(n,k_);
-    
-    no_init_resize(D_q,k_+1);
-    D_q[k_] = n;
+    D_q = interleaved_vectors<uint_t>({(uint8_t)(mds.omega_p/8)});
+    D_q.resize_no_init(k_);
+    D_q.template set<0>(k_,n);
 
     auto it = T_in_v1.iterator();
 
     for (uint_t i=0; i<=k_; i++) {
         mds.set_p(i,it.current()->v.first);
-        D_q[i] = it.current()->v.second;
+        D_q.template set<0>(i,it.current()->v.second);
         it.next();
     }
 

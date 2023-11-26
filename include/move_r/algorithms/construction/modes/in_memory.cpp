@@ -13,7 +13,7 @@ void move_r<uint_t>::construction::read_t_from_file_in_memory(std::ifstream& t_f
 
     no_init_resize(T,n);
     read_from_file(t_file,T.c_str(),n-1);
-    T[n-1] = uchar_to_char(terminator);
+    T[n-1] = uchar_to_char(1);
 
     if (log) time = log_runtime(time);
 }
@@ -60,8 +60,9 @@ void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
 
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
 
-    r_p.resize(p+1);
-    RLBWT_thr.resize(p);
+    r_p.resize(p+1,0);
+    RLBWT.resize(p,std::move(interleaved_vectors<uint32_t>({1,4})));
+    C.resize(p+1,std::vector<uint_t>(256,0));
 
     for (uint16_t i=0; i<p; i++) {
         n_p.emplace_back(i*(n/p));
@@ -88,45 +89,49 @@ void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
         if constexpr (read_l) {
             prev_char = L[b];
         } else {
-            prev_char = T[SA[b] == 0 ? n-1 : SA[b]-1];
+            prev_char = SA[b] == 0 ? uchar_to_char(0) : T[SA[b]-1];
         }
-
-        // Iterate backwards in L until the next run start position.
-        if (p > 0) {
-            while (i_ > n_p[i_p-1] && (read_l ? L[i_-1] : T[SA[i_-1] == 0 ? n-1 : SA[i_-1]-1]) == prev_char) {
-                i_--;
-            }
-        }
-
-        #pragma omp barrier
-
-        // communicate the new iteration range start positions in L.
-        n_p[i_p] = i_;
-
-        #pragma omp barrier
-
-        // adjust the current threads iteration range end position.
-        e = n_p[i_p+1];
 
         // Iterate over the range L[b+1..e-1]
         for (uint_t i=b+1; i<e; i++) {
             if constexpr (read_l) {
                 cur_char = L[i];
             } else {
-                cur_char = T[SA[i] == 0 ? n-1 : SA[i]-1];
+                cur_char = SA[i] == 0 ? uchar_to_char(0) : T[SA[i]-1];
             }
 
+            // check if there is a run starting at L[i]
             if (cur_char != prev_char) {
-                RLBWT_thr[i_p].emplace_back(std::make_pair(prev_char,i-i_));
+                RLBWT[i_p].emplace_back_unsafe<char,uint32_t>({prev_char,i-i_});
+                C[i_p][char_to_uchar(prev_char)] += i-i_;
                 prev_char = cur_char;
                 i_ = i;
             }
         }
 
-        RLBWT_thr[i_p].emplace_back(std::make_pair(prev_char,e-i_));
+        // add the run L[i'..e)
+        RLBWT[i_p].emplace_back_unsafe<char,uint32_t>({prev_char,e-i_});
+        C[i_p][char_to_uchar(prev_char)] += e-i_;
 
-        // Store in r_p[i_p] the number of runs starting in L[b..e].
-        r_p[i_p] = RLBWT_thr[i_p].size();
+        // Store in r_p[i_p] the number of runs starting in L[b..e).
+        r_p[i_p] = RLBWT[i_p].size();
+        RLBWT[i_p].shrink_to_fit();
+    }
+
+    // for i_p \in [1,p-2], merge the last run in thread i_p's section with the first run in thread
+    // i_p+1's section, if their characters are equal
+    for (uint16_t i_p=0; i_p<p-1; i_p++) {
+        uint8_t c = run_uchar(i_p,r_p[i_p]-1);
+
+        if (run_uchar(i_p+1,0) == c) {
+            uint_t l = run_length(i_p,r_p[i_p]-1);
+            set_run_length(i_p+1,0,run_length(i_p+1,0)+l);
+            C[i_p][c] -= l;
+            C[i_p+1][c] += l;
+            n_p[i_p+1] -= l;
+            r_p[i_p]--;
+            RLBWT[i_p].resize(r_p[i_p]);
+        }
     }
 
     if (&L == &L_tmp) {
@@ -166,70 +171,6 @@ void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
     r = r_p[p];
     idx.r = r;
 
-    RLBWT = std::move(interleaved_vectors<uint32_t>({1,4},r,false));
-
-    std::vector<uint_t> r_p_new;
-    std::vector<uint_t> n_p_new;
-    n_p_new.resize(p+1);
-    C.resize(p+1);
-    n_p_new[p] = n;
-
-    for (uint16_t i=0; i<p; i++) {
-        r_p_new.emplace_back(i*(r/p));
-        C[i].resize(256);
-    }
-
-    r_p_new.emplace_back(r);
-
-    #pragma omp parallel num_threads(p)
-    {
-        // Index in [0..p-1] of the current thread.
-        uint16_t i_p = omp_get_thread_num();
-
-        // Iteration range start position of thread i_p.
-        uint_t b_r = r_p[i_p];
-        // Iteration range end position of thread i_p.
-        uint_t e_r = r_p[i_p+1];
-
-        // Iterator pointing to the current RLBWT pair in RLBWT_thr[i_p].
-        auto rlbwt_it = RLBWT_thr[i_p].begin();
-        // Current position in L.
-        uint_t j = n_p[i_p];
-        // Index of the current section in r_p_new.
-        uint_t cur_rp = bin_search_max_leq<uint_t>(b_r,0,p-1,[&r_p_new](uint_t x){return r_p_new[x];});
-
-        if (b_r == r_p_new[cur_rp]) {
-            n_p_new[cur_rp] = j;
-        }
-        
-        // Index of the next section in r_p_new.
-        uint_t next_rp = cur_rp+1;
-
-        for (uint_t i=b_r; i<e_r; i++) {
-            if (i == r_p_new[next_rp]) {
-                n_p_new[next_rp] = j;
-                cur_rp++;
-                next_rp++;
-            }
-
-            // Count the occurrences of L[i-1] within the last run in C[i_p][L[i-1]].
-            #pragma omp atomic
-            C[cur_rp][char_to_uchar((*rlbwt_it).first)] += (*rlbwt_it).second;
-
-            set_run_char(i,(*rlbwt_it).first);
-            set_run_length(i,(*rlbwt_it).second);
-
-            j += (*rlbwt_it).second;
-            rlbwt_it++;
-        }
-    }
-
-    RLBWT_thr.clear();
-    RLBWT_thr.shrink_to_fit();
-
-    r_p = std::move(r_p_new);
-    n_p = std::move(n_p_new);
-
     process_c();
 
     if (log) {
@@ -255,20 +196,23 @@ void move_r<uint_t>::construction::build_iphi_in_memory() {
     {
         uint16_t i_p = omp_get_thread_num();
 
-        // Bwt runs iteration range start position of thread i_p.
+        // Iteration range start position of thread i_p.
         uint_t b_r = r_p[i_p];
-        // Bwt runs iteration range end position of thread i_p.
-        uint_t e_r = r_p[i_p+1];
+
+        // Number of BWT runs within thread i_p's section.
+        uint_t rp_diff = r_p[i_p+1]-r_p[i_p];
 
         // start position of the current BWT run.
         uint_t j = n_p[i_p];
 
-        if (b_r != 0) I_Phi[b_r] = std::make_pair(SA[j],SA[j-1]);
-        j += run_length(b_r);
+        if (rp_diff > 0) {
+            if (r_p[i_p] != 0) I_Phi[b_r] = std::make_pair(SA[j],SA[j-1]);
+            j += run_length(i_p,0);
 
-        for (uint_t i=b_r+1; i<e_r; i++) {
-            I_Phi[i] = std::make_pair(SA[j],SA[j-1]);
-            j += run_length(i);
+            for (uint_t i=1; i<rp_diff; i++) {
+                I_Phi[b_r+i] = std::make_pair(SA[j],SA[j-1]);
+                j += run_length(i_p,i);
+            }
         }
     }
 

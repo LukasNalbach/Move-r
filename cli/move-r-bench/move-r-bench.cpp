@@ -39,8 +39,9 @@ constexpr std::vector<sa_sint_t>& get_sa() {
 
 void help(std::string msg) {
     if (msg != "") std::cout << msg << std::endl;
-    std::cout << "move-r-bench: benchmarks construction- and query performance of move-r, move-r-bigbwt, r-index, r-index-bigbwt," << std::endl;
-    std::cout << "              r-index-f, rcomp-lfig, rcomp-glfig, OnlineRLBWT and rle_bwt; has to be executed from the base folder." << std::endl << std::endl;
+    std::cout << "move-r-bench: benchmarks construction- and query performance of move-r, move-r-bigbwt, block_RLBWT," << std::endl;
+    std::cout << "              r-index, r-index-bigbwt, r-index-f, rcomp-lfig, rcomp-glfig, OnlineRLBWT and rle_bwt;" << std::endl;
+    std::cout << "              has to be executed from the base folder." << std::endl << std::endl;
     std::cout << "usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2>" << std::endl;
     std::cout << "   -c                 check for correctnes if possible; disables the -m option; will not print" << std::endl;
     std::cout << "                      runtime data if the runtime could be affected by checking for correctness" << std::endl;
@@ -68,9 +69,13 @@ template <typename uint_t>
 void bench_indexes() {
     bench_index<uint_t,move_r<uint_t>,false,true,true>("move-r","move_r");
     bench_index<uint_t,move_r<uint_t>,true,false,false>("move-r-bigbwt","move_r_bigbwt");
-    measure_blockrlbwt("block_rlbwt_twobyte");
-    measure_blockrlbwt("block_rlbwt_vbyte");
-    measure_blockrlbwt("block_rlbwt_run");
+
+    blockrlbwt_data bd = prepare_blockrlbwt();
+    measure_blockrlbwt("block_rlbwt_twobyte",bd);
+    measure_blockrlbwt("block_rlbwt_vbyte",bd);
+    measure_blockrlbwt("block_rlbwt_run",bd);
+    cleanup_grlbwt(bd);
+    
     bench_index<uint_t,r_index_f<>,false,true,false>("r-index-f","r_index_f");
     bench_index<uint_t,rcomp_lfig,false,true,true>("rcomp-lfig","rcomp_lfig");
     bench_index<uint_t,rcomp_glfig_16,false,true,true>("rcomp-glfig","rcomp_glfig");

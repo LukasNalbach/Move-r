@@ -15,7 +15,7 @@ class string_rank_select_support {
     using hybrid_bv_t = hybrid_bit_vector<uint_t,build_rank_support,build_select_other_support,build_select_support>;
 
     protected:
-    uint_t size = 0; // the size of the input string    
+    uint_t string_size = 0; // the size of the input string    
     std::vector<char> characters; // vector containing exactly the characters occurring in the input string
     std::vector<uint_t> occurrences; // [0..255] stores at position c the number of occurrences of c in the input string
 
@@ -42,7 +42,7 @@ class string_rank_select_support {
         uint_t r = 0,
         uint16_t p = omp_get_max_threads()
     ) {
-        r = std::max(r,string.size()-1);
+        r = std::min(r,string.size()-1);
 
         if (l > r) {
             l = 0;
@@ -66,7 +66,7 @@ class string_rank_select_support {
         uint_t r = 0,
         uint16_t p = omp_get_max_threads()
     ) {
-        size = r-l+1;
+        string_size = r-l+1;
         std::vector<std::vector<uint_t>> occurrences_thr(p,std::vector<uint_t>(256,0));
 
         #pragma omp parallel for num_threads(p)
@@ -97,11 +97,11 @@ class string_rank_select_support {
         for (uint16_t i=0; i<num_chars; i++) {
             uint8_t cur_char = char_to_uchar(characters[i]);
 
-            if (occurrences[cur_char] > size * hybrid_bit_vector<uint_t>::compression_threshold) {
+            if (occurrences[cur_char] > string_size * hybrid_bit_vector<uint_t>::compression_threshold) {
                 is_compressed[cur_char] = 0;
-                plain_bvs[cur_char] = std::move(sdsl::bit_vector(size));
+                plain_bvs[cur_char] = std::move(sdsl::bit_vector(string_size));
             } else {
-                sdv_builders[cur_char] = std::move(sdsl::sd_vector_builder(size,occurrences[cur_char]));
+                sdv_builders[cur_char] = std::move(sdsl::sd_vector_builder(string_size,occurrences[cur_char]));
             }
         }
 
@@ -129,6 +129,10 @@ class string_rank_select_support {
                 hyb_bit_vecs[cur_char] = std::move(hybrid_bv_t(std::move(plain_bvs[cur_char])));
             }
         }
+    }
+
+    inline uint_t size() {
+        return string_size;
     }
 
     /**
@@ -165,7 +169,7 @@ class string_rank_select_support {
     /**
      * @brief returns the number of occurrences of c before index i
      * @param c a character that occurs in the input string
-     * @param i [0..size]
+     * @param i [0..string size]
      * @return number of occurrences of c before index i
      */
     inline uint_t rank(char c, uint_t i) {
@@ -176,7 +180,7 @@ class string_rank_select_support {
     /**
      * @brief returns the number of occurrences of characters other than c before index i
      * @param c a character that occurs in the input string
-     * @param i [0..size]
+     * @param i [0..string size]
      * @return number of occurrences of characters other than c before index i
      */
     inline uint_t rank_other(char c, uint_t i) {
@@ -209,7 +213,7 @@ class string_rank_select_support {
     /**
      * @brief returns the index of the next occurrence of c after index i
      * @param c a character that occurs after index i in the input string
-     * @param i [0..size-1]
+     * @param i [0..string size-1]
      * @return the index of the next occurrence of c after index i
      */
     inline uint_t next(char c, uint_t i) {
@@ -219,7 +223,7 @@ class string_rank_select_support {
     /**
      * @brief returns the index of the previous occurrence of c before index i
      * @param c a character that occurs before index i in the input string
-     * @param i [0..size-1]
+     * @param i [0..string size-1]
      * @return the index of the next occurrence of c before index i
      */
     inline uint_t previous(char c, uint_t i) {
@@ -229,7 +233,7 @@ class string_rank_select_support {
     /**
      * @brief returns the index of the next character other than c after index i
      * @param c a character that occurs in the input string
-     * @param i [0..size-1] an index in the input string, after which
+     * @param i [0..string size-1] an index in the input string, after which
      * there occurs a character c' != c in the input string
      * @return the index of the next character other than c after index i 
      */
@@ -240,7 +244,7 @@ class string_rank_select_support {
     /**
      * @brief returns the index of the previous character other than c before index i
      * @param c a character that occurs in the input string
-     * @param i [0..size-1] an index in the input string, before which
+     * @param i [0..string size-1] an index in the input string, before which
      * there occurs a character c' != c in the input string
      * @return the index of the previous character other than c before index i
      */
@@ -250,7 +254,7 @@ class string_rank_select_support {
 
     /**
      * @brief returns whether there is a c at index i
-     * @param i [0..size-1]
+     * @param i [0..string size-1]
      * @param c a character that occurs in the input string
      * @return whether there is a c at index i
      */
@@ -270,7 +274,7 @@ class string_rank_select_support {
     /**
      * @brief returns whether the character c occurs before index i in the input string
      * @param c character that occurs in the input string
-     * @param i [0..size-1]
+     * @param i [0..string size-1]
      * @return whether c occurs before index i
      */
     inline bool occurs_before(char c, uint_t i) {
@@ -280,7 +284,7 @@ class string_rank_select_support {
     /**
      * @brief returns whether the character c occurs after index i in the input string
      * @param c character that occurs in the input string
-     * @param i [0..size-2]
+     * @param i [0..string size-2]
      * @return whether c occurs after index i
      */
     inline bool occurs_after(char c, uint_t i) {
@@ -300,9 +304,9 @@ class string_rank_select_support {
      * @param out output stream
      */
     void serialize(std::ostream& out) {
-        out.write((char*)&size,sizeof(uint_t));
+        out.write((char*)&string_size,sizeof(uint_t));
         
-        if (size > 0) {
+        if (string_size > 0) {
             uint8_t num_chars = characters.size();
             out.write((char*)&num_chars,1);
 
@@ -320,9 +324,9 @@ class string_rank_select_support {
      * @param in input stream
      */
     void load(std::istream& in) {
-        in.read((char*)&size,sizeof(uint_t));
+        in.read((char*)&string_size,sizeof(uint_t));
 
-        if (size > 0) {
+        if (string_size > 0) {
             uint8_t num_chars;
             in.read((char*)&num_chars,1);
 

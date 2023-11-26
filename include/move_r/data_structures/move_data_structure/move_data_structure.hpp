@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <omp.h>
+#include <move_r/misc/utils.hpp>
 #include <move_r/data_structures/interleaved_vectors.hpp>
 
 /**
@@ -19,6 +20,7 @@ class move_data_structure {
     uint_t n = 0; // n = p_{k_'-1} + d_{k_'-1}, k_' <= n
     uint_t k = 0; // k, number of intervals in the original disjoint inteval sequence I
     uint_t k_ = 0; // k', number of intervals in the balanced disjoint inteval sequence B_a(I), k <= k_'
+    uint16_t a = 0; // balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
     uint8_t omega_p = 0; // word width of D_p
     uint8_t omega_idx = 0; // word width of D_idx
     uint8_t omega_offs = 0; // word width of D_offs
@@ -102,6 +104,14 @@ class move_data_structure {
     }
 
     /**
+     * @brief returns a
+     * @return a 
+     */
+    inline uint16_t balancing_parameter() {
+        return a;
+    }
+
+    /**
      * @brief returns the number omega_p of bits used by one entry in D_p (word width of D_p)
      * @return omega_p 
      */
@@ -135,8 +145,8 @@ class move_data_structure {
         this->n = n;
         this->k_ = k_;
 
-        omega_p = std::max((uint8_t)8,(uint8_t)(std::ceil(std::log2(n)/(double)8)*8));
-        omega_idx = std::max((uint8_t)8,(uint8_t)(std::ceil(std::log2(k_)/(double)8)*8));
+        omega_p = std::max((uint8_t)8,(uint8_t)(std::ceil(std::log2(n+1)/(double)8)*8));
+        omega_idx = std::max((uint8_t)8,(uint8_t)(std::ceil(std::log2(k_+1)/(double)8)*8));
 
         if (is_move_data_structure_str) {
             data = std::move(interleaved_vectors<uint_t>({
@@ -144,15 +154,16 @@ class move_data_structure {
                 (uint8_t)(omega_idx/8),
                 (uint8_t)(omega_offs/8),
                 (uint8_t)1
-            },k_+1,false));
+            }));
         } else {
             data = std::move(interleaved_vectors<uint_t>({
                 (uint8_t)(omega_p/8),
                 (uint8_t)(omega_idx/8),
                 (uint8_t)(omega_offs/8)
-            },k_+1,false));
+            }));
         }
 
+        data.resize_no_init(k_+1);
         set_p(k_,n);
         set_idx(k_,k_);
         set_offs(k_,0);
@@ -256,6 +267,7 @@ class move_data_structure {
         out.write((char*)&n,sizeof(uint_t));
         out.write((char*)&k,sizeof(uint_t));
         out.write((char*)&k_,sizeof(uint_t));
+        out.write((char*)&a,sizeof(uint16_t));
         out.write((char*)&omega_p,1);
         out.write((char*)&omega_idx,1);
         out.write((char*)&omega_offs,1);
@@ -270,6 +282,7 @@ class move_data_structure {
         in.read((char*)&n,sizeof(uint_t));
         in.read((char*)&k,sizeof(uint_t));
         in.read((char*)&k_,sizeof(uint_t));
+        in.read((char*)&a,sizeof(uint16_t));
         in.read((char*)&omega_p,1);
         in.read((char*)&omega_idx,1);
         in.read((char*)&omega_offs,1);

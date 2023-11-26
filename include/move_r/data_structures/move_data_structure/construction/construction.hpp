@@ -52,7 +52,7 @@ class move_data_structure<uint_t>::construction {
     // ############################# COMMON VARIABLES #############################
 
     static constexpr uint8_t v = 5; // construction method
-    /* 1 + epsilon is the maximum factor, by which the number of intervals can be increased in the 
+    /* 1 + epsilon is the maximum factor, by which the number of intervals can increase in the 
      * process of splitting too long intervals*/
     static constexpr double epsilon = 0.125;
     move_data_structure<uint_t>& mds; // the move data structure to construct
@@ -60,7 +60,7 @@ class move_data_structure<uint_t>::construction {
     uint_t n; // maximum value, n = p_{k-1} + d_{k-1}, k <= n
     uint_t k; // number of intervals in the (possibly a-heavy) inteval sequence I, 0 < k
     uint_t k_; // number of intervals in the a-balanced inteval sequence B_a(I), 0 < k <= k'
-    uint16_t a; // balancing parameter, restricts size increase to the factor (1+1/(a-1)), 2 <= a
+    uint16_t a; // balancing parameter, restricts size increase to the factor (a/(a-1)), 2 <= a
     uint16_t two_a; // 2*a
     uint16_t p; // number of threads to use
     bool log; // toggles log messages
@@ -70,14 +70,14 @@ class move_data_structure<uint_t>::construction {
     uint64_t baseline_memory_allocation; // baseline memory allocation in bytes
     std::chrono::steady_clock::time_point time; // time point of the start of the last construction phase
     std::chrono::steady_clock::time_point time_start; // time point of the start of the entire construction
-    std::vector<uint_t> D_q; // [0..k'-1] output interval starting positions (ordered by the input interval starting positions)
+    interleaved_vectors<uint_t> D_q; // [0..k'-1] output interval starting positions (ordered by the input interval starting positions)
     std::vector<uint_t> pi; // [0..k'-1] permutation storing the order of the output interval starting postions
 
     /**
      * @brief [0..p-1] section start positions in the range [0..n], 0 = s[0] < s[1] < ... < s[p-1] = n.
      *        Before building T_out, s is chosen so that |L_in[0]| + |T_out[0]|
      *         ~ |L_in[1]| + |T_out[1]| ~ ... ~ |L_in[p-1]| + |T_out[p-1]|, that
-     *        is, if s[i_p] = min {s' in [0,n-1], s.t. x[i_p] + u[i_p] - 2 >= i_p * lfloor 2k/p rfloor, where
+     *        is s.t. s[i_p] = min {s' in [0,n-1], s.t. x[i_p] + u[i_p] - 2 >= i_p * lfloor 2k/p rfloor, where
                                 x[i_p] = min {x' in [0,k-1], , s.t. p_{x'} >= s'} and
                                 u[i_p] = min {u' in [0,k-1], s.t. q_{pi[u']} >= s'}
               } holds.
@@ -130,12 +130,17 @@ class move_data_structure<uint_t>::construction {
         this->log = log;
         this->mf = mf;
 
+        mds.a = a;
         mds.k = k;
         two_a = 2*a;
 
         if (p > 1 && 1000*p > k) {
             p = std::max((uint_t)1,k/1000);
             if (log) std::cout << "warning: p > k/1000, setting p to k/1000 ~ " << p << std::endl;
+        }
+
+        if (v < 3 && p > 1) {
+            p = 1;
         }
 
         this->p = p;
@@ -359,7 +364,7 @@ class move_data_structure<uint_t>::construction {
 
     /**
      * @brief checks if the output interval [q_j, q_j + d_j) is a-heavy and iterates
-     *        ln_IpI_ tothe lastoutput interval connected to it in the permutation graph
+     *        ln_IpI_ to the last output interval connected to it in the permutation graph
      * @param ln_IpI_ (p_{i+i_},q_{i+i_}), [p_i, p_i + d_i) must be the first input
      *                 interval connected to [q_j, q_j + d_j) in the permutation graph
      * @param i_ 1 <= i_ <= 2a

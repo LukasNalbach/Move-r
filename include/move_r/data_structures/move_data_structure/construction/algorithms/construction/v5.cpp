@@ -168,8 +168,9 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v5() {
         log_message("building D_p and D_q");
     }
 
-    no_init_resize(D_q,k_+1);
-    D_q[k_] = n;
+    D_q = interleaved_vectors<uint_t>({(uint8_t)(mds.omega_p/8)});
+    D_q.resize_no_init(k_+1);
+    D_q.template set<0>(k_,n);
 
     // write the input interval starting positions to D_p (in the move data structure) and
     // write the output interval starting positions to D_q
@@ -184,7 +185,7 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v5() {
 
         for (uint_t i=b; i<e; i++) {
             mds.set_p(i,(*tin_it).first);
-            D_q[i] = (*tin_it).second;
+            D_q.template set<0>(i,(*tin_it).second);
             tin_it++;
         }
     }

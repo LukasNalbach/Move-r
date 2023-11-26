@@ -55,7 +55,7 @@ target_link_libraries(malloc_count INTERFACE dl)
 set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/sdsl-lite/")
 set_target_properties(
-  uninstall-sdsl uninstall gtest gtest_main divsufsort divsufsort64
+  uninstall-sdsl uninstall divsufsort divsufsort64
   PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1
 )
 target_include_directories(sdsl PUBLIC "${CMAKE_BINARY_DIR}/external/sdsl-lite/external/libdivsufsort/include/")
@@ -74,6 +74,7 @@ target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o abs
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)
 option(MOVE_R_BUILD_BENCH_CLI "Build the benchmark cli program" ON)
 option(MOVE_R_BUILD_EXAMPLES "Build the example programs" OFF)
+option(MOVE_R_BUILD_TESTS "Build tests" OFF)
 
 ############################# move-r cli #############################
 
@@ -177,9 +178,9 @@ if(MOVE_R_BUILD_BENCH_CLI)
   )
 
   # grlBWT
-  set(GRLBWT_ROOT "${CMAKE_SOURCE_DIR}/external/grlBWT")
-  add_subdirectory("${GRLBWT_ROOT}/external/cdt")
-  add_subdirectory("${GRLBWT_ROOT}/external/bioparsers")
+  set(GRLBWT_ROOT "${CMAKE_SOURCE_DIR}/external/grlBWT/")
+  add_subdirectory("${GRLBWT_ROOT}/external/cdt/")
+  add_subdirectory("${GRLBWT_ROOT}/external/bioparsers/")
   add_library(grlbwt STATIC
     "${GRLBWT_ROOT}/lib/exact_algo/exact_ind_phase.cpp"
     "${GRLBWT_ROOT}/lib/exact_algo/exact_par_phase.cpp"
@@ -222,4 +223,27 @@ if(MOVE_R_BUILD_BENCH_CLI)
   add_executable(move-r-bench cli/move-r-bench/move-r-bench.cpp)
   target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index r-index-bigbwt OnlineRlbwt DYNAMIC)
   set_target_properties(move-r-bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
+endif()
+
+############################# move-r tests #############################
+
+if(MOVE_R_BUILD_TESTS)
+  enable_testing()
+  include(GoogleTest)
+  include(Dart)
+
+  add_executable(test-move_r "${CMAKE_SOURCE_DIR}/tests/test_move_r.cpp")
+  add_executable(test-move_data_structure "${CMAKE_SOURCE_DIR}/tests/test_move_data_structure.cpp")
+
+  target_link_libraries(test-move_r PRIVATE gtest_main move_r)
+  target_link_libraries(test-move_data_structure PRIVATE gtest_main move_r)
+
+  set_target_properties(
+    test-move_r test-move_data_structure
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+    "${CMAKE_BINARY_DIR}/tests/"
+  )
+
+  gtest_discover_tests(test-move_r)
+  gtest_discover_tests(test-move_data_structure)
 endif()

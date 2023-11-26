@@ -26,10 +26,15 @@ uint_t move_r<uint_t>::access_sa(uint_t i) {
               = Phi^{-1}(M_Phi.q(SA_phi[(x-1) mod r']))
               =          M_Phi.p(SA_phi[(x-1) mod r'])
     */
-    if (i == M_LF.p(x)) return M_Phi.p(SA_phi[x == 0 ? r_-1 : x-1]);
+    if (i == M_LF.p(x) && (x == 0 || SA_phi[x-1] != r__)) return M_Phi.p(SA_phi[x == 0 ? r_-1 : x-1]);
 
-    // begin iterating at the end of the x-th run, because there
-    // is a suffix array sample at each run end position
+    // increment x until the end position of the x-th input interval of M_LF is an end position of a bwt run
+    while (SA_phi[x] == r__) {
+        x++;
+    }
+
+    // begin iterating at the end of the x-th run, because there is a
+    // suffix array sample at the end position of the x-th input interval
 
     // position in the suffix array of the current suffix s
     uint_t j = M_LF.p(x+1)-1;
@@ -54,17 +59,15 @@ uint_t move_r<uint_t>::access_sa(uint_t i) {
 }
 
 template <typename uint_t>
-uint_t move_r<uint_t>::count(const std::string& P) {
-    uint_t m = P.size();
-    
+uint_t move_r<uint_t>::count(uint_t m, const std::function<char(uint_t)>& read) {
     // Left interval limit of the suffix array interval.
     uint_t b = 0;
     // Right interval limit of the suffix array interval.
     uint_t e = n-1;
 
-    // index of the input interval in M_LF containing b */
+    // index of the input interval in M_LF containing b
     uint_t b_ = 0;
-    // index of the input interval in M_LF containing e */
+    // index of the input interval in M_LF containing e
     uint_t e_ = r_-1;
 
     // Temporary variable for P[i].
@@ -73,7 +76,7 @@ uint_t move_r<uint_t>::count(const std::string& P) {
     // Read P backwards from right to left.
     for (int64_t i=m-1; i>=0; i--) {
         // If the characters have been remapped internally, the pattern also has to be remapped.
-        Pi = chars_remapped ? map_to_internal(P[i]) : P[i];
+        Pi = chars_remapped ? map_to_internal(read(i)) : read(i);
 
         // If P[i] does not occur in T, P does neither, so return.
         if (!RS_L_.contains_character(Pi)) return 0;
@@ -119,18 +122,15 @@ uint_t move_r<uint_t>::count(const std::string& P) {
 }
 
 template <typename uint_t>
-void move_r<uint_t>::locate(const std::string& P, const std::function<void(uint_t)>& report) {
-    // length of P
-    uint_t m = P.size();
-
+void move_r<uint_t>::locate(uint_t m, const std::function<char(uint_t)>& read, const std::function<void(uint_t)>& report) {
     // Left interval limit of the suffix array interval.
     uint_t b = 0;
     // Right interval limit of the suffix array interval.
     uint_t e = n-1;
 
-    /* index of the input interval in M_LF containing b. */
+    // index of the input interval in M_LF containing b.
     uint_t b_ = 0;
-    /* index of the input interval in M_LF containing e. */
+    // index of the input interval in M_LF containing e.
     uint_t e_ = r_-1;
 
     uint_t y = m-1; // y
@@ -142,7 +142,7 @@ void move_r<uint_t>::locate(const std::string& P, const std::function<void(uint_
     // Read P backwards from right to left.
     for (int64_t i=m-1; i>=0; i--) {
         // If the characters have been remapped internally, the pattern also has to be remapped.
-        Pi = chars_remapped ? map_to_internal(P[i]) : P[i];
+        Pi = chars_remapped ? map_to_internal(read(i)) : read(i);
         
         // If P[i] does not occur in T, P does neither, so return.
         if (!RS_L_.contains_character(Pi)) return;
@@ -209,7 +209,7 @@ void move_r<uint_t>::locate(const std::string& P, const std::function<void(uint_
         have to decrease s_. To find the correct value for s_, we perform an exponential search to the
         left over the input interval starting positions of M_Phi starting at s_. */
         if (s < M_Phi.p(s_)) {
-            s_ = exp_search_max_leq<uint_t,LEFT>(s,s_-y-1,s_,[this](uint_t x){return M_Phi.p(x);});
+            s_ = exp_search_max_leq<uint_t,LEFT>(s,0,s_,[this](uint_t x){return M_Phi.p(x);});
         }
         
         // Perform e-b Phi queries with (s,s_) and at each step, report s.
@@ -242,11 +242,14 @@ void move_r<uint_t>::revert_range(const std::function<void(uint_t,char)>& report
         s_r = bin_search_min_geq<uint_t>(r,0,p_r-1,[this](uint_t x){return D_e[x].second;});
     }
 
-    uint16_t p = std::min({
-        (uint16_t)(s_r-s_l+1),           // use at most s_r-s_l+1 threads
-        (uint16_t)omp_get_max_threads(), // use at most all threads
-        num_threads                      // use at most the specified number of threads
-    });
+    uint16_t p = std::max(
+        (uint16_t)1,                         // use at least one thread
+        std::min({
+            (uint16_t)(s_r-s_l+1),           // use at most s_r-s_l+1 threads
+            (uint16_t)omp_get_max_threads(), // use at most all threads
+            num_threads                      // use at most the specified number of threads
+        })
+    );
 
     #pragma omp parallel num_threads(p)
     {
@@ -301,11 +304,14 @@ void move_r<uint_t>::retrieve_bwt_range(const std::function<void(uint_t,char)>& 
         r = n-1;
     }
 
-    uint16_t p = std::min({
-        (uint16_t)omp_get_max_threads(), // use at most all threads
-        (uint16_t)((r-l+1)/10),          // use at most (r-l+1)/100 threads
-        num_threads                      // use at most the specified number of threads
-    });
+    uint16_t p = std::max(
+        (uint16_t)1,                         // use at least one thread
+        std::min({
+            (uint16_t)omp_get_max_threads(), // use at most all threads
+            (uint16_t)((r-l+1)/10),          // use at most (r-l+1)/100 threads
+            num_threads                      // use at most the specified number of threads
+        })
+    );
 
     #pragma omp parallel num_threads(p)
     {
@@ -356,7 +362,7 @@ void move_r<uint_t>::retrieve_sa_range(const std::function<void(uint_t,uint_t)>&
     }
 
     uint16_t p = std::max(
-        (uint16_t)1, // use at least one thread
+        (uint16_t)1,                                           // use at least one thread
         std::min({
             (uint16_t)omp_get_max_threads(),                   // use at most all threads
             num_threads,                                       // use at most the specified number of threads
@@ -376,8 +382,15 @@ void move_r<uint_t>::retrieve_sa_range(const std::function<void(uint_t,uint_t)>&
 
         // the input interval of M_LF containing i
         uint_t x = bin_search_max_leq<uint_t>(e,0,r_-1,[this](uint_t x_){return M_LF.p(x_);});
-        // current position in the suffix array, initially the end position of the input interval of M_LF containing e
+
+        // increment x until the end position of the x-th input interval of M_LF is an end position of a bwt run
+        while (SA_phi[x] == r__) {
+            x++;
+        }
+
+        // current position in the suffix array, initially the end position of the x-th interval of M_LF
         uint_t i = M_LF.p(x+1)-1;
+
         // index of the input interval in M_Phi containing s
         uint_t s_;
         /* the current suffix array value (SA[i]), initially the suffix array sample of the x-th run,

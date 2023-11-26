@@ -386,6 +386,13 @@ uint64_t count_pattern<uint64_t,r_index_f<>>(r_index_f<>& index, std::string& pa
 
 // ############################# block_RLBWT #############################
 
+struct blockrlbwt_data {
+    uint64_t time_build;
+    uint64_t peak_memory_usage;
+    std::string prefix_tmp_files;
+    uint64_t pattern_length;
+};
+
 uint64_t write_blockrlbwt_patterns_file(std::ifstream& patterns_input_file, std::ofstream& patterns_output_file) {
     patterns_input_file.seekg(0);
     std::string header;
@@ -405,29 +412,18 @@ uint64_t write_blockrlbwt_patterns_file(std::ifstream& patterns_input_file, std:
     return pattern_length;
 }
 
-void measure_blockrlbwt(std::string index_name) {
+blockrlbwt_data prepare_blockrlbwt() {
+    std::cout << "############## running grlBWT " << " ##############" << std::flush;
+
     uint64_t time_build = 0;
-    uint64_t size_index;
-    uint64_t time_query;
-    uint64_t num_queries;
-    uint64_t num_occurrences;
-    uint64_t pattern_length;
-    std::string blockrlbwt_param = "";
-
-    if (index_name == "block_rlbwt_vbyte") {
-        blockrlbwt_param = "-s";
-    } else if (index_name == "block_rlbwt_run") {
-        blockrlbwt_param = "-c";
-    }
-    
-    std::cout << "############## benchmarking " << index_name << " ##############" << std::endl << std::endl;
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    std::cout << "building " << index_name << std::flush;
-
+    uint64_t peak_memory_usage = 0;
     std::string prefix_tmp_files = random_alphanumeric_string(10);
+    external_peak_memory_usage = 0;
+
     std::ofstream grlbwt_input_file(prefix_tmp_files + ".grlbwt");
     grlbwt_input_file.write(&input[0],input_size);
     grlbwt_input_file.close();
+
     auto t1 = now();
     system(("build/external/grlBWT/grlbwt-cli -T . " + prefix_tmp_files + ".grlbwt -o " + prefix_tmp_files + " >log_1 2>log_2").c_str());
     time_build += time_diff_ns(t1,now());
@@ -437,6 +433,7 @@ void measure_blockrlbwt(std::string index_name) {
     std::filesystem::remove(prefix_tmp_files + ".grlbwt");
     std::filesystem::remove("log_1");
     std::filesystem::remove("log_2");
+
     t1 = now();
     system(("build/external/grlBWT/grlbwt2rle " + prefix_tmp_files + ".rl_bwt " + prefix_tmp_files + " >log_1 2>log_2").c_str());
     time_build += time_diff_ns(t1,now());
@@ -457,32 +454,62 @@ void measure_blockrlbwt(std::string index_name) {
     time_build += time_diff_ns(t1,now());
     system("mv external/block_RLBWT/make_bwt build/external/block_RLBWT/make_bwt");
     system("mv external/block_RLBWT/count_matches build/external/block_RLBWT/count_matches");
-    t1 = now();
-    system(("build/external/block_RLBWT/make_bwt -h " + prefix_tmp_files + ".syms -r " + prefix_tmp_files + ".len " +
-            blockrlbwt_param + " " + prefix_tmp_files + ".rlbwt >log_1 2>log_2").c_str());
+
+    std::ofstream blockrlbwt_patterns_file((prefix_tmp_files + "-blockrlbwt-patterns-bal").c_str());
+    uint64_t pattern_length = write_blockrlbwt_patterns_file(patterns_file_1,blockrlbwt_patterns_file);
+    blockrlbwt_patterns_file.close();
+
+    std::cout << std::endl << std::endl;
+
+    peak_memory_usage = external_peak_memory_usage;
+    external_peak_memory_usage = 0;
+    return {time_build,peak_memory_usage,prefix_tmp_files,pattern_length};
+}
+
+void cleanup_grlbwt(blockrlbwt_data& bd) {
+    std::filesystem::remove(bd.prefix_tmp_files + ".syms");
+    std::filesystem::remove(bd.prefix_tmp_files + ".len");
+    std::filesystem::remove(bd.prefix_tmp_files + "-blockrlbwt-patterns-bal");
+}
+
+void measure_blockrlbwt(std::string index_name, blockrlbwt_data& bd) {
+    uint64_t time_build = bd.time_build;
+    uint64_t size_index;
+    uint64_t time_query;
+    uint64_t num_queries;
+    uint64_t num_occurrences;
+    std::string blockrlbwt_param = "";
+
+    if (index_name == "block_rlbwt_vbyte") {
+        blockrlbwt_param = "-s";
+    } else if (index_name == "block_rlbwt_run") {
+        blockrlbwt_param = "-c";
+    }
+    
+    std::cout << "############## benchmarking " << index_name << " ##############" << std::endl << std::endl;
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::cout << "building " << index_name << std::flush;
+
+    auto t1 = now();
+    system(("build/external/block_RLBWT/make_bwt -h " + bd.prefix_tmp_files + ".syms -r " + bd.prefix_tmp_files + ".len " +
+            blockrlbwt_param + " " + bd.prefix_tmp_files + ".rlbwt >log_1 2>log_2").c_str());
     time_build += time_diff_ns(t1,now());
-    size_index = std::filesystem::file_size(prefix_tmp_files + ".rlbwt") + std::filesystem::file_size(prefix_tmp_files + "_data.rlbwt");
-    log_file.open("log_2");
+    size_index = std::filesystem::file_size(bd.prefix_tmp_files + ".rlbwt") + std::filesystem::file_size(bd.prefix_tmp_files + "_data.rlbwt");
+    std::ifstream log_file("log_2");
     update_peak_memory_usage(log_file);
     log_file.close();
     std::filesystem::remove("log_1");
     std::filesystem::remove("log_2");
-    std::filesystem::remove(prefix_tmp_files + ".syms");
-    std::filesystem::remove(prefix_tmp_files + ".len");
     
-    std::cout << std::endl << std::endl;
+    std::cout << std::endl;
     std::cout << "build time: " << format_time(time_build) << std::endl;
-    std::cout << "peak memory usage: " << format_size(external_peak_memory_usage) << std::endl;
+    std::cout << "peak memory usage: " << format_size(std::max(bd.peak_memory_usage,external_peak_memory_usage)) << std::endl;
     std::cout << "index size: " << format_size(size_index) << std::endl << std::endl;
-
-    std::ofstream blockrlbwt_patterns_file((prefix_tmp_files + "-blockrlbwt-patterns-bal").c_str());
-    pattern_length = write_blockrlbwt_patterns_file(patterns_file_1,blockrlbwt_patterns_file);
-    blockrlbwt_patterns_file.close();
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
     std::cout << "counting the first set of patterns" << std::flush;
 
-    system(("build/external/block_RLBWT/count_matches " + blockrlbwt_param + " " + prefix_tmp_files + ".rlbwt " + prefix_tmp_files +
+    system(("build/external/block_RLBWT/count_matches " + blockrlbwt_param + " " + bd.prefix_tmp_files + ".rlbwt " + bd.prefix_tmp_files +
             "-blockrlbwt-patterns-bal >log_1 2>log_2").c_str());
     std::ifstream results_file("blockrlbwt_count_result.txt");
     results_file.read((char*)&time_query,sizeof(uint64_t));
@@ -490,19 +517,18 @@ void measure_blockrlbwt(std::string index_name) {
     results_file.read((char*)&num_occurrences,sizeof(uint64_t));
     results_file.close();
 
-    std::cout << ": " << format_query_throughput(num_queries,time_query);
-    std::cout << std::endl << "total number of occurrences: " << num_occurrences << std::endl << std::endl;
-
-    std::filesystem::remove(prefix_tmp_files + ".rlbwt");
-    std::filesystem::remove(prefix_tmp_files + "_data.rlbwt");
-    std::filesystem::remove(prefix_tmp_files + "-blockrlbwt-patterns-bal");
+    std::filesystem::remove(bd.prefix_tmp_files + ".rlbwt");
+    std::filesystem::remove(bd.prefix_tmp_files + "_data.rlbwt");
     std::filesystem::remove("blockrlbwt_count_result.txt");
     std::filesystem::remove("log_1");
     std::filesystem::remove("log_2");
 
+    std::cout << ": " << format_query_throughput(num_queries,time_query);
+    std::cout << std::endl << "total number of occurrences: " << num_occurrences << std::endl << std::endl;
+
     write_measurement_data(
         true,false,index_name,size_index,
-        build_result{1,time_build,external_peak_memory_usage,size_index},
-        query_result{num_queries,pattern_length,num_occurrences,time_query}
+        build_result{1,time_build,std::max(bd.peak_memory_usage,external_peak_memory_usage),size_index},
+        query_result{num_queries,bd.pattern_length,num_occurrences,time_query}
     );
 }

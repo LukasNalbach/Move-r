@@ -32,22 +32,16 @@ class move_r<uint_t>::construction {
     bool build_count_support = false; // = true <=> build support for count (RS_L')
     bool build_locate_support = false; // = true <=> build support for locate (SA_phi and M_Phi) and build parallel revert support (D_e)
     bool read_rlbwt = false; // = true <=> read the run-length encoded BWT
-    uint8_t terminator = 0; // terminator (dollar) symbol
     uint8_t min_valid_char = 0; // the minimum valid character that is allowed to occur in T
     uint8_t max_remapped_uchar = 0; // the maximum character in T that has been remappd
     uint8_t max_remapped_to_uchar = 0; // the maximum character in T that a character has been remappd to
 
     // ############################# INDEX VARIABLES #############################
 
-    std::vector<move_r_support> support;
     uint_t n = 0; // the length of T
-    uint8_t sigma = 0; // the number of distinct characters (including the terminator symbol 1) of T
     uint_t r = 0; // r, the number of runs in L
     uint_t r_ = 0; // r', the number of input/output intervals in M_LF
     uint_t r__ = 0; // r'', the number of input/output intervals in M_Phi
-    uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))), 2 <= a
-    uint16_t p_r = 0; // maximum possible number of threads to use while reverting the index
-    uint8_t omega_idx = 0; // word width of SA_phi
 
     // ############################# CONSTRUCTION DATA STRUCTURE VARIABLES #############################
 
@@ -62,9 +56,7 @@ class move_r<uint_t>::construction {
     /** [0..n-1] The BWT */
     std::string& L;
     /** [0..p-1] vectors that contain the RLBWT concatenated */
-    std::vector<std::vector<std::pair<char,uint32_t>>> RLBWT_thr;
-    /** [0..r-1] the RLBWT */
-    interleaved_vectors<uint32_t> RLBWT;
+    std::vector<interleaved_vectors<uint32_t>> RLBWT;
     /** [0..p] n_p[0] < n_p[1] < ... < n_p[p] = n; n_p[i] = start position of thread i's section in L and SA */
     std::vector<uint_t> n_p;
     /** [0..p] r_p[0] < r_p[1] < ... < r_p[p] = r; r_p[i] = index of the first run in L starting in
@@ -126,43 +118,63 @@ class move_r<uint_t>::construction {
     }
 
     /**
-     * @brief sets the run length of the i-th BWT run to len
+     * @brief sets the run length of the i-th BWT run in thread i_p's section to len
+     * @param i_p [0..p-1] thread index
      * @param i [0..r-1] run index
      * @param len run length
      */
-    void set_run_length(uint_t i, uint32_t len) {
-        RLBWT.set_unsafe<1,uint32_t>(i,len);
+    void set_run_length(uint16_t i_p, uint_t i, uint32_t len) {
+        RLBWT[i_p].set_unsafe<1,uint32_t>(i,len);
     }
 
     /**
-     * @brief returns the length of the i-th BWT run
+     * @brief returns the length of the i-th BWT run in thread i_p's section
+     * @param i_p [0..p-1] thread index
      * @param i [0..r-1] run index
      * @return run length
      */
-    uint32_t run_length(uint_t i) {
-        return RLBWT.get_unsafe<1,uint32_t>(i);
+    uint32_t run_length(uint16_t i_p, uint_t i) {
+        return RLBWT[i_p].get_unsafe<1,uint32_t>(i);
     }
 
     /**
-     * @brief sets the character of the i-th BWT run to c
+     * @brief sets the character of the i-th BWT run in thread i_p's section to c
+     * @param i_p [0..p-1] thread index
      * @param i [0..r-1] run index
      * @param c character
      */
-    void set_run_char(uint_t i, char c) {
-        RLBWT.set_unsafe<0,char>(i,c);
+    void set_run_char(uint16_t i_p, uint_t i, char c) {
+        RLBWT[i_p].set_unsafe<0,char>(i,c);
     }
 
     /**
-     * @brief returns the character of the i-th BWT run
+     * @brief sets the character of the i-th BWT run in thread i_p's section to c
+     * @param i_p [0..p-1] thread index
+     * @param i [0..r-1] run index
+     * @param c character
+     */
+    void set_run_uchar(uint16_t i_p, uint_t i, uint8_t c) {
+        RLBWT[i_p].set_unsafe<0,uint8_t>(i,c);
+    }
+
+    /**
+     * @brief returns the character of the i-th BWT run in thread i_p's section
+     * @param i_p [0..p-1] thread index
      * @param i [0..r-1] run index
      * @return character
      */
-    char run_char(uint_t i) {
-        return RLBWT.get_unsafe<0,char>(i);
+    char run_char(uint16_t i_p, uint_t i) {
+        return RLBWT[i_p].get_unsafe<0,char>(i);
     }
 
-    uint8_t run_uchar(uint_t i) {
-        return RLBWT.get_unsafe<0,uint8_t>(i);
+    /**
+     * @brief returns the character of the i-th BWT run in thread i_p's section
+     * @param i_p [0..p-1] thread index
+     * @param i [0..r-1] run index
+     * @return character
+     */
+    uint8_t run_uchar(uint16_t i_p, uint_t i) {
+        return RLBWT[i_p].get_unsafe<0,uint8_t>(i);
     }
 
     /**
@@ -178,18 +190,15 @@ class move_r<uint_t>::construction {
             malloc_count_reset_peak();
         }
 
-        adjust_supports(support);
-
-        idx.support = support;
-        idx.a = a;
+        adjust_supports(idx.support);
 
         if (!contains(idx.support,revert)) {
             std::cout << "error: cannot build an index without revert support";
             return;
         }
 
-        build_count_support = contains(support,move_r_support::count);
-        build_locate_support = contains(support,move_r_support::locate);
+        build_count_support = contains(idx.support,move_r_support::count);
+        build_locate_support = contains(idx.support,move_r_support::locate);
 
         // print the operations to build support for
         if (log) {
@@ -203,17 +212,9 @@ class move_r<uint_t>::construction {
      */
     void prepare_phase_2() {
         if (p > 1 && 1000*p > n) {
-            p = std::max((uint_t)1,n/1000);
+            p = std::max<uint_t>(1,n/1000);
             if (log) std::cout << "warning: p > n/1000, setting p to n/1000 ~ " << std::to_string(p) << std::endl;
         }
-
-        if (build_locate_support) {
-            p_r = std::min((uint_t)256,std::max((uint_t)1,n/1000));
-        } else {
-            p_r = 1;
-        }
-        
-        idx.p_r = p_r;
     }
 
     /**
@@ -243,10 +244,10 @@ class move_r<uint_t>::construction {
         double n_r = std::round(100.0*(n/(double)r))/100.0;
         if (mf_idx != NULL) {
             *mf_idx << " n=" << n;
-            *mf_idx << " sigma=" << std::to_string(sigma);
+            *mf_idx << " sigma=" << std::to_string(idx.sigma);
             *mf_idx << " r=" << r;
         }
-        std::cout << "n = " << n << ", sigma = " << std::to_string(sigma) << ", r = " << r << ", n/r = " << n_r << std::endl;
+        std::cout << "n = " << n << ", sigma = " << std::to_string(idx.sigma) << ", r = " << r << ", n/r = " << n_r << std::endl;
     }
 
     // ############################# CONSTRUCTORS #############################
@@ -278,9 +279,9 @@ class move_r<uint_t>::construction {
         std::string name_text_file
     ) : T(T), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
         this->delete_T = delete_T;
-        this->support = support;
+        idx.support = support;
         this->p = p;
-        this->a = a;
+        idx.a = a;
         this->log = log;
         this->mf_idx = mf_idx;
         this->mf_mds = mf_mds;
@@ -288,11 +289,9 @@ class move_r<uint_t>::construction {
 
         prepare_phase_1();
 
-        if (construction_mode == move_r_construction_mode::runtime) {
+        if (T.size() < 10000 || construction_mode == move_r_construction_mode::runtime) {
             min_valid_char = 2;
-            terminator = 1;
-
-            T.push_back(uchar_to_char((uint8_t)1));
+            T.push_back(uchar_to_char((uint8_t)0));
             n = T.size();
             idx.n = n;
             construct_in_memory();
@@ -300,10 +299,8 @@ class move_r<uint_t>::construction {
             if (idx.chars_remapped) unmap_t();
         } else {
             min_valid_char = 3;
-            terminator = 0;
             n = T.size()+1;
             idx.n = n;
-
             std::ifstream t_file = preprocess_and_store_t_in_file();
             construct_space_saving(t_file,true);
         }
@@ -336,9 +333,9 @@ class move_r<uint_t>::construction {
         std::ostream* mf_mds,
         std::string name_text_file
     ) : T(T_tmp), idx(index), SA_32(SA_32_tmp), SA_64(SA_64_tmp), L(L_tmp) {
-        this->support = support;
+        idx.support = support;
         this->p = p;
-        this->a = a;
+        idx.a = a;
         this->log = log;
         this->mf_idx = mf_idx;
         this->mf_mds = mf_mds;
@@ -346,16 +343,12 @@ class move_r<uint_t>::construction {
 
         prepare_phase_1();
 
-        if (construction_mode == move_r_construction_mode::runtime) {
+        if (T.size() < 10000 || construction_mode == move_r_construction_mode::runtime) {
             min_valid_char = 2;
-            terminator = 1;
-
             read_t_from_file_in_memory(t_file);
             construct_in_memory();
         } else {
             min_valid_char = 3;
-            terminator = 0;
-
             construct_space_saving(t_file,false);
         }
 
@@ -387,9 +380,9 @@ class move_r<uint_t>::construction {
         std::ostream* mf_mds,
         std::string name_text_file
     ) : T(T_tmp), L(bwt), SA_32(suffix_array), SA_64(SA_64_tmp), idx(index) {
-        this->support = support;
+        idx.support = support;
         this->p = p;
-        this->a = a;
+        idx.a = a;
         this->log = log;
         this->mf_idx = mf_idx;
         this->mf_mds = mf_mds;
@@ -423,9 +416,9 @@ class move_r<uint_t>::construction {
         std::ostream* mf_mds,
         std::string name_text_file
     ) : T(T_tmp), L(bwt), SA_32(SA_32_tmp), SA_64(suffix_array), idx(index) {
-        this->support = support;
+        idx.support = support;
         this->p = p;
-        this->a = a;
+        idx.a = a;
         this->log = log;
         this->mf_idx = mf_idx;
         this->mf_mds = mf_mds;
@@ -443,7 +436,6 @@ class move_r<uint_t>::construction {
     void construct_from_sa_and_l() {
         build_from_sa_and_l = true;
         min_valid_char = 2;
-        terminator = 1;
         n = L.size();
         idx.n = n;
 
@@ -536,7 +528,7 @@ class move_r<uint_t>::construction {
         build_mlf();
         
         if (build_locate_support) read_iphi_space_saving();
-
+            
         build_l__sas();
 
         if (build_locate_support) {

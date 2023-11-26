@@ -79,8 +79,16 @@ std::string format_threads(uint16_t p) {
     }
 }
 
+uint64_t time_diff_min(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2) {
+    return std::chrono::duration_cast<std::chrono::minutes>(t2-t1).count();
+}
+
 uint64_t time_diff_ns(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2) {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(t2-t1).count();
+}
+
+uint64_t time_diff_min(std::chrono::steady_clock::time_point t) {
+    return time_diff_min(t,std::chrono::steady_clock::now());
 }
 
 uint64_t time_diff_ns(std::chrono::steady_clock::time_point t) {
@@ -345,5 +353,13 @@ uint_t exp_search_max_leq(uint_t value, uint_t left, uint_t right, std::function
         }
 
         return bin_search_max_leq<uint_t>(value,left-cur_step_size+1,left,value_at);
+    }
+}
+
+template <auto start, auto end, auto inc, class T>
+constexpr void for_constexpr(T&& f) {
+    if constexpr (start < end) {
+        f(std::integral_constant<decltype(start),start>());
+        for_constexpr<start+inc,end,inc>(f);
     }
 }

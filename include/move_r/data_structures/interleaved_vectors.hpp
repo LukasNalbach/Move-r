@@ -3,48 +3,45 @@
 #include <array>
 #include <vector>
 #include <iostream>
+#include <cstring>
 
 /**
- * @brief variable-width interleaved vectors (can store at most 16 interleaved vectors, widths are fixed to whole bytes)
+ * @brief variable-width interleaved vectors (widths are fixed to whole bytes)
  * @tparam uint_t unsigned integer type
  */
-template <typename uint_t = uint32_t>
+template <typename uint_t = uint32_t, uint8_t num_vectors = 8>
 class interleaved_vectors {
     static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
+    static_assert(num_vectors > 0);
 
     protected:
-    uint64_t size = 0; // size of each stored vector
-    uint8_t vecs = 0; // number of stored vectors
+    uint64_t size_vectors = 0; // size of each stored vector
+    uint64_t capacity_vectors = 0; // capacity of each stored vector
     uint64_t width_entry = 0; // sum of the widths of all vectors
 
-    /**
-     * @brief [0..(size+1)*vecs-1] vector storing the interleaved vectors
-     */
-    std::vector<char> data;
+    // [0..(capacity_vectors+1)*num_vectors-1] vector storing the interleaved vectors
+    std::vector<char> data_vectors;
 
-    /**
-     * @brief [0..vecs-1] widths of the stored vectors; widths[i] = width of vector i
-     */
-    std::array<uint64_t,16> widths = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    // [0..num_vectors-1] widths of the stored vectors; widths[i] = width of vector i
+    std::array<uint64_t,num_vectors> widths;
 
-    /**
-     * @brief [0..vecs-1] pointers to the first entries of each vector; bases[vec] = base
-     *        of the first entry of the vector with index vec
-     */
-    std::array<char*,16> bases = {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-                                  NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL};
+    /** @brief [0..num_vectors-1] pointers to the first entries of each vector; bases[vec] = base
+     *        of the first entry of the vector with index vec */
+    std::array<char*,num_vectors> bases;
 
-    /**
-     * @brief [0..vecs-1] masks that are used to mask off data of other vector entries when
-     *        accessing a vector
-     */
-    std::array<uint_t,16> masks = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    /** @brief [0..num_vectors-1] masks that are used to mask off data of other vector entries when
+     *        accessing a vector */
+    std::array<uint_t,num_vectors> masks;
     
     void set_bases() {
-        bases[0] = &data[0];
+        bases[0] = &data_vectors[0];
 
-        for (uint8_t i=1; i<vecs; i++) {
-            bases[i] = bases[i-1] + widths[i-1];
+        for (uint8_t i=1; i<num_vectors; i++) {
+            if (widths[i] == 0) {
+                bases[i] = NULL;
+            } else {
+                bases[i] = bases[i-1] + widths[i-1];
+            }
         }
     }
 
@@ -53,10 +50,10 @@ class interleaved_vectors {
      * @param other another interleaved_vectors object
      */
     void copy_from_other(const interleaved_vectors& other) {
-        size = other.size;
-        vecs = other.vecs;
+        size_vectors = other.size_vectors;
+        capacity_vectors = other.capacity_vectors;
         width_entry = other.width_entry;
-        data = other.data;
+        data_vectors = other.data_vectors;
         widths = other.widths;
         masks = other.masks;
 
@@ -68,45 +65,24 @@ class interleaved_vectors {
      * @param other another interleaved_vectors object
      */
     void move_from_other(interleaved_vectors&& other) {
-        size = other.size;
-        vecs = other.vecs;
+        size_vectors = other.size_vectors;
+        capacity_vectors = other.capacity_vectors;
         width_entry = other.width_entry;
 
-        data = std::move(other.data);
+        data_vectors = std::move(other.data_vectors);
         widths = other.widths;
         bases = other.bases;
         masks = other.masks;
 
-        other.size = 0;
-        other.vecs = 0;
+        other.size_vectors = 0;
+        other.capacity_vectors = 0;
         other.width_entry = 0;
 
-        for (uint8_t i=0; i<16; i++) {
+        for (uint8_t i=0; i<num_vectors; i++) {
             other.widths[i] = 0;
             other.bases[i] = NULL;
             other.masks[i] = 0;
         }
-    }
-
-    /**
-     * @brief resizes all stored vectors to size
-     * @param size size
-     * @param initialize_memory controls whether the vectors should be initialized to 0
-     */
-    void resize(uint64_t size, bool initialize_memory = true) {
-        this->size = size;
-
-        if (initialize_memory) {
-            data.resize((size+1)*width_entry);
-        } else {
-            no_init_resize(data,(size+1)*width_entry);
-
-            for (uint64_t byte=0; byte<width_entry; byte++) {
-                data[(size * width_entry) + byte] = 0;
-            }
-        }
-        
-        set_bases();
     }
     
     public:
@@ -117,27 +93,44 @@ class interleaved_vectors {
     interleaved_vectors& operator=(const interleaved_vectors& other) {copy_from_other(other);return *this;}
 
     ~interleaved_vectors() {
-        for (uint8_t i=0; i<vecs; i++) {
+        for (uint8_t i=0; i<num_vectors; i++) {
             bases[i] = NULL;
         }
     }
 
     /**
      * @brief Construct a new interleaved_vectors 
-     * @param widths list containing the byte-widths of the interleaved arrays
-     * @param size the number of entries to preallocate
-     * @param initialize_memory controls whether the vectors should be initialized to 0
+     * @param widths vector containing the widths (in bytes) of the interleaved arrays
      */
-    interleaved_vectors(std::vector<uint8_t> widths, uint64_t size = 0, bool initialize_memory = true) {
-        this->vecs = widths.size();
-
-        for (uint8_t i=0; i<vecs; i++) {
-            this->widths[i] = widths[i];
-            width_entry += widths[i];
-            masks[i] = std::numeric_limits<uint_t>::max()>>(8*(sizeof(uint_t)-widths[i]));
+    interleaved_vectors(std::array<uint8_t,num_vectors> widths) {
+        for (uint8_t i=0; i<num_vectors; i++) {
+            if (widths[i] == 0) {
+                masks[i] = 0;
+                this->widths[i] = 0;
+            } else {
+                this->widths[i] = widths[i];
+                width_entry += widths[i];
+                masks[i] = std::numeric_limits<uint_t>::max()>>(8*(sizeof(uint_t)-widths[i]));
+            }
         }
 
-        resize(size,initialize_memory);
+        reserve(2);
+    }
+
+    /**
+     * @brief returns the size of each stored vector
+     * @return the size of each stored vector
+     */
+    uint64_t size() {
+        return size_vectors;
+    }
+
+    /**
+     * @brief returns whether the interleaved vectors are empty
+     * @return whether the interleaved vectors are empty
+     */
+    bool empty() {
+        return size_vectors == 0;
     }
 
     /**
@@ -147,17 +140,9 @@ class interleaved_vectors {
     uint64_t size_in_bytes() {
         return
             2*sizeof(uint64_t)+1+ // variables
-            vecs*sizeof(uint64_t)+ // widths
-            2*vecs*sizeof(uint_t)+ // masks
-            (size+1)*width_entry; // data
-    }
-
-    /**
-     * @brief returns number of interleaved vectors
-     * @return the number of interleaved vectors
-     */
-    uint8_t num_vectors() {
-        return vecs;
+            num_vectors*sizeof(uint64_t)+ // widths
+            2*num_vectors*sizeof(uint_t)+ // masks
+            size_vectors*width_entry; // data_vectors
     }
 
     /**
@@ -181,13 +166,13 @@ class interleaved_vectors {
      * @brief returns a pointer to the data of the interleved vectors
      * @return pointer to the data of the interleved vectors
      */
-    char* get_data() {
-        return reinterpret_cast<char*>(&data[0]);
+    char* data() {
+        return &data_vectors[0];
     }
 
     /**
      * @brief returns the i-th entry of the vector with index 0
-     * @param i entry index (0 <= i < size)
+     * @param i entry index (0 <= i < size_vectors)
      * @return i-th entry of the vector with index 0 
      */
     uint_t operator[](uint_t i) {
@@ -195,14 +180,149 @@ class interleaved_vectors {
     }
 
     /**
+     * @brief reserves capacity entries in all stored vectors; if capacity is smaller than the
+     *        current capacity, nothing happens (use shrink_to_fit() to lower the capacity)
+     * @param capacity capacity
+     * @param num_threads number of threads to use when copying entries (default: 1)
+     */
+    void reserve(uint64_t capacity, uint8_t num_threads = 1) {
+        if (capacity_vectors < capacity) {
+            std::vector<char> new_data_vectors;
+            no_init_resize(new_data_vectors,(capacity+1)*width_entry);
+
+            #pragma omp parallel for num_threads(num_threads)
+            for (uint64_t i=0; i<size_vectors*width_entry; i++) {
+                new_data_vectors[i] = data_vectors[i];
+            }
+
+            std::memset(&new_data_vectors[size_vectors*width_entry],0,width_entry);
+            std::memset(&new_data_vectors[capacity*width_entry],0,width_entry);
+            std::swap(data_vectors,new_data_vectors);
+            set_bases();
+            capacity_vectors = capacity;
+        }
+    }
+
+    /**
+     * @brief resizes all stored vectors to size and initializes new entries to 0
+     * @param size size
+     * @param num_threads number of threads to use when copying entries and initializing new entries
+     *                    to 0 (default: 1)
+     */
+    void resize(uint64_t size, uint8_t num_threads = 1) {
+        uint64_t size_vectors_old = size_vectors;
+
+        if (capacity_vectors < size) {
+            reserve(size,num_threads);
+        }
+        
+        #pragma omp parallel for num_threads(num_threads)
+        for (uint64_t i=size_vectors_old*width_entry; i<size*width_entry; i++) {
+            data_vectors[i] = uchar_to_char(0);
+        }
+
+        size_vectors = size;
+    }
+
+    /**
+     * @brief resizes all stored vectors to size without initializing new entries to 0
+     * @param size size
+     * @param num_threads number of threads to use when copying entries (default: 1)
+     */
+    void resize_no_init(uint64_t size, uint8_t num_threads = 1) {
+        if (capacity_vectors < size) {
+            reserve(size,num_threads);
+        }
+
+        size_vectors = size;
+    }
+
+    /**
+     * @brief resizes all stored vectors to size 0
+     */
+    void clear() {
+        resize(0);
+    }
+
+    /**
+     * @brief shrinks all stored vectors to their size
+     */
+    void shrink_to_fit() {
+        if (size_vectors < capacity_vectors) {
+            capacity_vectors = std::max<uint64_t>(2,size_vectors);
+            data_vectors.resize((capacity_vectors+1)*width_entry);
+            data_vectors.shrink_to_fit();
+            set_bases();
+        }
+    }
+
+    /**
+     * @brief appends a tuple of vec values to the end of the interleaved vectors
+     * @param values tuple of vec values
+     */
+    template <typename... Ts>
+    void emplace_back(std::tuple<Ts...>&& values) {
+        if (size_vectors == capacity_vectors) {
+            reserve(1.5*size_vectors);
+        }
+
+        for (uint8_t vec=0; vec<sizeof...(Ts); vec++) {
+            set<vec>(size_vectors,values[vec]);
+        }
+
+        size_vectors++;
+    }
+
+    /**
+     * @brief appends a tuple of vec values to the end of the interleaved vectors
+     * @param values tuple of vec values
+     */
+    template <typename... Ts>
+    void push_back(std::tuple<Ts...> values) {
+        emplace_back<Ts...>(std::move(values));
+    }
+
+    /**
+     * @brief unsafely appends a tuple of vec values to the end of the interleaved vectors (if
+     *        there exists a vec \in [0,sizeof...(Ts...)) s.t. sizeof(Ts...[vec]) > widths[vec],
+     *        this is unsafe, because subsequent entries are overwritten)
+     * @param vals tuple of vec values
+     */
+    template <typename... Ts>
+    void emplace_back_unsafe(std::tuple<Ts...>&& vals) {
+        static_assert(std::tuple_size<std::tuple<Ts...>>::value <= num_vectors);
+
+        if (size_vectors == capacity_vectors) {
+            reserve(1.5*size_vectors);
+        }
+
+        for_constexpr<0,7,1>([this,&vals](auto vec){
+            if constexpr (sizeof...(Ts) > vec) {
+                set_unsafe<vec,std::tuple_element_t<vec,std::tuple<Ts...>>>(size_vectors,std::get<vec>(vals));
+            }
+        });
+
+        size_vectors++;
+    }
+
+    /**
+     * @brief appends a tuple of vec values to the end of the interleaved vectors
+     * @param vals tuple of vec values
+     */
+    template <typename... Ts>
+    void push_back_unsafe(std::tuple<Ts...> vals) {
+        emplace_back_unsafe<Ts...>(std::move(vals));
+    }
+
+    /**
      * @brief sets the i-th entry in the vector with index vec to v
-     * @tparam vec vector index (0 <= vec < vecs)
-     * @param i entry index (0 <= i < size)
+     * @tparam vec vector index (0 <= vec < num_vectors)
+     * @param i entry index (0 <= i < size_vectors)
      * @param v value to store
      */
     template <uint8_t vec>
     inline void set(uint_t i, uint_t v) {
-        static_assert(vec < 16);
+        static_assert(vec < num_vectors);
 
         for (uint64_t byte=0; byte<widths[vec]; byte++) {
             *reinterpret_cast<char*>(bases[vec] + (i * width_entry) + byte) =
@@ -213,40 +333,40 @@ class interleaved_vectors {
     /**
      * @brief plainly stores the value v (of type T) at the memory location of the i-th entry in the vector
      * with index vec (if sizeof(T) > widths[vec], this is unsafe, since subsequnet entries are overwritten)
-     * @tparam vec vector index (0 <= vec < vecs)
+     * @tparam vec vector index (0 <= vec < num_vectors)
      * @tparam T type to treat the i-th entry in the vector with index vec as
-     * @param i entry index (0 <= i < size)
+     * @param i entry index (0 <= i < size_vectors)
      * @param v value to store
      */
     template <uint8_t vec, typename T>
     inline void set_unsafe(uint_t i, T v) {
-        static_assert(vec < 16);
+        static_assert(vec < num_vectors);
         *reinterpret_cast<T*>(bases[vec] + i * width_entry) = v;
     }
 
     /**
      * @brief returns the i-th entry in the vector with index vec
-     * @tparam vec vector index (0 <= vec < vecs)
-     * @param i entry index (0 <= i < size)
+     * @tparam vec vector index (0 <= vec < num_vectors)
+     * @param i entry index (0 <= i < size_vectors)
      * @return value
      */
     template <uint8_t vec>
     inline uint_t get(uint_t i) {
-        static_assert(vec < 16);
+        static_assert(vec < num_vectors);
         return *reinterpret_cast<uint_t*>(bases[vec] + i * width_entry) & masks[vec];
     }
 
     /**
      * @brief interprets the memory location of the i-th entry in the vector with index vec as an object of type
      * T and returns it (if sizeof(T) > widths[vec], the returned value contains data from subsequent entries)
-     * @tparam vec vector index (0 <= vec < vecs)
+     * @tparam vec vector index (0 <= vec < num_vectors)
      * @tparam uint_t type to treat the i-th entry in the vector with index vec as
-     * @param i entry index (0 <= i < size)
+     * @param i entry index (0 <= i < size_vectors)
      * @return value
      */
     template <uint8_t vec, typename T>
     inline uint_t get_unsafe(uint_t i) {
-        static_assert(vec < 16);
+        static_assert(vec < num_vectors);
         return *reinterpret_cast<T*>(bases[vec] + i * width_entry);
     }
 
@@ -255,17 +375,16 @@ class interleaved_vectors {
      * @param out output stream
      */
     void serialize(std::ostream& out) {
-        out.write((char*)&size,sizeof(uint64_t));
-        out.write((char*)&vecs,1);
+        out.write((char*)&size_vectors,sizeof(uint64_t));
         out.write((char*)&width_entry,sizeof(uint64_t));
 
-        if (vecs > 0) {
-            out.write((char*)&widths[0],vecs*sizeof(uint64_t));
-            out.write((char*)&masks[0],vecs*sizeof(uint_t));
+        if (num_vectors > 0) {
+            out.write((char*)&widths[0],num_vectors*sizeof(uint64_t));
+            out.write((char*)&masks[0],num_vectors*sizeof(uint_t));
         }
 
-        if (size > 0) {
-            write_to_file(out,(char*)&data[0],size*width_entry);
+        if (size_vectors > 0) {
+            write_to_file(out,(char*)&data_vectors[0],size_vectors*width_entry);
         }
     }
 
@@ -274,18 +393,19 @@ class interleaved_vectors {
      * @param in input stream
      */
     void load(std::istream& in) {
-        in.read((char*)&size,sizeof(uint64_t));
-        in.read((char*)&vecs,1);
+        uint64_t old_size;
+
+        in.read((char*)&old_size,sizeof(uint64_t));
         in.read((char*)&width_entry,sizeof(uint64_t));
 
-        if (vecs > 0) {
-            in.read((char*)&widths[0],vecs*sizeof(uint64_t));
-            in.read((char*)&masks[0],vecs*sizeof(uint_t));
+        if (num_vectors > 0) {
+            in.read((char*)&widths[0],num_vectors*sizeof(uint64_t));
+            in.read((char*)&masks[0],num_vectors*sizeof(uint_t));
         }
 
-        if (size > 0) {
-            resize(size);
-            read_from_file(in,(char*)&data[0],size*width_entry);
+        if (old_size > 0) {
+            resize_no_init(old_size);
+            read_from_file(in,(char*)&data_vectors[0],size_vectors*width_entry);
         }
     }
 };

@@ -51,17 +51,16 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std:
     contains_uchar_thr.clear();
     contains_uchar_thr.shrink_to_fit();
 
-    // The number of distinct characters in T[0..n-2].
-    sigma = 1;
+    // The number of distinct characters in T[0..n-1].
+    idx.sigma = 1;
 
     // Count the number of ones in contains_uchar[0..255] in sigma.
     for (uint16_t cur_uchar=0; cur_uchar<256; cur_uchar++) {
         if (contains_uchar[cur_uchar] == 1) {
-            sigma++;
+            idx.sigma++;
         }
     }
     
-    idx.sigma = sigma;
     bool contains_invalid_char = false;
 
     for (uint8_t cur_uchar=0; cur_uchar<min_valid_char; cur_uchar++) {
@@ -71,12 +70,13 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std:
         }
     }
 
-    // If an invalid character, we have to remap the characters in T[0..n-2].
+    // If the input contains too many distinct characters, we have to remap the characters in T[0..n-2].
     if (contains_invalid_char) {
-        if (sigma > 256 - min_valid_char) {
+        if (idx.sigma > 256-min_valid_char) {
             /* If T[0..n-2] contains more than 256 - min_valid_char distinct characters, we cannot remap them into the 
             range [0..255] without using a character less than min_valid_char, hence we cannot build an index for T. */
-            std::cout << "Error: the input contains more than 253 distinct characters" << std::endl;
+            std::cout << "Error: the input contains more than " << std::to_string(256-min_valid_char-1) << " distinct characters" << std::endl;
+            return;
         }
 
         idx.chars_remapped = true;
@@ -131,8 +131,6 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std:
 
 template <typename uint_t>
 void move_r<uint_t>::construction::process_c() {
-    C[p].resize(256,0);
-
     /* Now, C[i_p][c] is the number of occurrences of c in L[b..e], where [b..e] is the range of the
     thread i_p in [0..p-1]. Also, we have C[p][0..255] = 0. */
 
@@ -194,24 +192,25 @@ void move_r<uint_t>::construction::build_ilf() {
 
         // Iteration range start position of thread i_p.
         uint_t b_r = r_p[i_p];
-        // Iteration range end position of thread i_p.
-        uint_t e_r = r_p[i_p+1];
+
+        // Number of BWT runs in thread i_p's section.
+        uint_t rp_diff = r_p[i_p+1]-r_p[i_p];
 
         // i', Start position of the last-seen run.
         uint_t i_ = n_p[i_p];
 
         // Build I_LF[b_r..e_r]
-        for (uint_t i=b_r; i<e_r; i++) {
+        for (uint_t i=0; i<rp_diff; i++) {
             /* Write the pair (i',LF(i')) to the next position i in I_LF, where
             LF(i') = C[L[i']] + rank(L,L[i'],i'-1) = C[p][L[i']] + C[i_p][L[i']]. */
-            I_LF[i] = std::make_pair(i_,C[p][run_uchar(i)]+C[i_p][run_uchar(i)]);
+            I_LF[b_r+i] = std::make_pair(i_,C[p][run_uchar(i_p,i)]+C[i_p][run_uchar(i_p,i)]);
 
             /* Update the rank-function in C[i_p] to store C[i_p][c] = rank(L,c,i'-1),
             for each c in [0..255] */
-            C[i_p][run_uchar(i)] += run_length(i);
+            C[i_p][run_uchar(i_p,i)] += run_length(i_p,i);
 
             // Update the position of the last-seen run.
-            i_ += run_length(i);
+            i_ += run_length(i_p,i);
         }
     }
 
@@ -232,13 +231,13 @@ void move_r<uint_t>::construction::build_mlf() {
                 << " type=build_mlf"
                 << " text=" << name_text_file
                 << " num_threads=" << p
-                << " a=" << a;
+                << " a=" << idx.a;
         }
         time = now();
         std::cout << std::endl << "building M_LF" << std::flush;
     }
 
-    idx.M_LF = std::move(move_data_structure_str<uint_t>(std::move(I_LF),n,p,a,log,mf_mds));
+    idx.M_LF = std::move(move_data_structure_str<uint_t>(std::move(I_LF),n,p,idx.a,log,mf_mds));
     r_ = idx.M_LF.num_intervals();
     idx.r_ = r_;
 
@@ -273,31 +272,33 @@ void move_r<uint_t>::construction::build_l__sas() {
         // Bwt range start position of thread i_p.
         uint_t b = n_p[i_p];
 
-        // Bwt runs iteration range start position of thread i_p.
+        // Iteration range start position of thread i_p.
         uint_t b_r = r_p[i_p];
-        // Bwt runs iteration range end position of thread i_p.
-        uint_t e_r = r_p[i_p+1];
+
+        // Number of runs in thread i_p's section.
+        uint_t rp_diff = r_p[i_p+1]-r_p[i_p];
 
         // Index of the current input interval in M_LF, initially the index of the input interval of M_LF containing b
         uint_t j = bin_search_max_leq<uint_t>(b,0,r_-1,[this](uint_t x){return idx.M_LF.p(x);});
         // Starting position of the next bwt run.
         uint_t l_ = b;
 
-        for (uint_t i=b_r; i<e_r; i++) {
-            idx.M_LF.template set_character(j,run_char(i));
+        for (uint_t i=0; i<rp_diff; i++) {
+            idx.M_LF.template set_character(j,run_char(i_p,i));
             j++;
 
             // update l_ to the next run start position
-            l_ += run_length(i);
+            l_ += run_length(i_p,i);
 
-            // iterate over all input intervals in M_LF within the i-th bwt run that have been created by the balancing algorithm
+            // iterate over all input intervals in M_LF within the i-th bwt within thread i_p's section run that have been
+            // created by the balancing algorithm
             while (idx.M_LF.p(j) < l_) {
                 if (build_locate_support) SA_s[j-1] = n;
-                idx.M_LF.template set_character(j,run_char(i));
+                idx.M_LF.template set_character(j,run_char(i_p,i));
                 j++;
             }
             
-            if (build_locate_support && i != r-1) SA_s[j-1] = I_Phi[i+1].second;
+            if (build_locate_support && b_r+i+1 != r) SA_s[j-1] = I_Phi[b_r+i+1].second;
         }
     }
 
@@ -307,7 +308,8 @@ void move_r<uint_t>::construction::build_l__sas() {
     r_p.clear();
     r_p.shrink_to_fit();
 
-    RLBWT = std::move(interleaved_vectors<uint32_t>({},0,false));
+    RLBWT.clear();
+    RLBWT.shrink_to_fit();
 
     if (log) {
         if (mf_idx != NULL) *mf_idx << " time_build_l__sas=" << time_diff_ns(time,now());
@@ -339,7 +341,7 @@ void move_r<uint_t>::construction::sort_iphi() {
                     << " type=build_mphi"
                     << " text=" << name_text_file
                     << " num_threads=" << p
-                    << " a=" << a;
+                    << " a=" << idx.a;
         }
         time = log_runtime(time);
     }
@@ -352,7 +354,7 @@ void move_r<uint_t>::construction::build_mphi() {
         std::cout << std::endl << "building M_Phi" << std::flush;
     }
 
-    idx.M_Phi = std::move(move_data_structure<uint_t>(std::move(I_Phi),n,p,a,&pi_mphi,log,mf_mds));
+    idx.M_Phi = std::move(move_data_structure<uint_t>(std::move(I_Phi),n,p,idx.a,&pi_mphi,log,mf_mds));
     r__ = idx.M_Phi.num_intervals();
     idx.r__ = r__;
 
@@ -385,9 +387,9 @@ void move_r<uint_t>::construction::build_saidx() {
         ips4o::sort(pi_.begin(),pi_.end(),comp_pi_);
     }
 
-    omega_idx = idx.M_Phi.width_idx();
-    idx.omega_idx = omega_idx;
-    idx.SA_phi = std::move(interleaved_vectors<uint_t>({(uint8_t)(omega_idx/8)},r_,false));
+    idx.omega_idx = idx.M_Phi.width_idx();
+    idx.SA_phi = std::move(interleaved_vectors<uint_t>({(uint8_t)(idx.omega_idx/8)}));
+    idx.SA_phi.resize_no_init(r_);
 
     /* Now we will divide the range [0..n-1] up into p non-overlapping sub-ranges [s[i_p]..s[i_p+1]-1],
     for each i_p in [0..p-1], with 0 = s[0] < s[1] < ... < s[p] = n, where
@@ -510,19 +512,28 @@ void move_r<uint_t>::construction::build_saidx() {
                 i++;
             }
 
-            /* Iterate over SA_s[pi'[j]],SA_s[pi'[j+1]],...,SA_s[pi'[j']] */
+            /* Iterate over SA_s[pi'[j]],SA_s[pi'[j+1]],...,SA_s[pi'[j'-1]] */
             while (j < j_) {
-                // Skip the output intervals, that the balancing algorithm has added to I_Phi
+                // Skip the output intervals the balancing algorithm has added to I_Phi
                 while (idx.M_Phi.q(pi_mphi[i]) != SA_s[pi_[j]]) {
                     i++;
                 }
-
-                idx.set_SA_phi(pi_[j],pi_mphi[i]);
                 
+                idx.set_SA_phi(pi_[j],pi_mphi[i]);
+
                 i++;
                 j++;
             }
         }
+    }
+
+    /* Since we set SA_s[j] = n for each j-th input interval of M_LF, whiches end position is not the end position of a bwt run,
+     * where j \in [0,r'), SA_s[pi'[r]],SA_s[pi'[r+1]],...,SA_s[pi'[r'-1]] = n holds, hence we set SA_phi[pi'[i]] = r'' for
+     * i \in [r,r') to mark that we cannot recover SA_s[M_LF[x+1]-1] = M_Phi.q[SA_phi[x]] for each x-th input interval of
+     * M_LF, whiches end position is not the end position of a bwt run and where x \in [0,r'). */
+    #pragma omp parallel for num_threads(p)
+    for (uint64_t i=r; i<r_; i++) {
+        idx.set_SA_phi(pi_[i],r__);
     }
 
     x.clear();
@@ -542,11 +553,17 @@ void move_r<uint_t>::construction::build_saidx() {
 
 template <typename uint_t>
 void move_r<uint_t>::construction::build_de() {
-    idx.D_e.resize(p_r-1);
+    if (build_locate_support) {
+        idx.p_r = std::min<uint_t>(256,std::max<uint_t>(1,r/100));
+    } else {
+        idx.p_r = 1;
+    }
+    
+    idx.D_e.resize(idx.p_r-1);
     
     #pragma omp parallel for num_threads(p)
-    for (uint16_t i=0; i<p_r-1; i++) {
-        uint_t x = bin_search_min_geq<uint_t>((i+1)*((n-1)/p_r),0,r-1,[this](uint_t x){return (((int64_t)SA_s[pi_[x]])-1)%n;});
+    for (uint16_t i=0; i<idx.p_r-1; i++) {
+        uint_t x = bin_search_min_geq<uint_t>((i+1)*((n-1)/idx.p_r),0,r-1,[this](uint_t x){return (((int64_t)SA_s[pi_[x]])-1)%n;});
         idx.D_e[i] = std::make_pair(pi_[x],(uint_t)((((int64_t)SA_s[pi_[x]])-1)%n));
     }
 
