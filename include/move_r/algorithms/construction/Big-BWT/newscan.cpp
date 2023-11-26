@@ -298,7 +298,7 @@ uint64_t process_file(const Args_Newscan& arg, map<uint64_t,word_stats>& wordFre
     sa_file = open_aux_file(arg.name_input_file.c_str(),EXTSAI,"wb");
 
   // main loop on the chars of the input file
-  int c;
+  char c;
   uint64_t pos = 0; // ending position +1 of previous word in the original text, used for computing sa_info
   assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are written to the sa info file
   // init first word in the parsing with a Dollar char
@@ -307,23 +307,27 @@ uint64_t process_file(const Args_Newscan& arg, map<uint64_t,word_stats>& wordFre
   KR_window krw(arg.w);
   std::string line;
   if(!arg.input.rdbuf()->is_open()) {// is_open does not work on igzstreams
-      perror(__func__);
-      throw new std::runtime_error("Cannot open input file " + fnam);
+    perror(__func__);
+    throw new std::runtime_error("Cannot open input file " + fnam);
+  }
+  arg.input.seekg(0,std::ios::end);
+  uint64_t n = arg.input.tellg();
+  arg.input.seekg(0,std::ios::beg);
+  for (uint64_t i=0; i<n; i++) {
+    arg.input.read((char*)&c,1);
+    if (arg.chars_remapped) {
+      c = uchar_to_char(arg.map_char[char_to_uchar(c)]);
     }
-    while((c = arg.input.get()) != EOF) {
-      if (arg.chars_remapped) {
-        c = (int)arg.map_char[(uint8_t)c];
-      }
-      //if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
-      word.append(1,c);
-      uint64_t hash = krw.addchar(c);
-      if(hash%arg.p==0) {
-        // end of word, save it and write its full hash to the output file
-        // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
-        save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
-      }
+    //if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
+    word.append(1,c);
+    uint64_t hash = krw.addchar(c);
+    if(hash%arg.p==0) {
+      // end of word, save it and write its full hash to the output file
+      // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
+      save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
     }
-    arg.input.close();
+  }
+  arg.input.close();
   // virtually add w null chars at the end of the file and add the last word in the dict
   word.append(arg.w,Dollar);
   save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);

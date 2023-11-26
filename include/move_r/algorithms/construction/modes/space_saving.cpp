@@ -20,16 +20,6 @@ std::ifstream move_r<uint_t>::construction::preprocess_and_store_t_in_file() {
 }
 
 template <typename uint_t>
-void move_r<uint_t>::construction::preprocess_t_buffered_from_file(std::ifstream& t_file) {
-    t_file.seekg(0,std::ios::end);
-    n = t_file.tellg()+(std::streamsize)+1;
-    idx.n = n;
-    t_file.seekg(0,std::ios::beg);
-    preprocess_t(false,false,&t_file);
-    t_file.seekg(0,std::ios::beg);
-}
-
-template <typename uint_t>
 void move_r<uint_t>::construction::pfp(std::ifstream& t_file, bool delete_t_file) {
     if (log) {
         time = now();

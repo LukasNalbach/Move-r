@@ -343,7 +343,12 @@ class move_r<uint_t>::construction {
 
         prepare_phase_1();
 
-        if (T.size() < 10000 || construction_mode == move_r_construction_mode::runtime) {
+        t_file.seekg(0,std::ios::end);
+        n = t_file.tellg()+(std::streamsize)+1;
+        idx.n = n;
+        t_file.seekg(0,std::ios::beg);
+
+        if (n < 10000 || construction_mode == move_r_construction_mode::runtime) {
             min_valid_char = 2;
             read_t_from_file_in_memory(t_file);
             construct_in_memory();
@@ -506,7 +511,10 @@ class move_r<uint_t>::construction {
      * @param delete_t_file controls, whether t_file will be deleted as soon as it is not needed anymore
      */
     void construct_space_saving(std::ifstream& t_file, bool delete_t_file) {
-        if (!delete_t_file) preprocess_t_buffered_from_file(t_file);
+        if (!delete_t_file) {
+            preprocess_t(false,false,&t_file);
+            t_file.seekg(0,std::ios::beg);
+        }
 
         prepare_phase_2();
         pfp(t_file,delete_t_file);
@@ -638,12 +646,6 @@ class move_r<uint_t>::construction {
      * @return file containing T
      */
     std::ifstream preprocess_and_store_t_in_file();
-
-    /**
-     * @brief preprocesses T buffered while reading it from a file
-     * @param t_file 
-     */
-    void preprocess_t_buffered_from_file(std::ifstream& t_file);
 
     /**
      * @brief computes the (RL-)BWT (and I_Phi) using prefix-free-parsing

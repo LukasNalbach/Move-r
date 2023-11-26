@@ -22,7 +22,7 @@ class interleaved_vectors {
     // [0..(capacity_vectors+1)*num_vectors-1] vector storing the interleaved vectors
     std::vector<char> data_vectors;
 
-    // [0..num_vectors-1] widths of the stored vectors; widths[i] = width of vector i
+    // [0..num_vectors-1] or shorter; widths of the stored vectors; widths[i] = width of vector i
     std::array<uint64_t,num_vectors> widths;
 
     /** @brief [0..num_vectors-1] pointers to the first entries of each vector; bases[vec] = base
@@ -32,7 +32,36 @@ class interleaved_vectors {
     /** @brief [0..num_vectors-1] masks that are used to mask off data of other vector entries when
      *        accessing a vector */
     std::array<uint_t,num_vectors> masks;
+
+    /**
+     * @brief initializes the interleaved_vectors with the vector-widths stored in widths
+     * @param widths vector containing the widths (in bytes) of the interleaved arrays
+     */
+    void initialize(std::array<uint8_t,num_vectors> widths = {sizeof(uint_t)}) {
+        size_vectors = 0;
+        capacity_vectors = 0;
+        width_entry = 0;
+        
+        data_vectors.clear();
+        data_vectors.shrink_to_fit();
+
+        for (uint8_t i=0; i<num_vectors; i++) {
+            if (widths[i] == 0) {
+                masks[i] = 0;
+                this->widths[i] = 0;
+            } else {
+                this->widths[i] = widths[i];
+                width_entry += widths[i];
+                masks[i] = std::numeric_limits<uint_t>::max()>>(8*(sizeof(uint_t)-widths[i]));
+            }
+        }
+
+        reserve(2);
+    }
     
+    /**
+     * @brief builds the bases array
+     */
     void set_bases() {
         bases[0] = &data_vectors[0];
 
@@ -74,19 +103,11 @@ class interleaved_vectors {
         bases = other.bases;
         masks = other.masks;
 
-        other.size_vectors = 0;
-        other.capacity_vectors = 0;
-        other.width_entry = 0;
-
-        for (uint8_t i=0; i<num_vectors; i++) {
-            other.widths[i] = 0;
-            other.bases[i] = NULL;
-            other.masks[i] = 0;
-        }
+        other.initialize();
     }
     
     public:
-    interleaved_vectors() = default;
+    interleaved_vectors() {initialize();}
     interleaved_vectors(interleaved_vectors&& other) {move_from_other(std::move(other));}
     interleaved_vectors(const interleaved_vectors& other) {copy_from_other(other);}
     interleaved_vectors& operator=(interleaved_vectors&& other) {move_from_other(std::move(other));return *this;}
@@ -103,18 +124,7 @@ class interleaved_vectors {
      * @param widths vector containing the widths (in bytes) of the interleaved arrays
      */
     interleaved_vectors(std::array<uint8_t,num_vectors> widths) {
-        for (uint8_t i=0; i<num_vectors; i++) {
-            if (widths[i] == 0) {
-                masks[i] = 0;
-                this->widths[i] = 0;
-            } else {
-                this->widths[i] = widths[i];
-                width_entry += widths[i];
-                masks[i] = std::numeric_limits<uint_t>::max()>>(8*(sizeof(uint_t)-widths[i]));
-            }
-        }
-
-        reserve(2);
+        initialize(widths);
     }
 
     /**

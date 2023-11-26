@@ -6,11 +6,6 @@ void move_r<uint_t>::construction::read_t_from_file_in_memory(std::ifstream& t_f
     time = now();
     if (log) std::cout << "reading T" << std::flush;
 
-    t_file.seekg(0,std::ios::end);
-    n = t_file.tellg()+(std::streamsize)+1;
-    idx.n = n;
-    t_file.seekg(0,std::ios::beg);
-
     no_init_resize(T,n);
     read_from_file(t_file,T.c_str(),n-1);
     T[n-1] = uchar_to_char(1);
