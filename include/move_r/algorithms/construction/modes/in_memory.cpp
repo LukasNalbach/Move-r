@@ -2,12 +2,16 @@
 #include <libsais64.h>
 
 template <typename uint_t>
-void move_r<uint_t>::construction::read_t_from_file_in_memory(std::ifstream& t_file) {
+void move_r<uint_t>::construction::read_t_from_file_in_memory(std::ifstream& T_ifile) {
     time = now();
     if (log) std::cout << "reading T" << std::flush;
 
+    T_ifile.seekg(0,std::ios::end);
+    n = T_ifile.tellg()+(std::streamsize)+1;
+    idx.n = n;
+    T_ifile.seekg(0,std::ios::beg);
     no_init_resize(T,n);
-    read_from_file(t_file,T.c_str(),n-1);
+    read_from_file(T_ifile,T.c_str(),n-1);
     T[n-1] = uchar_to_char(1);
 
     if (log) time = log_runtime(time);
