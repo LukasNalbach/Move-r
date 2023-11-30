@@ -124,7 +124,7 @@ endif()
 
 if(MOVE_R_BUILD_BENCH_CLI)
   # Big-BWT
-  add_subdirectory("${CMAKE_SOURCE_DIR}/external/Big-BWT/")
+  execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/Big-BWT/")
 
   ############################# other indexes #############################
 

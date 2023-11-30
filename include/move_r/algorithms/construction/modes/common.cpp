@@ -1,8 +1,15 @@
 #include <ips4o.hpp>
 
 template <typename uint_t>
-void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std::ifstream* t_file) {
+void move_r<uint_t>::construction::preprocess_t(bool in_memory, std::ifstream* T_ifile) {
     if (log) std::cout << "preprocessing T" << std::flush;
+
+    if (!in_memory) {
+        T_ifile->seekg(0,std::ios::end);
+        n = T_ifile->tellg()+(std::streamsize)+1;
+        idx.n = n;
+        T_ifile->seekg(0,std::ios::beg);
+    }
 
     // contains_uchar_thr[i_p][c] = true <=> thread i_p found the character c in its section of T[0..n-2].
     std::vector<std::vector<uint8_t>> contains_uchar_thr(p,std::vector<uint8_t>(256,0));
@@ -14,24 +21,26 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std:
             contains_uchar_thr[omp_get_thread_num()][char_to_uchar(T[i])] = 1;
         }
     } else {
-        uint_t t_buffer_size = std::max((uint_t)1,n/500);
-        std::string T_buffer;
-        no_init_resize(T_buffer,t_buffer_size);
-        uint_t current_buffer_size;
+        uint_t max_t_buf_size = std::max((uint_t)1,n/500);
+        std::string T_buf;
+        no_init_resize(T_buf,max_t_buf_size);
+        uint_t cur_t_buf_size;
         uint_t n_ = n-1;
 
         while (n_ > 0) {
-            current_buffer_size = std::min(n_,t_buffer_size);
-            read_from_file(*t_file,T_buffer.c_str(),current_buffer_size);
+            cur_t_buf_size = std::min(n_,max_t_buf_size);
+            read_from_file(*T_ifile,T_buf.c_str(),cur_t_buf_size);
             
             // Iterate over T[0..n-2] and report the occurrence of each found character in T[0..n-2] in contains_uchar_thr.
             #pragma omp parallel for num_threads(p)
-            for (uint64_t i=0; i<current_buffer_size; i++) {
-                contains_uchar_thr[omp_get_thread_num()][char_to_uchar(T_buffer[i])] = 1;
+            for (uint64_t i=0; i<cur_t_buf_size; i++) {
+                contains_uchar_thr[omp_get_thread_num()][char_to_uchar(T_buf[i])] = 1;
             }
 
-            n_ -= current_buffer_size;
+            n_ -= cur_t_buf_size;
         }
+
+        T_ifile->seekg(0,std::ios::beg);
     }
     
     // contains_uchar[c] = 1 <=> c in T[0..n-2].
@@ -113,7 +122,7 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std:
         }
 
         // Apply map_char to T.
-        if (map_t) {
+        if (in_memory) {
             #pragma omp parallel for num_threads(p)
             for (uint64_t i=0; i<n-1; i++) {
                 if (char_to_uchar(T[i]) <= max_remapped_uchar) {
@@ -121,6 +130,36 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, bool map_t, std:
                 }
             }
         }
+    }
+
+    if (!in_memory) {
+        prefix_tmp_files = "move-r_" + random_alphanumeric_string(10);
+        std::ofstream T_ofile(prefix_tmp_files);
+        uint_t max_t_buf_size = std::max((uint_t)1,n/500);
+        std::string T_buf;
+        no_init_resize(T_buf,max_t_buf_size);
+        uint_t cur_t_buf_size;
+        uint_t n_ = n-1;
+
+        while (n_ > 0) {
+            cur_t_buf_size = std::min(n_,max_t_buf_size);
+            read_from_file(*T_ifile,T_buf.c_str(),cur_t_buf_size);
+
+            if (idx.chars_remapped) {
+                #pragma omp parallel for num_threads(p)
+                for (uint64_t i=0; i<cur_t_buf_size; i++) {
+                    if (char_to_uchar(T_buf[i]) <= max_remapped_uchar) {
+                        T_buf[i] = idx.map_to_internal(T_buf[i]);
+                    }
+                }
+            }
+
+            write_to_file(T_ofile,T_buf.c_str(),cur_t_buf_size);
+            n_ -= cur_t_buf_size;
+        }
+        
+        T_ifile->close();
+        T_ofile.close();
     }
 
     if (log) {
@@ -199,7 +238,7 @@ void move_r<uint_t>::construction::build_ilf() {
         // i', Start position of the last-seen run.
         uint_t i_ = n_p[i_p];
 
-        // Build I_LF[b_r..e_r]
+        // Build I_LF
         for (uint_t i=0; i<rp_diff; i++) {
             /* Write the pair (i',LF(i')) to the next position i in I_LF, where
             LF(i') = C[L[i']] + rank(L,L[i'],i'-1) = C[p][L[i']] + C[i_p][L[i']]. */

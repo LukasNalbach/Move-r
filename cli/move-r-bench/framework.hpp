@@ -1,5 +1,7 @@
 #pragma once
 
+#define MOVE_R_BENCH 1
+
 #include <thread>
 #include <omp.h>
 #include <libsais.h>
@@ -83,34 +85,7 @@ void preprocess_input() {
 }
 
 void update_peak_memory_usage(std::ifstream& log_file) {
-    if (!log_file.good()) return;
-    std::string log_file_content;
-    log_file.seekg(0,std::ios::end);
-    no_init_resize(log_file_content,log_file.tellg());
-    log_file.seekg(0,std::ios::beg);
-    log_file.read((char*)&log_file_content[0],log_file_content.size());
-    int32_t pos = 0;
-    uint64_t cur_peak = 0;
-    std::string str_cur_peak;
-    
-    while ((pos = log_file_content.find(", peak",pos)) != -1) {
-        while (!('0' <= log_file_content[pos] && log_file_content[pos] <= '9')) {
-            pos++;
-        }
-
-        while (('0' <= log_file_content[pos] && log_file_content[pos] <= '9') || log_file_content[pos] == '.') {
-            if (log_file_content[pos] != '.') {
-                str_cur_peak.push_back(log_file_content[pos]);
-            }
-            
-            pos++;
-        }
-
-        cur_peak = std::max(cur_peak,(uint64_t)stol(str_cur_peak));
-        str_cur_peak.clear();
-    }
-
-    external_peak_memory_usage = std::max(external_peak_memory_usage,cur_peak);
+    external_peak_memory_usage = std::max(external_peak_memory_usage,malloc_count_peak_memory_usage(log_file));
 }
 
 template <typename idx_t, bool alternative_build_mode>
@@ -142,9 +117,8 @@ struct query_result {
     uint64_t time_query;
 };
 
-template <typename uint_t>
 void map_string(std::string& str) {
-    for (uint_t pos=0; pos<str.size(); pos++) {
+    for (uint64_t pos=0; pos<str.size(); pos++) {
         str[pos] = uchar_to_char(map_char[char_to_uchar(str[pos])]);
     }
 }
@@ -165,7 +139,7 @@ query_result count_patterns(idx_t& index) {
     for (uint8_t i=1; i<=2; i++) {
         for (uint64_t cur_query=0; cur_query<num_queries; cur_query++) {
             patterns_file_1.read((char*)&pattern[0],pattern_length);
-            if (chars_remapped) map_string<uint_t>(pattern);
+            if (chars_remapped) map_string(pattern);
             count_pattern<uint_t,idx_t>(index,pattern);
         }
 
@@ -175,7 +149,7 @@ query_result count_patterns(idx_t& index) {
 
     for (uint64_t cur_query=0; cur_query<num_queries; cur_query++) {
         patterns_file_1.read((char*)&pattern[0],pattern_length);
-        if (chars_remapped) map_string<uint_t>(pattern);
+        if (chars_remapped) map_string(pattern);
         t1 = now();
         num_occurrences += count_pattern<uint_t,idx_t>(index,pattern);
         t2 = now();
@@ -203,7 +177,7 @@ query_result locate_patterns(idx_t& index, std::ifstream& patterns_file) {
     for (uint8_t i=1; i<=2; i++) {
         for (uint64_t cur_query=0; cur_query<num_queries; cur_query++) {
             patterns_file.read((char*)&pattern[0],pattern_length);
-            if (chars_remapped) map_string<uint_t>(pattern);
+            if (chars_remapped) map_string(pattern);
             locate_pattern<uint_t,idx_t>(index,pattern,occurrences);
             occurrences.clear();
         }
@@ -214,7 +188,7 @@ query_result locate_patterns(idx_t& index, std::ifstream& patterns_file) {
 
     for (uint64_t cur_query=0; cur_query<num_queries; cur_query++) {
         patterns_file.read((char*)&pattern[0],pattern_length);
-        if (chars_remapped) map_string<uint_t>(pattern);
+        if (chars_remapped) map_string(pattern);
         t1 = now();
         locate_pattern<uint_t,idx_t>(index,pattern,occurrences);
         t2 = now();

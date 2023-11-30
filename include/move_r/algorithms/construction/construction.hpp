@@ -25,13 +25,13 @@ class move_r<uint_t>::construction {
     std::ostream* mf_idx = NULL; // file to write measurement data of the index construction to 
     std::ostream* mf_mds = NULL; // file to write measurement data of the move data structure construction to 
     std::string name_text_file = ""; // name of the text file (only for measurement output)
-    std::string prefix_tempfiles = ""; // prefix of temporary files
+    std::string prefix_tmp_files = ""; // prefix of temporary files
     std::chrono::steady_clock::time_point time; // time of the start of the last build phase
     std::chrono::steady_clock::time_point time_start; // time of the start of the whole build phase
-    uint64_t baseline_memory_allocation = 0; // memory allocation at the start of the construction
+    uint64_t baseline_mem_usage = 0; // memory allocation at the start of the construction
+    uint64_t bigbwt_peak_mem_usage = 0;
     bool build_count_support = false; // = true <=> build support for count (RS_L')
     bool build_locate_support = false; // = true <=> build support for locate (SA_phi and M_Phi) and build parallel revert support (D_e)
-    bool read_rlbwt = false; // = true <=> read the run-length encoded BWT
     uint8_t min_valid_char = 0; // the minimum valid character that is allowed to occur in T
     uint8_t max_remapped_uchar = 0; // the maximum character in T that has been remappd
     uint8_t max_remapped_to_uchar = 0; // the maximum character in T that a character has been remappd to
@@ -185,10 +185,8 @@ class move_r<uint_t>::construction {
         time_start = time;
         omp_set_num_threads(p);
 
-        if (log) {
-            baseline_memory_allocation = malloc_count_current();
-            malloc_count_reset_peak();
-        }
+        baseline_mem_usage = malloc_count_current();
+        if (log) malloc_count_reset_peak();
 
         adjust_supports(idx.support);
 
@@ -222,16 +220,16 @@ class move_r<uint_t>::construction {
      */
     void log_finished() {
         uint64_t time_construction = time_diff_ns(time_start,now());
-        uint64_t peak_memory_allocation = malloc_count_peak() - baseline_memory_allocation;
+        uint64_t peak_mem_usage = std::max(malloc_count_peak()-baseline_mem_usage,bigbwt_peak_mem_usage);
         
         std::cout << std::endl;
         std::cout << "construction time: " << format_time(time_construction) << std::endl;
-        std::cout << "peak memory allocation: " << format_size(peak_memory_allocation) << std::endl;
+        std::cout << "peak memory usage: " << format_size(peak_mem_usage) << std::endl;
         idx.log_data_structure_sizes();
 
         if (mf_idx != NULL) {
             *mf_idx << " time_construction=" << time_construction;
-            *mf_idx << " peak_memory_allocation=" << peak_memory_allocation;
+            *mf_idx << " peak_mem_usage=" << peak_mem_usage;
             idx.log_data_structure_sizes(*mf_idx);
             *mf_idx << std::endl;
         }
@@ -289,7 +287,7 @@ class move_r<uint_t>::construction {
 
         prepare_phase_1();
 
-        if (T.size() < 10000 || construction_mode == move_r_construction_mode::runtime) {
+        if (construction_mode == move_r_construction_mode::runtime) {
             min_valid_char = 2;
             T.push_back(uchar_to_char((uint8_t)0));
             n = T.size();
@@ -301,8 +299,8 @@ class move_r<uint_t>::construction {
             min_valid_char = 3;
             n = T.size()+1;
             idx.n = n;
-            std::ifstream t_file = preprocess_and_store_t_in_file();
-            construct_space_saving(t_file,true);
+            preprocess_and_store_t_in_file();
+            construct_space_saving();
         }
 
         if (log) log_finished();
@@ -311,7 +309,7 @@ class move_r<uint_t>::construction {
     /**
      * @brief constructs a move_r index from an input file
      * @param index The move-r index to construct
-     * @param t_file file containing T
+     * @param T_ifile file containing T
      * @param support a vector containing move_r operations to build support for
      * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
      * @param p the number of threads to use during the construction
@@ -323,7 +321,7 @@ class move_r<uint_t>::construction {
      */
     construction(
         move_r<uint_t>& index,
-        std::ifstream& t_file,
+        std::ifstream& T_ifile,
         std::vector<move_r_support> support,
         move_r_construction_mode construction_mode,
         uint16_t p,
@@ -343,18 +341,14 @@ class move_r<uint_t>::construction {
 
         prepare_phase_1();
 
-        t_file.seekg(0,std::ios::end);
-        n = t_file.tellg()+(std::streamsize)+1;
-        idx.n = n;
-        t_file.seekg(0,std::ios::beg);
-
-        if (n < 10000 || construction_mode == move_r_construction_mode::runtime) {
+        if (construction_mode == move_r_construction_mode::runtime) {
             min_valid_char = 2;
-            read_t_from_file_in_memory(t_file);
+            read_t_from_file_in_memory(T_ifile);
             construct_in_memory();
         } else {
             min_valid_char = 3;
-            construct_space_saving(t_file,false);
+            preprocess_t(false,&T_ifile);
+            construct_space_saving();
         }
 
         if (log) log_finished();
@@ -446,7 +440,7 @@ class move_r<uint_t>::construction {
 
         prepare_phase_1();
         prepare_phase_2();
-        build_rlbwt_c_in_memory<sa_sint_t,true>();
+        build_rlbwt_c_in_memory<true,sa_sint_t>();
         if (log) log_statistics();
         build_ilf();
         build_mlf();
@@ -485,10 +479,10 @@ class move_r<uint_t>::construction {
      */
     template <typename sa_sint_t = int32_t>
     void construct_in_memory() {
-        preprocess_t(true,true);
+        preprocess_t(true);
         prepare_phase_2();
         build_sa_in_memory<sa_sint_t>();
-        build_rlbwt_c_in_memory<sa_sint_t,false>();
+        build_rlbwt_c_in_memory<false,sa_sint_t>();
         if (log) log_statistics();
         build_ilf();
         if (build_locate_support) build_iphi_in_memory<sa_sint_t>();
@@ -507,36 +501,23 @@ class move_r<uint_t>::construction {
 
     /**
      * @brief constructs the index from a file space saving (optimized for low peak memory usage)
-     * @param t_file file containing T
-     * @param delete_t_file controls, whether t_file will be deleted as soon as it is not needed anymore
      */
-    void construct_space_saving(std::ifstream& t_file, bool delete_t_file) {
-        if (!delete_t_file) {
-            preprocess_t(false,false,&t_file);
-            t_file.seekg(0,std::ios::beg);
-        }
-
+    void construct_space_saving() {
         prepare_phase_2();
-        pfp(t_file,delete_t_file);
+        pfp();
+        build_rlbwt_c_space_saving();
 
         if (log) {
-            log_peak_mem_usage(baseline_memory_allocation);
+            std::cout
+                << "peak memory allocation until now: "
+                << format_size(std::max(malloc_count_peak()-baseline_mem_usage,bigbwt_peak_mem_usage))
+                << std::endl;
             log_statistics();
         }
 
-        read_rlbwt_bwt();
-
-        if (read_rlbwt) {
-            preprocess_rlbwt_space_saving();
-        } else {
-            build_rlbwt_c_in_memory<int32_t,true>();
-        }
-        
         build_ilf();
         build_mlf();
-        
         if (build_locate_support) read_iphi_space_saving();
-            
         build_l__sas();
 
         if (build_locate_support) {
@@ -555,16 +536,17 @@ class move_r<uint_t>::construction {
 
     /**
      * @brief reads the input T and possibly remaps it to an internal alphabet, if it contains an invalid character
+     * @param in_memory controls, whether the input should be processed in memory or read buffered from a file
      * @param t_file file containing T (for in_memory = false)
      */
-    void preprocess_t(bool in_memory, bool map_t, std::ifstream* t_file = NULL);
+    void preprocess_t(bool in_memory, std::ifstream* T_ifile = NULL);
 
     /**
      * @brief builds the RLBWT and C in-memory
      * @tparam sa_sint_t suffix array signed integer type
      * @tparam read_l whether the RLBWT should be read from L
      */
-    template <typename sa_sint_t = int32_t, bool read_l>
+    template <bool read_l, typename sa_sint_t = int32_t>
     void build_rlbwt_c_in_memory();
 
     /**
@@ -643,26 +625,18 @@ class move_r<uint_t>::construction {
 
     /**
      * @brief preprocesses T and stores it in a file
-     * @return file containing T
      */
-    std::ifstream preprocess_and_store_t_in_file();
+    void preprocess_and_store_t_in_file();
 
     /**
-     * @brief computes the (RL-)BWT (and I_Phi) using prefix-free-parsing
-     * @param t_file file containing T
-     * @param delete_t_file controls, whether to delete t_file as soon as it is not needed anymore
+     * @brief computes the BWT (and I_Phi) using prefix-free-parsing
      */
-    void pfp(std::ifstream& t_file, bool delete_t_file);
-
-    /**
-     * @brief reads the RLBWT or BWT from a file
-     */
-    void read_rlbwt_bwt();
+    void pfp();
 
     /**
      * @brief builds the RLBWT and C
      */
-    void preprocess_rlbwt_space_saving();
+    void build_rlbwt_c_space_saving();
 
     /**
      * @brief reads I_Phi

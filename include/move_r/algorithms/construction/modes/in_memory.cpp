@@ -46,7 +46,7 @@ void move_r<uint_t>::construction::build_sa_in_memory() {
 }
 
 template <typename uint_t>
-template <typename sa_sint_t, bool read_l>
+template <bool read_l, typename sa_sint_t>
 void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
     if (log) {
         time = now();
@@ -82,7 +82,7 @@ void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
         uint_t i_ = b; // start position of the last seen run in L.
 
         if constexpr (read_l) {
-            prev_char = L[b];
+            prev_char = L[b] == uchar_to_char(1) ? uchar_to_char(0) : L[b];
         } else {
             prev_char = SA[b] == 0 ? uchar_to_char(0) : T[SA[b]-1];
         }
@@ -90,7 +90,7 @@ void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
         // Iterate over the range L[b+1..e-1]
         for (uint_t i=b+1; i<e; i++) {
             if constexpr (read_l) {
-                cur_char = L[i];
+                cur_char = L[i] == uchar_to_char(1) ? uchar_to_char(0) : L[i];
             } else {
                 cur_char = SA[i] == 0 ? uchar_to_char(0) : T[SA[i]-1];
             }

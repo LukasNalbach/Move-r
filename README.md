@@ -244,8 +244,9 @@ usage: move-r-patterns <file> <length> <number> <patterns file> <forbidden>
 
 ### move-r-bench: benchmarks construction-, revert- and query-performance.
 ```
-move-r-bench: benchmarks construction- and query performance of move-r, move-r-bigbwt, block_RLBWT, r-index, r-index-bigbwt,
-              r-index-f, rcomp-lfig, rcomp-glfig, OnlineRLBWT and rle_bwt; has to be executed from the base folder.
+move-r-bench: benchmarks construction- and query performance of move-r, move-r-bigbwt, block_RLBWT,
+              r-index, r-index-bigbwt, r-index-f, rcomp-lfig, rcomp-glfig, OnlineRLBWT and rle_bwt;
+              has to be executed from the base folder.
 usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2>
    -c                 check for correctnes if possible; disables the -m option; will not print
                       runtime data if the runtime could be affected by checking for correctness

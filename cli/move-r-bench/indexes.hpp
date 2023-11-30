@@ -1,6 +1,5 @@
 #pragma once
 
-#include <move_r/move_r.hpp> // move-r
 #include <rindex_types.hpp> // rcomp
 #include "../../external/r-index-prezza/internal/r_index.hpp" // r-index
 #include "../../external/r-index-mun/internal/r_index.hpp" // r-index-bigbwt
@@ -357,7 +356,7 @@ void build_index<r_index_f<>,false>(r_index_f<>& index, uint16_t) {
     std::ofstream text_file(name_text_file);
     write_to_file(text_file,input.c_str(),input_size-1);
     text_file.close();
-    system(("build/external/Big-BWT/newscanNT.x " + name_text_file + " >nul 2>nul").c_str());
+    system(("external/Big-BWT/newscanNT.x " + name_text_file + " >nul 2>nul").c_str());
     system(("build/external/pfp-thresholds/pfp-thresholds " + name_text_file +
             " -r > " + name_text_file + ".log 2>" + name_text_file + ".log").c_str());
     index = std::move(r_index_f<>(name_text_file));
@@ -404,7 +403,7 @@ uint64_t write_blockrlbwt_patterns_file(std::ifstream& patterns_input_file, std:
 
     for (uint64_t cur_query=0; cur_query<num_queries; cur_query++) {
         patterns_input_file.read((char*)&pattern[0],pattern_length);
-        if (chars_remapped) map_string<uint_t>(pattern);
+        if (chars_remapped) map_string(pattern);
         patterns_output_file.write((char*)&pattern[0],pattern_length);
         patterns_output_file << std::endl;
     }

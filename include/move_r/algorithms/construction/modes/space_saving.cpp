@@ -1,183 +1,147 @@
 #include <filesystem>
-#include <move_r/algorithms/construction/Big-BWT/newscan.cpp>
-#include <move_r/algorithms/construction/Big-BWT/pfbwt.cpp>
-
-extern "C" {
-    #include <move_r/algorithms/construction/Big-BWT/bwtparse.c>
-}
 
 template <typename uint_t>
-std::ifstream move_r<uint_t>::construction::preprocess_and_store_t_in_file() {
-    preprocess_t(true,false);
+void move_r<uint_t>::construction::preprocess_and_store_t_in_file() {
+    preprocess_t(true);
     
-    prefix_tempfiles = "move-r_" + random_alphanumeric_string(10);
-    std::ofstream T_output_file(prefix_tempfiles);
-    write_to_file(T_output_file,T.c_str(),n-1);
-    T_output_file.close();
-    std::ifstream T_input_file(prefix_tempfiles);
-
-    return T_input_file;
+    prefix_tmp_files = "move-r_" + random_alphanumeric_string(10);
+    std::ofstream T_ofile(prefix_tmp_files);
+    write_to_file(T_ofile,T.c_str(),n-1);
+    T_ofile.close();
 }
 
 template <typename uint_t>
-void move_r<uint_t>::construction::pfp(std::ifstream& t_file, bool delete_t_file) {
+void move_r<uint_t>::construction::pfp() {
     if (log) {
         time = now();
-        std::cout << "building PFP of T" << std::flush;
+        std::cout << "executing Big-BWT" << std::endl << std::endl;
     }
 
-    if (!delete_t_file) {
-        prefix_tempfiles = "move-r_" + random_alphanumeric_string(10);
-    }
+    system((
+        "external/Big-BWT/bigbwt " +
+        (std::string)(build_locate_support ? "-s -e " : "") +
+        (std::string)(p > 1 ? ("-t " + std::to_string(p) + " ") : "") +
+        prefix_tmp_files +
+        (std::string)(log ? "" : " >log_1 >log_2")
+    ).c_str());
 
-    uint64_t num_dictionary_words;
+    std::ifstream log_ifile(prefix_tmp_files + ".log");
+    bigbwt_peak_mem_usage = (malloc_count_current()-baseline_mem_usage)+malloc_count_peak_memory_usage(log_ifile);
 
-    bigbwt_newscan({
-        .input=t_file,
-        .chars_remapped=idx.chars_remapped,
-        .map_char=idx.map_char,
-        .name_input_file=prefix_tempfiles,
-        .compute_sa_info=true
-    },num_dictionary_words,false);
+#ifdef MOVE_R_BENCH
+    external_peak_memory_usage = bigbwt_peak_mem_usage;
+#endif
 
-    read_rlbwt = n > 100 * num_dictionary_words;
+    log_ifile.close();
+    std::filesystem::remove(prefix_tmp_files + ".log");
+    std::filesystem::remove(prefix_tmp_files);
 
-    if (delete_t_file) {
-        t_file.close();
-        std::filesystem::remove(prefix_tempfiles);
+    if (log) {
+        std::filesystem::remove("log_1");
+        std::filesystem::remove("log_2");
     }
 
     if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_pfp_phase_1=" << time_diff_ns(time,now());
-        time = log_runtime(time);
-        std::cout << "building BWT of PFP of T" << std::flush;
-    }
-
-    bigbwt_bwtparse({
-        .name_input_file=prefix_tempfiles.c_str(),
-        .compute_sa_info=true
-    },false);
-
-    if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_pfp_phase_2=" << time_diff_ns(time,now());
-        time = log_runtime(time);
-        std::string msg = "building " + (std::string)(read_rlbwt ? "RLBWT" : "BWT");
-        if (build_locate_support) {
-            msg.append(" and I_Phi");
-        }
-        std::cout << msg << " of T" << std::flush;
-    }
-
-    uint64_t r = 0;
-
-    bigbwt_pfbwt({
-        .name_input_file=prefix_tempfiles.c_str(),
-        .n=n,
-        .build_sa_samples=build_locate_support?3:0
-    },r,false);
-
-    this->r = r;
-    idx.r = r;
-
-    if (p*1000 > r) {
-        p = std::max((uint64_t)1,r/1000);
-    }
-
-    std::vector<std::string> suffixes = {".bwlast",".bwsai",".dict",".ilist",".last",".occ",".parse",".parse_old",".sai"};
-
-    for (std::string& suffix : suffixes) {
-        std::filesystem::remove(prefix_tempfiles + suffix);
-    }
-
-    if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_pfp_phase_3=" << time_diff_ns(time,now());
+        if (mf_idx != NULL) *mf_idx << " time_pfp=" << time_diff_ns(time,now());
+        std::cout << std::endl;
         time = log_runtime(time);
     }
 }
 
 template <typename uint_t>
-void move_r<uint_t>::construction::read_rlbwt_bwt() {
-    read_rlbwt = std::filesystem::exists(prefix_tempfiles + ".rlbwt");
-
+void move_r<uint_t>::construction::build_rlbwt_c_space_saving() {
     if (log) {
         time = now();
-        std::string msg;
-        if (read_rlbwt) {
-            msg = "reading RLBWT";
-        } else {
-            msg = "reading BWT";
-        }
-        std::cout << msg << std::flush;
+        std::cout << "building RLBWT" << std::flush;
     }
 
-    std::string bwt_file_name = prefix_tempfiles + (read_rlbwt ? ".rlbwt" : ".bwt");
-    std::ifstream bwt_file(bwt_file_name);
+    std::ifstream bwt_file(prefix_tmp_files + ".bwt");
+    RLBWT.resize(p,std::move(interleaved_vectors<uint32_t>({1,4})));
 
-    if (read_rlbwt) {
-        for (uint16_t i=0; i<p; i++) {
-            r_p.emplace_back(i*(r/p));
-        }
+    for (uint16_t i=0; i<p; i++) {
+        n_p.emplace_back(i*(n/p));
+    }
 
-        r_p.emplace_back(r);
-        RLBWT.resize(p,std::move(interleaved_vectors<uint32_t>({1,4})));
+    n_p.emplace_back(n);
+    r_p.resize(p+1,0);
+    r_p[0] = 0;
+    C.resize(p+1,std::vector<uint_t>(256,0));
+
+    char cur_char;
+    char prev_char;
+    bwt_file.read(&prev_char,1);
+
+    if (prev_char == uchar_to_char(2)) {
+        prev_char = uchar_to_char(0);
+    }
+
+    uint_t i_ = 0;
+    uint16_t i_p = 0;
+    uint16_t ip_nxt = 1;
+    uint_t np_nxt = n_p[ip_nxt];
+    uint_t cur_bwt_buf_size;
+    uint_t i = 1;
+    std::string bwt_buf;
+    uint_t max_bwt_buf_size = std::max((uint_t)1,n/500);
+    no_init_resize(bwt_buf,max_bwt_buf_size);
+    uint_t i_buf;
+
+    while (i < n) {
+        cur_bwt_buf_size = std::min(n-i,max_bwt_buf_size);
+        read_from_file(bwt_file,bwt_buf.c_str(),cur_bwt_buf_size);
+        i_buf = 0;
         
-        for (uint16_t i_p=0; i_p<p; i_p++) {
-            uint_t rp_diff = r_p[i_p+1]-r_p[i_p];
-            RLBWT[i_p].resize_no_init(rp_diff);
-            read_from_file(bwt_file,RLBWT[i_p].data(),5*rp_diff);
+        while (i_buf < cur_bwt_buf_size) {
+            cur_char = bwt_buf[i_buf] == uchar_to_char(2) ? uchar_to_char(0) : bwt_buf[i_buf];
+
+            if (cur_char != prev_char) {
+                C[i_p][char_to_uchar(prev_char)] += i-i_;
+                RLBWT[0].emplace_back_unsafe<char,uint32_t>({prev_char,i-i_});
+                prev_char = cur_char;
+                i_ = i;
+
+                if (i >= np_nxt) {
+                    n_p[ip_nxt] = i;
+                    r_p[ip_nxt] = RLBWT[0].size();
+                    i_p++;
+                    ip_nxt++;
+                    np_nxt = n_p[ip_nxt];
+                }
+            }
+
+            i++;
+            i_buf++;
         }
-    } else {
-        no_init_resize(L,n);
-        read_from_file(bwt_file,&L[0],n);
+    }
+
+    RLBWT[0].emplace_back_unsafe<char,uint32_t>({prev_char,n-i_});
+    C[i_p][char_to_uchar(prev_char)] += n-i_;
+    RLBWT[0].shrink_to_fit();
+    bwt_buf.clear();
+    bwt_buf.shrink_to_fit();
+    r = RLBWT[0].size();
+    idx.r = r;
+    r_p[i_p+1] = r;
+    n_p[i_p+1] = n;
+    i_p += 2;
+
+    while (i_p <= p) {
+        r_p[i_p] = r;
+        n_p[i_p] = n;
+        i_p++;
     }
 
     bwt_file.close();
-    std::filesystem::remove(bwt_file_name);
+    std::filesystem::remove(prefix_tmp_files + ".bwt");
 
-    if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_read_rlbwt_bwt=" << time_diff_ns(time,now());
-        time = log_runtime(time);
-    }
-}
-
-template <typename uint_t>
-void move_r<uint_t>::construction::preprocess_rlbwt_space_saving() {
-    if (log) {
-        time = now();
-        std::cout << "preprocessing RLBWT" << std::flush;
-    }
-    
-    C.resize(p+1,std::vector<uint_t>(256));
-    n_p.resize(p+1);
-
-    #pragma omp parallel num_threads(p)
-    {
-        // Index in [0..p-1] of the current thread.
-        uint16_t i_p = omp_get_thread_num();
-
-        // Number of BWT runs in thread i_p's section.
-        uint_t rp_diff = r_p[i_p+1]-r_p[i_p];
-
-        for (uint_t i=0; i<rp_diff; i++) {
-            n_p[i_p] += run_length(i_p,i);
-            C[i_p][run_uchar(i_p,i)] += run_length(i_p,i);
-        }
+    for (uint16_t i_p=1; i_p<p; i_p++) {
+        RLBWT[i_p].set_data(RLBWT[0].data()+5*r_p[i_p],r_p[i_p+1]-r_p[i_p]);
     }
 
-    for (uint16_t i=1; i<p; i++) {
-        n_p[i] += n_p[i-1];
-    }
-
-    for (uint16_t i=p; i>0; i--) {
-        n_p[i] = n_p[i-1];
-    }
-
-    n_p[0] = 0;
-    
     process_c();
 
     if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_preprocess_rlbwt=" << time_diff_ns(time,now());
+        if (mf_idx != NULL) *mf_idx << " time_build_rlbwt=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }
@@ -190,26 +154,39 @@ void move_r<uint_t>::construction::read_iphi_space_saving() {
     }
 
     no_init_resize(I_Phi,r);
-    std::ifstream I_Phi_file(prefix_tempfiles + ".iphi");
+    std::ifstream ssa_file(prefix_tmp_files + ".ssa");
+    std::ifstream esa_file(prefix_tmp_files + ".esa");
     
-    if constexpr (std::is_same<uint_t,uint32_t>::value) {
-        read_from_file(I_Phi_file,(char*)&I_Phi[1],8*(r-1));
-        read_from_file(I_Phi_file,(char*)&I_Phi[0],8);
-    } else {
-        interleaved_vectors<uint64_t> I_Phi_tmp({5,5});
-        I_Phi_tmp.resize_no_init(r);
-        read_from_file(I_Phi_file,I_Phi_tmp.data()+10,10*(r-1));
-        read_from_file(I_Phi_file,I_Phi_tmp.data(),10);
+    interleaved_vectors<uint64_t> ssa({5});
+    interleaved_vectors<uint64_t> esa({5});
+    ssa.resize_no_init(r);
+    esa.resize_no_init(r);
+    read_from_file(ssa_file,ssa.data(),5*r);
+    read_from_file(esa_file,esa.data(),5*r);
 
-        #pragma omp parallel for num_threads(p)
-        for (uint64_t i=0; i<r; i++) {
-            I_Phi[i].first = I_Phi_tmp.get<0>(i);
-            I_Phi[i].second = I_Phi_tmp.get<1>(i);
+    #pragma omp parallel for num_threads(p)
+    for (uint64_t i=0; i<r-1; i++) {
+        if constexpr (std::is_same<uint_t,uint32_t>::value) {
+            I_Phi[i].first = ssa.get_unsafe<0,uint32_t>(i);
+            I_Phi[i+1].second = esa.get_unsafe<0,uint32_t>(i);
+        } else {
+            I_Phi[i].first = ssa[i];
+            I_Phi[i+1].second = esa[i];
         }
     }
 
-    I_Phi_file.close();
-    std::filesystem::remove(prefix_tempfiles + ".iphi");
+    I_Phi[r-1].first = ssa[r-1];
+    I_Phi[0].second = esa[r-1];
+
+    ssa.clear();
+    esa.clear();
+    ssa.shrink_to_fit();
+    esa.shrink_to_fit();
+
+    ssa_file.close();
+    esa_file.close();
+    std::filesystem::remove(prefix_tmp_files + ".ssa");
+    std::filesystem::remove(prefix_tmp_files + ".esa");
     
     if (log) {
         if (mf_idx != NULL) *mf_idx << " time_read_iphi=" << time_diff_ns(time,now());
@@ -224,7 +201,7 @@ void move_r<uint_t>::construction::store_mlf() {
         std::cout << "storing M_LF in a file" << std::flush;
     }
 
-    std::ofstream file_mlf(prefix_tempfiles + ".mlf");
+    std::ofstream file_mlf(prefix_tmp_files + ".mlf");
     idx.M_LF.serialize(file_mlf);
     idx.M_LF = std::move(move_data_structure_str<uint_t>());
     file_mlf.close();
@@ -242,10 +219,10 @@ void move_r<uint_t>::construction::load_mlf() {
         std::cout << "loading M_LF from a file" << std::flush;
     }
 
-    std::ifstream file_mlf(prefix_tempfiles + ".mlf");
+    std::ifstream file_mlf(prefix_tmp_files + ".mlf");
     idx.M_LF.load(file_mlf);
     file_mlf.close();
-    std::filesystem::remove(prefix_tempfiles + ".mlf");
+    std::filesystem::remove(prefix_tmp_files + ".mlf");
 
     if (log) {
         if (mf_idx != NULL) *mf_idx << " time_load_mlf=" << time_diff_ns(time,now());

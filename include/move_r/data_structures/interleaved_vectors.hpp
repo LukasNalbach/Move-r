@@ -61,9 +61,10 @@ class interleaved_vectors {
     
     /**
      * @brief builds the bases array
+     * @param data pointer to the data storing the interleaved vectors
      */
-    void set_bases() {
-        bases[0] = &data_vectors[0];
+    void set_bases(char* data) {
+        bases[0] = data;
 
         for (uint8_t i=1; i<num_vectors; i++) {
             if (widths[i] == 0) {
@@ -86,7 +87,7 @@ class interleaved_vectors {
         widths = other.widths;
         masks = other.masks;
 
-        set_bases();
+        set_bases(&data_vectors[0]);
     }
 
     /**
@@ -208,7 +209,7 @@ class interleaved_vectors {
             std::memset(&new_data_vectors[size_vectors*width_entry],0,width_entry);
             std::memset(&new_data_vectors[capacity*width_entry],0,width_entry);
             std::swap(data_vectors,new_data_vectors);
-            set_bases();
+            set_bases(&data_vectors[0]);
             capacity_vectors = capacity;
         }
     }
@@ -262,23 +263,25 @@ class interleaved_vectors {
             capacity_vectors = std::max<uint64_t>(2,size_vectors);
             data_vectors.resize((capacity_vectors+1)*width_entry);
             data_vectors.shrink_to_fit();
-            set_bases();
+            set_bases(&data_vectors[0]);
         }
     }
 
     /**
      * @brief appends a tuple of vec values to the end of the interleaved vectors
-     * @param values tuple of vec values
+     * @param vals tuple of vec values
      */
     template <typename... Ts>
-    void emplace_back(std::tuple<Ts...>&& values) {
+    void emplace_back(std::tuple<Ts...>&& vals) {
+        static_assert(std::tuple_size<std::tuple<Ts...>>::value <= num_vectors);
+        
         if (size_vectors == capacity_vectors) {
             reserve(1.5*size_vectors);
         }
 
-        for (uint8_t vec=0; vec<sizeof...(Ts); vec++) {
-            set<vec>(size_vectors,values[vec]);
-        }
+        for_constexpr<0,sizeof...(Ts),1>([this,&vals](auto vec){
+            set<vec>(size_vectors,vals[vec]);
+        });
 
         size_vectors++;
     }
@@ -306,10 +309,8 @@ class interleaved_vectors {
             reserve(1.5*size_vectors);
         }
 
-        for_constexpr<0,7,1>([this,&vals](auto vec){
-            if constexpr (sizeof...(Ts) > vec) {
-                set_unsafe<vec,std::tuple_element_t<vec,std::tuple<Ts...>>>(size_vectors,std::get<vec>(vals));
-            }
+        for_constexpr<0,sizeof...(Ts),1>([this,&vals](auto vec){
+            set_unsafe<vec,std::tuple_element_t<vec,std::tuple<Ts...>>>(size_vectors,std::get<vec>(vals));
         });
 
         size_vectors++;
@@ -378,6 +379,22 @@ class interleaved_vectors {
     inline uint_t get_unsafe(uint_t i) {
         static_assert(vec < num_vectors);
         return *reinterpret_cast<T*>(bases[vec] + i * width_entry);
+    }
+
+    /**
+     * @brief reinterpret the memory at data as interleaved vectors of size size; do not perform any operations that
+     * may change the size or the capacity of the interleaved vectors after using this method
+     * @param data memory location storing interleaved vectors with the same byte-widths as stored in widths
+     * @param size size of the interleaved vectors stored at data
+     */
+    void set_data(char* data, uint64_t size) {
+        data_vectors.clear();
+        data_vectors.shrink_to_fit();
+        
+        size_vectors = size;
+        capacity_vectors = size;
+        
+        set_bases(data);
     }
 
     /**

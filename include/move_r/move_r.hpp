@@ -262,7 +262,7 @@ class move_r {
      * @brief constructs a move_r index from a suffix array and a bwt
      * @tparam sa_sint_t suffix array signed integer type
      * @param suffix_array vector containing the suffix array of the input
-     * @param bwt string containing the bwt of the input
+     * @param bwt string containing the bwt of the input, where $ = 1
      * @param support a vector containing move_r operations to build support for
      * @param num_threads maximum number of threads to use during the construction
      * @param a balancing parameter, 2 <= a
@@ -305,8 +305,7 @@ class move_r {
     }
 
     /**
-     * @brief returns the number of runs in the bwt (+ up to p, where p is the number of threads,
-     * that where used during the construction of the index)
+     * @brief returns the number of runs in the bwt
      * @return number of runs in the bwt 
      */
     uint_t num_bwt_runs() {
@@ -341,7 +340,7 @@ class move_r {
      * @brief returns the number omega_idx of bits used by one entry in SA_phi (word width of SA_phi)
      * @return omega_idx
      */
-    inline uint8_t width_saidx() {
+    inline uint8_t width_saphi() {
         return omega_idx;
     }
 
@@ -515,6 +514,7 @@ class move_r {
     /**
      * @brief locates the pattern P in the input string and appends the positions of the occurrences to Occ
      * @param P the pattern to locate in the input string
+     * @param Occ vector to append the occurrences of P in the input string to
      */
     void locate(const std::string& P, std::vector<uint_t>& Occ) {        
         locate(P,[&Occ](uint_t o){Occ.emplace_back(o);});
@@ -532,7 +532,32 @@ class move_r {
     /**
      * @brief locates a pattern in the input string
      * @param pattern_length length of the query pattern
-     * @param read read(i) must return the character of the query pattern at position i, for each i \in [0,pattern_length)
+     * @param read read(i) must return the character of the query pattern at position i, for each i \in [0,pattern_length);
+     * it is called in the order read(pattern_length-1), read(pattern_length-2), ..., read(0)
+     * @param Occ vector to append the occurrences of P in the input string to
+     */
+    void locate(uint_t pattern_length, const std::function<char(uint_t)>& read, std::vector<uint_t>& Occ) {
+        locate(pattern_length,read,[&Occ](uint_t o){Occ.emplace_back(o);});
+    }
+
+    /**
+     * @brief locates a pattern in the input string
+     * @param pattern_length length of the query pattern
+     * @param read read(i) must return the character of the query pattern at position i, for each i \in [0,pattern_length);
+     * it is called in the order read(pattern_length-1), read(pattern_length-2), ..., read(0)
+     * @return a vector containing the occurrences of P in the input string
+     */
+    std::vector<uint_t> locate(uint_t pattern_length, const std::function<char(uint_t)>& read) {
+        std::vector<uint_t> Occ;
+        locate(pattern_length,read,Occ);
+        return Occ;
+    }
+
+    /**
+     * @brief locates a pattern in the input string
+     * @param pattern_length length of the query pattern
+     * @param read read(i) must return the character of the query pattern at position i, for each i \in [0,pattern_length);
+     * it is called in the order read(pattern_length-1), read(pattern_length-2), ..., read(0)
      * @param report function that is called with every occurrence of the pattern in the input string as a parameter
      */
     void locate(uint_t pattern_length, const std::function<char(uint_t)>& read, const std::function<void(uint_t)>& report);

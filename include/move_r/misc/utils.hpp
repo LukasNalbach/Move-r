@@ -104,14 +104,6 @@ std::chrono::steady_clock::time_point log_runtime(std::chrono::steady_clock::tim
     return log_runtime(t,std::chrono::steady_clock::now());
 }
 
-void log_peak_mem_usage(uint64_t baseline_memory_allocation) {
-    std::cout << "peak memory allocation until now: " << format_size(malloc_count_peak() - baseline_memory_allocation) << std::endl;
-}
-
-void log_mem_usage(uint64_t baseline_memory_allocation) {
-    std::cout << "current memory allocation: " << format_size(malloc_count_current() - baseline_memory_allocation) << std::endl;
-}
-
 void log_message(std::string message) {
     std::cout << message << std::flush;
 }
@@ -354,6 +346,36 @@ uint_t exp_search_max_leq(uint_t value, uint_t left, uint_t right, std::function
 
         return bin_search_max_leq<uint_t>(value,left-cur_step_size+1,left,value_at);
     }
+}
+
+uint64_t malloc_count_peak_memory_usage(std::ifstream& log_file) {
+    std::string log_file_content;
+    log_file.seekg(0,std::ios::end);
+    no_init_resize(log_file_content,log_file.tellg());
+    log_file.seekg(0,std::ios::beg);
+    log_file.read((char*)&log_file_content[0],log_file_content.size());
+    int32_t pos = 0;
+    uint64_t cur_peak = 0;
+    std::string str_cur_peak;
+    
+    while ((pos = log_file_content.find(", peak",pos)) != -1) {
+        while (!('0' <= log_file_content[pos] && log_file_content[pos] <= '9')) {
+            pos++;
+        }
+
+        while (('0' <= log_file_content[pos] && log_file_content[pos] <= '9') || log_file_content[pos] == '.') {
+            if (log_file_content[pos] != '.') {
+                str_cur_peak.push_back(log_file_content[pos]);
+            }
+            
+            pos++;
+        }
+
+        cur_peak = std::max(cur_peak,(uint64_t)stol(str_cur_peak));
+        str_cur_peak.clear();
+    }
+
+    return cur_peak;
 }
 
 template <auto start, auto end, auto inc, class T>

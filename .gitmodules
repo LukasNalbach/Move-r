@@ -34,9 +34,6 @@
 [submodule "external/pfp-thresholds"]
 	path = external/pfp-thresholds
 	url = git@github.com:maxrossi91/pfp-thresholds.git
-[submodule "external/Big-BWT"]
-	path = external/Big-BWT
-	url = git@github.com:alshai/Big-BWT.git
 [submodule "external/gsa-is"]
 	path = external/gsa-is
 	url = git@github.com:felipelouza/gsa-is.git
@@ -53,3 +50,6 @@
 [submodule "external/grlBWT"]
 	path = external/grlBWT
 	url = git@github.com:ddiazdom/grlBWT.git
+[submodule "external/Big-BWT"]
+	path = external/Big-BWT
+	url = https://gitlab.com/manzai/Big-BWT.git

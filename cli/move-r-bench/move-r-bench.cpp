@@ -179,7 +179,7 @@ int main_bench_indexes(int argc, char** argv) {
     if (!patterns_file_2.good()) help("error: invalid input, could not read <patterns_file_2>");
     if (mf.is_open() && check_correctness) help("error: cannot output bench_indexment data when checking for correctness");
 
-    system("chmod +x build/external/Big-BWT/*");
+    system("chmod +x external/Big-BWT/*");
     system("chmod +x build/external/pfp-thresholds/*");
     system("chmod +x build/external/block_RLBWT/*");
     system("chmod +x build/external/grlBWT/*");

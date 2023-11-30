@@ -38,9 +38,8 @@ using namespace __gnu_cxx;
 
 // -------------------------------------------------------------
 // struct containing command line parameters and other globals
-struct Args_Pfbwt {
-   const char *name_input_file;
-   uint64_t n;
+struct Args {
+   char *basename;
    string parseExt =  EXTPARSE;    // extension final parse file  
    string occExt =    EXTOCC;      // extension occurrences file  
    string dictExt =   EXTDICT;     // extension dictionary file  
@@ -49,7 +48,7 @@ struct Args_Pfbwt {
    int w = 10;            // sliding window size and its default 
    int th = 0;            // number of helper threads, default none 
    bool SA = false;       // output all SA values
-   int build_sa_samples = 0;// output sampled SA values
+   int sampledSA = 0;// output sampled SA values
 };
 
 // mask for sampled SA: start of a BWT run, end of a BWT run, or both 
@@ -60,16 +59,13 @@ struct Args_Pfbwt {
 static long get_num_words(uint8_t *d, long n);
 static long binsearch(uint_t x, uint_t a[], long n);
 static int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
-static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp, bool log);
-static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts, bool rle, uint8_t& bwt_last, uint32_t& cur_run_length, uint64_t& num_bwt_runs);
+static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
+static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts);
 static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts,
                                      int_t suffixLen, FILE *safile, uint8_t *bwsainfo,long);
-static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
-                                    uint32_t *ilist, uint32_t *istart,
-                                    FILE *fbwt, long &easy_bwts, long &hard_bwts,
-                                    int_t suffixLen, FILE *iphifile, bool is_64_bit, 
-                                    uint8_t *bwsainfo, long n, int &bwtlast, uint64_t &salast, int ssa, bool rle, uint8_t& bwt_last, uint32_t& cur_run_length, uint64_t& num_bwt_runs);
-static uint8_t *load_bwsa_info(const Args_Pfbwt &arg, long n);
+static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts,
+                                     int_t suffixLen, FILE *ssafile, FILE *esafile, uint8_t *bwsainfo,long, int &, uint64_t &, int);
+static uint8_t *load_bwsa_info(Args &arg, long n);
 
 // class representing the suffix of a dictionary word
 // instances of this class are stored to a heap to handle the hard bwts
@@ -97,6 +93,10 @@ bool SeqId::operator<(const SeqId& a) {
     return *bwtpos > *(a.bwtpos);
 }
 
+#ifndef NOTHREADS
+#include "pfthreads.hpp"
+#endif
+
 
 
 /* *******************************************************************
@@ -106,51 +106,36 @@ bool SeqId::operator<(const SeqId& a) {
  * (considered in lexicographic order) for k=istart[i]...istart[i+1]-1
  * ilist[k] contains the ordered positions in BWT(P) containing word i 
  * ******************************************************************* */
-void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its size  
+void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size  
          uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
-         uint32_t *istart, long dwords, bool log, uint64_t& num_bwt_runs) // starting point in ilist for each word and # words
+         uint32_t *istart, long dwords) // starting point in ilist for each word and # words
 {  
   // possibly read bwsa info file and open sa output file
   uint8_t *bwsainfo = load_bwsa_info(arg,psize);
   FILE *safile=NULL, *ssafile=NULL, *esafile=NULL;
   // open the necessary (sampled) SA files (possibly none)
-  if(arg.SA) safile = open_aux_file(arg.name_input_file,EXTSA,"wb");
-  //if(arg.build_sa_samples & START_RUN) ssafile = open_aux_file(arg.name_input_file,EXTSSA,"wb");
-  //if(arg.build_sa_samples & END_RUN) esafile = open_aux_file(arg.name_input_file,EXTESA,"wb");
-
-  FILE *iphifile=NULL;
-  if (arg.build_sa_samples) {
-    iphifile = open_aux_file(arg.name_input_file,"iphi","wb");
-  }
+  if(arg.SA) safile = open_aux_file(arg.basename,EXTSA,"wb");
+  if(arg.sampledSA & START_RUN) ssafile = open_aux_file(arg.basename,EXTSSA,"wb");
+  if(arg.sampledSA & END_RUN) esafile = open_aux_file(arg.basename,EXTESA,"wb");
 
   // compute sa and bwt of d and do some checking on them 
   uint_t *sa; int_t *lcp;
-  compute_dict_bwt_lcp(d,dsize,dwords,arg.w,&sa,&lcp,log);
+  compute_dict_bwt_lcp(d,dsize,dwords,arg.w,&sa,&lcp);
   // set d[0]==0 as this is the EOF char in the final BWT
+  // Since by construction d[] = DollarT[0]T[1].... and no other word starts with Dollar 
+  // and the words in d[] are lexicographically sorted
   assert(d[0]==Dollar);
   d[0]=0;
 
   // derive eos from sa. for i=0...dwords-1, eos[i] is the eos position of string i in d
   uint_t *eos = sa+1;
+  // note that sa[0] = dsize-1 the position of the final 0x0
+  assert((long) sa[0]==dsize-1);
   for(int i=0;i<dwords-1;i++)
     assert(eos[i]<eos[i+1]);
 
-  bool rle = arg.n > 100 * psize;
-
   // open output file
-  FILE *fbwt = NULL;
-  
-  if (rle) {
-    fbwt = open_aux_file(arg.name_input_file,"rlbwt","wb");
-  } else {
-    fbwt = open_aux_file(arg.name_input_file,"bwt","wb");
-  }
-
-  uint32_t cur_run_length = 0;
-  uint8_t bwt_last = 0;
-  std::pair<uint64_t,uint64_t> I_Phi_first;
-  std::pair<uint32_t,uint32_t> I_Phi_cur;
-  uint8_t is_64_bit = arg.n > UINT_MAX;
+  FILE *fbwt = open_aux_file(arg.basename,"bwt","wb");
     
   // main loop: consider each entry in the SA of dict
   time_t start = time(NULL);
@@ -161,8 +146,9 @@ void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its si
   uint32_t seqid;
   int lastbwt = Dollar;  // this is certainly not a BWT char
   uint64_t lastSa = UINT64_MAX; // this is an invalid SA entry
-  bool first_char = true;
-  for(long i=dwords+arg.w+1; i< dsize; i=next ) {
+  // in the SA of dict kip suffixes starting with 0x0 0x1 and the last w 0x2
+  assert(sa[dwords+arg.w+1]==0); // start with the previously written eos of T
+  for(long i=dwords+arg.w+1; i< dsize; i=next ) { 
     // we are considering d[sa[i]....]
     next = i+1;  // prepare for next iteration  
     // compute length of this suffix and sequence it belongs
@@ -173,64 +159,46 @@ void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its si
     if(sa[i]==0 || d[sa[i]-1]==EndOfWord) {
       full_words++;
       for(long j=istart[seqid];j<istart[seqid+1];j++) {
-        uint8_t nextbwt = last[ilist[j]]; // compute next bwt char
-        if (first_char) {
-          num_bwt_runs = 1;
-          bwt_last = nextbwt;
-          first_char = false;
-        }
+        int nextbwt = last[ilist[j]]; // compute next bwt char
         if(arg.SA) { // full SA requested 
           if(seqid>0) { // if not the first word in the parse output SA values
             uint64_t sa = get_myint(bwsainfo,psize,ilist[j]) - suffixLen;
             if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 0");
           }
           else assert(j==1); // the first word in the parse is the 2nd lex smaller and does not correspond to a SA entry
+                             // because it starts with Dollar which is not in T[] 
         }
-        else if(arg.build_sa_samples!=0) { // sampled SA
+        else if(arg.sampledSA!=0) { // sampled SA
           uint64_t sa=UINT64_MAX; 
           if(seqid>0) { // if not the first word in the parse output (pos,SA[pos]) pair
-            if ((arg.build_sa_samples & END_RUN) || (nextbwt!=lastbwt))
+            if ((arg.sampledSA & END_RUN) || (nextbwt!=lastbwt))
               sa = get_myint(bwsainfo,psize,ilist[j]) - suffixLen;
-            if(nextbwt!=lastbwt && arg.build_sa_samples) {
-              if (is_64_bit) {
-                fwrite(&sa,5,1,iphifile);
-                fwrite(&lastSa,5,1,iphifile);
-              } else {
-                I_Phi_cur = std::make_pair(sa,lastSa);
-                fwrite(&I_Phi_cur,8,1,iphifile);
+            if(nextbwt!=lastbwt) {
+              uint64_t pos = easy_bwts + hard_bwts;
+              if(arg.sampledSA & START_RUN) {
+                //if(fwrite(&pos,SABYTES,1,ssafile)!=1)   die("sampled SA write error 0a");
+                if(fwrite(&sa,SABYTES,1,ssafile)!=1) die("sampled SA write error 0b");
+              }
+              if(arg.sampledSA & END_RUN) {
+                pos--;
+                //if(fwrite(&pos,SABYTES,1,esafile)!=1)   die("sampled SA write error 0c");
+                if(fwrite(&lastSa,SABYTES,1,esafile)!=1) die("sampled SA write error 0d");
               }
             }
           }
           else { // first word in the parsing as a full word. This is the very first BWT char
             sa = get_myint(bwsainfo,psize,0) - arg.w; // this is length of the original text 
-            if(arg.build_sa_samples & START_RUN) { // first BWT entry always goes only to the ssa file
-              //uint64_t pos = easy_bwts + hard_bwts;
-              //assert(pos==0);
-              I_Phi_first.first = sa;
+            if(arg.sampledSA & START_RUN) { // first BWT entry always goes only to the ssa file
+              uint64_t pos = easy_bwts + hard_bwts;
+              assert(pos==0);
               //if(fwrite(&pos,SABYTES,1,ssafile)!=1) die("sampled SA write error 01a");
-              //if(fwrite(&sa,SABYTES,1,ssafile)!=1) die("sampled SA write error 01b");
+              if(fwrite(&sa,SABYTES,1,ssafile)!=1) die("sampled SA write error 01b");
             }
           }
-          if(arg.build_sa_samples&END_RUN) lastSa = sa; // save current sa 
+          if(arg.sampledSA&END_RUN) lastSa = sa; // save current sa 
         }
         // in any case output BWT char 
-        if (rle) {
-          if (nextbwt != bwt_last) {
-            num_bwt_runs++;
-            fputc(bwt_last,fbwt);
-            fwrite(&cur_run_length,4,1,fbwt);
-            bwt_last = nextbwt;
-            cur_run_length = 1;
-          } else {
-            cur_run_length++;
-          }
-        } else {
-          if (nextbwt != bwt_last) {
-            bwt_last = nextbwt;
-            num_bwt_runs++;
-          }
-          if(fputc(nextbwt,fbwt)==EOF) die("BWT write error 0");
-        }
+        if(fputc(nextbwt,fbwt)==EOF) die("BWT write error 0");
         lastbwt = nextbwt;   // update lastbwt
         easy_bwts++;
       }
@@ -255,45 +223,32 @@ void bwt(const Args_Pfbwt &arg, uint8_t *d, long dsize, // dictionary and its si
     // output to fbwt the bwt chars corresponding to the current dictionary suffix, and, if requested, some SA values 
     if(arg.SA)
       fwrite_chars_same_suffix_sa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,safile,bwsainfo,psize);
-    else if(arg.build_sa_samples!=0)
-      fwrite_chars_same_suffix_ssa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,iphifile,is_64_bit,bwsainfo,psize,lastbwt,lastSa,arg.build_sa_samples,rle,bwt_last,cur_run_length,num_bwt_runs);
+    else if(arg.sampledSA!=0)
+      fwrite_chars_same_suffix_ssa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,ssafile,esafile,bwsainfo,psize,lastbwt,lastSa,arg.sampledSA);
     else 
-      fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,rle,bwt_last,cur_run_length,num_bwt_runs);
+      fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts);
   }
   // write very last Sa pair
-  if(arg.build_sa_samples & END_RUN) {
+  if(arg.sampledSA & END_RUN) {
     //uint64_t pos = easy_bwts+hard_bwts-1;
     //if(fwrite(&pos,SABYTES,1,esafile)!=1)   die("sampled SA write error 0e");
-    //if(fwrite(&lastSa,SABYTES,1,esafile)!=1) die("sampled SA write error 0f");
-    I_Phi_first.second = lastSa;
-
-    if (is_64_bit) {
-      fwrite(&I_Phi_first.first,5,1,iphifile);
-      fwrite(&I_Phi_first.second,5,1,iphifile);
-    } else {
-      fwrite(&I_Phi_first.first,4,1,iphifile);
-      fwrite(&I_Phi_first.second,4,1,iphifile);
-    }
-  }
-  if (rle) {
-    fputc(bwt_last,fbwt);
-    fwrite(&cur_run_length,4,1,fbwt);
+    if(fwrite(&lastSa,SABYTES,1,esafile)!=1) die("sampled SA write error 0f");
   }
   assert(full_words==dwords);
-  if (log) cout << "Full words: " << full_words << endl;
-  if (log) cout << "Easy bwt chars: " << easy_bwts << endl;
-  if (log) cout << "Hard bwt chars: " << hard_bwts << endl;
-  if (log) cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds\n";    
+  cout << "Full words: " << full_words << endl;
+  cout << "Easy bwt chars: " << easy_bwts << endl;
+  cout << "Hard bwt chars: " << hard_bwts << endl;
+  cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds\n";    
   fclose(fbwt);
   delete[] lcp;
   delete[] sa;
-  if(arg.SA or arg.build_sa_samples!=0) free(bwsainfo);
+  if(arg.SA or arg.sampledSA!=0) free(bwsainfo);
   if(arg.SA) fclose(safile);
-  if(iphifile != NULL) fclose(iphifile);
-  //if(arg.build_sa_samples & 2) fclose(esafile);
+  if(arg.sampledSA & 1) fclose(ssafile);
+  if(arg.sampledSA & 2) fclose(esafile);
 }  
 
-void print_help(char** argv, const Args_Pfbwt &args) {
+void print_help(char** argv, Args &args) {
   cout << "Usage: " << argv[ 0 ] << " <input filename> [options]" << endl;
   cout << "  Options: " << endl
         << "\t-w W\tsliding window size, def. " << args.w << endl
@@ -306,7 +261,7 @@ void print_help(char** argv, const Args_Pfbwt &args) {
   exit(1);
 }
 
-void parseArgs( int argc, char** argv, Args_Pfbwt& arg ) {
+void parseArgs( int argc, char** argv, Args& arg ) {
   int c;
   extern char *optarg;
   extern int optind;
@@ -320,9 +275,9 @@ void parseArgs( int argc, char** argv, Args_Pfbwt& arg ) {
    while ((c = getopt( argc, argv, "t:w:sehS") ) != -1) {
       switch(c) {
         case 's':
-        arg.build_sa_samples |= START_RUN; break; // record SA position for start of runs 
+        arg.sampledSA |= START_RUN; break; // record SA position for start of runs 
         case 'e':
-        arg.build_sa_samples |= END_RUN; break;  // record SA position for end of runs 
+        arg.sampledSA |= END_RUN; break;  // record SA position for end of runs 
         case 'S':
         arg.SA = true; break;
         case 'w':
@@ -339,15 +294,15 @@ void parseArgs( int argc, char** argv, Args_Pfbwt& arg ) {
       }
    }
    // the only input parameter is the file name
-   arg.name_input_file = NULL; 
+   arg.basename = NULL; 
    if (argc == optind+1) 
-     arg.name_input_file = argv[optind];
+     arg.basename = argv[optind];
    else {
       cout << "Invalid number of arguments" << endl;
       print_help(argv,arg);
    }
    // check algorithm parameters
-   if(arg.SA && arg.build_sa_samples!=0) {
+   if(arg.SA && arg.sampledSA!=0) {
      cout << "You can either require the sampled SA or the full SA, not both";
      exit(1);
    } 
@@ -369,23 +324,24 @@ void parseArgs( int argc, char** argv, Args_Pfbwt& arg ) {
 }
 
 
-void bigbwt_pfbwt(const Args_Pfbwt& arg, uint64_t& num_bwt_runs, bool log)
+int main(int argc, char** argv)
 {
   time_t start = time(NULL);  
 
   // translate command line parameters
-  //parseArgs(argc, argv, arg);
+  Args arg;
+  parseArgs(argc, argv, arg);
   // read dictionary file 
-  FILE *g = open_aux_file(arg.name_input_file,EXTDICT,"rb");
+  FILE *g = open_aux_file(arg.basename,EXTDICT,"rb");
   fseek(g,0,SEEK_END);
   long dsize = ftell(g);
   if(dsize<0) die("ftell dictionary");
   if(dsize<=1+arg.w) die("invalid dictionary file");
-  if (log) cout  << "Dictionary file size: " << dsize << endl;
+  cout  << "Dictionary file size: " << dsize << endl;
   #if !M64
   if(dsize > 0x7FFFFFFE) {
-    if (log) printf("Dictionary size greater than  2^31-2!\n");
-    if (log) printf("Please use 64 bit version\n");
+    printf("Dictionary size greater than  2^31-2!\n");
+    printf("Please use 64 bit version\n");
     exit(1);
   }
   #endif
@@ -397,13 +353,13 @@ void bigbwt_pfbwt(const Args_Pfbwt& arg, uint64_t& num_bwt_runs, bool log)
   fclose(g);
   
   // read occ file
-  g = open_aux_file(arg.name_input_file,EXTOCC,"rb");
+  g = open_aux_file(arg.basename,EXTOCC,"rb");
   fseek(g,0,SEEK_END);
   e = ftell(g);
   if(e<0) die("ftell occ file");
   if(e%4!=0) die("invalid occ file");
   int dwords = e/4;
-  if (log) cout  << "Dictionary words: " << dwords << endl;
+  cout  << "Dictionary words: " << dwords << endl;
   uint32_t *occ = new uint32_t[dwords+1];  // dwords+1 since istart overwrites occ
   rewind(g);
   e = fread(occ,4,dwords,g);
@@ -412,13 +368,13 @@ void bigbwt_pfbwt(const Args_Pfbwt& arg, uint64_t& num_bwt_runs, bool log)
   assert(dwords==get_num_words(d,dsize));
 
   // read ilist file 
-  g = open_aux_file(arg.name_input_file,EXTILIST,"rb");
+  g = open_aux_file(arg.basename,EXTILIST,"rb");
   fseek(g,0,SEEK_END);
   e = ftell(g);
   if(e<0) die("ftell ilist file");
   if(e%4!=0) die("invalid ilist file");
   long psize = e/4;
-  if (log) cout  << "Parsing size: " << psize << endl;
+  cout  << "Parsing size: " << psize << endl;
   if(psize>0xFFFFFFFEL) die("More than 2^32 -2 words in the parsing");
   uint32_t *ilist = new uint32_t[psize];  
   rewind(g);
@@ -428,8 +384,8 @@ void bigbwt_pfbwt(const Args_Pfbwt& arg, uint64_t& num_bwt_runs, bool log)
   assert(ilist[0]==1); // EOF is in PBWT[1] 
 
   // read bwlast file 
-  g = open_aux_file(arg.name_input_file,EXTBWLST,"rb");  
-  if (log) cout  << "bwlast file size: " << psize << endl;
+  g = open_aux_file(arg.basename,EXTBWLST,"rb");  
+  cout  << "bwlast file size: " << psize << endl;
   uint8_t *bwlast = new uint8_t[psize];  
   e = fread(bwlast,1,psize,g);
   if(e!=psize) die("fread 4");
@@ -450,31 +406,32 @@ void bigbwt_pfbwt(const Args_Pfbwt& arg, uint64_t& num_bwt_runs, bool log)
   
   // compute and write the final bwt 
   if(arg.th==0)
-    bwt(arg,d,dsize,ilist,bwlast,psize,occ,dwords,log,num_bwt_runs); // version not using threads
+    bwt(arg,d,dsize,ilist,bwlast,psize,occ,dwords); // version not using threads
   else {
     #ifdef NOTHREADS
     cerr << "Sorry, this is the no-threads executable and you requested " << arg.th << " threads\n";
     exit(EXIT_FAILURE);
     #else
     // multithread version
-    //bwt_multi(arg,d,dsize,ilist,bwlast,psize,occ,dwords);
+    bwt_multi(arg,d,dsize,ilist,bwlast,psize,occ,dwords);
     #endif
   }
   delete[] bwlast;
   delete[] ilist;
   delete[] occ;
   delete[] d;  
-  if (log) cout << "==== Elapsed time: " << difftime(time(NULL),start) << " wall clock seconds\n";      
+  cout << "==== Elapsed time: " << difftime(time(NULL),start) << " wall clock seconds\n";      
+  return 0;
 }
 
 // --------------------- aux functions ----------------------------------
 
-static uint8_t *load_bwsa_info(const Args_Pfbwt &arg, long n)
+static uint8_t *load_bwsa_info(Args &arg, long n)
 {  
   // maybe sa info is not really needed 
-  if(arg.SA==false and arg.build_sa_samples==0) return NULL;
+  if(arg.SA==false and arg.sampledSA==0) return NULL;
   // open .bwsa file for reading and .bwlast for writing
-  FILE *fin = open_aux_file(arg.name_input_file,EXTBWSAI,"rb");
+  FILE *fin = open_aux_file(arg.basename,EXTBWSAI,"rb");
   // allocate and load the bwsa array
   uint8_t *sai = (uint8_t *) malloc(n*IBYTES);
   if(sai==NULL) die("malloc failed (BWSA INFO)"); 
@@ -527,23 +484,23 @@ static int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
 // d[0..dsize-1] is the dictionary consisting of the concatenation of dictionary words
 // in lex order with EndOfWord (0x1) at the end of each word and 
 // d[size-1] = EndOfDict (0x0) at the very end. It is d[0]=Dollar (0x2)
-// since the first words starts with $. There is another word somewhere
+// since the first word starts with $. There is another word somewhere
 // ending with Dollar^wEndOfWord (it is the last word in the parsing,
 // but its lex rank is unknown).  
 static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, 
-                          uint_t **sap, int_t **lcpp, bool log) // output parameters
+                          uint_t **sap, int_t **lcpp) // output parameters
 {
   uint_t *sa = new uint_t[dsize];
   int_t *lcp = new int_t[dsize];
   (void) dwords; (void) w;
 
-  if (log) cout  << "Each SA entry: " << sizeof(*sa) << " bytes\n";
-  if (log) cout  << "Each LCP entry: " << sizeof(*lcp) << " bytes\n";
+  cout  << "Each SA entry: " << sizeof(*sa) << " bytes\n";
+  cout  << "Each LCP entry: " << sizeof(*lcp) << " bytes\n";
 
-  if (log) cout << "Computing SA and LCP of dictionary" << endl; 
+  cout << "Computing SA and LCP of dictionary" << endl; 
   time_t  start = time(NULL);
   gsacak(d,sa,lcp,NULL,dsize);
-  if (log) cout << "Computing SA/LCP took " << difftime(time(NULL),start) << " wall clock seconds\n";  
+  cout << "Computing SA/LCP took " << difftime(time(NULL),start) << " wall clock seconds\n";  
   // ------ do some checking on the sa
   assert(d[dsize-1]==EndOfDict);
   assert(sa[0]==(unsigned long)dsize-1);// sa[0] is the EndOfDict symbol 
@@ -569,7 +526,7 @@ static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w,
 // doing a merge operation if necessary
 static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
                                     uint32_t *ilist, uint32_t *istart,
-                                    FILE *fbwt, long &easy_bwts, long &hard_bwts, bool rle, uint8_t& bwt_last, uint32_t& cur_run_length, uint64_t& num_bwt_runs)
+                                    FILE *fbwt, long &easy_bwts, long &hard_bwts)
 {
   size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   bool samechar=true;
@@ -578,25 +535,8 @@ static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t
   if(samechar) {
     for(size_t i=0; i<numwords; i++) {
       uint32_t s = id2merge[i];
-      if (rle) {
-        if (char2write[0] != bwt_last) {
-          num_bwt_runs++;
-          fputc(bwt_last,fbwt);
-          fwrite(&cur_run_length,4,1,fbwt);
-          bwt_last = char2write[0];
-          cur_run_length = istart[s+1]-istart[s];
-        } else {
-          cur_run_length += istart[s+1]-istart[s];
-        }
-      } else {
-        if (char2write[0] != bwt_last) {
-          bwt_last = char2write[0];
-          num_bwt_runs++;
-        }
-        for(long j=istart[s];j<istart[s+1];j++) {
-          if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
-        }
-      }
+      for(long j=istart[s];j<istart[s+1];j++)
+        if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
       easy_bwts +=  istart[s+1]- istart[s]; 
     }
   }
@@ -610,24 +550,7 @@ static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t
     while(heap.size()>0) {
       // output char for the top of the heap
       SeqId s = heap.front();
-      if (rle) {
-        if (s.char2write != bwt_last) {
-          num_bwt_runs++;
-          fputc(bwt_last,fbwt);
-          fwrite(&cur_run_length,4,1,fbwt);
-          bwt_last = s.char2write;
-          cur_run_length = 1;
-        } else {
-          cur_run_length++;
-        }
-      } else {
-        if (s.char2write != bwt_last) {
-          bwt_last = s.char2write;
-          num_bwt_runs++;
-        }
-        if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 2");
-      }
-      
+      if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 2");
       hard_bwts += 1;
       // remove top 
       pop_heap(heap.begin(),heap.end());
@@ -689,45 +612,30 @@ static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint
 static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
                                     uint32_t *ilist, uint32_t *istart,
                                     FILE *fbwt, long &easy_bwts, long &hard_bwts,
-                                    int_t suffixLen, FILE *iphifile, bool is_64_bit,
-                                    uint8_t *bwsainfo, long n, int &bwtlast, uint64_t &salast, int ssa, bool rle, uint8_t& bwt_last, uint32_t& cur_run_length, uint64_t& num_bwt_runs)
+                                    int_t suffixLen, FILE *ssafile, FILE *esafile, 
+                                    uint8_t *bwsainfo, long n, int &bwtlast, uint64_t &salast,int ssa)
 {
   size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   if(numwords==1) {
     // there is a single run, so a single potential SA value
     uint32_t s = id2merge[0];
-    uint8_t bwtnext = char2write[0];
+    int bwtnext = char2write[0];
     if(bwtnext!=bwtlast) {
-      if (ssa) {
+      uint64_t pos = easy_bwts + hard_bwts;
+      if(ssa&START_RUN) {
         uint64_t sa = get_myint(bwsainfo,n,ilist[istart[s]]) - suffixLen;
-        if (is_64_bit) {
-          fwrite(&sa,5,1,iphifile);
-          fwrite(&salast,5,1,iphifile);
-        } else {
-          std::pair<uint32_t,uint32_t> I_Phi_cur{sa,salast};
-          fwrite(&I_Phi_cur,8,1,iphifile);
-        }
+        //if(fwrite(&pos,SABYTES,1,ssafile)!=1) die("sampled SA write error 1a");
+        if(fwrite(&sa,SABYTES,1,ssafile)!=1) die("sampled SA write error 1b");
+      }
+      if(ssa&END_RUN) {
+        pos--;
+        //if(fwrite(&pos,SABYTES,1,esafile)!=1) die("sampled SA write error 1c");
+        if(fwrite(&salast,SABYTES,1,esafile)!=1) die("sampled SA write error 1d");        
       }
       bwtlast = bwtnext;
     }
-    if (rle) {
-      if (bwtnext != bwt_last) {
-        num_bwt_runs++;
-        fputc(bwt_last,fbwt);
-        fwrite(&cur_run_length,4,1,fbwt);
-        bwt_last = bwtnext;
-        cur_run_length = istart[s+1]-istart[s];
-      } else {
-        cur_run_length += istart[s+1]-istart[s];
-      }
-    } else {
-      if (bwtnext != bwt_last) {
-        bwt_last = bwtnext;
-        num_bwt_runs++;
-      }
-      for(long j=istart[s];j<istart[s+1];j++) // write all BWT chars
-        if(fputc(bwtnext,fbwt)==EOF) die("BWT write error 1");
-    }
+    for(long j=istart[s];j<istart[s+1];j++) // write all BWT chars
+      if(fputc(bwtnext,fbwt)==EOF) die("BWT write error 1");
     easy_bwts +=  istart[s+1]- istart[s];
     if(ssa&END_RUN) // save the last sa value 
       salast = get_myint(bwsainfo,n,ilist[istart[s+1]-1]) - suffixLen;
@@ -743,33 +651,20 @@ static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uin
       // output char for the top of the heap
       uint64_t sa;
       SeqId s = heap.front();
-      uint8_t bwtnext = s.char2write; 
-      if (rle) {
-        if (bwtnext != bwt_last) {
-          num_bwt_runs++;
-          fputc(bwt_last,fbwt);
-          fwrite(&cur_run_length,4,1,fbwt);
-          bwt_last = bwtnext;
-          cur_run_length = 1;
-        } else {
-          cur_run_length++;
-        }
-      } else {
-        if (bwtnext != bwt_last) {
-          bwt_last = bwtnext;
-          num_bwt_runs++;
-        }
-        if(fputc(bwtnext,fbwt)==EOF) die("BWT write error 2");
-      }
+      int bwtnext = s.char2write; 
+      if(fputc(bwtnext,fbwt)==EOF) die("BWT write error 2");
       if ((ssa & END_RUN) || (bwtnext!=bwtlast))
         sa = get_myint(bwsainfo,n,*(s.bwtpos)) - suffixLen;
       if (bwtnext!=bwtlast) {  
-        if (is_64_bit) {
-          fwrite(&sa,5,1,iphifile);
-          fwrite(&salast,5,1,iphifile);
-        } else {
-          std::pair<uint32_t,uint32_t> I_Phi_cur{sa,salast};
-          fwrite(&I_Phi_cur,8,1,iphifile);
+        uint64_t pos = easy_bwts + hard_bwts;
+        if(ssa & START_RUN) {
+          //if(fwrite(&pos,SABYTES,1,ssafile)!=1) die("sampled SA write error 2a");
+          if(fwrite(&sa,SABYTES,1,ssafile)!=1) die("sampled SA write error 2b");
+        }
+        if(ssa & END_RUN) {
+          pos--;
+          //if(fwrite(&pos,SABYTES,1,esafile)!=1)   die("sampled SA write error 2c");
+          if(fwrite(&salast,SABYTES,1,esafile)!=1) die("sampled SA write error 2d");
         }
         bwtlast = bwtnext; 
       }

@@ -96,8 +96,8 @@ void build() {
     );
     input_file.close();
     auto time = now();
-    index.serialize(index_file,support);
     std::cout << "serializing the index" << std::flush;
+    index.serialize(index_file,support);
     time = log_runtime(time);
 }
 

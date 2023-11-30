@@ -67,7 +67,7 @@ class move_data_structure<uint_t>::construction {
     bool delete_i;
     std::ostream* mf; // measurement file
     uint_t l_max; // maximum interval length
-    uint64_t baseline_memory_allocation; // baseline memory allocation in bytes
+    uint64_t baseline_mem_usage; // baseline memory allocation in bytes
     std::chrono::steady_clock::time_point time; // time point of the start of the last construction phase
     std::chrono::steady_clock::time_point time_start; // time point of the start of the entire construction
     interleaved_vectors<uint_t> D_q; // [0..k'-1] output interval starting positions (ordered by the input interval starting positions)
