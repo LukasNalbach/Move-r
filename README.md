@@ -276,7 +276,6 @@ usage 2: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file
 - [r-index-f](https://github.com/drnatebrown/r-index-f/tree/master)
 - [rcomp-glfig](https://github.com/kampersanda/rcomp/tree/main)
 - [online-rlbwt](https://github.com/itomomoti/OnlineRlbwt/tree/master)
-- [rle-bwt](https://github.com/xxsds/DYNAMIC/tree/master)
 
 ## References
 [1] Takaaki Nishimoto and Yasuo Tabei. Optimal-time queries on bwt-runs compressed indexes.
