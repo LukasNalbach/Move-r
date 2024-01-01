@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef R_INDEX_S_H_MUN_
-#define R_INDEX_S_H_MUN_
+#ifndef R_INDEX_S_H_
+#define R_INDEX_S_H_
 
 #include "definitions.hpp"
 #include "rle_string.hpp"
@@ -23,7 +23,7 @@
 
 using namespace sdsl;
 
-namespace ri_mun{
+namespace ri{
 
 template    <    class sparse_bv_type = sparse_sd_vector,
                 class rle_string_t = rle_string_sd
@@ -622,7 +622,7 @@ private:
     std::string bigbwt(std::string fname, bool fasta, uint32_t nthreads) {
         // if (nthreads == 1) nthreads = 0; // force use of newscanNT.x for single thread
         // BWT CONSTRUCTION
-        std::string command = "external/Big-BWT/bigbwt " + fname;
+        std::string command = "external/r-index/Big-BWT/bigbwt " + fname;
         if (fasta) command += " -f"; // tell bigbwt to process fasta file
         if (nthreads > 1) command += " -t " + std::to_string(nthreads);
         command += " -e -s >nul 2>nul";
@@ -769,4 +769,4 @@ void build_seqidx(const char* infn, const char* outfn) {
 
 }
 
-#endif /* R_INDEX_S_H_MUN_ */
+#endif /* R_INDEX_S_H_ */

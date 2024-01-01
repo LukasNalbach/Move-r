@@ -39,8 +39,8 @@ constexpr std::vector<sa_sint_t>& get_sa() {
 
 void help(std::string msg) {
     if (msg != "") std::cout << msg << std::endl;
-    std::cout << "move-r-bench: benchmarks construction- and query performance of move-r, move-r-bigbwt, block_RLBWT," << std::endl;
-    std::cout << "              r-index, r-index-bigbwt, r-index-f, rcomp-lfig, rcomp-glfig, OnlineRLBWT and rle_bwt;" << std::endl;
+    std::cout << "move-r-bench: benchmarks construction- and query performance of move-r, block-rlbwt-2, block-rlbwt-v," << std::endl;
+    std::cout << "              block-rlbwt-r, r-index, r-index-f, rcomp-glfig and online-rlbwt;" << std::endl;
     std::cout << "              has to be executed from the base folder." << std::endl << std::endl;
     std::cout << "usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2>" << std::endl;
     std::cout << "   -c                 check for correctnes if possible; disables the -m option; will not print" << std::endl;
@@ -67,22 +67,18 @@ void help(std::string msg) {
 
 template <typename uint_t>
 void bench_indexes() {
-    bench_index<uint_t,move_r<uint_t>,false,true,true>("move-r","move_r");
-    bench_index<uint_t,move_r<uint_t>,true,false,false>("move-r-bigbwt","move_r_bigbwt");
-
-    blockrlbwt_data bd = prepare_blockrlbwt();
-    measure_blockrlbwt("block_rlbwt_twobyte",bd);
-    measure_blockrlbwt("block_rlbwt_vbyte",bd);
-    measure_blockrlbwt("block_rlbwt_run",bd);
+    bench_index<uint_t,move_r<uint_t>,true,true>("move-r","move_r");
+    
+    block_rlbwt_data bd = prepare_blockrlbwt();
+    measure_blockrlbwt("block_rlbwt_2",bd);
+    measure_blockrlbwt("block_rlbwt_v",bd);
+    measure_blockrlbwt("block_rlbwt_r",bd);
     cleanup_grlbwt(bd);
     
-    bench_index<uint_t,r_index_f<>,false,true,false>("r-index-f","r_index_f");
-    bench_index<uint_t,rcomp_lfig,false,true,true>("rcomp-lfig","rcomp_lfig");
-    bench_index<uint_t,rcomp_glfig_16,false,true,true>("rcomp-glfig","rcomp_glfig");
-    bench_index<uint_t,ri::r_index<>,false,true,true>("r-index","r_index");
-    bench_index<uint_t,ri_mun::r_index<>,false,false,false>("r-index-bigbwt","r_index_bigbwt");
-    bench_index<uint_t,OnlineRlbwt,false,true,true>("OnlineRlbwt","online_rlbwt");
-    bench_index<uint_t,rle_bwt,false,true,false>("rle_bwt","rle_bwt");
+    bench_index<uint_t,r_index,true,true>("r-index","r_index");
+    bench_index<uint_t,r_index_f<>,true,false>("r-index-f","r_index_f");
+    bench_index<uint_t,rcomp_glfig,true,true>("rcomp-glfig","rcomp_glfig");
+    bench_index<uint_t,online_rlbwt,true,true>("online-rlbwt","online_rlbwt");
 }
 
 void parse_args(char** argv, int argc, int &ptr) {
@@ -180,6 +176,7 @@ int main_bench_indexes(int argc, char** argv) {
     if (mf.is_open() && check_correctness) help("error: cannot output bench_indexment data when checking for correctness");
 
     system("chmod +x external/Big-BWT/*");
+    system("chmod +x external/r-index/Big-BWT/*");
     system("chmod +x build/external/pfp-thresholds/*");
     system("chmod +x build/external/block_RLBWT/*");
     system("chmod +x build/external/grlBWT/*");

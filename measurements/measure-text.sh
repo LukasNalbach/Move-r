@@ -18,3 +18,7 @@ mkdir indexes
 for ((i_p=1; i_p<=$p; i_p*=2)); do
     ../build/cli/move-r-build -o "indexes/$t-8" -p $i_p -a 8 -m_idx "results/results-move-r-build-phases.txt" -m_mds "results/results-mds-build-phases.txt" "texts/$t"
 done
+
+../build/cli/move-r-build -o "indexes/$t-2" -p $p -a 2 "texts/$t"
+../build/cli/move-r-locate -m "results/statistics.txt" "$t" "indexes/$t-2.move-r" "patterns/$t-patterns-bal"
+../build/cli/move-r-locate -m "results/statistics.txt" "$t" "indexes/$t-2.move-r" "patterns/$t-patterns-phi"

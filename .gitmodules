@@ -16,18 +16,9 @@
 [submodule "external/rcomp"]
 	path = external/rcomp
 	url = git@github.com:kampersanda/rcomp.git
-[submodule "external/r-index-prezza"]
-	path = external/r-index-prezza
-	url = git@github.com:nicolaprezza/r-index.git
-[submodule "external/r-index-mun"]
-	path = external/r-index-mun
-	url = git@github.com:alshai/r-index.git
 [submodule "external/OnlineRlbwt"]
 	path = external/OnlineRlbwt
 	url = git@github.com:itomomoti/OnlineRlbwt.git
-[submodule "external/DYNAMIC"]
-	path = external/DYNAMIC
-	url = git@github.com:xxsds/DYNAMIC.git
 [submodule "external/r-index-f"]
 	path = external/r-index-f
 	url = git@github.com:drnatebrown/r-index-f.git
@@ -37,9 +28,6 @@
 [submodule "external/gsa-is"]
 	path = external/gsa-is
 	url = git@github.com:felipelouza/gsa-is.git
-[submodule "external/hopscotch-map"]
-	path = external/hopscotch-map
-	url = git@github.com:Tessil/hopscotch-map.git
 [submodule "external/malloc_count"]
 	path = external/malloc_count
 	url = git@github.com:ByteHamster-etc/malloc_count.git
@@ -53,3 +41,6 @@
 [submodule "external/Big-BWT"]
 	path = external/Big-BWT
 	url = https://gitlab.com/manzai/Big-BWT.git
+[submodule "external/r-index"]
+	path = external/r-index
+	url = git@github.com:alshai/r-index.git

@@ -10,7 +10,7 @@ This is an optimized and parallelized implementation of the modified r-index des
 - [abseil-cpp](https://github.com/abseil/abseil-cpp)
 - [ips4o](https://github.com/ips4o/ips4o)
 - [concurrentqueue](https://github.com/cameron314/concurrentqueue)
-- [Big-BWT](https://github.com/alshai/Big-BWT)
+- [Big-BWT](https://gitlab.com/manzai/Big-BWT)
 - [sdsl-lite](https://github.com/simongog/sdsl-lite)
 
 ## CLI Build Instructions
@@ -132,13 +132,15 @@ int main() {
 
    // load the same index into another move_r-object
    std::ifstream index_ifile("test_idx.move-r");
-   move_r<> reloaded_index(index_ifile);
+   move_r<> reloaded_index;
+   reloaded_index << index_ifile;
    index_ifile.close();
 
    // load the same index into another move_r-object
    // but only with revert support
    index_ifile.open("test_idx.move-r");
-   move_r<> reloaded_index_2(index_ifile,{revert});
+   move_r<> reloaded_index_2;
+   reloaded_index_2.load(index_ifile,{revert});
    index_ifile.close();
 }
 ```
@@ -244,8 +246,8 @@ usage: move-r-patterns <file> <length> <number> <patterns file> <forbidden>
 
 ### move-r-bench: benchmarks construction-, revert- and query-performance.
 ```
-move-r-bench: benchmarks construction- and query performance of move-r, move-r-bigbwt, block_RLBWT,
-              r-index, r-index-bigbwt, r-index-f, rcomp-lfig, rcomp-glfig, OnlineRLBWT and rle_bwt;
+move-r-bench: benchmarks construction- and query performance of move-r, block-rlbwt-2, block-rlbwt-v,
+              block-rlbwt-r, r-index, r-index-f, rcomp-glfig and online-rlbwt;
               has to be executed from the base folder.
 usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2>
    -c                 check for correctnes if possible; disables the -m option; will not print
@@ -269,13 +271,12 @@ usage 2: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file
 ```
 
 #### GitHub repositories of the other indexes
-- [rle_bwt](https://github.com/xxsds/DYNAMIC/tree/master)
-- [OnlineRlbwt](https://github.com/itomomoti/OnlineRlbwt/tree/master)
-- [block_RLBWT](https://github.com/saskeli/block_RLBWT/tree/main)
-- [r-index](https://github.com/nicolaprezza/r-index/tree/master)
-- [r-index-bigbwt](https://github.com/alshai/r-index/tree/master)
+- [block-rlbwt](https://github.com/saskeli/block_RLBWT/tree/main)
+- [r-index](https://github.com/alshai/r-index/tree/master)
 - [r-index-f](https://github.com/drnatebrown/r-index-f/tree/master)
-- [rcomp](https://github.com/kampersanda/rcomp/tree/main)
+- [rcomp-glfig](https://github.com/kampersanda/rcomp/tree/main)
+- [online-rlbwt](https://github.com/itomomoti/OnlineRlbwt/tree/master)
+- [rle-bwt](https://github.com/xxsds/DYNAMIC/tree/master)
 
 ## References
 [1] Takaaki Nishimoto and Yasuo Tabei. Optimal-time queries on bwt-runs compressed indexes.

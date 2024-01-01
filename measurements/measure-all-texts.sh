@@ -7,6 +7,6 @@ done
 
 ./measure-text.sh -p $p -t einstein.en.txt
 ./measure-text.sh -p $p -t english
-./measure-text.sh -p $p -t dewiki.64GiB
-./measure-text.sh -p $p -t chr19.1000
+./measure-text.sh -p $p -t dewiki
 ./measure-text.sh -p $p -t sars2
+./measure-text.sh -p $p -t chr19

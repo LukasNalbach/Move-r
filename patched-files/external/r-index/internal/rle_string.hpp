@@ -19,15 +19,15 @@
  *
  */
 
-#ifndef RLE_STRING_HPP_MUN_
-#define RLE_STRING_HPP_MUN_
+#ifndef RLE_STRING_HPP_
+#define RLE_STRING_HPP_
 
 #include "definitions.hpp"
 #include "huff_string.hpp"
 #include "sparse_sd_vector.hpp"
 #include "sparse_hyb_vector.hpp"
 
-namespace ri_mun{
+namespace ri{
 template<
     class sparse_bitvector_t = sparse_sd_vector,     //predecessor structure storing run length
     class string_t    = huff_string                     //run heads
@@ -446,4 +446,4 @@ typedef rle_string<sparse_sd_vector> rle_string_sd;
 typedef rle_string<sparse_hyb_vector> rle_string_hyb;
 }
 
-#endif /* RLE_STRING_HPP_MUN_ */
+#endif /* RLE_STRING_HPP_ */

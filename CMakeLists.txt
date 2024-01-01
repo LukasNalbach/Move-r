@@ -64,6 +64,9 @@ target_include_directories(sdsl PUBLIC "${CMAKE_BINARY_DIR}/external/sdsl-lite/e
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/abseil-cpp/")
 
+# Big-BWT
+execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/Big-BWT/")
+
 ############################# move-r #############################
 
 # move-r
@@ -123,11 +126,6 @@ endif()
 ############################# move-r benchmark cli #############################
 
 if(MOVE_R_BUILD_BENCH_CLI)
-  # Big-BWT
-  execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/Big-BWT/")
-
-  ############################# other indexes #############################
-
   # rcomp
   add_library(rcomp INTERFACE)
   target_include_directories(rcomp INTERFACE "${CMAKE_SOURCE_DIR}/external/rcomp/include/")
@@ -151,16 +149,12 @@ if(MOVE_R_BUILD_BENCH_CLI)
 
   # r-index
   add_library(r-index INTERFACE)
-  target_include_directories(r-index INTERFACE "${CMAKE_SOURCE_DIR}/external/r-index/internal/")
-  target_link_libraries(r-index INTERFACE sdsl)
-
-  # r-index-bigbwt
-  add_library(r-index-bigbwt INTERFACE)
-  target_include_directories(r-index-bigbwt INTERFACE
-    "${CMAKE_SOURCE_DIR}/external/r-index-mun/internal/"
-    "${CMAKE_SOURCE_DIR}/external/r-index-mun/"
+  target_include_directories(r-index INTERFACE
+    "${CMAKE_SOURCE_DIR}/external/r-index/internal/"
+    "${CMAKE_SOURCE_DIR}/external/r-index/"
   )
-  target_link_libraries(r-index-bigbwt INTERFACE sdsl divsufsort divsufsort64)
+  target_link_libraries(r-index INTERFACE sdsl divsufsort divsufsort64)
+  execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/r-index/Big-BWT/")
 
   # OnlineRlbwt
   add_library(OnlineRlbwt INTERFACE)
@@ -168,13 +162,6 @@ if(MOVE_R_BUILD_BENCH_CLI)
     "${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/"
     "${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/module/Basics/"
     "${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/module/BTree/"
-  )
-
-  # DYNAMIC
-  add_library(DYNAMIC INTERFACE)
-  target_include_directories(DYNAMIC INTERFACE
-    "${CMAKE_SOURCE_DIR}/external/DYNAMIC/include/"
-    "${CMAKE_SOURCE_DIR}/external/hopscotch-map/include"
   )
 
   # grlBWT
@@ -221,7 +208,7 @@ if(MOVE_R_BUILD_BENCH_CLI)
   ############################# move-r #############################
 
   add_executable(move-r-bench cli/move-r-bench/move-r-bench.cpp)
-  target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index r-index-bigbwt OnlineRlbwt DYNAMIC)
+  target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index OnlineRlbwt)
   set_target_properties(move-r-bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
 endif()
 

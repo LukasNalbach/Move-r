@@ -88,7 +88,7 @@ void update_peak_memory_usage(std::ifstream& log_file) {
     external_peak_memory_usage = std::max(external_peak_memory_usage,malloc_count_peak_memory_usage(log_file));
 }
 
-template <typename idx_t, bool alternative_build_mode>
+template <typename idx_t>
 void build_index(idx_t& index, uint16_t num_threads);
 
 template <typename sa_sint_t, typename idx_t>
@@ -225,8 +225,8 @@ query_result locate_patterns(idx_t& index, std::ifstream& patterns_file) {
 }
 
 void write_measurement_data(
-    bool bench_index_count,
-    bool bench_index_locate,
+    bool bench_count,
+    bool bench_locate,
     std::string index_log_name,
     uint64_t size_index,
     build_result result_build = build_result{},
@@ -238,17 +238,19 @@ void write_measurement_data(
         << " type=comparison_build"
         << " implementation=" << index_log_name
         << " text=" << name_text_file
+        << " text_length=" << input_size
         << " num_threads=" << result_build.num_threads
         << " time_build=" << result_build.time_build
         << " peak_memory_usage=" << result_build.peak_memory_usage
         << " size_index=" << size_index
         << std::endl;
 
-    if (bench_index_count) {
+    if (bench_count) {
         mf << "RESULT"
             << " type=comparison_count"
             << " implementation=" << index_log_name
             << " text=" << name_text_file
+            << " text_length=" << input_size
             << " num_queries=" << result_count.num_queries
             << " pattern_length=" << result_count.pattern_length
             << " num_occurrences=" << result_count.num_occurrences
@@ -257,7 +259,7 @@ void write_measurement_data(
             << std::endl;
     }
 
-    if (bench_index_locate) {
+    if (bench_locate) {
         std::vector<query_result> locate_results = {result_locate_1,result_locate_2};
 
         for (query_result& res : locate_results) {
@@ -265,6 +267,7 @@ void write_measurement_data(
                 << " type=comparison_locate"
                 << " implementation=" << index_log_name
                 << " text=" << name_text_file
+                << " text_length=" << input_size
                 << " num_queries=" << res.num_queries
                 << " pattern_length=" << res.pattern_length
                 << " num_occurrences=" << result_count.num_occurrences
@@ -275,7 +278,7 @@ void write_measurement_data(
     }
 }
 
-template <typename uint_t, typename idx_t, bool alternative_build_mode, bool bench_index_count, bool bench_index_locate>
+template <typename uint_t, typename idx_t, bool bench_count, bool bench_locate>
 void bench_index(std::string index_name, std::string index_log_name) {
     idx_t index;
     std::chrono::steady_clock::time_point t1,t2;
@@ -291,11 +294,11 @@ void bench_index(std::string index_name, std::string index_log_name) {
     malloc_count_reset_peak();
     m1 = malloc_count_current();
     t1 = now();
-    build_index<idx_t,alternative_build_mode>(index,1);
+    build_index<idx_t>(index,1);
     t2 = now();
     m2 = malloc_count_current();
     
-    result_build = build_result{1,time_diff_ns(t1,t2),std::max(malloc_count_peak()-m1,external_peak_memory_usage),m2-m1};
+    result_build = build_result{1,time_diff_ns(t1,t2),std::max({malloc_count_peak()-m1,external_peak_memory_usage,m2-m1}),m2-m1};
 
     std::cout << std::endl;
     std::cout << "build time: " << format_time(result_build.time_build) << std::endl;
@@ -304,7 +307,7 @@ void bench_index(std::string index_name, std::string index_log_name) {
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
     
-    if constexpr (bench_index_count) {
+    if constexpr (bench_count) {
         std::cout << "counting the first set of patterns" << std::flush;
         result_count = count_patterns<uint_t>(index);
         if (!check_correctness) std::cout << ": " << format_query_throughput(result_count.num_queries,result_count.time_query);
@@ -313,7 +316,7 @@ void bench_index(std::string index_name, std::string index_log_name) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
-    if constexpr (bench_index_locate) {
+    if constexpr (bench_locate) {
         std::cout << "locating the first set of patterns" << std::flush;
         result_locate_1 = locate_patterns<uint_t,idx_t>(index,patterns_file_1);
         if (!check_correctness) std::cout << ": " << format_query_throughput(result_locate_1.num_queries,result_locate_1.time_query);
@@ -327,12 +330,12 @@ void bench_index(std::string index_name, std::string index_log_name) {
         std::cout << std::endl << "total number of occurrences: " << result_locate_2.num_occurrences << std::endl;
     }
 
-    if constexpr (bench_index_count || bench_index_locate) std::cout << std::endl;
+    if constexpr (bench_count || bench_locate) std::cout << std::endl;
 
     if (mf.is_open()) {
         write_measurement_data(
-            bench_index_count,
-            bench_index_locate,
+            bench_count,
+            bench_locate,
             index_log_name,
             result_build.size_index,
             result_build,
@@ -395,7 +398,7 @@ void bench_a() {
 
         std::cout << std::endl;
         std::cout << "build time: " << format_time(time_diff_ns(t1,t2)) << std::endl;
-        std::cout << "peak memory usage: " << format_size(malloc_count_peak()-m1) << std::endl;
+        std::cout << "peak memory usage: " << format_size(std::max({malloc_count_peak()-m1,m2-m1})) << std::endl;
         std::cout << "index size: " << format_size(size_index) << std::endl;
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -425,6 +428,7 @@ void bench_a() {
             mf << "RESULT"
                 << " type=comparison_a_count"
                 << " text=" << name_text_file
+                << " text_length=" << input_size
                 << " a=" << std::to_string(a)
                 << " num_queries=" << result_count.num_queries
                 << " pattern_length=" << result_count.pattern_length
@@ -439,6 +443,7 @@ void bench_a() {
                 mf << "RESULT"
                     << " type=comparison_a_locate"
                     << " text=" << name_text_file
+                    << " text_length=" << input_size
                     << " a=" << std::to_string(a)
                     << " num_queries=" << res.num_queries
                     << " pattern_length=" << res.pattern_length

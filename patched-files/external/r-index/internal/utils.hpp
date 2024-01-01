@@ -2,10 +2,10 @@
 
 using namespace std;
 
-#ifndef UTILS_RI_HPP_MUN_
-#define UTILS_RI_HPP_MUN_
+#ifndef UTILS_RI_HPP_
+#define UTILS_RI_HPP_
 
-namespace ri_mun{
+namespace ri{
 
 using ulint = uint64_t;
 
@@ -103,4 +103,4 @@ public:
 
 }
 
-#endif /* UTILS_RI_HPP_MUN_ */
+#endif /* UTILS_RI_HPP_ */
