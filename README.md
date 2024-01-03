@@ -14,26 +14,28 @@ This is an optimized and parallelized implementation of the modified r-index des
 - [sdsl-lite](https://github.com/simongog/sdsl-lite)
 
 ## CLI Build Instructions
-This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev and libz-dev installed.
-```
+This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed.
+```shell
 clone https://github.com/LukasNalbach/move-r.git
 mkdir build
 cd build
 cmake ..
+cp -rf ../patched-files/* ..
 make
 ```
-This creates five executeables in the build/cli/ folder:
+This creates six executeables in the build/cli/ folder:
 - move-r-build
 - move-r-count
 - move-r-locate
 - move-r-revert
 - move-r-patterns
+- move-r-bench
 
 There is an explanation for each below.
 
 ## Usage in C++
 ### Cmake
-```
+```cmake
 add_subdirectory(move_r/)
 set(MOVE_R_BUILD_CLI OFF)
 set(MOVE_R_BUILD_BENCH_CLI OFF)
@@ -44,7 +46,7 @@ set(MOVE_R_BUILD_TESTS OFF)
 ### C++
 
 #### Move-r
-```cpp
+```c++
 #include <move_r/move_r.hpp>
 
 int main() {
@@ -80,7 +82,7 @@ int main() {
 ```
 
 #### Move Data Structure
-```cpp
+```c++
 #include <move_r/misc/utils.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure_str.hpp>
@@ -118,7 +120,7 @@ int main() {
 ```
 
 #### Move-r Store & Load
-```cpp
+```c++
 #include <move_r/move_r.hpp>
 
 int main() {
@@ -146,7 +148,7 @@ int main() {
 ```
 
 #### Move-r Retrieval
-```cpp
+```c++
 #include <move_r/move_r.hpp>
 
 int main() {

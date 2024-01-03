@@ -7,8 +7,6 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/external/libsais/LICENSE")
   execute_process(COMMAND git submodule update --init --recursive WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endif()
 
-execute_process(COMMAND cp -rf "${CMAKE_SOURCE_DIR}/patched-files/*" "${CMAKE_SOURCE_DIR}")
-
 project (move-r LANGUAGES C CXX)
 
 cmake_policy(SET CMP0048 NEW)

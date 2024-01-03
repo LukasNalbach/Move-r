@@ -35,6 +35,7 @@
 [submodule "external/block_RLBWT"]
 	path = external/block_RLBWT
 	url = git@github.com:saskeli/block_RLBWT.git
+	branch = new_ops
 [submodule "external/grlBWT"]
 	path = external/grlBWT
 	url = git@github.com:ddiazdom/grlBWT.git

@@ -47,6 +47,9 @@ make_test_data: make_test_data.cpp $(HEADERS)
 count_matches: count_matches.cpp $(HEADERS)
 	g++ $(CFLAGS) -DNDEBUG -Ofast -fpermissive -o count_matches count_matches.cpp
 
+new_queries: new_queries.cpp $(HEADERS)
+	g++ $(CFLAGS) -DNDEBUG -Ofast -o new_queries new_queries.cpp
+
 debug: make_bwt.cpp bench_bwt.cpp $(HEADERS)
 	g++ $(CFLAGS) -DDEBUG -g -o make_bwt make_bwt.cpp
 	g++ $(CFLAGS) -DDEBUG -g -o bench_bwt bench_bwt.cpp
