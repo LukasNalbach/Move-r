@@ -42,7 +42,7 @@ void measure_count() {
     std::cout << "loading the index" << std::flush;
     auto t1 = now();
     move_r<uint_t> index;
-    index.load(index_file,{move_r_support::count});
+    index.load(index_file,{move_r_supp::count});
     log_runtime(t1);
     index_file.close();
     std::cout << std::endl;

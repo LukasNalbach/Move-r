@@ -29,29 +29,29 @@ using online_rlbwt = itmmti::OnlineRlbwtIndex<DynRleT, DynSuccT>;
 
 template <>
 void build_index<move_r<uint32_t>>(move_r<uint32_t>& index, uint16_t num_threads) {
-    index = std::move(move_r<uint32_t>(input,full_support,space,num_threads));
+    index = std::move(move_r<uint32_t>(input,{.mode=_bigbwt,.num_threads=num_threads}));
 }
 
 template <>
 void build_index<move_r<uint64_t>>(move_r<uint64_t>& index, uint16_t num_threads) {
-    index = std::move(move_r<uint64_t>(input,full_support,space,num_threads));
+    index = std::move(move_r<uint64_t>(input,{.mode=_bigbwt,.num_threads=num_threads}));
 }
 
 template <>
 uint64_t build_index_from_sa_and_bwt<int32_t,move_r<uint32_t>>(move_r<uint32_t>& index, uint16_t num_threads) {
-    index = std::move(move_r<uint32_t>(get_sa<int32_t>(),BWT,full_support,num_threads));
+    index = std::move(move_r<uint32_t>(get_sa<int32_t>(),BWT,{.num_threads=num_threads}));
     return 0;
 }
 
 template <>
 uint64_t build_index_from_sa_and_bwt<int64_t,move_r<uint32_t>>(move_r<uint32_t>& index, uint16_t num_threads) {
-    index = std::move(move_r<uint32_t>(get_sa<int64_t>(),BWT,full_support,num_threads));
+    index = std::move(move_r<uint32_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads}));
     return 0;
 }
 
 template <>
 uint64_t build_index_from_sa_and_bwt<int64_t,move_r<uint64_t>>(move_r<uint64_t>& index, uint16_t num_threads) {
-    index = std::move(move_r<uint64_t>(get_sa<int64_t>(),BWT,full_support,num_threads));
+    index = std::move(move_r<uint64_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads}));
     return 0;
 }
 

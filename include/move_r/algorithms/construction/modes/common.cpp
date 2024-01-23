@@ -276,7 +276,13 @@ void move_r<uint_t>::construction::build_mlf() {
         std::cout << std::endl << "building M_LF" << std::flush;
     }
 
-    idx.M_LF = std::move(move_data_structure_str<uint_t>(std::move(I_LF),n,p,idx.a,log,mf_mds));
+    idx.M_LF = std::move(move_data_structure_str<uint_t>(std::move(I_LF),n,{
+        .num_threads=p,
+        .a=idx.a,
+        .log=log,
+        .mf=mf_mds,
+    }));
+
     r_ = idx.M_LF.num_intervals();
     idx.r_ = r_;
 
@@ -393,7 +399,13 @@ void move_r<uint_t>::construction::build_mphi() {
         std::cout << std::endl << "building M_Phi" << std::flush;
     }
 
-    idx.M_Phi = std::move(move_data_structure<uint_t>(std::move(I_Phi),n,p,idx.a,&pi_mphi,log,mf_mds));
+    idx.M_Phi = std::move(move_data_structure<uint_t>(std::move(I_Phi),n,{
+        .num_threads=p,
+        .a=idx.a,
+        .log=log,
+        .mf=mf_mds,
+    },&pi_mphi));
+
     r__ = idx.M_Phi.num_intervals();
     idx.r__ = r__;
 

@@ -54,7 +54,10 @@ TEST(test_move_data_structure,fuzzy_test) {
         uint16_t a = std::min<uint16_t>(2+a_distrib(gen),32767);
 
         // build a move data structure from the disjoint interval
-        move_data_structure<uint32_t> mds(interval_sequence,input_size,num_threads_distrib(gen),a);
+        move_data_structure<uint32_t> mds(interval_sequence,input_size,{
+            .num_threads = num_threads_distrib(gen),
+            .a = a
+        });
 
         // check if the number of input/output intervals has increased too much
         EXPECT_TRUE(mds.num_intervals()/(double)num_intervals <= (a/(double)(a-1))*1.125);

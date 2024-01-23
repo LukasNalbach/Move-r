@@ -5,6 +5,13 @@
 #include <move_r/misc/utils.hpp>
 #include <move_r/data_structures/interleaved_vectors.hpp>
 
+struct mds_params {
+    uint16_t num_threads = omp_get_max_threads(); // the number of threads to use during the construction
+    uint16_t a = 8; // balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
+    bool log = false; // controls whether to print log messages during the construction
+    std::ostream* mf = NULL; // measurement file to write runtime data to
+};
+
 /**
  * @brief move data structure
  * @tparam uint_t unsigned integer type of the interval starting positions
@@ -15,6 +22,9 @@ class move_data_structure {
 
     protected:
     class construction;
+
+    using pair_t = std::pair<uint_t,uint_t>;
+    using pair_arr_t = std::vector<pair_t>;
 
     bool is_move_data_structure_str = false; // true <=> this move data structure is of type move_data_structure_str
     uint_t n = 0; // n = p_{k_'-1} + d_{k_'-1}, k_' <= n
@@ -37,44 +47,22 @@ class move_data_structure {
      * @brief Constructs a new move data structure from a disjoint interval sequence
      * @param I a disjoint interval sequence
      * @param n n = p_k + d_j
-     * @param p the number of threads to use during the construction
-     * @param a balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
+     * @param params construction parameters
      * @param pi_mphi vector to move pi into after the construction
-     * @param log controls whether to print log messages during the construction
-     * @param mf measurement file to write runtime data to
      */
-    move_data_structure(
-        std::vector<std::pair<uint_t,uint_t>>& I,
-        uint_t n,
-        uint16_t p = omp_get_max_threads(),
-        uint16_t a = 8,
-        std::vector<uint_t>* pi_mphi = NULL,
-        bool log = false,
-        std::ostream* mf = NULL
-    ) {
-        construction mdsc(*this,I,n,p,a,false,pi_mphi,log,mf);
+    move_data_structure(pair_arr_t&& I, uint_t n, mds_params params = {}, std::vector<uint_t>* pi_mphi = NULL) {
+        construction(*this,I,n,true,params,pi_mphi);
     }
 
     /**
      * @brief Constructs a new move data structure from a disjoint interval sequence
      * @param I a disjoint interval sequence
      * @param n n = p_k + d_j
-     * @param p the number of threads to use during the construction
-     * @param a balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
+     * @param params construction parameters
      * @param pi_mphi vector to move pi into after the construction
-     * @param log controls whether to print log messages during the construction
-     * @param mf measurement file to write runtime data to
      */
-    move_data_structure(
-        std::vector<std::pair<uint_t,uint_t>>&& I,
-        uint_t n,
-        uint16_t p = omp_get_max_threads(),
-        uint16_t a = 8,
-        std::vector<uint_t>* pi_mphi = NULL,
-        bool log = false,
-        std::ostream* mf = NULL
-    ) {
-        construction mdsc(*this,I,n,p,a,true,pi_mphi,log,mf);
+    move_data_structure(pair_arr_t& I, uint_t n, mds_params params = {}, std::vector<uint_t>* pi_mphi = NULL) {
+        construction(*this,I,n,false,params,pi_mphi);
     }
 
     /**
@@ -254,7 +242,7 @@ class move_data_structure {
      * @param x [0..k_'-1], where i in [p_x, p_x + d_x)
      * @returns
      */
-    inline std::pair<uint_t,uint_t> move(std::pair<uint_t,uint_t> ix) {
+    inline pair_t move(pair_t ix) {
         move(ix.first,ix.second);
         return ix;
     }

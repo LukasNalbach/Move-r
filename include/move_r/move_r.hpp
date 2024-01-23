@@ -12,7 +12,7 @@
 /**
  * @brief an operation that can be supported by a move_r object
  */
-enum move_r_support {
+enum move_r_supp {
     /* support for retrieving (a range of) the input string from the index (reverting
        the index); this also includes support for accessing or retrieving (a range in)
        the bwt (reverting in parallel requires the index to be built with locate support) */
@@ -27,18 +27,32 @@ enum move_r_support {
 /**
  * @brief a vector containing all operations supported by move_r
  */
-static std::vector<move_r_support> full_support = {
-    move_r_support::revert,
-    move_r_support::count,
-    move_r_support::locate
+static std::vector<move_r_supp> move_r_full_supp = {
+    move_r_supp::revert,
+    move_r_supp::count,
+    move_r_supp::locate
 };
 
 /**
  * @brief move-r construction mode
  */
-enum move_r_construction_mode {
-    space = 0, // optimized for low peak memory consumption (and low-runtime if the input is repetitive)
-    runtime = 1 // optimized for low runtime if the input is non-repetitive
+enum move_r_constr_mode {
+    _bigbwt = 0,
+    _libsais = 1
+};
+
+/**
+ * @brief move-r construction parameters
+ */
+struct move_r_params {
+    std::vector<move_r_supp> support = move_r_full_supp; // a vector containing move_r operations to build support for
+    move_r_constr_mode mode = move_r_constr_mode::_libsais; // cosntruction mode to use (default: libsais)
+    uint16_t num_threads = omp_get_max_threads(); // maximum number of threads to use during the construction
+    uint16_t a = 8; // balancing parameter, 2 <= a
+    bool log = false; // controls, whether to print log messages
+    std::ostream* mf_idx = NULL; // measurement file for the index construciton
+    std::ostream* mf_mds = NULL; // measurement file for the move data structure construction
+    std::string name_text_file = ""; // name of the input file (used only for measurement output)
 };
 
 /**
@@ -61,7 +75,7 @@ class move_r {
     uint16_t p_r = 0; // maximum possible number of threads to use while reverting the index
     uint8_t omega_idx = 0; // word width of SA_phi
 
-    std::vector<move_r_support> support; // contains all supported operations
+    std::vector<move_r_supp> support; // contains all supported operations
     /* true <=> the characters of the input string have been remapped internally, because the input
        contains 0 and/or 1*/
     bool chars_remapped = false;
@@ -142,13 +156,13 @@ class move_r {
      * @brief adds implicitly supported move_r operations to the vector support and sorts it afterwards
      * @param support a vector containing move_r operations
      */
-    static void adjust_supports(std::vector<move_r_support>& support) {
-        if (contains(support,move_r_support::locate) && !(contains(support,move_r_support::count))) {
-            support.emplace_back(move_r_support::count);
+    static void adjust_supports(std::vector<move_r_supp>& support) {
+        if (contains(support,move_r_supp::locate) && !(contains(support,move_r_supp::count))) {
+            support.emplace_back(move_r_supp::count);
         }
         
-        if (contains(support,move_r_support::count) && !(contains(support,move_r_support::revert))) {
-            support.emplace_back(move_r_support::revert);
+        if (contains(support,move_r_supp::count) && !(contains(support,move_r_supp::revert))) {
+            support.emplace_back(move_r_supp::revert);
         }
         
         ips4o::sort(support.begin(),support.end());
@@ -183,79 +197,28 @@ class move_r {
     /**
      * @brief constructs a move_r index of the string input
      * @param input the input string
-     * @param support a vector containing move_r operations to build support for
-     * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
-     * @param num_threads maximum number of threads to use during the construction
-     * @param a balancing parameter, 2 <= a
-     * @param log controls, whether to print log messages
-     * @param mf_idx measurement file for the index construciton
-     * @param mf_mds measurement file for the move data structure construction
-     * @param name_text_file name of the input file (used only for measurement output)
+     * @param params construction parameters
      */
-    move_r(
-        std::string& input,
-        std::vector<move_r_support> support = full_support,
-        move_r_construction_mode construction_mode = move_r_construction_mode::runtime,
-        uint16_t num_threads = omp_get_max_threads(),
-        uint16_t a = 8,
-        bool log = false,
-        std::ostream* mf_idx = NULL,
-        std::ostream* mf_mds = NULL,
-        std::string name_text_file = ""
-    ) {
-        construction mrc(*this,input,false,support,construction_mode,num_threads,a,log,mf_idx,mf_mds,name_text_file);
+    move_r(std::string& input, move_r_params params = {}) {
+        construction(*this,input,false,params);
     }
 
     /**
      * @brief constructs a move_r index of the string input
      * @param input the input string
-     * @param support a vector containing move_r operations to build support for
-     * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
-     * @param num_threads maximum number of threads to use during the construction
-     * @param a balancing parameter, 2 <= a
-     * @param log controls, whether to print log messages
-     * @param mf_idx measurement file for the index construciton
-     * @param mf_mds measurement file for the move data structure construction
-     * @param name_text_file name of the input file (used only for measurement output)
+     * @param params construction parameters
      */
-    move_r(
-        std::string&& input,
-        std::vector<move_r_support> support = full_support,
-        move_r_construction_mode construction_mode = move_r_construction_mode::runtime,
-        uint16_t num_threads = omp_get_max_threads(),
-        uint16_t a = 8,
-        bool log = false,
-        std::ostream* mf_idx = NULL,
-        std::ostream* mf_mds = NULL,
-        std::string name_text_file = ""
-    ) {
-        construction mrc(*this,input,true,support,construction_mode,num_threads,a,log,mf_idx,mf_mds,name_text_file);
+    move_r(std::string&& input, move_r_params params = {}) {
+        construction(*this,input,true,params);
     }
 
     /**
      * @brief constructs a move_r index from an input file
      * @param input_file input file
-     * @param support a vector containing move_r operations to build support for
-     * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
-     * @param num_threads maximum number of threads to use during the construction
-     * @param a balancing parameter, 2 <= a
-     * @param log controls, whether to print log messages
-     * @param mf_idx measurement file for the index construciton
-     * @param mf_mds measurement file for the move data structure construction
-     * @param name_text_file name of the input file (used only for measurement output)
+     * @param params construction parameters
      */
-    move_r(
-        std::ifstream& input_file,
-        std::vector<move_r_support> support = full_support,
-        move_r_construction_mode construction_mode = move_r_construction_mode::runtime,
-        uint16_t num_threads = omp_get_max_threads(),
-        uint16_t a = 8,
-        bool log = false,
-        std::ostream* mf_idx = NULL,
-        std::ostream* mf_mds = NULL,
-        std::string name_text_file = ""
-    ) {
-        construction mrc(*this,input_file,support,construction_mode,num_threads,a,log,mf_idx,mf_mds,name_text_file);
+    move_r(std::ifstream& input_file, move_r_params params = {}) {
+        construction(*this,input_file,params);
     }
 
     /**
@@ -263,27 +226,11 @@ class move_r {
      * @tparam sa_sint_t suffix array signed integer type
      * @param suffix_array vector containing the suffix array of the input
      * @param bwt string containing the bwt of the input, where $ = 1
-     * @param support a vector containing move_r operations to build support for
-     * @param num_threads maximum number of threads to use during the construction
-     * @param a balancing parameter, 2 <= a
-     * @param log controls, whether to print log messages
-     * @param mf_idx measurement file for the index construciton
-     * @param mf_mds measurement file for the move data structure construction
-     * @param name_text_file name of the input file (used only for measurement output)
+     * @param params construction parameters
      */
     template <typename sa_sint_t>
-    move_r(
-        std::vector<sa_sint_t>& suffix_array,
-        std::string& bwt,
-        std::vector<move_r_support> support = full_support,
-        uint16_t num_threads = omp_get_max_threads(),
-        uint16_t a = 8,
-        bool log = false,
-        std::ostream* mf_idx = NULL,
-        std::ostream* mf_mds = NULL,
-        std::string name_text_file = ""
-    ) {
-        construction mrc(*this,suffix_array,bwt,support,num_threads,a,log,mf_idx,mf_mds,name_text_file);
+    move_r(std::vector<sa_sint_t>& suffix_array, std::string& bwt, move_r_params params = {}) {
+        construction(*this,suffix_array,bwt,params);
     }
 
     // ############################# MISC PUBLIC METHODS #############################
@@ -356,7 +303,7 @@ class move_r {
      * @brief returns a vector containing the supported operations of this index
      * @return vector containing the operations
      */
-    std::vector<move_r_support> supported_operations() {
+    std::vector<move_r_supp> supported_operations() {
         return support;
     }
 
@@ -365,7 +312,7 @@ class move_r {
      * @param operation a move_r operation
      * @return whether operation is supported by this index
      */
-    bool does_support(move_r_support operation) {
+    bool does_support(move_r_supp operation) {
         return contains(support,operation);
     }
 
@@ -375,7 +322,7 @@ class move_r {
      */
     uint64_t size_in_bytes() {
         return
-            support.size()*sizeof(move_r_support)+ // variables
+            support.size()*sizeof(move_r_supp)+ // variables
             4*sizeof(uint_t)+3+2*sizeof(uint16_t)+ // ...
             chars_remapped*2*256+ // mapchar & unmap_char
             p_r*sizeof(uint_t)+ // D_e
@@ -394,10 +341,10 @@ class move_r {
         std::cout << "M_LF: " << format_size(M_LF.size_in_bytes()-(r_+1)) << std::endl;
         std::cout << "L': " << format_size(r_+1) << std::endl;
         
-        if (does_support(move_r_support::count)) {
+        if (does_support(move_r_supp::count)) {
             std::cout << "RS_L': " << format_size(RS_L_.size_in_bytes()) << std::endl;
 
-            if (does_support(move_r_support::locate)) {
+            if (does_support(move_r_supp::locate)) {
                 std::cout << "M_Phi: " << format_size(M_Phi.size_in_bytes()) << std::endl;
                 std::cout << "SA_phi: " << format_size(SA_phi.size_in_bytes()) << std::endl;
             }
@@ -413,10 +360,10 @@ class move_r {
         out << " size_m_lf=" << M_LF.size_in_bytes()-(r_+1);
         out << " size_l_=" << r_+1;
         
-        if (does_support(move_r_support::count)) {
+        if (does_support(move_r_supp::count)) {
             out << " size_rs_l_=" << RS_L_.size_in_bytes();
 
-            if (does_support(move_r_support::locate)) {
+            if (does_support(move_r_supp::locate)) {
                 out << " size_m_phi=" << M_Phi.size_in_bytes();
                 out << " size_sa_idx=" << SA_phi.size_in_bytes();
             }
@@ -747,7 +694,7 @@ class move_r {
      * @param out output stream to store the index to
      * @param support supported operations to store data structures for
      */
-    void serialize(std::ostream& out, std::vector<move_r_support> support = full_support) {
+    void serialize(std::ostream& out, std::vector<move_r_supp> support = move_r_full_supp) {
         adjust_supports(support);
 
         if (!is_subset_of(support,this->support)) {
@@ -763,7 +710,7 @@ class move_r {
 
         uint8_t num_supports = support.size();
         out.write((char*)&num_supports,1);
-        out.write((char*)&support[0],num_supports*sizeof(move_r_support));
+        out.write((char*)&support[0],num_supports*sizeof(move_r_supp));
 
         out.write((char*)&n,sizeof(uint_t));
         out.write((char*)&sigma,1);
@@ -784,11 +731,11 @@ class move_r {
 
         M_LF.serialize(out);
 
-        if (contains(support,move_r_support::count)) {
+        if (contains(support,move_r_supp::count)) {
             RS_L_.serialize(out);
         }
 
-        if (contains(support,move_r_support::locate)) {
+        if (contains(support,move_r_supp::locate)) {
             out.write((char*)&r__,sizeof(uint_t));
             M_Phi.serialize(out);
 
@@ -807,7 +754,7 @@ class move_r {
      * @param in an input stream storing a serialized index
      * @param support supported operations to load data structures for
      */
-    void load(std::istream& in, std::vector<move_r_support> support = full_support) {
+    void load(std::istream& in, std::vector<move_r_supp> support = move_r_full_supp) {
         adjust_supports(support);
 
         bool is_64_bit;
@@ -826,7 +773,7 @@ class move_r {
         uint8_t num_supports;
         in.read((char*)&num_supports,1);
         this->support.resize(num_supports);
-        in.read((char*)&this->support[0],num_supports*sizeof(move_r_support));
+        in.read((char*)&this->support[0],num_supports*sizeof(move_r_supp));
 
         if (!is_subset_of(support,this->support)) {
             std::cout << "error: cannot load an index with support it has not been built with" << std::flush;
@@ -858,11 +805,11 @@ class move_r {
 
         M_LF.load(in);
 
-        if (contains(support,move_r_support::count)) {
+        if (contains(support,move_r_supp::count)) {
             RS_L_.load(in);
         }
 
-        if (contains(support,move_r_support::locate)) {
+        if (contains(support,move_r_supp::locate)) {
             in.read((char*)&r__,sizeof(uint_t));
             M_Phi.load(in);
 

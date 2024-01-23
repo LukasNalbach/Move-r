@@ -61,7 +61,11 @@ TEST(test_move_r,fuzzy_test) {
 
         // build move-r and choose a random number of threads and balancing parameter, but always use libsais,
         // because there are bugs in Big-BWT that come through during fuzzing but not really in practice
-        move_r<uint32_t> index(input,full_support,runtime,num_threads_distrib(gen),std::min<uint16_t>(2+a_distrib(gen),32767));
+        move_r<uint32_t> index(input,{
+            .mode = _libsais,
+            .num_threads = num_threads_distrib(gen),
+            .a = std::min<uint16_t>(2+a_distrib(gen),32767)
+        });
         
         // revert the index and compare the output with the input string
         input_reverted = index.revert_range(0,input_size == 1 ? 0 : input_size-2,num_threads_distrib(gen));

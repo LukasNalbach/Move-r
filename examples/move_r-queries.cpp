@@ -5,10 +5,15 @@ int main() {
     move_r<> index("This is a test string");
 
     // build a 64-bit index (intended for large input strings > UINT_MAX
-    // bytes ~ 4GB) with revert support only, use the space-efficient
+    // bytes ~ 4GB) with only count support, use Big-BWT
     // construction algorithm, use at most 8 threads and set the 
     // balancing parameter a to 4
-    move_r<uint64_t> index_2("a large string",{revert},space,8,4);
+    move_r<uint64_t> index_2("a large string",{
+        .support = {count},
+        .mode = _bigbwt,
+        .num_threads = 8,
+        .a = 4
+    });
 
     // print the number of bwt runs in the input string
     std::cout << index.num_bwt_runs() << std::endl;

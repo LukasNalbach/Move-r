@@ -28,9 +28,6 @@ class move_data_structure<uint_t>::construction {
 
     // ############################# COMMON TYPES #############################
 
-    using pair_t = std::pair<uint_t,uint_t>;
-    using pair_arr_t = std::vector<pair_t>;
-
     /**
      * @brief comparator for the pairs in T_in_v1 and T_in_v5
      */
@@ -97,26 +94,11 @@ class move_data_structure<uint_t>::construction {
      * @param mds the move data structure to build
      * @param I disjoint interval sequence
      * @param n n = p_{k-1} + d_{k-1}, k <= n
-     * @param k k = |I|
-     * @param p number of threads to use
-     * @param a balancing parameter, restricts size increase to the factor
-     *          (1+1/(a-1)) and restricts move query runtime to 2a, 2 <= a
      * @param delete_i controls whether I should be deleted when not needed anymore
-     * @param pi_mphi vector to move pi_mphi into after the construction
-     * @param log enables log messages during build process
-     * @param mf output stream to write runtime and space usage to if log is enabled
+     * @param params construction parameters
+     * @param pi_mphi vector to move pi into after the construction
      */
-    construction(
-        move_data_structure<uint_t>& mds,
-        std::vector<std::pair<uint_t,uint_t>>& I,
-        uint_t n,
-        uint16_t p = omp_get_max_threads(),
-        uint16_t a = 8,
-        bool delete_i = false,
-        std::vector<uint_t>* pi_mphi = NULL,
-        bool log = false,
-        std::ostream* mf = NULL
-    ) : mds(mds), I(I) {
+    construction(move_data_structure<uint_t>& mds, pair_arr_t& I, uint_t n, bool delete_i, mds_params params, std::vector<uint_t>* pi_mphi = NULL) : mds(mds), I(I) {
         if (log) {
             time = now();
             time_start = time;
@@ -125,10 +107,10 @@ class move_data_structure<uint_t>::construction {
 
         this->n = n;
         this->k = I.size();
-        this->a = a;
+        this->a = params.a;
         this->delete_i = delete_i;
-        this->log = log;
-        this->mf = mf;
+        this->log = params.log;
+        this->mf = params.mf;
 
         mds.a = a;
         mds.k = k;
@@ -181,7 +163,6 @@ class move_data_structure<uint_t>::construction {
             pi.shrink_to_fit();
         } else {
             *pi_mphi = std::move(pi);
-            pi_mphi = NULL;
         }
 
         D_q.clear();

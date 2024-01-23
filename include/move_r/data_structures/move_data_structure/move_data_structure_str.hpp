@@ -10,27 +10,22 @@ template <typename uint_t = uint32_t>
 class move_data_structure_str : public move_data_structure<uint_t> {
     static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
 
+    using pair_t = typename move_data_structure<uint_t>::pair_t;
+    using pair_arr_t = typename move_data_structure<uint_t>::pair_arr_t;
+
     /**
-     * @brief builds the move_data_structure_str
+     * @brief Constructs a new move data structure from a disjoint interval sequence
      * @param I a disjoint interval sequence
      * @param n n = p_k + d_j
-     * @param p the number of threads to use during the construction
-     * @param a balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
-     * @param log controls whether to print log messages during the construction
-     * @param mf measurement file to write runtime data to
      * @param delete_i whether I can be deleted during the construction
+     * @param params construction parameters
+     * @param pi_mphi vector to move pi into after the construction
      */
-    void build(
-        std::vector<std::pair<uint_t,uint_t>>& I,
-        uint_t n,
-        uint16_t p,
-        uint16_t a,
-        bool log,
-        std::ostream* mf,
-        bool delete_i
-    ) {
+    void build(pair_arr_t& I, uint_t n, bool delete_i, mds_params params, std::vector<uint_t>* pi_mphi) {
         move_data_structure<uint_t>::is_move_data_structure_str = true;
-        typename move_data_structure<uint_t>::construction mdsc(*reinterpret_cast<move_data_structure<uint_t>*>(this),I,n,p,a,delete_i,NULL,log,mf);
+        typename move_data_structure<uint_t>::construction(
+            *reinterpret_cast<move_data_structure<uint_t>*>(this),I,n,delete_i,params,pi_mphi
+        );
         set_character(move_data_structure<uint_t>::k_,0);
     }
 
@@ -41,40 +36,22 @@ class move_data_structure_str : public move_data_structure<uint_t> {
      * @brief Constructs a new move data structure from a disjoint interval sequence
      * @param I a disjoint interval sequence
      * @param n n = p_k + d_j
-     * @param p the number of threads to use during the construction
-     * @param a balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
-     * @param log controls whether to print log messages during the construction
-     * @param mf measurement file to write runtime data to
+     * @param params construction parameters
+     * @param pi_mphi vector to move pi into after the construction
      */
-    move_data_structure_str(
-        std::vector<std::pair<uint_t,uint_t>>& I,
-        uint_t n,
-        uint16_t p = omp_get_max_threads(),
-        uint16_t a = 8,
-        bool log = false,
-        std::ostream* mf = NULL
-    ) {
-        build(I,n,p,a,log,mf,false);
+    move_data_structure_str(pair_arr_t&& I, uint_t n, mds_params params = {}, std::vector<uint_t>* pi_mphi = NULL) {
+        build(I,n,true,params,pi_mphi);
     }
 
     /**
      * @brief Constructs a new move data structure from a disjoint interval sequence
      * @param I a disjoint interval sequence
      * @param n n = p_k + d_j
-     * @param p the number of threads to use during the construction
-     * @param a balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
-     * @param log controls whether to print log messages during the construction
-     * @param mf measurement file to write runtime data to
+     * @param params construction parameters
+     * @param pi_mphi vector to move pi into after the construction
      */
-    move_data_structure_str(
-        std::vector<std::pair<uint_t,uint_t>>&& I,
-        uint_t n,
-        uint16_t p = omp_get_max_threads(),
-        uint16_t a = 8,
-        bool log = false,
-        std::ostream* mf = NULL
-    ) {
-        build(I,n,p,a,log,mf,true);
+    move_data_structure_str(pair_arr_t& I, uint_t n, mds_params params = {}, std::vector<uint_t>* pi_mphi = NULL) {
+        build(I,n,false,params,pi_mphi);
     }
 
     /**

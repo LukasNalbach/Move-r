@@ -391,7 +391,7 @@ void bench_a() {
         malloc_count_reset_peak();
         m1 = malloc_count_current();
         t1 = now();
-        index = move_r<uint_t>(get_sa<sa_sint_t>(),BWT,full_support,max_num_threads,a);
+        index = std::move(move_r<uint_t>(get_sa<sa_sint_t>(),BWT,{.num_threads=max_num_threads,.a=a}));
         t2 = now();
         m2 = malloc_count_current();
         size_index = m2-m1;

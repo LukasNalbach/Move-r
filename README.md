@@ -16,7 +16,7 @@ This is an optimized and parallelized implementation of the modified r-index des
 ## CLI Build Instructions
 This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed.
 ```shell
-clone https://github.com/LukasNalbach/move-r.git
+clone https://github.com/LukasNalbach/Move-r.git
 mkdir build
 cd build
 cmake ..
@@ -54,10 +54,15 @@ int main() {
    move_r<> index("This is a test string");
 
    // build a 64-bit index (intended for large input strings > UINT_MAX
-   // bytes ~ 4GB) with revert support only, use the space-efficient
+   // bytes ~ 4GB) with only count support, use Big-BWT
    // construction algorithm, use at most 8 threads and set the 
    // balancing parameter a to 4
-   move_r<uint64_t> index_2("a large string",{revert},space,8,4);
+   move_r<uint64_t> index_2("a large string",{
+      .support = {count},
+      .mode = _bigbwt,
+      .num_threads = 8,
+      .a = 4
+   });
 
    // print the number of bwt runs in the input string
    std::cout << index.num_bwt_runs() << std::endl;
@@ -89,7 +94,7 @@ int main() {
 
 int main() {
    // Build a move data structure from the disjoint interval
-   // sequence I = (0,1),(1,0); => n = 2
+   // sequence I = (0,1),(1,0) with n = 2
    move_data_structure<> mds({{0,1},{1,0}},2);
 
    // create a pair to perform move queries with
@@ -104,8 +109,11 @@ int main() {
    // with the arrays needed for performing move queries (intended for
    // storing the characters of the bwt (sub-)runs);
 
-   // use at most 4 threads and set a := 2
-   move_data_structure_str<> mds_str({{0,4},{1,5},{2,6},{3,7},{4,0}},8,4,2);
+   // use at most 4 threads and set a = 2
+   move_data_structure_str<> mds_str({{0,4},{1,5},{2,6},{3,7},{4,0}},8,{
+      .num_threads = 4,
+      .a = 2
+   });
 
    // this disjoint interval sequence is not 2-balanced, because the output
    // interval [0,3] contains 4 >= 2a = 4 input intervals

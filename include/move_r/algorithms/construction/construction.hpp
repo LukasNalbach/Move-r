@@ -84,12 +84,12 @@ class move_r<uint_t>::construction {
     void report_supports() {
         std::cout << "building an index with the following support:" << std::endl;
 
-        static auto report_support = [](move_r_support sup){
+        static auto report_support = [](move_r_supp sup){
             if (sup == revert) {
                 std::cout << "revert";
-            } else if (sup == move_r_support::count) {
+            } else if (sup == move_r_supp::count) {
                 std::cout << "count";
-            } else if (sup == move_r_support::locate) {
+            } else if (sup == move_r_supp::locate) {
                 std::cout << "locate";
             }
         };
@@ -195,8 +195,8 @@ class move_r<uint_t>::construction {
             return;
         }
 
-        build_count_support = contains(idx.support,move_r_support::count);
-        build_locate_support = contains(idx.support,move_r_support::locate);
+        build_count_support = contains(idx.support,move_r_supp::count);
+        build_locate_support = contains(idx.support,move_r_supp::locate);
 
         // print the operations to build support for
         if (log) {
@@ -250,44 +250,30 @@ class move_r<uint_t>::construction {
 
     // ############################# CONSTRUCTORS #############################
 
+    void read_parameters(move_r_params& params) {
+        idx.support = params.support;
+        this->p = params.num_threads;
+        idx.a = params.a;
+        this->log = params.log;
+        this->mf_idx = params.mf_idx;
+        this->mf_mds = params.mf_mds;
+        this->name_text_file = params.name_text_file;
+    }
+
     /**
      * @brief constructs a move_r index of the string input
      * @param index The move-r index to construct
      * @param T the string containing T 
-     * @param support a vector containing move_r operations to build support for
-     * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
-     * @param p the number of threads to use during the construction
-     * @param a balancing parameter, 2 <= a
-     * @param log controls, whether to print log messages
-     * @param mf_idx measurement file for the index construciton
-     * @param mf_mds measurement file for the move data structure construction
-     * @param name_text_file name of the input file (used only for measurement output)
+     * @param delete_T controls whether T should be deleted once it is not needed anymore
+     * @param params construction parameters
      */
-    construction(
-        move_r<uint_t>& index,
-        std::string& T,
-        bool delete_T,
-        std::vector<move_r_support> support,
-        move_r_construction_mode construction_mode,
-        uint16_t p,
-        uint16_t a,
-        bool log,
-        std::ostream* mf_idx,
-        std::ostream* mf_mds,
-        std::string name_text_file
-    ) : T(T), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
+    construction(move_r<uint_t>& index, std::string& T, bool delete_T, move_r_params params)
+    : T(T), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
         this->delete_T = delete_T;
-        idx.support = support;
-        this->p = p;
-        idx.a = a;
-        this->log = log;
-        this->mf_idx = mf_idx;
-        this->mf_mds = mf_mds;
-        this->name_text_file = name_text_file;
-
+        read_parameters(params);
         prepare_phase_1();
 
-        if (construction_mode == move_r_construction_mode::runtime) {
+        if (params.mode == move_r_constr_mode::_libsais) {
             min_valid_char = 2;
             T.push_back(uchar_to_char((uint8_t)0));
             n = T.size();
@@ -310,38 +296,14 @@ class move_r<uint_t>::construction {
      * @brief constructs a move_r index from an input file
      * @param index The move-r index to construct
      * @param T_ifile file containing T
-     * @param support a vector containing move_r operations to build support for
-     * @param construction_mode cosntruction mode to use (default: optimized for low runtime)
-     * @param p the number of threads to use during the construction
-     * @param a balancing parameter, 2 <= a
-     * @param log controls, whether to print log messages
-     * @param mf_idx measurement file for the index construciton
-     * @param mf_mds measurement file for the move data structure construction
-     * @param name_text_file name of the input file (used only for measurement output)
+     * @param params construction parameters
      */
-    construction(
-        move_r<uint_t>& index,
-        std::ifstream& T_ifile,
-        std::vector<move_r_support> support,
-        move_r_construction_mode construction_mode,
-        uint16_t p,
-        uint16_t a,
-        bool log,
-        std::ostream* mf_idx,
-        std::ostream* mf_mds,
-        std::string name_text_file
-    ) : T(T_tmp), idx(index), SA_32(SA_32_tmp), SA_64(SA_64_tmp), L(L_tmp) {
-        idx.support = support;
-        this->p = p;
-        idx.a = a;
-        this->log = log;
-        this->mf_idx = mf_idx;
-        this->mf_mds = mf_mds;
-        this->name_text_file = name_text_file;
-
+    construction(move_r<uint_t>& index, std::ifstream& T_ifile, move_r_params params)
+    : T(T_tmp), idx(index), SA_32(SA_32_tmp), SA_64(SA_64_tmp), L(L_tmp) {
+        read_parameters(params);
         prepare_phase_1();
 
-        if (construction_mode == move_r_construction_mode::runtime) {
+        if (params.mode == move_r_constr_mode::_libsais) {
             min_valid_char = 2;
             read_t_from_file_in_memory(T_ifile);
             construct_in_memory();
@@ -359,34 +321,11 @@ class move_r<uint_t>::construction {
      * @param index The move-r index to construct
      * @param suffix_array vector containing the suffix array of the input
      * @param bwt string containing the bwt of the input
-     * @param support a vector containing move_r operations to build support for
-     * @param p the number of threads to use during the construction
-     * @param a balancing parameter, 2 <= a
-     * @param log controls, whether to print log messages
-     * @param mf_idx measurement file for the index construciton
-     * @param mf_mds measurement file for the move data structure construction
-     * @param name_text_file name of the input file (used only for measurement output)
+     * @param params construction parameters
      */
-    construction(
-        move_r<uint_t>& index,
-        std::vector<int32_t>& suffix_array,
-        std::string& bwt,
-        std::vector<move_r_support> support,
-        uint16_t p,
-        uint16_t a,
-        bool log,
-        std::ostream* mf_idx,
-        std::ostream* mf_mds,
-        std::string name_text_file
-    ) : T(T_tmp), L(bwt), SA_32(suffix_array), SA_64(SA_64_tmp), idx(index) {
-        idx.support = support;
-        this->p = p;
-        idx.a = a;
-        this->log = log;
-        this->mf_idx = mf_idx;
-        this->mf_mds = mf_mds;
-        this->name_text_file = name_text_file;
-        
+    construction(move_r<uint_t>& index, std::vector<int32_t>& suffix_array, std::string& bwt, move_r_params params)
+    : T(T_tmp), L(bwt), SA_32(suffix_array), SA_64(SA_64_tmp), idx(index) {
+        read_parameters(params);        
         construct_from_sa_and_l<int32_t>();
     }
 
@@ -395,34 +334,11 @@ class move_r<uint_t>::construction {
      * @param index The move-r index to construct
      * @param suffix_array vector containing the suffix array of the input
      * @param bwt string containing the bwt of the input
-     * @param support a vector containing move_r operations to build support for
-     * @param p the number of threads to use during the construction
-     * @param a balancing parameter, 2 <= a
-     * @param log controls, whether to print log messages
-     * @param mf_idx measurement file for the index construciton
-     * @param mf_mds measurement file for the move data structure construction
-     * @param name_text_file name of the input file (used only for measurement output)
+     * @param params construction parameters
      */
-    construction(
-        move_r<uint_t>& index,
-        std::vector<int64_t>& suffix_array,
-        std::string& bwt,
-        std::vector<move_r_support> support,
-        uint16_t p,
-        uint16_t a,
-        bool log,
-        std::ostream* mf_idx,
-        std::ostream* mf_mds,
-        std::string name_text_file
-    ) : T(T_tmp), L(bwt), SA_32(SA_32_tmp), SA_64(suffix_array), idx(index) {
-        idx.support = support;
-        this->p = p;
-        idx.a = a;
-        this->log = log;
-        this->mf_idx = mf_idx;
-        this->mf_mds = mf_mds;
-        this->name_text_file = name_text_file;
-        
+    construction(move_r<uint_t>& index, std::vector<int64_t>& suffix_array, std::string& bwt, move_r_params params)
+    : T(T_tmp), L(bwt), SA_32(SA_32_tmp), SA_64(suffix_array), idx(index) {
+        read_parameters(params);
         construct_from_sa_and_l<int64_t>();
     }
 
@@ -459,7 +375,7 @@ class move_r<uint_t>::construction {
     }
 
     /**
-     * @brief constructs the index from a string in memory (optimized for low runtime)
+     * @brief constructs the index from a string in memory (uses libsais)
      */
     void construct_in_memory() {
         if constexpr (std::is_same<uint_t,uint32_t>::value) {
@@ -474,7 +390,7 @@ class move_r<uint_t>::construction {
     }
 
     /**
-     * @brief constructs the index from a string in memory (optimized for low runtime)
+     * @brief constructs the index from a string in memory (uses libsais)
      * @param sa_sint_t signed integer type to use for the suffix array entries
      */
     template <typename sa_sint_t = int32_t>
@@ -500,7 +416,7 @@ class move_r<uint_t>::construction {
     }
 
     /**
-     * @brief constructs the index from a file space saving (optimized for low peak memory usage)
+     * @brief constructs the index from a file space saving (uses Big-BWT)
      */
     void construct_space_saving() {
         prepare_phase_2();

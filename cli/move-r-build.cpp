@@ -7,8 +7,8 @@ uint64_t n;
 uint16_t a = 8;
 uint16_t p = 1;
 std::string path_prefix_index_file;
-move_r_construction_mode construction_mode = move_r_construction_mode::runtime;
-std::vector<move_r_support> support = full_support;
+move_r_constr_mode mode = move_r_constr_mode::_libsais;
+std::vector<move_r_supp> support = move_r_full_supp;
 std::ofstream mf_idx;
 std::ofstream mf_mds;
 std::ifstream input_file;
@@ -21,7 +21,7 @@ void help(std::string msg) {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-build: builds move-r." << std::endl << std::endl;
     std::cout << "usage: move-r-build [options] <input_file>" << std::endl;
-    std::cout << "   -c <mode>          construction mode: runtime or space (default: runtime)" << std::endl;
+    std::cout << "   -c <mode>          construction mode: libsais or bigbwt (default: libsais)" << std::endl;
     std::cout << "   -o <base_name>     names the index file base_name.move-r (default: input_file)" << std::endl;
     std::cout << "   -s <op1> <op2> ... supported operations: revert, count and locate" << std::endl;
     std::cout << "                      (default: all operations)" << std::endl;
@@ -50,8 +50,8 @@ void parse_args(char** argv, int argc, int &ptr) {
     } else if (s == "-c") {
         if (ptr >= argc-1) help("error: missing parameter after -p option");
         std::string construction_mode_str = argv[ptr++];
-        if (construction_mode_str == "runtime") construction_mode = move_r_construction_mode::runtime;
-        else if (construction_mode_str == "space") construction_mode = move_r_construction_mode::space;
+        if (construction_mode_str == "libsais") mode = move_r_constr_mode::_libsais;
+        else if (construction_mode_str == "bigbwt") mode = move_r_constr_mode::_bigbwt;
         else help("error: invalid option for -c");
     } else if (s == "-s") {
         if (ptr >= argc-1) help("error: missing parameter after -s option");
@@ -60,9 +60,9 @@ void parse_args(char** argv, int argc, int &ptr) {
 
         while (true) {
             std::string support_str = argv[ptr++];
-            if (support_str == "revert") support.emplace_back(move_r_support::revert);
-            else if (support_str == "count") support.emplace_back(move_r_support::count);
-            else if (support_str == "locate") support.emplace_back(move_r_support::locate);
+            if (support_str == "revert") support.emplace_back(move_r_supp::revert);
+            else if (support_str == "count") support.emplace_back(move_r_supp::count);
+            else if (support_str == "locate") support.emplace_back(move_r_supp::locate);
             else if (!parsed_first_op) help("error: unknown mode provided with -s option");
             else break;
             parsed_first_op = true;
@@ -88,12 +88,17 @@ void parse_args(char** argv, int argc, int &ptr) {
 
 template <typename uint_t>
 void build() {
-    move_r<uint_t> index(
-        input_file,support,construction_mode,p,a,true,
-        mf_idx.is_open() ? &mf_idx : NULL,
-        mf_mds.is_open() ? &mf_mds : NULL,
-        name_text_file
-    );
+    move_r<uint_t> index(input_file,{
+        .support=support,
+        .mode=mode,
+        .num_threads=p,
+        .a=a,
+        .log=true,
+        .mf_idx=mf_idx.is_open() ? &mf_idx : NULL,
+        .mf_mds=mf_mds.is_open() ? &mf_mds : NULL,
+        .name_text_file=name_text_file
+    });
+
     input_file.close();
     auto time = now();
     std::cout << "serializing the index" << std::flush;
