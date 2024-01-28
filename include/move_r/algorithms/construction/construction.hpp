@@ -85,11 +85,11 @@ class move_r<uint_t>::construction {
         std::cout << "building an index with the following support:" << std::endl;
 
         static auto report_support = [](move_r_supp sup){
-            if (sup == revert) {
+            if (sup == _revert) {
                 std::cout << "revert";
-            } else if (sup == move_r_supp::count) {
+            } else if (sup == _count) {
                 std::cout << "count";
-            } else if (sup == move_r_supp::locate) {
+            } else if (sup == _locate) {
                 std::cout << "locate";
             }
         };
@@ -190,13 +190,13 @@ class move_r<uint_t>::construction {
 
         adjust_supports(idx.support);
 
-        if (!contains(idx.support,revert)) {
+        if (!contains(idx.support,_revert)) {
             std::cout << "error: cannot build an index without revert support";
             return;
         }
 
-        build_count_support = contains(idx.support,move_r_supp::count);
-        build_locate_support = contains(idx.support,move_r_supp::locate);
+        build_count_support = contains(idx.support,_count);
+        build_locate_support = contains(idx.support,_locate);
 
         // print the operations to build support for
         if (log) {
@@ -273,12 +273,12 @@ class move_r<uint_t>::construction {
         read_parameters(params);
         prepare_phase_1();
 
-        if (params.mode == move_r_constr_mode::_libsais) {
+        if (params.mode == _libsais) {
             min_valid_char = 2;
             T.push_back(uchar_to_char((uint8_t)0));
             n = T.size();
             idx.n = n;
-            construct_in_memory();
+            construct_libsais();
             T.resize(n-1);
             if (idx.chars_remapped) unmap_t();
         } else {
@@ -286,7 +286,7 @@ class move_r<uint_t>::construction {
             n = T.size()+1;
             idx.n = n;
             preprocess_and_store_t_in_file();
-            construct_space_saving();
+            construct_bigbwt();
         }
 
         if (log) log_finished();
@@ -303,14 +303,14 @@ class move_r<uint_t>::construction {
         read_parameters(params);
         prepare_phase_1();
 
-        if (params.mode == move_r_constr_mode::_libsais) {
+        if (params.mode == _libsais) {
             min_valid_char = 2;
-            read_t_from_file_in_memory(T_ifile);
-            construct_in_memory();
+            read_t_from_file_libsais(T_ifile);
+            construct_libsais();
         } else {
             min_valid_char = 3;
             preprocess_t(false,&T_ifile);
-            construct_space_saving();
+            construct_bigbwt();
         }
 
         if (log) log_finished();
@@ -356,17 +356,17 @@ class move_r<uint_t>::construction {
 
         prepare_phase_1();
         prepare_phase_2();
-        build_rlbwt_c_in_memory<true,sa_sint_t>();
+        build_rlbwt_c_libsais<true,sa_sint_t>();
         if (log) log_statistics();
         build_ilf();
         build_mlf();
-        if (build_locate_support) build_iphi_in_memory<sa_sint_t>();
+        if (build_locate_support) build_iphi_libsais<sa_sint_t>();
         build_l__sas();
 
         if (build_locate_support) {
             sort_iphi();
             build_mphi();
-            build_saidx();
+            build_saphi();
             build_de();
         }
 
@@ -377,38 +377,38 @@ class move_r<uint_t>::construction {
     /**
      * @brief constructs the index from a string in memory (uses libsais)
      */
-    void construct_in_memory() {
+    void construct_libsais() {
         if constexpr (std::is_same<uint_t,uint32_t>::value) {
             if (n <= INT_MAX) {
-                construct_in_memory<int32_t>();
+                construct_libsais<int32_t>();
             } else {
-                construct_in_memory<int64_t>();
+                construct_libsais<int64_t>();
             }
         } else {
-            construct_in_memory<int64_t>();
+            construct_libsais<int64_t>();
         }
     }
 
     /**
-     * @brief constructs the index from a string in memory (uses libsais)
+     * @brief constructs the index from a string using libsais
      * @param sa_sint_t signed integer type to use for the suffix array entries
      */
     template <typename sa_sint_t = int32_t>
-    void construct_in_memory() {
+    void construct_libsais() {
         preprocess_t(true);
         prepare_phase_2();
-        build_sa_in_memory<sa_sint_t>();
-        build_rlbwt_c_in_memory<false,sa_sint_t>();
+        build_sa_libsais<sa_sint_t>();
+        build_rlbwt_c_libsais<false,sa_sint_t>();
         if (log) log_statistics();
         build_ilf();
-        if (build_locate_support) build_iphi_in_memory<sa_sint_t>();
+        if (build_locate_support) build_iphi_libsais<sa_sint_t>();
         build_mlf();
         build_l__sas();
 
         if (build_locate_support) {
             sort_iphi();
             build_mphi();
-            build_saidx();
+            build_saphi();
             build_de();
         }
 
@@ -416,12 +416,12 @@ class move_r<uint_t>::construction {
     }
 
     /**
-     * @brief constructs the index from a file space saving (uses Big-BWT)
+     * @brief constructs the index from a file using Big-BWT
      */
-    void construct_space_saving() {
+    void construct_bigbwt() {
         prepare_phase_2();
-        pfp();
-        build_rlbwt_c_space_saving();
+        bigbwt();
+        build_rlbwt_c_bigbwt();
 
         if (log) {
             std::cout
@@ -433,14 +433,14 @@ class move_r<uint_t>::construction {
 
         build_ilf();
         build_mlf();
-        if (build_locate_support) read_iphi_space_saving();
+        if (build_locate_support) read_iphi_bigbwt();
         build_l__sas();
 
         if (build_locate_support) {
             store_mlf();
             sort_iphi();
             build_mphi();
-            build_saidx();
+            build_saphi();
             build_de();
             load_mlf();
         }
@@ -452,10 +452,10 @@ class move_r<uint_t>::construction {
 
     /**
      * @brief reads the input T and possibly remaps it to an internal alphabet, if it contains an invalid character
-     * @param in_memory controls, whether the input should be processed in memory or read buffered from a file
-     * @param t_file file containing T (for in_memory = false)
+     * @param use_libsais controls, whether the input should be processed in memory or read buffered from a file
+     * @param t_file file containing T (for use_libsais = false)
      */
-    void preprocess_t(bool in_memory, std::ifstream* T_ifile = NULL);
+    void preprocess_t(bool use_libsais, std::ifstream* T_ifile = NULL);
 
     /**
      * @brief builds the RLBWT and C in-memory
@@ -463,7 +463,7 @@ class move_r<uint_t>::construction {
      * @tparam read_l whether the RLBWT should be read from L
      */
     template <bool read_l, typename sa_sint_t = int32_t>
-    void build_rlbwt_c_in_memory();
+    void build_rlbwt_c_libsais();
 
     /**
      * @brief processes the C-array
@@ -498,7 +498,7 @@ class move_r<uint_t>::construction {
     /**
      * @brief builds SA_phi
      */
-    void build_saidx();
+    void build_saphi();
 
     /**
      * @brief builds D_e
@@ -516,28 +516,28 @@ class move_r<uint_t>::construction {
      * @brief reads T from t_file
      * @param t_file file containing T
      */
-    void read_t_from_file_in_memory(std::ifstream& t_file);
+    void read_t_from_file_libsais(std::ifstream& t_file);
 
     /**
      * @brief builds the suffix array in-memory
      * @tparam sa_sint_t suffix array signed integer type
      */
     template <typename sa_sint_t = int32_t>
-    void build_sa_in_memory();
+    void build_sa_libsais();
 
     /**
      * @brief builds SA_s from SA in memory
      * @tparam sa_sint_t suffix array signed integer type
      */
     template <typename sa_sint_t>
-    void build_iphi_in_memory();
+    void build_iphi_libsais();
 
     /**
      * @brief unmaps T from the internal alphabet
      */
     void unmap_t();
 
-    // ############################# SPACE-SAVING CONSTRUCTION METHODS #############################
+    // ############################# Big-BWT CONSTRUCTION METHODS #############################
 
     /**
      * @brief preprocesses T and stores it in a file
@@ -545,19 +545,19 @@ class move_r<uint_t>::construction {
     void preprocess_and_store_t_in_file();
 
     /**
-     * @brief computes the BWT (and I_Phi) using prefix-free-parsing
+     * @brief computes the BWT (and suffix array samples) using Big-BWT
      */
-    void pfp();
+    void bigbwt();
 
     /**
      * @brief builds the RLBWT and C
      */
-    void build_rlbwt_c_space_saving();
+    void build_rlbwt_c_bigbwt();
 
     /**
      * @brief reads I_Phi
      */
-    void read_iphi_space_saving();
+    void read_iphi_bigbwt();
 
     /**
      * @brief stores M_LF in a file
@@ -568,13 +568,8 @@ class move_r<uint_t>::construction {
      * @brief loads M_LF from a file
      */
     void load_mlf();
-
-    /**
-     * @brief computes the missing SA-samples
-     */
-    void compute_missing_sa_samples_space_saving();
 };
 
 #include "modes/common.cpp"
-#include "modes/in_memory.cpp"
-#include "modes/space_saving.cpp"
+#include "modes/libsais.cpp"
+#include "modes/bigbwt.cpp"

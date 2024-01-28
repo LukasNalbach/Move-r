@@ -7,8 +7,8 @@ uint64_t n;
 uint16_t a = 8;
 uint16_t p = 1;
 std::string path_prefix_index_file;
-move_r_constr_mode mode = move_r_constr_mode::_libsais;
-std::vector<move_r_supp> support = move_r_full_supp;
+move_r_constr_mode mode = _libsais;
+std::vector<move_r_supp> support = _full_support;
 std::ofstream mf_idx;
 std::ofstream mf_mds;
 std::ifstream input_file;
@@ -50,8 +50,8 @@ void parse_args(char** argv, int argc, int &ptr) {
     } else if (s == "-c") {
         if (ptr >= argc-1) help("error: missing parameter after -p option");
         std::string construction_mode_str = argv[ptr++];
-        if (construction_mode_str == "libsais") mode = move_r_constr_mode::_libsais;
-        else if (construction_mode_str == "bigbwt") mode = move_r_constr_mode::_bigbwt;
+        if (construction_mode_str == "libsais") mode = _libsais;
+        else if (construction_mode_str == "bigbwt") mode = _bigbwt;
         else help("error: invalid option for -c");
     } else if (s == "-s") {
         if (ptr >= argc-1) help("error: missing parameter after -s option");
@@ -60,9 +60,9 @@ void parse_args(char** argv, int argc, int &ptr) {
 
         while (true) {
             std::string support_str = argv[ptr++];
-            if (support_str == "revert") support.emplace_back(move_r_supp::revert);
-            else if (support_str == "count") support.emplace_back(move_r_supp::count);
-            else if (support_str == "locate") support.emplace_back(move_r_supp::locate);
+            if (support_str == "revert") support.emplace_back(_revert);
+            else if (support_str == "count") support.emplace_back(_count);
+            else if (support_str == "locate") support.emplace_back(_locate);
             else if (!parsed_first_op) help("error: unknown mode provided with -s option");
             else break;
             parsed_first_op = true;

@@ -1,10 +1,10 @@
 #include <ips4o.hpp>
 
 template <typename uint_t>
-void move_r<uint_t>::construction::preprocess_t(bool in_memory, std::ifstream* T_ifile) {
+void move_r<uint_t>::construction::preprocess_t(bool use_libsais, std::ifstream* T_ifile) {
     if (log) std::cout << "preprocessing T" << std::flush;
 
-    if (!in_memory) {
+    if (!use_libsais) {
         T_ifile->seekg(0,std::ios::end);
         n = T_ifile->tellg()+(std::streamsize)+1;
         idx.n = n;
@@ -14,7 +14,7 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, std::ifstream* T
     // contains_uchar_thr[i_p][c] = true <=> thread i_p found the character c in its section of T[0..n-2].
     std::vector<std::vector<uint8_t>> contains_uchar_thr(p,std::vector<uint8_t>(256,0));
 
-    if (in_memory) {
+    if (use_libsais) {
         // Iterate over T[0..n-2] and report the occurrence of each found character in T[0..n-2] in contains_uchar_thr.
         #pragma omp parallel for num_threads(p)
         for (uint64_t i=0; i<n-1; i++) {
@@ -122,7 +122,7 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, std::ifstream* T
         }
 
         // Apply map_char to T.
-        if (in_memory) {
+        if (use_libsais) {
             #pragma omp parallel for num_threads(p)
             for (uint64_t i=0; i<n-1; i++) {
                 if (char_to_uchar(T[i]) <= max_remapped_uchar) {
@@ -132,7 +132,7 @@ void move_r<uint_t>::construction::preprocess_t(bool in_memory, std::ifstream* T
         }
     }
 
-    if (!in_memory) {
+    if (!use_libsais) {
         prefix_tmp_files = "move-r_" + random_alphanumeric_string(10);
         std::ofstream T_ofile(prefix_tmp_files);
         uint_t max_t_buf_size = std::max((uint_t)1,n/500);
@@ -420,7 +420,7 @@ void move_r<uint_t>::construction::build_mphi() {
 }
 
 template <typename uint_t>
-void move_r<uint_t>::construction::build_saidx() {
+void move_r<uint_t>::construction::build_saphi() {
     time = now();
     if (log) std::cout << "building SA_phi" << std::flush;
 
@@ -597,7 +597,7 @@ void move_r<uint_t>::construction::build_saidx() {
     pi_mphi.shrink_to_fit();
 
     if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_build_saidx=" << time_diff_ns(time,now());
+        if (mf_idx != NULL) *mf_idx << " time_build_saphi=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }

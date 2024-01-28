@@ -1,10 +1,15 @@
 template <typename uint_t>
 template <typename output_t, bool output_reversed>
 void move_r<uint_t>::retrieve_range(
-    void(move_r<uint_t>::*retrieve_method)(const std::function<void(uint_t,output_t)>&,uint_t,uint_t,uint16_t),
-    std::ofstream& out, uint_t l, uint_t r, uint16_t num_threads, int64_t max_bytes_alloc
+    void(move_r<uint_t>::*retrieve_method)(const std::function<void(uint_t,output_t)>&,move_r<uint_t>::retrieve_params),
+    std::ofstream& out, move_r<uint_t>::retrieve_params params
 ) {
-    int64_t max_writebuffer_size = max_bytes_alloc != -1 ? max_bytes_alloc/(num_threads*sizeof(output_t)) : std::max((int64_t)1,(int64_t)(r-l+1)/(num_threads*500));
+    uint_t l = params.l;
+    uint_t r = params.r;
+    uint16_t num_threads = params.num_threads;
+    int64_t max_writebuffer_size = params.max_bytes_alloc != -1 ?
+        params.max_bytes_alloc/(num_threads*sizeof(output_t)) :
+        std::max((int64_t)1,(int64_t)(r-l+1)/(num_threads*500));
 
     if (num_threads == 1 && !output_reversed) {
         std::vector<output_t> write_buffer;
@@ -18,7 +23,7 @@ void move_r<uint_t>::retrieve_range(
                 out.write((char*)&write_buffer[0],max_writebuffer_size*sizeof(output_t));
                 pos_cur = 0;
             }
-        },l,r,num_threads);
+        },params);
     } else {
         std::vector<std::ofstream> files;
         std::string file_prefix = "move-r_" + random_alphanumeric_string(10) + "_";
@@ -42,7 +47,7 @@ void move_r<uint_t>::retrieve_range(
                 files[omp_get_thread_num()].write((char*)&write_buffer[omp_get_thread_num()][0],max_writebuffer_size*sizeof(output_t));
                 pos_cur[omp_get_thread_num()] = 0;
             }
-        },l,r,num_threads);
+        },params);
 
         #pragma omp parallel for num_threads(num_threads)
         for (uint16_t i=0; i<num_threads; i++) {

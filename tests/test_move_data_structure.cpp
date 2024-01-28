@@ -53,10 +53,9 @@ TEST(test_move_data_structure,fuzzy_test) {
         // choose a random value for the balancing parameter a
         uint16_t a = std::min<uint16_t>(2+a_distrib(gen),32767);
 
-        // build a move data structure from the disjoint interval
+        // build a move data structure from the disjoint interval sequence
         move_data_structure<uint32_t> mds(interval_sequence,input_size,{
-            .num_threads = num_threads_distrib(gen),
-            .a = a
+            .num_threads = num_threads_distrib(gen), .a = a
         });
 
         // check if the number of input/output intervals has increased too much

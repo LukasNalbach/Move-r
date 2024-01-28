@@ -58,10 +58,8 @@ int main() {
    // construction algorithm, use at most 8 threads and set the 
    // balancing parameter a to 4
    move_r<uint64_t> index_2("a large string",{
-      .support = {count},
-      .mode = _bigbwt,
-      .num_threads = 8,
-      .a = 4
+      .support = {_count}, .mode = _bigbwt,
+      .num_threads = 8, .a = 4
    });
 
    // print the number of bwt runs in the input string
@@ -75,14 +73,11 @@ int main() {
 
    // print all occurences of a pattern
    index.locate("is",[](auto o){std::cout << o << ", ";});
+   std::cout << std::endl;
 
    // store all occurences of a pattern in a vector
    auto Occ = index.locate("test");
-
-   std::cout << std::endl;
-   for (auto o : Occ) {
-      std::cout << o << ", ";
-   }
+   for (auto o : Occ) std::cout << o << ", ";
 }
 ```
 
@@ -111,8 +106,7 @@ int main() {
 
    // use at most 4 threads and set a = 2
    move_data_structure_str<> mds_str({{0,4},{1,5},{2,6},{3,7},{4,0}},8,{
-      .num_threads = 4,
-      .a = 2
+      .num_threads = 4, .a = 2
    });
 
    // this disjoint interval sequence is not 2-balanced, because the output
@@ -120,7 +114,7 @@ int main() {
 
    // print the pairs of the resulting disjoint interval sequence
    for (uint32_t i=0; i<mds_str.num_intervals(); i++) {
-      std::cout << to_string<>(std::make_pair(mds_str.p(i),mds_str.q(i)));
+      std::cout << to_string<>({mds_str.p(i),mds_str.q(i)});
    }
    
    // the balancing algorithm has added the pair (6,2) to balance the sequence
@@ -150,7 +144,7 @@ int main() {
    // but only with revert support
    index_ifile.open("test_idx.move-r");
    move_r<> reloaded_index_2;
-   reloaded_index_2.load(index_ifile,{revert});
+   reloaded_index_2.load(index_ifile,{_revert});
    index_ifile.close();
 }
 ```
@@ -165,31 +159,37 @@ int main() {
 
    // retrieve the range [8,17] of the original text and store 
    // it in a string using at most 2 threads
-   std::string reverted_range = index.revert_range(8,17,2);
-   
+   std::string reverted_range = index.revert({
+      .l = 8, .r = 17, .num_threads = 2
+   });
+   for (auto c : reverted_range) std::cout << c;
    std::cout << std::endl;
-   for (auto c : reverted_range) {
-      std::cout << c;
-   }
 
    // print the original text from right to left without storing it
    // using 1 thread
+   index.revert([](auto,auto c){std::cout << c;},{.num_threads = 1});
    std::cout << std::endl;
-   index.revert_range([](auto,auto c){std::cout << c;},0,20,1);
 
    // retrieve the suffix array values in the range [2,6] using at
    // most 4 threads and store them in a vector
-   std::vector<uint32_t> sa_range = index.retrieve_sa_range(2,6,4);
+   std::vector<uint32_t> SA_range = index.SA({
+      .l = 2, .r = 6, .num_threads = 4
+   });
+   for (auto s : SA_range) std::cout << s << ", ";
    std::cout << std::endl;
-   
-   for (auto s : sa_range) {
-      std::cout << s << ", ";
-   }
 
-   // print the suffix array values in the range [7,14] from right to left
+   // print SA[1]
+   std::cout << index.SA(1) << std::endl;
+
+   // retrieve the BWT in the range [7,14] from left to right
    // using 1 thread
+   index.BWT([](auto,auto s){std::cout << s << ", ";},{
+      .l = 7, .r = 14, .num_threads = 1
+   });
    std::cout << std::endl;
-   index.retrieve_sa_range([](auto,auto s){std::cout << s << ", ";},7,14,1);
+
+   // print BWT[16]
+   std::cout << index.BWT(16) << std::endl;
 }
 ```
 

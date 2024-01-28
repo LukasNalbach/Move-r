@@ -11,7 +11,7 @@ void move_r<uint_t>::construction::preprocess_and_store_t_in_file() {
 }
 
 template <typename uint_t>
-void move_r<uint_t>::construction::pfp() {
+void move_r<uint_t>::construction::bigbwt() {
     if (log) {
         time = now();
         std::cout << "executing Big-BWT" << std::endl << std::endl;
@@ -49,7 +49,7 @@ void move_r<uint_t>::construction::pfp() {
 }
 
 template <typename uint_t>
-void move_r<uint_t>::construction::build_rlbwt_c_space_saving() {
+void move_r<uint_t>::construction::build_rlbwt_c_bigbwt() {
     if (log) {
         time = now();
         std::cout << "building RLBWT" << std::flush;
@@ -147,7 +147,7 @@ void move_r<uint_t>::construction::build_rlbwt_c_space_saving() {
 }
 
 template <typename uint_t>
-void move_r<uint_t>::construction::read_iphi_space_saving() {
+void move_r<uint_t>::construction::read_iphi_bigbwt() {
     if (log) {
         time = now();
         std::cout << "reading I_Phi" << std::flush;

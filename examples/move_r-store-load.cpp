@@ -19,6 +19,6 @@ int main() {
     // but only with revert support
     index_ifile.open("test_idx.move-r");
     move_r<> reloaded_index_2;
-    reloaded_index_2.load(index_ifile,{revert});
+    reloaded_index_2.load(index_ifile,{_revert});
     index_ifile.close();
 }

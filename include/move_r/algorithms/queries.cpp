@@ -11,13 +11,13 @@ void move_r<uint_t>::setup_phi_move_pair(uint_t x, uint_t& s, uint_t& s_) {
 }
 
 template <typename uint_t>
-char move_r<uint_t>::access_bwt(uint_t i) {
+char move_r<uint_t>::BWT(uint_t i) {
     // find the index of the input interval in M_LF containing i with a binary search.
     return access_l_(bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x){return M_LF.p(x);}));
 }
 
 template <typename uint_t>
-uint_t move_r<uint_t>::access_sa(uint_t i) {
+uint_t move_r<uint_t>::SA(uint_t i) {
     // index of the input interval in M_LF containing i.
     uint_t x = bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x_){return M_LF.p(x_);});
 
@@ -26,7 +26,13 @@ uint_t move_r<uint_t>::access_sa(uint_t i) {
               = Phi^{-1}(M_Phi.q(SA_phi[(x-1) mod r']))
               =          M_Phi.p(SA_phi[(x-1) mod r'])
     */
-    if (i == M_LF.p(x) && (x == 0 || SA_phi[x-1] != r__)) return M_Phi.p(SA_phi[x == 0 ? r_-1 : x-1]);
+    if (i == M_LF.p(x)) {
+        if (x == 0) {
+            return M_Phi.p(SA_phi[r_-1]);
+        } else if (SA_phi[x-1] != r__) {
+            return M_Phi.p(SA_phi[x-1]);
+        }
+    }
 
     // increment x until the end position of the x-th input interval of M_LF is an end position of a bwt run
     while (SA_phi[x] == r__) {
@@ -221,13 +227,11 @@ void move_r<uint_t>::locate(uint_t m, const std::function<char(uint_t)>& read, c
 }
 
 template <typename uint_t>
-void move_r<uint_t>::revert_range(const std::function<void(uint_t,char)>& report, uint_t l, uint_t r, uint16_t num_threads) {
-    r = std::max(r,n-2);
+void move_r<uint_t>::revert(const std::function<void(uint_t,char)>& report, retrieve_params params) {
+    adjust_retrieve_params(params,n-2);
 
-    if (l > r) {
-        l = 0;
-        r = n-2;
-    }
+    uint_t l = params.l;
+    uint_t r = params.r;
 
     // leftmost section to revert
     uint16_t s_l;
@@ -247,7 +251,7 @@ void move_r<uint_t>::revert_range(const std::function<void(uint_t,char)>& report
         std::min({
             (uint16_t)(s_r-s_l+1),           // use at most s_r-s_l+1 threads
             (uint16_t)omp_get_max_threads(), // use at most all threads
-            num_threads                      // use at most the specified number of threads
+            params.num_threads               // use at most the specified number of threads
         })
     );
 
@@ -296,20 +300,18 @@ void move_r<uint_t>::revert_range(const std::function<void(uint_t,char)>& report
 }
 
 template <typename uint_t>
-void move_r<uint_t>::retrieve_bwt_range(const std::function<void(uint_t,char)>& report, uint_t l, uint_t r, uint16_t num_threads) {
-    r = std::max(r,n-1);
+void move_r<uint_t>::BWT(const std::function<void(uint_t,char)>& report, retrieve_params params) {
+    adjust_retrieve_params(params,n-1);
 
-    if (l > r) {
-        l = 0;
-        r = n-1;
-    }
+    uint_t l = params.l;
+    uint_t r = params.r;
 
     uint16_t p = std::max(
         (uint16_t)1,                         // use at least one thread
         std::min({
             (uint16_t)omp_get_max_threads(), // use at most all threads
             (uint16_t)((r-l+1)/10),          // use at most (r-l+1)/100 threads
-            num_threads                      // use at most the specified number of threads
+            params.num_threads               // use at most the specified number of threads
         })
     );
 
@@ -353,19 +355,17 @@ void move_r<uint_t>::retrieve_bwt_range(const std::function<void(uint_t,char)>& 
 }
 
 template <typename uint_t>
-void move_r<uint_t>::retrieve_sa_range(const std::function<void(uint_t,uint_t)>& report, uint_t l, uint_t r, uint16_t num_threads) {
-    r = std::max(r,n-1);
+void move_r<uint_t>::SA(const std::function<void(uint_t,uint_t)>& report, retrieve_params params) {
+    adjust_retrieve_params(params,n-1);
 
-    if (l > r) {
-        l = 0;
-        r = n-1;
-    }
+    uint_t l = params.l;
+    uint_t r = params.r;
 
     uint16_t p = std::max(
         (uint16_t)1,                                           // use at least one thread
         std::min({
             (uint16_t)omp_get_max_threads(),                   // use at most all threads
-            num_threads,                                       // use at most the specified number of threads
+            params.num_threads,                                // use at most the specified number of threads
             (uint16_t)(((r-l+1)*(double)r__)/(10.0*(double)n)) // use at most (r-l+1)*(r/n)*(1/10) threads
         })
     );

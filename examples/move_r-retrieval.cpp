@@ -6,29 +6,35 @@ int main() {
 
     // retrieve the range [8,17] of the original text and store 
     // it in a string using at most 2 threads
-    std::string reverted_range = index.revert_range(8,17,2);
-    
+    std::string reverted_range = index.revert({
+        .l = 8, .r = 17, .num_threads = 2
+    });
+    for (auto c : reverted_range) std::cout << c;
     std::cout << std::endl;
-    for (auto c : reverted_range) {
-        std::cout << c;
-    }
 
     // print the original text from right to left without storing it
     // using 1 thread
+    index.revert([](auto,auto c){std::cout << c;},{.num_threads = 1});
     std::cout << std::endl;
-    index.revert_range([](auto,auto c){std::cout << c;},0,20,1);
 
     // retrieve the suffix array values in the range [2,6] using at
     // most 4 threads and store them in a vector
-    std::vector<uint32_t> sa_range = index.retrieve_sa_range(2,6,4);
+    std::vector<uint32_t> SA_range = index.SA({
+        .l = 2, .r = 6, .num_threads = 4
+    });
+    for (auto s : SA_range) std::cout << s << ", ";
     std::cout << std::endl;
-    
-    for (auto s : sa_range) {
-        std::cout << s << ", ";
-    }
 
-    // print the suffix array values in the range [7,14] from right to left
+    // print SA[1]
+    std::cout << index.SA(1) << std::endl;
+
+    // retrieve the BWT in the range [7,14] from left to right
     // using 1 thread
+    index.BWT([](auto,auto s){std::cout << s << ", ";},{
+        .l = 7, .r = 14, .num_threads = 1
+    });
     std::cout << std::endl;
-    index.retrieve_sa_range([](auto,auto s){std::cout << s << ", ";},7,14,1);
+
+    // print BWT[16]
+    std::cout << index.BWT(16) << std::endl;
 }

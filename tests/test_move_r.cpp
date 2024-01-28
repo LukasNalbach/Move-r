@@ -43,19 +43,19 @@ TEST(test_move_r,fuzzy_test) {
         alphabet_size = alphabet_size_distrib(gen);
 
         // choose a random alphabet
-        std::vector<uint8_t> Sigma;
+        std::vector<uint8_t> alphabet;
         uint8_t uchar;
         for (uint32_t i=0; i<alphabet_size; i++) {
-            do {uchar = uchar_distrib(gen);} while (contains(Sigma,uchar));
-            Sigma.push_back(uchar);
+            do {uchar = uchar_distrib(gen);} while (contains(alphabet,uchar));
+            alphabet.push_back(uchar);
         }
 
         // choose a random input based on the alphabet
         std::uniform_int_distribution<uint8_t> char_idx_distrib(0,alphabet_size-1);
         double avg_input_rep_length = 1.0+avg_input_rep_length_distrib(gen);
-        uint8_t cur_uchar = Sigma[char_idx_distrib(gen)];
+        uint8_t cur_uchar = alphabet[char_idx_distrib(gen)];
         for (uint32_t i=0; i<input_size; i++) {
-            if (prob_distrib(gen) < 1/avg_input_rep_length) cur_uchar = Sigma[char_idx_distrib(gen)];
+            if (prob_distrib(gen) < 1/avg_input_rep_length) cur_uchar = alphabet[char_idx_distrib(gen)];
             input[i] = uchar_to_char(cur_uchar);
         }
 
@@ -68,17 +68,19 @@ TEST(test_move_r,fuzzy_test) {
         });
         
         // revert the index and compare the output with the input string
-        input_reverted = index.revert_range(0,input_size == 1 ? 0 : input_size-2,num_threads_distrib(gen));
+        input_reverted = index.revert({
+            .num_threads = num_threads_distrib(gen)
+        });
         EXPECT_EQ(input,input_reverted);
 
         // retrieve the suffix array and compare it with the correct suffix array; if the input contains 0 or 1,
         // then temporarily remap the characters of the input string s.t. it does not contain 0 or 1
-        if (contains(Sigma,(uint8_t)0) || contains(Sigma,(uint8_t)1)) {
+        if (contains(alphabet,(uint8_t)0) || contains(alphabet,(uint8_t)1)) {
             map_uchar.resize(256,0);
             unmap_uchar.resize(256,0);
             uint8_t next_uchar = 2;
             for (uint16_t i=0; i<256; i++) {
-                if (contains(Sigma,(uint8_t)i)) {
+                if (contains(alphabet,(uint8_t)i)) {
                     map_uchar[i] = next_uchar;
                     unmap_uchar[next_uchar] = i;
                     next_uchar++;
@@ -89,27 +91,29 @@ TEST(test_move_r,fuzzy_test) {
         input.push_back(uchar_to_char((uint8_t)1));
         suffix_array.resize(input_size+1);
         libsais_omp((uint8_t*)&input[0],&suffix_array[0],input_size+1,0,NULL,omp_get_max_threads());
-        if (contains(Sigma,(uint8_t)0) || contains(Sigma,(uint8_t)1)) {
+        if (contains(alphabet,(uint8_t)0) || contains(alphabet,(uint8_t)1)) {
             for (uint32_t i=0; i<input_size; i++) input[i] = uchar_to_char(unmap_uchar[char_to_uchar(input[i])]);
             map_uchar.clear();
             unmap_uchar.clear();
         }
         suffix_array_retrieved.resize(input_size+1);
-        index.retrieve_sa_range([&suffix_array_retrieved](auto i,auto s){suffix_array_retrieved[i] = s;},0,input_size,num_threads_distrib(gen));
+        index.SA([&suffix_array_retrieved](auto i,auto s){suffix_array_retrieved[i] = s;},{
+            .num_threads = num_threads_distrib(gen)
+        });
         EXPECT_EQ(suffix_array,suffix_array_retrieved);
         
         // compute each suffix array value separately and check if it is correct
-        for (uint32_t i=0; i<=input_size; i++) EXPECT_EQ(index.access_sa(i),suffix_array[i]);
+        for (uint32_t i=0; i<=input_size; i++) EXPECT_EQ(index.SA(i),suffix_array[i]);
 
         // retrieve the bwt and compare it with the correct bwt
         bwt.resize(input_size+1);
         #pragma omp parallel num_threads(omp_get_max_threads())
         for (uint32_t i=0; i<=input_size; i++) bwt[i] = suffix_array[i] == 0 ? 0 : input[suffix_array[i]-1];
-        bwt_retrieved = index.retrieve_bwt_range(0,input_size,num_threads_distrib(gen));
+        bwt_retrieved = index.BWT({.num_threads = num_threads_distrib(gen)});
         EXPECT_EQ(bwt,bwt_retrieved);
 
         // compute each bwt character separately and check if it is correct
-        for (uint32_t i=0; i<=input_size; i++) EXPECT_EQ(index.access_bwt(i),bwt[i]);
+        for (uint32_t i=0; i<=input_size; i++) EXPECT_EQ(index.BWT(i),bwt[i]);
 
         // generate patterns from the input and test count- and locate queries
         std::uniform_int_distribution<> pattern_pos_distrib(0,input_size-1);

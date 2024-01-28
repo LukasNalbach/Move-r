@@ -16,22 +16,18 @@ enum move_r_supp {
     /* support for retrieving (a range of) the input string from the index (reverting
        the index); this also includes support for accessing or retrieving (a range in)
        the bwt (reverting in parallel requires the index to be built with locate support) */
-    revert = 0,
-    count = 1, // support for counting the occurrences of a pattern in the input string
+    _revert = 0,
+    _count = 1, // support for counting the occurrences of a pattern in the input string
     /* support for calculating the positions of occurrences of a pattern in the input
        string; this also adds support for accessing and retrieving (a range in)
        the suffix array (also in parallel) */
-    locate = 2
+    _locate = 2
 };
 
 /**
  * @brief a vector containing all operations supported by move_r
  */
-static std::vector<move_r_supp> move_r_full_supp = {
-    move_r_supp::revert,
-    move_r_supp::count,
-    move_r_supp::locate
-};
+static std::vector<move_r_supp> _full_support = {_revert, _count, _locate};
 
 /**
  * @brief move-r construction mode
@@ -45,8 +41,8 @@ enum move_r_constr_mode {
  * @brief move-r construction parameters
  */
 struct move_r_params {
-    std::vector<move_r_supp> support = move_r_full_supp; // a vector containing move_r operations to build support for
-    move_r_constr_mode mode = move_r_constr_mode::_libsais; // cosntruction mode to use (default: libsais)
+    std::vector<move_r_supp> support = _full_support; // a vector containing move_r operations to build support for
+    move_r_constr_mode mode = _libsais; // cosntruction mode to use (default: libsais)
     uint16_t num_threads = omp_get_max_threads(); // maximum number of threads to use during the construction
     uint16_t a = 8; // balancing parameter, 2 <= a
     bool log = false; // controls, whether to print log messages
@@ -157,35 +153,17 @@ class move_r {
      * @param support a vector containing move_r operations
      */
     static void adjust_supports(std::vector<move_r_supp>& support) {
-        if (contains(support,move_r_supp::locate) && !(contains(support,move_r_supp::count))) {
-            support.emplace_back(move_r_supp::count);
+        if (contains(support,_locate) && !(contains(support,_count))) {
+            support.emplace_back(_count);
         }
         
-        if (contains(support,move_r_supp::count) && !(contains(support,move_r_supp::revert))) {
-            support.emplace_back(move_r_supp::revert);
+        if (contains(support,_count) && !(contains(support,_revert))) {
+            support.emplace_back(_revert);
         }
         
         ips4o::sort(support.begin(),support.end());
         support.erase(std::unique(support.begin(),support.end()),support.end());
     }
-
-    /**
-     * @brief executes retrieve_method with the parameters l, r and num_threads, buffers the output in num_threads
-     * buffers and num_threads temporary files and then writes the temporary files into the file out
-     * @tparam output_t type of the output data
-     * @tparam output_reversed controls, whether the output should be reversed
-     * @param retrieve_method function, whiches output should be buffered
-     * @param out file to write the output to
-     * @param l left range limit
-     * @param r right range limit
-     * @param num_threads maximum number of threads to use
-     * @param max_bytes_alloc maximum number of bytes to allocate
-     */
-    template <typename output_t, bool output_reversed>
-    void retrieve_range(
-        void(move_r<uint_t>::*retrieve_method)(const std::function<void(uint_t,output_t)>&,uint_t,uint_t,uint16_t),
-        std::ofstream& out, uint_t l, uint_t r, uint16_t num_threads, int64_t max_bytes_alloc
-    );
 
     class construction;
 
@@ -341,10 +319,10 @@ class move_r {
         std::cout << "M_LF: " << format_size(M_LF.size_in_bytes()-(r_+1)) << std::endl;
         std::cout << "L': " << format_size(r_+1) << std::endl;
         
-        if (does_support(move_r_supp::count)) {
+        if (does_support(_count)) {
             std::cout << "RS_L': " << format_size(RS_L_.size_in_bytes()) << std::endl;
 
-            if (does_support(move_r_supp::locate)) {
+            if (does_support(_locate)) {
                 std::cout << "M_Phi: " << format_size(M_Phi.size_in_bytes()) << std::endl;
                 std::cout << "SA_phi: " << format_size(SA_phi.size_in_bytes()) << std::endl;
             }
@@ -360,12 +338,12 @@ class move_r {
         out << " size_m_lf=" << M_LF.size_in_bytes()-(r_+1);
         out << " size_l_=" << r_+1;
         
-        if (does_support(move_r_supp::count)) {
+        if (does_support(_count)) {
             out << " size_rs_l_=" << RS_L_.size_in_bytes();
 
-            if (does_support(move_r_supp::locate)) {
+            if (does_support(_locate)) {
                 out << " size_m_phi=" << M_Phi.size_in_bytes();
-                out << " size_sa_idx=" << SA_phi.size_in_bytes();
+                out << " size_sa_phi=" << SA_phi.size_in_bytes();
             }
         }
     }
@@ -386,14 +364,14 @@ class move_r {
      * @param x [0..input size]
      * @return L[i]
      */
-    char access_bwt(uint_t i);
+    char BWT(uint_t i);
 
     /**
      * @brief returns SA[i]
      * @param x [0..input size]
      * @return SA[i]
      */
-    uint_t access_sa(uint_t i);
+    uint_t SA(uint_t i);
 
     /**
      * @brief returns D_e[i]
@@ -511,180 +489,141 @@ class move_r {
 
     // ############################# RETRIEVE-RANGE METHODS #############################
 
+    struct retrieve_params {
+        uint_t l = 1; // left range limit
+        uint_t r = 0; // right range limit
+        uint16_t num_threads = omp_get_max_threads(); // maximum number of threads to use
+        // maximum number of bytes to allocate (only applicable if the methods writes data to a file; default (if set to -1): ~ (r-l+1)/500)
+        int64_t max_bytes_alloc = -1;
+    };
+
+    /**
+     * @brief adjusts retrieve parameters, ensures (0 <= l <= r <= range_max); if l > r, it sets [l,r] <- [0,range_max]
+     * @param params retrieve parameters to adjust
+     * @param range_max maximum value for r
+     */
+    void adjust_retrieve_params(retrieve_params& params, uint_t range_max) {
+        if (params.l > params.r) {
+            params.l = 0;
+            params.r = range_max;
+        }
+
+        params.r = std::max(params.r,range_max);
+    }
+
+    /**
+     * @brief executes retrieve_method with the parameters l, r and num_threads, buffers the output in num_threads
+     * buffers and num_threads temporary files and then writes the temporary files into the file out
+     * @tparam output_t type of the output data
+     * @tparam output_reversed controls, whether the output should be reversed
+     * @param retrieve_method function, whiches output should be buffered
+     * @param out file to write the output to
+     * @param params parameters
+     */
+    template <typename output_t, bool output_reversed>
+    void retrieve_range(
+        void(move_r<uint_t>::*retrieve_method)(const std::function<void(uint_t,output_t)>&,retrieve_params),
+        std::ofstream& out, retrieve_params params
+    );
+
     /**
      * @brief returns the bwt in the range [l,r] (0 <= l <= r <= input size), else
      * if l > r, then the whole bwt is returned (default); $ = 0, so if the input contained 0, the output is not
      * equal to the real bwt
-     * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = L[i]
-     * @param l left range limit
-     * @param r right range limit
-     * @param num_threads maximum number of threads to use
+     * @param params parameters
+     * @return the bwt range [l,r]
      */
-    std::string retrieve_bwt_range(uint_t l = 1, uint_t r = 0, uint16_t num_threads = omp_get_max_threads()) {
-        r = std::max(r,n-1);
-
-        if (l > r) {
-            l = 0;
-            r = n-1;
-        }
-
+    std::string BWT(retrieve_params params = {}) {
+        adjust_retrieve_params(params,n-1);
         std::string L;
-        no_init_resize(L,r-l+1);
-        retrieve_bwt_range([&L,&l](uint_t i, char c){L[i-l] = c;},l,r,num_threads);
+        no_init_resize(L,params.r-params.l+1);
+        BWT([&L,&params](uint_t i, char c){L[i-params.l] = c;},params);
         return L;
     }
 
     /**
      * @brief reports the characters in the bwt in the range [l,r] (0 <= l <= r <= input size), else if l > r, then all
      * characters of the bwt are reported (default); $ = 0, so if the input contained 0, the output is not equal to the real bwt
-     * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = L[i]
-     * @param l left range limit
-     * @param r right range limit
-     * @param num_threads maximum number of threads to use (if num_threads = 1, then the values are reported from left to right, if num_threads > 1,
-     * the order may vary)
+     * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = L[i]; if num_threads = 1,
+     * then the values are reported from left to right, if num_threads > 1, the order may vary
+     * @param params parameters
      */
-    void retrieve_bwt_range(const std::function<void(uint_t,char)>& report, uint_t l = 1, uint_t r = 0, uint16_t num_threads = omp_get_max_threads());
+    void BWT(const std::function<void(uint_t,char)>& report, retrieve_params params = {});
 
     /**
      * @brief writes the characters in the bwt in the range [l,r] blockwise to the file out (0 <= l <= r <= input size), else if
      * l > r, then the whole bwt is written (default); $ = 0, so if the input contained 0, the output is not equal to the real bwt
      * @param out file to write the bwt to
-     * @param l left range limit
-     * @param r right range limit
-     * @param num_threads maximum number of threads to use
-     * @param max_bytes_alloc maximum number of bytes to allocate (default (if set to -1): ~ (r-l+1)/500)
+     * @param params parameters
      */
-    void retrieve_bwt_range(std::ofstream& out, uint_t l = 1, uint_t r = 0, uint16_t num_threads = omp_get_max_threads(), int64_t max_bytes_alloc = -1) {
-        retrieve_range<char,false>(&move_r<uint_t>::retrieve_bwt_range,out,l,r,num_threads,max_bytes_alloc);
+    void BWT(std::ofstream& out, retrieve_params params = {}) {
+        retrieve_range<char,false>(&move_r<uint_t>::BWT,out,params);
     }
 
     /**
      * @brief returns the input in the range [l,r] (0 <= l <= r < input size), else
      * if l > r, then the whole input is returned (default)
-     * @param l left range limit
-     * @param r right range limit
-     * @param num_threads maximum number of threads to use
+     * @param params parameters
+     * @return the input string range [l,r]
      */
-    std::string revert_range(uint_t l = 1, uint_t r = 0, uint16_t num_threads = omp_get_max_threads()) {
-        r = std::max(r,n-2);
-
-        if (l > r) {
-            l = 0;
-            r = n-2;
-        }
-
+    std::string revert(retrieve_params params = {}) {
+        adjust_retrieve_params(params,n-2);
         std::string T;
-        no_init_resize(T,r-l+1);
-        revert_range([&T,&l](uint_t i, char c){T[i-l] = c;},l,r,num_threads);
+        no_init_resize(T,params.r-params.l+1);
+        revert([&T,&params](uint_t i, char c){T[i-params.l] = c;},params);
         return T;
     }
 
     /**
-     * @brief writes the input in the range [l,r] to the range [b,e] in string;
-     * (0 <= l <= r < input size), else if l > r, then l := 0 and r := input size-1 (default);
-     * (0 <= b <= e), else b := 0 and e := r-l (default);
-     * (e < string.size());
-     * (r-l = e-b)
-     * @param l left range limit of the range in the input to revert
-     * @param r right range limit of the range in the input to revert
-     * @param b left range limit of the output range in string 
-     * @param e right range limit of the output range in string 
-     * @param num_threads maximum number of threads to use
-     */
-    void revert_range(std::string& string, uint_t l = 1, uint_t r = 0, uint_t b = 1, uint_t e = 0, uint16_t num_threads = omp_get_max_threads()) {
-        r = std::max(r,n-2);
-
-        if (l > r) {
-            l = 0;
-            r = n-2;
-        }
-
-        if (b > e) {
-            b = 0;
-            e = r-l;
-        }
-
-        if (e-b != r-l) {
-            std::cout << "error: e-b != r-l";
-            return;
-        }
-
-        if (e >= string.size()) {
-            std::cout << "error: e >= string.size()";
-            return;
-        }
-        
-        revert_range([&string,&b](uint_t i, char c){string[i-b] = c;},l,r,num_threads);
-    }
-
-    /**
      * @brief reports the characters in the input in the range [l,r] (0 <= l <= r < input size), else if l > r, then
-     * all characters of the input are reported (default)
+     * all characters of the input are reported (default); if num_threads = 1, then the values are reported from right
+     * to left, if num_threads > 1, the order may vary
      * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = T[i]
-     * @param l left range limit
-     * @param r right range limit
-     * @param num_threads maximum number of threads to use (if num_threads = 1, then the values are reported from right to left, if num_threads > 1,
-     * the order may vary)
+     * @param params parameters
      */
-    void revert_range(const std::function<void(uint_t,char)>& report, uint_t l = 1, uint_t r = 0, uint16_t num_threads = omp_get_max_threads());
+    void revert(const std::function<void(uint_t,char)>& report, retrieve_params params = {});
 
     /**
      * @brief reverts the input in the range [l,r] blockwise and writes it to the file out (0 <= l <= r < input size),
      * else if l > r, then the whole input is reverted (default)
      * @param out file to write the reverted input to
-     * @param l left range limit
-     * @param r right range limit
-     * @param num_threads maximum number of threads to use
-     * @param max_bytes_alloc maximum number of bytes to allocate (default (if set to -1): ~ (r-l+1)/500)
+     * @param params parameters
      */
-    void revert_range(std::ofstream& out, uint_t l = 1, uint_t r = 0, uint16_t num_threads = omp_get_max_threads(), int64_t max_bytes_alloc = -1) {
-        retrieve_range<char,true>(&move_r<uint_t>::revert_range,out,l,r,num_threads,max_bytes_alloc);
+    void revert(std::ofstream& out, retrieve_params params = {}) {
+        retrieve_range<char,true>(&move_r<uint_t>::revert,out,params);
     }
     
     /**
      * @brief rebuilds and returns the suffix array in the range [l,r] (0 <= l <= r <= input size),
      * else if l > r, then the whole suffix array is rebuilt (default)
-     * @param l left range limit
-     * @param r right range limit
-     * @param num_threads maximum number of threads to use
-     * @return the suffix array
+     * @param params parameters
+     * @return the suffix array range [l,r]
      */
-    std::vector<uint_t> retrieve_sa_range(uint_t l = 1, uint_t r = 0, uint16_t num_threads = omp_get_max_threads()) {
-        r = std::max(r,n-1);
-
-        if (l > r) {
-            l = 0;
-            r = n-1;
-        }
-
-        std::vector<uint_t> SA;
-        no_init_resize(SA,r-l+1);
-        retrieve_sa_range([&SA,&l](uint_t i, uint_t s){SA[i-l] = s;},l,r,num_threads);
-        return SA;
+    std::vector<uint_t> SA(retrieve_params params = {}) {
+        adjust_retrieve_params(params,n-1);
+        std::vector<uint_t> SA_range;
+        no_init_resize(SA_range,params.r-params.l+1);
+        SA([&SA_range,&params](uint_t i, uint_t s){SA_range[i-params.l] = s;},params);
+        return SA_range;
     }
 
     /**
-     * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size),
-     * else if l > r, then the whole suffix array is reported (default)
+     * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
+     * whole suffix array is reported (default); if num_threads = 1, then the values are reported from right to left,
+     * if num_threads > 1, the order may vary
      * @param report function that is called with every tuple (i,s) as a parameter, where i in [l,r] and s = SA[i]
-     * @param l left range limit
-     * @param r right range limit
-     * @param num_threads maximum number of threads to use (if num_threads = 1, then the values are reported from right to left,
-     * if num_threads > 1, the order may vary)
+     * @param params parameters
      */
-    void retrieve_sa_range(const std::function<void(uint_t,uint_t)>& report, uint_t l = 1, uint_t r = 0, uint16_t num_threads = omp_get_max_threads());
+    void SA(const std::function<void(uint_t,uint_t)>& report, retrieve_params params = {});
 
     /**
      * @brief writes the values in the suffix array of the input in the range [l,r] blockwise to the file out (0 <= l <= r <= input size),
      * else if l > r, then the whole suffix array is written (default)
      * @param out file to write the suffix array to
-     * @param l left range limit
-     * @param r right range limit
-     * @param num_threads maximum number of threads to use
-     * @param max_bytes_alloc maximum number of bytes to allocate (default (if set to -1): ~ (r-l+1)/500)
+     * @param params parameters
      */
-    void retrieve_sa_range(std::ofstream& out, uint_t l = 1, uint_t r = 0, uint16_t num_threads = omp_get_max_threads(), int64_t max_bytes_alloc = -1) {
-        retrieve_range<uint_t,true>(&move_r<uint_t>::retrieve_sa_range,out,l,r,num_threads,max_bytes_alloc);
+    void SA(std::ofstream& out, retrieve_params params = {}) {
+        retrieve_range<uint_t,true>(&move_r<uint_t>::SA,out,params);
     }
 
     // ############################# SERIALIZATION METHODS #############################
@@ -694,7 +633,7 @@ class move_r {
      * @param out output stream to store the index to
      * @param support supported operations to store data structures for
      */
-    void serialize(std::ostream& out, std::vector<move_r_supp> support = move_r_full_supp) {
+    void serialize(std::ostream& out, std::vector<move_r_supp> support = _full_support) {
         adjust_supports(support);
 
         if (!is_subset_of(support,this->support)) {
@@ -731,11 +670,11 @@ class move_r {
 
         M_LF.serialize(out);
 
-        if (contains(support,move_r_supp::count)) {
+        if (contains(support,_count)) {
             RS_L_.serialize(out);
         }
 
-        if (contains(support,move_r_supp::locate)) {
+        if (contains(support,_locate)) {
             out.write((char*)&r__,sizeof(uint_t));
             M_Phi.serialize(out);
 
@@ -754,7 +693,7 @@ class move_r {
      * @param in an input stream storing a serialized index
      * @param support supported operations to load data structures for
      */
-    void load(std::istream& in, std::vector<move_r_supp> support = move_r_full_supp) {
+    void load(std::istream& in, std::vector<move_r_supp> support = _full_support) {
         adjust_supports(support);
 
         bool is_64_bit;
@@ -805,11 +744,11 @@ class move_r {
 
         M_LF.load(in);
 
-        if (contains(support,move_r_supp::count)) {
+        if (contains(support,_count)) {
             RS_L_.load(in);
         }
 
-        if (contains(support,move_r_supp::locate)) {
+        if (contains(support,_locate)) {
             in.read((char*)&r__,sizeof(uint_t));
             M_Phi.load(in);
 

@@ -55,7 +55,7 @@ void measure_revert() {
     std::cout << "loading the index" << std::flush;
     auto t1 = now();
     move_r<uint_t> index;
-    index.load(index_file,{revert});
+    index.load(index_file,{_revert});
     log_runtime(t1);
     index_file.close();
     std::cout << std::endl;
@@ -68,12 +68,12 @@ void measure_revert() {
     if (revert_in_memory) {
         std::cout << "reverting the index in memory using " << format_threads(p) << std::flush;
         t2 = now();
-        input = index.revert_range(0,index.input_size()-1,p);
+        input = index.revert({.num_threads = p});
         t3 = now();
     } else {
         std::cout << "reverting the index using " << format_threads(p) << std::flush;
         t2 = now();
-        index.revert_range(output_file,0,index.input_size()-1,p);
+        index.revert(output_file,{.num_threads = p});
         t3 = now();
     }
     

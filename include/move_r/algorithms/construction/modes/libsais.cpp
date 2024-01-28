@@ -2,7 +2,7 @@
 #include <libsais64.h>
 
 template <typename uint_t>
-void move_r<uint_t>::construction::read_t_from_file_in_memory(std::ifstream& T_ifile) {
+void move_r<uint_t>::construction::read_t_from_file_libsais(std::ifstream& T_ifile) {
     time = now();
     if (log) std::cout << "reading T" << std::flush;
 
@@ -19,7 +19,7 @@ void move_r<uint_t>::construction::read_t_from_file_in_memory(std::ifstream& T_i
 
 template <typename uint_t>
 template <typename sa_sint_t>
-void move_r<uint_t>::construction::build_sa_in_memory() {
+void move_r<uint_t>::construction::build_sa_libsais() {
     if (log) {
         time = now();
         std::cout << "building SA" << std::flush;
@@ -51,7 +51,7 @@ void move_r<uint_t>::construction::build_sa_in_memory() {
 
 template <typename uint_t>
 template <bool read_l, typename sa_sint_t>
-void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
+void move_r<uint_t>::construction::build_rlbwt_c_libsais() {
     if (log) {
         time = now();
         std::cout << "building RLBWT" << std::flush;
@@ -180,7 +180,7 @@ void move_r<uint_t>::construction::build_rlbwt_c_in_memory() {
 
 template <typename uint_t>
 template <typename sa_sint_t>
-void move_r<uint_t>::construction::build_iphi_in_memory() {
+void move_r<uint_t>::construction::build_iphi_libsais() {
     if (log) {
         time = now();
         std::cout << "building I_Phi" << std::flush;

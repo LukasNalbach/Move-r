@@ -21,8 +21,7 @@ int main() {
 
     // use at most 4 threads and set a = 2
     move_data_structure_str<> mds_str({{0,4},{1,5},{2,6},{3,7},{4,0}},8,{
-        .num_threads = 4,
-        .a = 2
+        .num_threads = 4, .a = 2
     });
 
     // this disjoint interval sequence is not 2-balanced, because the output
@@ -30,7 +29,7 @@ int main() {
 
     // print the pairs of the resulting disjoint interval sequence
     for (uint32_t i=0; i<mds_str.num_intervals(); i++) {
-        std::cout << to_string<>(std::make_pair(mds_str.p(i),mds_str.q(i)));
+        std::cout << to_string<>({mds_str.p(i),mds_str.q(i)});
     }
     
     // the balancing algorithm has added the pair (6,2) to balance the sequence

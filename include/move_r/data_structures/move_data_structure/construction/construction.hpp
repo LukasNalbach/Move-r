@@ -99,18 +99,19 @@ class move_data_structure<uint_t>::construction {
      * @param pi_mphi vector to move pi into after the construction
      */
     construction(move_data_structure<uint_t>& mds, pair_arr_t& I, uint_t n, bool delete_i, mds_params params, std::vector<uint_t>* pi_mphi = NULL) : mds(mds), I(I) {
+        this->n = n;
+        this->k = I.size();
+        this->a = params.a;
+        this->p = params.num_threads;
+        this->delete_i = delete_i;
+        this->log = params.log;
+        this->mf = params.mf;
+
         if (log) {
             time = now();
             time_start = time;
             std::cout << std::endl;
         }
-
-        this->n = n;
-        this->k = I.size();
-        this->a = params.a;
-        this->delete_i = delete_i;
-        this->log = params.log;
-        this->mf = params.mf;
 
         mds.a = a;
         mds.k = k;
@@ -125,7 +126,6 @@ class move_data_structure<uint_t>::construction {
             p = 1;
         }
 
-        this->p = p;
         omp_set_num_threads(p);
 
         /* set omega_offs <- min {omega in {8,16,24,32,40} | n/(k2^omega) <= epsilon}, which ensures

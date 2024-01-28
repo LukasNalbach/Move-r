@@ -9,10 +9,8 @@ int main() {
     // construction algorithm, use at most 8 threads and set the 
     // balancing parameter a to 4
     move_r<uint64_t> index_2("a large string",{
-        .support = {count},
-        .mode = _bigbwt,
-        .num_threads = 8,
-        .a = 4
+        .support = {_count}, .mode = _bigbwt,
+        .num_threads = 8, .a = 4
     });
 
     // print the number of bwt runs in the input string
@@ -26,12 +24,9 @@ int main() {
 
     // print all occurences of a pattern
     index.locate("is",[](auto o){std::cout << o << ", ";});
+    std::cout << std::endl;
 
     // store all occurences of a pattern in a vector
     auto Occ = index.locate("test");
-
-    std::cout << std::endl;
-    for (auto o : Occ) {
-        std::cout << o << ", ";
-    }
+    for (auto o : Occ) std::cout << o << ", ";
 }
