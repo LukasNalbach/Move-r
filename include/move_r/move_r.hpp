@@ -14,13 +14,13 @@
  */
 enum move_r_supp {
     /* support for retrieving (a range of) the input string from the index (reverting
-       the index); this also includes support for accessing or retrieving (a range in)
-       the bwt (reverting in parallel requires the index to be built with locate support) */
+    the index); this also includes support for accessing or retrieving (a range in)
+    the bwt (reverting in parallel requires the index to be built with locate support) */
     _revert = 0,
     _count = 1, // support for counting the occurrences of a pattern in the input string
     /* support for calculating the positions of occurrences of a pattern in the input
-       string; this also adds support for accessing and retrieving (a range in)
-       the suffix array (also in parallel) */
+    string; this also adds support for accessing and retrieving (a range in)
+    the suffix array (also in parallel) */
     _locate = 2
 };
 

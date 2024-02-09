@@ -193,7 +193,7 @@ int main_bench_indexes(int argc, char** argv) {
     input_file.close();
     preprocess_input();
 
-	std::cout << " (" << format_size(input_size-1) << ")" << std::endl;
+    std::cout << " (" << format_size(input_size-1) << ")" << std::endl;
     if (check_correctness) std::cout << "correctnes will be checked if possible" << std::endl;
     std::cout << std::endl;
 
