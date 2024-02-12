@@ -120,7 +120,7 @@ class avl_tree {
          * @brief returns the next avl_node in the avl_tree
          * @return the next avl_node in the avl_tree
          */
-        inline avl_node* nxt() {
+        inline avl_node* nxt() const {
             avl_node *cur = this;
             if (cur->rc != NULL) {
                 cur = cur->rc;
@@ -140,7 +140,7 @@ class avl_tree {
          * @brief returns the previous avl_node in the avl_tree
          * @return the previous avl_node in the avl_tree
          */
-        inline avl_node* prv() {
+        inline avl_node* prv() const {
             avl_node *cur = this;
             if (cur->lc != NULL) {
                 cur = cur->lc;
@@ -160,7 +160,7 @@ class avl_tree {
          * @brief checks if the avl_node is a leaf
          * @return whether the avl_node is a leaf
          */
-        bool is_leaf() {
+        bool is_leaf() const {
             return lc == NULL && rc == NULL;
         }
     };
@@ -173,7 +173,7 @@ class avl_tree {
     uint8_t h = 0; // height
 
     inline static bool lt(const T& v1, const T& v2) {return Compare()(v1,v2);}; // comparison function "less than" on values of type T
-    inline static bool gt(const T& v1, const T& v2) {return Compare()(v2,v1);}; // comparison function "greater than" on values of type T
+    inline static bool gt(const T& v1, const T& v2) {return lt(v2,v1);}; // comparison function "greater than" on values of type T
     inline static bool eq(const T& v1, const T& v2) {return !lt(v1,v2) && !gt(v1,v2);}; // comparison function "equals" on values of type T
     inline static bool leq(const T& v1, const T& v2) {return !gt(v1,v2);}; // comparison function "less than or equal to" on values of type T
     inline static bool geq(const T& v1, const T& v2) {return !lt(v1,v2);}; // comparison function "greater than or equal to" on values of type T
@@ -494,7 +494,7 @@ class avl_tree {
      * @brief returns the height of the avl_tree
      * @return height of the avl_tree
      */
-    inline uint8_t height() {
+    inline uint8_t height() const {
         return h;
     }
 
@@ -502,7 +502,7 @@ class avl_tree {
      * @brief returns the number of elements in the avl_tree
      * @return number of elements in the avl_tree
      */
-    inline uint64_t size() {
+    inline uint64_t size() const {
         return s;
     }
 
@@ -510,14 +510,14 @@ class avl_tree {
      * @brief returns whether the avl_tree is empty
      * @return whether the avl_tree is empty
      */
-    inline bool empty() {
+    inline bool empty() const {
         return s == 0;
     }
 
     /**
      * @brief deletes all nodes in the avl_tree
      */
-    inline void delete_nodes(){
+    inline void delete_nodes() {
         if (!empty()) {
             r->delete_subtree();
             fst = lst = r = NULL;
@@ -556,7 +556,7 @@ class avl_tree {
      * @brief returns the node with the smallest value in the avl_tree
      * @return the node with the smallest value in the avl_tree if the avl_tree is not empty, else NULL
      */
-    inline avl_node* min() {
+    inline avl_node* min() const {
         return fst;
     }
 
@@ -564,7 +564,7 @@ class avl_tree {
      * @brief returns the node with the second smallest value in the avl_tree
      * @return the node with the second smallest value in the avl_tree if the avl_tree has at least 2 nodes, else NULL
      */
-    inline avl_node* second_smallest() {
+    inline avl_node* second_smallest() const {
         if (fst->rc != NULL) {
             if (fst->rc->lc != NULL) {
                 return fst->rc->lc;
@@ -580,7 +580,7 @@ class avl_tree {
      * @brief returns the node with the greatest value in the avl_tree
      * @return the node with the greatest value in the avl_tree if the avl_tree is not empty, else NULL
      */
-    inline avl_node* max() {
+    inline avl_node* max() const {
         return lst;
     }
 
@@ -588,7 +588,7 @@ class avl_tree {
      * @brief returns the node with the second largest value in the avl_tree
      * @return the node with the second largest value in the avl_tree if the avl_tree has at least 2 nodes, else NULL
      */
-    inline avl_node* second_largest() {
+    inline avl_node* second_largest() const {
         if (lst->lc != NULL) {
             if (lst->lc->rc != NULL) {
                 return lst->lc->rc;
@@ -760,7 +760,7 @@ class avl_tree {
      * @return the node with a value equal to v or a leaf at which a node with value v can be inserted
      *         if the avl_tree is not empty, else NULL
      */
-    inline avl_node* find(T &&v, avl_node *n) {
+    inline avl_node* find(T &&v, avl_node *n) const {
         if (empty()) return NULL;
         while (true) {
             if (gt(v,n->v)) {
@@ -789,7 +789,7 @@ class avl_tree {
      * @return the node with a value equal to v or a leaf at which a node with value v can be inserted
      *         if the avl_tree is not empty, else NULL
      */
-    inline avl_node* find(T &v, avl_node *n) {
+    inline avl_node* find(T &v, avl_node *n) const {
         return find(std::move(v),n);
     }
 
@@ -799,7 +799,7 @@ class avl_tree {
      * @return avl_node* the node with a value equal to v or a leaf at which a node with value v can be inserted
      *         if the avl_tree is not empty, else NULL
      */
-    inline avl_node* find(T &&v) {
+    inline avl_node* find(T &&v) const {
         return find(v,r);
     }
 
@@ -809,7 +809,7 @@ class avl_tree {
      * @return avl_node* the node with a value equal to v or a leaf at which a node with value v can be inserted
      *         if the avl_tree is not empty, else NULL
      */
-    inline avl_node* find(T &v) {
+    inline avl_node* find(T &v) const {
         return find(std::move(v),r);
     }
 
@@ -819,7 +819,7 @@ class avl_tree {
      * @return avl_node* the node with the smallest value greater than or equal to v, if it exists
      *         if not all nodes' values are smaller than v, else NULL 
      */
-    inline avl_node* min_geq(T &&v) {
+    inline avl_node* min_geq(T &&v) const {
         if (empty()) return NULL;
         avl_node *n = r;
         avl_node *min = NULL;
@@ -853,7 +853,7 @@ class avl_tree {
      * @return avl_node* the node with the smallest value greater than or equal to v, if it exists
      *         if not all nodes' values are smaller than v, else NULL 
      */
-    inline avl_node* min_geq(T &v) {
+    inline avl_node* min_geq(T &v) const {
         return min_geq(std::move(v));
     };
 
@@ -863,7 +863,7 @@ class avl_tree {
      * @return avl_node* the node with the greatest value less than or equal to v, if it exists
      *         if not all nodes' values are greater than v, else NULL 
      */
-    inline avl_node* max_leq(T &&v) {
+    inline avl_node* max_leq(T &&v) const {
         if (empty()) return NULL;
         avl_node *n = r;
         avl_node* max = NULL;
@@ -897,7 +897,7 @@ class avl_tree {
      * @return avl_node* the node with the greatest value less than or equal to v, if it exists
      *         if not all nodes' values are greater than v, else NULL 
      */
-    inline avl_node* max_leq(T &v) {
+    inline avl_node* max_leq(T &v) const {
         return max_leq(std::move(v));
     }
 
@@ -932,7 +932,7 @@ class avl_tree {
          * @brief checks if the iterator can iterate forward
          * @return whether it can iterate forward
          */
-        inline bool has_next() {
+        inline bool has_next() const {
             return avl_tree::lt(cur->v,t->lst->v);
         }
 
@@ -940,7 +940,7 @@ class avl_tree {
          * @brief checks if the iterator can iterate backward
          * @return whether it can iterate backward
          */
-        inline bool has_prev() {
+        inline bool has_prev() const {
             return avl_tree::gt(cur->v,t->fst->v);
         }
 
@@ -948,7 +948,7 @@ class avl_tree {
          * @brief returns the value of the node, the iterator points to
          * @return the node, the iterator points to
          */
-        inline avl_node* current() {
+        inline avl_node* current() const {
             return cur;
         }
 
@@ -984,7 +984,7 @@ class avl_tree {
      * @param n an avl_node in the avl_tree
      * @return an iterator
      */
-    inline avl_tree::avl_it iterator(avl_node *n) {
+    inline avl_tree::avl_it iterator(avl_node *n) const {
         return avl_tree::avl_it(this,n);
     }
 
@@ -992,7 +992,7 @@ class avl_tree {
      * @brief returns an iterator pointing to the min of the avl_tree if it is not empty
      * @return an iterator
      */
-    inline avl_tree::avl_it iterator() {
+    inline avl_tree::avl_it iterator() const {
         return avl_tree::avl_it(this,fst);
     }
 };

@@ -69,75 +69,37 @@ class move_r {
     uint_t r__ = 0; // r'', the number of input/output intervals in M_Phi
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))), 2 <= a
     uint16_t p_r = 0; // maximum possible number of threads to use while reverting the index
-    uint8_t omega_idx = 0; // word width of SA_phi
+    uint8_t omega_idx = 0; // word width of SA_Phi
 
-    std::vector<move_r_supp> support; // contains all supported operations
+    std::vector<move_r_supp> _support; // contains all supported operations
     /* true <=> the characters of the input string have been remapped internally, because the input
        contains 0 and/or 1*/
     bool chars_remapped = false;
 
     // ############################# INDEX DATA STRUCTURES #############################
 
-    /* mapping function from the alphabet of T to the internal effective alphabet (which starts with 1) */
-    std::vector<uint8_t> map_char;
-    std::vector<uint8_t> unmap_char; // inverse function of map_char
+    /* mapping function from the alphabet of T to the internal effective alphabet */
+    std::vector<uint8_t> _map_char;
+    std::vector<uint8_t> _unmap_char; // inverse function of map_char
     /* The Move Data Structure for LF. It also stores L', which can be accessed at
     position i with M_LF.L_(i). */
-    move_data_structure_str<uint_t> M_LF;
+    move_data_structure_str<uint_t> _M_LF;
     /* [0..p_r-1], where D_e[i] = <x,j>, x in [0,r'-1] and j is minimal, s.t. SA_s[x]=j > i* lfloor (n-1)/p rfloor;
     see the parallel revert algorithm to understand why this is useful. */
-    std::vector<std::pair<uint_t,uint_t>> D_e;
-    string_rank_select_support<uint_t> RS_L_; // rank-select data structure for L'
-    move_data_structure<uint_t> M_Phi; // The Move Data Structure for Phi.
-    interleaved_vectors<uint_t> SA_phi; // [0..r'-1] SA_phi
+    std::vector<std::pair<uint_t,uint_t>> _D_e;
+    string_rank_select_support<uint_t> _RS_L_; // rank-select data structure for L'
+    move_data_structure<uint_t> _M_Phi; // The Move Data Structure for Phi.
+    interleaved_vectors<uint_t> _SA_Phi; // [0..r'-1] SA_Phi
 
     // ############################# INTERNAL METHODS #############################
 
     /**
-     * @brief returns SA_s[x]
-     * @param x [0..r'-1] the end position of the x-th input interval in M_LF must be an end position of a bwt run
-     * @return SA_s[x]
-     */
-    inline uint_t SA_s(uint_t x) {
-        return M_Phi.q(SA_phi[x]);
-    }
-
-    /**
-     * @brief sets SA_phi[x] to idx
+     * @brief sets SA_Phi[x] to idx
      * @param x [0..r-1]
      * @param idx [0..r''-1]
      */
-    inline void set_SA_phi(uint_t x, uint_t idx) {
-        SA_phi.template set<0>(x,idx);
-    }
-
-    /**
-     * @brief maps a character that occurs in the input string to the internal alphabet, if the characters
-     *        have been remapped
-     * @param c a character that occurs in the input string
-     * @return the character in the internal effective alphabet, to which c has been mapped to
-     */
-    inline char map_to_internal(char c) {
-        return uchar_to_char(map_char[char_to_uchar(c)]);
-    }
-
-    /**
-     * @brief maps a character that occurs in the internal effective alphabet to its corresponding
-     *          character in the input string
-     * @param c a character that occurs in the internal effective alphabet
-     * @return its corresponding character in the input string
-     */
-    inline char unmap_from_internal(char c) {
-        return uchar_to_char(unmap_char[char_to_uchar(c)]);
-    }
-
-    /**
-     * @brief returns L'[x]
-     * @param x [0..r'-1]
-     * @return L'[x]
-     */
-    inline char L_(uint_t x) {
-        return M_LF.character(x);
+    inline void set_SA_Phi(uint_t x, uint_t idx) {
+        _SA_Phi.template set<0>(x,idx);
     }
 
     /**
@@ -146,7 +108,7 @@ class move_r {
      * @param s variable to store the suffix array sample at position l'_{x+1}-1
      * @param s_ variable to store the index of the input interval in M_Phi containing s
      */
-    void setup_phi_move_pair(uint_t x, uint_t& s, uint_t& s_);
+    void setup_phi_move_pair(uint_t x, uint_t& s, uint_t& s_) const;
 
     /**
      * @brief adds implicitly supported move_r operations to the vector support and sorts it afterwards
@@ -217,7 +179,7 @@ class move_r {
      * @brief returns the size of the input string
      * @return size of the input string
      */
-    uint_t input_size() {
+    uint_t input_size() const {
         return n-1;
     }
 
@@ -225,7 +187,7 @@ class move_r {
      * @brief returns the number of distinct characters in the input string (alphabet size)
      * @return alphabet_size 
      */
-    uint8_t alphabet_size() {
+    uint8_t alphabet_size() const {
         return sigma-1;
     }
 
@@ -233,39 +195,23 @@ class move_r {
      * @brief returns the number of runs in the bwt
      * @return number of runs in the bwt 
      */
-    uint_t num_bwt_runs() {
+    uint_t num_bwt_runs() const {
         return r;
-    }
-
-    /**
-     * @brief returns the number of intervals in M_LF
-     * @return number of intervals in M_LF
-     */
-    uint_t num_intervals_m_lf() {
-        return r_;
-    }
-
-    /**
-     * @brief returns the number of intervals in M_Phi
-     * @return number of intervals in M_Phi
-     */
-    uint_t num_intervals_m_phi() {
-        return r__;
     }
 
     /**
      * @brief returns the balancing parameter the index has been built with
      * @return balancing parameter 
      */
-    uint16_t balancing_parameter() {
+    uint16_t balancing_parameter() const {
         return a;
     }
 
     /**
-     * @brief returns the number omega_idx of bits used by one entry in SA_phi (word width of SA_phi)
+     * @brief returns the number omega_idx of bits used by one entry in SA_Phi (word width of SA_Phi)
      * @return omega_idx
      */
-    inline uint8_t width_saphi() {
+    inline uint8_t width_saphi() const {
         return omega_idx;
     }
 
@@ -273,7 +219,7 @@ class move_r {
      * @brief returns the maximum number of threads that can be used to revert the index
      * @return maximum number of threads that can be used to revert the index 
      */
-    uint16_t max_revert_threads() {
+    uint16_t max_revert_threads() const {
         return p_r;
     }
 
@@ -281,8 +227,8 @@ class move_r {
      * @brief returns a vector containing the supported operations of this index
      * @return vector containing the operations
      */
-    std::vector<move_r_supp> supported_operations() {
-        return support;
+    std::vector<move_r_supp> supported_operations() const {
+        return _support;
     }
 
     /**
@@ -290,41 +236,41 @@ class move_r {
      * @param operation a move_r operation
      * @return whether operation is supported by this index
      */
-    bool does_support(move_r_supp operation) {
-        return contains(support,operation);
+    bool does_support(move_r_supp operation) const {
+        return contains(_support,operation);
     }
 
     /**
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
      */
-    uint64_t size_in_bytes() {
+    uint64_t size_in_bytes() const {
         return
-            support.size()*sizeof(move_r_supp)+ // variables
+            _support.size()*sizeof(move_r_supp)+ // variables
             4*sizeof(uint_t)+3+2*sizeof(uint16_t)+ // ...
             chars_remapped*2*256+ // mapchar & unmap_char
             p_r*sizeof(uint_t)+ // D_e
-            M_LF.size_in_bytes()+ // M_LF and L'
-            RS_L_.size_in_bytes()+ // RS_L'
-            M_Phi.size_in_bytes()+ // M_Phi
-            SA_phi.size_in_bytes(); // SA_phi
+            _M_LF.size_in_bytes()+ // M_LF and L'
+            _RS_L_.size_in_bytes()+ // RS_L'
+            _M_Phi.size_in_bytes()+ // M_Phi
+            _SA_Phi.size_in_bytes(); // SA_Phi
     }
 
     /**
      * @brief logs the index data structure sizes to cout
      */
-    void log_data_structure_sizes() {
+    void log_data_structure_sizes() const {
         std::cout << "index size: " << format_size(size_in_bytes()) << std::endl;
 
-        std::cout << "M_LF: " << format_size(M_LF.size_in_bytes()-(r_+1)) << std::endl;
+        std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes()-(r_+1)) << std::endl;
         std::cout << "L': " << format_size(r_+1) << std::endl;
         
         if (does_support(_count)) {
-            std::cout << "RS_L': " << format_size(RS_L_.size_in_bytes()) << std::endl;
+            std::cout << "RS_L': " << format_size(_RS_L_.size_in_bytes()) << std::endl;
 
             if (does_support(_locate)) {
-                std::cout << "M_Phi: " << format_size(M_Phi.size_in_bytes()) << std::endl;
-                std::cout << "SA_phi: " << format_size(SA_phi.size_in_bytes()) << std::endl;
+                std::cout << "M_Phi: " << format_size(_M_Phi.size_in_bytes()) << std::endl;
+                std::cout << "SA_Phi: " << format_size(_SA_Phi.size_in_bytes()) << std::endl;
             }
         }
     }
@@ -333,17 +279,17 @@ class move_r {
      * @brief logs the index data structure sizes to the output stream out
      * @param out an output stream
      */
-    void log_data_structure_sizes(std::ostream& out) {
+    void log_data_structure_sizes(std::ostream& out) const {
         out << " size_index=" << size_in_bytes();
-        out << " size_m_lf=" << M_LF.size_in_bytes()-(r_+1);
+        out << " size_m_lf=" << _M_LF.size_in_bytes()-(r_+1);
         out << " size_l_=" << r_+1;
         
         if (does_support(_count)) {
-            out << " size_rs_l_=" << RS_L_.size_in_bytes();
+            out << " size_rs_l_=" << _RS_L_.size_in_bytes();
 
             if (does_support(_locate)) {
-                out << " size_m_phi=" << M_Phi.size_in_bytes();
-                out << " size_sa_phi=" << SA_phi.size_in_bytes();
+                out << " size_m_phi=" << _M_Phi.size_in_bytes();
+                out << " size_sa_phi=" << _SA_Phi.size_in_bytes();
             }
         }
     }
@@ -351,69 +297,98 @@ class move_r {
     // ############################# PUBLIC ACCESS METHODS #############################
 
     /**
-     * @brief returns L'[x]
-     * @param x [0..num_intervals_m_lf()-1]
-     * @return L'[x]
-     */
-    inline char access_l_(uint_t x) {
-        return chars_remapped ? unmap_from_internal(L_(x)) : L_(x);
-    }
-
-    /**
-     * @brief returns L[i], where $ = 0, so if the input contained 0, the output is not equal to the real bwt
-     * @param x [0..input size]
-     * @return L[i]
-     */
-    char BWT(uint_t i);
-
-    /**
-     * @brief returns SA[i]
-     * @param x [0..input size]
-     * @return SA[i]
-     */
-    uint_t SA(uint_t i);
-
-    /**
-     * @brief returns D_e[i]
-     * @param i [0..max_revert_threads()-2]
-     * @return D_e[i]
-     */
-    uint_t access_d_e(uint16_t i) {
-        return D_e[i];
-    }
-
-    /**
      * @brief returns a reference to M_LF
      * @return M_LF
      */
-    const move_data_structure_str<uint_t>& m_lf() {
-        return M_LF;
+    const move_data_structure_str<uint_t>& M_LF() const {
+        return _M_LF;
     }
 
     /**
      * @brief returns a reference to M_Phi
      * @return M_Phi
      */
-    const move_data_structure<uint_t>& m_phi() {
-        return M_Phi;
+    const move_data_structure<uint_t>& M_Phi() const {
+        return _M_Phi;
     }
 
     /**
      * @brief returns a reference to RS_L'
      * @return RS_L'
      */
-    const string_rank_select_support<uint_t>& rs_l_() {
-        return RS_L_;
+    const string_rank_select_support<uint_t>& RS_L_() const {
+        return _RS_L_;
+    }
+
+    /**
+     * @brief returns SA'_s[x]
+     * @param x [0..r'-1] the end position of the x-th input interval in M_LF must be an end position of a bwt run
+     * @return SA'_s[x]
+     */
+    inline uint_t SA_s_(uint_t x) const {
+        return _M_Phi.q(_SA_Phi[x]);
+    }
+
+    /**
+     * @brief returns L'[x]
+     * @param x [0..r'-1]
+     * @return L'[x]
+     */
+    inline char L_(uint_t x) const {
+        return _M_LF.character(x);
+    }
+
+    /**
+     * @brief maps a character that occurs in the input string to the internal alphabet, if the characters
+     *        have been remapped
+     * @param c a character that occurs in the input string
+     * @return the character in the internal effective alphabet, to which c has been mapped to
+     */
+    inline char map_char(char c) const {
+        return chars_remapped ? uchar_to_char(_map_char[char_to_uchar(c)]) : c;
+    }
+
+    /**
+     * @brief maps a character that occurs in the internal effective alphabet to its corresponding
+     *          character in the input string
+     * @param c a character that occurs in the internal effective alphabet
+     * @return its corresponding character in the input string
+     */
+    inline char unmap_char(char c) const {
+        return chars_remapped ? uchar_to_char(_unmap_char[char_to_uchar(c)]) : c;
+    }
+
+    /**
+     * @brief returns D_e[i]
+     * @param i [0..max_revert_threads()-2]
+     * @return D_e[i]
+     */
+    uint_t D_e(uint16_t i) const {
+        return _D_e[i];
     }
 
     // ############################# QUERY METHODS #############################
+
+    /**
+     * @brief returns L[i], where $ = 0, so if the input contained 0, the output is not equal to the real bwt
+     * @param x [0..input size]
+     * @return L[i]
+     */
+    char BWT(uint_t i) const;
+
+    /**
+     * @brief returns SA[i]
+     * @param x [0..input size]
+     * @return SA[i]
+     */
+    uint_t SA(uint_t i) const;
 
     /**
      * @brief returns the number of occurrences of P in the input string
      * @param P the pattern to count in the input string
      * @return the number of occurrences of P in the input string
      */
-    uint_t count(const std::string& P) {
+    uint_t count(const std::string& P) const {
         return count(P.size(),[&P](uint_t i){return P[i];});
     }
 
@@ -423,14 +398,14 @@ class move_r {
      * @param read read(i) must return the character of the query pattern at position i, for each i \in [0,pattern_length)
      * @return the number of occurrences of the pattern in the input string
      */
-    uint_t count(uint_t pattern_length, const std::function<char(uint_t)>& read);
+    uint_t count(uint_t pattern_length, const std::function<char(uint_t)>& read) const;
 
     /**
      * @brief locates the pattern P in the input string
      * @param P the pattern to locate in the input string
      * @return a vector containing the occurrences of P in the input string
      */
-    std::vector<uint_t> locate(const std::string& P) {
+    std::vector<uint_t> locate(const std::string& P) const {
         std::vector<uint_t> Occ;
         locate(P,Occ);
         return Occ;
@@ -441,7 +416,7 @@ class move_r {
      * @param P the pattern to locate in the input string
      * @param Occ vector to append the occurrences of P in the input string to
      */
-    void locate(const std::string& P, std::vector<uint_t>& Occ) {        
+    void locate(const std::string& P, std::vector<uint_t>& Occ) const {        
         locate(P,[&Occ](uint_t o){Occ.emplace_back(o);});
     }
 
@@ -450,7 +425,7 @@ class move_r {
      * @param P the pattern to locate in the input string
      * @param report function that is called with every occurrence of P in the input string as a parameter
      */
-    void locate(const std::string& P, const std::function<void(uint_t)>& report) {
+    void locate(const std::string& P, const std::function<void(uint_t)>& report) const {
         locate(P.size(),[&P](uint_t i){return P[i];},report);
     }
 
@@ -461,7 +436,7 @@ class move_r {
      * it is called in the order read(pattern_length-1), read(pattern_length-2), ..., read(0)
      * @param Occ vector to append the occurrences of P in the input string to
      */
-    void locate(uint_t pattern_length, const std::function<char(uint_t)>& read, std::vector<uint_t>& Occ) {
+    void locate(uint_t pattern_length, const std::function<char(uint_t)>& read, std::vector<uint_t>& Occ) const {
         locate(pattern_length,read,[&Occ](uint_t o){Occ.emplace_back(o);});
     }
 
@@ -472,7 +447,7 @@ class move_r {
      * it is called in the order read(pattern_length-1), read(pattern_length-2), ..., read(0)
      * @return a vector containing the occurrences of P in the input string
      */
-    std::vector<uint_t> locate(uint_t pattern_length, const std::function<char(uint_t)>& read) {
+    std::vector<uint_t> locate(uint_t pattern_length, const std::function<char(uint_t)>& read) const {
         std::vector<uint_t> Occ;
         locate(pattern_length,read,Occ);
         return Occ;
@@ -485,7 +460,7 @@ class move_r {
      * it is called in the order read(pattern_length-1), read(pattern_length-2), ..., read(0)
      * @param report function that is called with every occurrence of the pattern in the input string as a parameter
      */
-    void locate(uint_t pattern_length, const std::function<char(uint_t)>& read, const std::function<void(uint_t)>& report);
+    void locate(uint_t pattern_length, const std::function<char(uint_t)>& read, const std::function<void(uint_t)>& report) const;
 
     // ############################# RETRIEVE-RANGE METHODS #############################
 
@@ -502,7 +477,7 @@ class move_r {
      * @param params retrieve parameters to adjust
      * @param range_max maximum value for r
      */
-    void adjust_retrieve_params(retrieve_params& params, uint_t range_max) {
+    static void adjust_retrieve_params(retrieve_params& params, uint_t range_max) {
         if (params.l > params.r) {
             params.l = 0;
             params.r = range_max;
@@ -522,9 +497,9 @@ class move_r {
      */
     template <typename output_t, bool output_reversed>
     void retrieve_range(
-        void(move_r<uint_t>::*retrieve_method)(const std::function<void(uint_t,output_t)>&,retrieve_params),
+        void(move_r<uint_t>::*retrieve_method)(const std::function<void(uint_t,output_t)>&,retrieve_params)const,
         std::ofstream& out, retrieve_params params
-    );
+    ) const;
 
     /**
      * @brief returns the bwt in the range [l,r] (0 <= l <= r <= input size), else
@@ -533,7 +508,7 @@ class move_r {
      * @param params parameters
      * @return the bwt range [l,r]
      */
-    std::string BWT(retrieve_params params = {}) {
+    std::string BWT(retrieve_params params = {}) const {
         adjust_retrieve_params(params,n-1);
         std::string L;
         no_init_resize(L,params.r-params.l+1);
@@ -548,7 +523,7 @@ class move_r {
      * then the values are reported from left to right, if num_threads > 1, the order may vary
      * @param params parameters
      */
-    void BWT(const std::function<void(uint_t,char)>& report, retrieve_params params = {});
+    void BWT(const std::function<void(uint_t,char)>& report, retrieve_params params = {}) const;
 
     /**
      * @brief writes the characters in the bwt in the range [l,r] blockwise to the file out (0 <= l <= r <= input size), else if
@@ -556,7 +531,7 @@ class move_r {
      * @param out file to write the bwt to
      * @param params parameters
      */
-    void BWT(std::ofstream& out, retrieve_params params = {}) {
+    void BWT(std::ofstream& out, retrieve_params params = {}) const {
         retrieve_range<char,false>(&move_r<uint_t>::BWT,out,params);
     }
 
@@ -566,7 +541,7 @@ class move_r {
      * @param params parameters
      * @return the input string range [l,r]
      */
-    std::string revert(retrieve_params params = {}) {
+    std::string revert(retrieve_params params = {}) const {
         adjust_retrieve_params(params,n-2);
         std::string T;
         no_init_resize(T,params.r-params.l+1);
@@ -581,7 +556,7 @@ class move_r {
      * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = T[i]
      * @param params parameters
      */
-    void revert(const std::function<void(uint_t,char)>& report, retrieve_params params = {});
+    void revert(const std::function<void(uint_t,char)>& report, retrieve_params params = {}) const;
 
     /**
      * @brief reverts the input in the range [l,r] blockwise and writes it to the file out (0 <= l <= r < input size),
@@ -589,7 +564,7 @@ class move_r {
      * @param out file to write the reverted input to
      * @param params parameters
      */
-    void revert(std::ofstream& out, retrieve_params params = {}) {
+    void revert(std::ofstream& out, retrieve_params params = {}) const {
         retrieve_range<char,true>(&move_r<uint_t>::revert,out,params);
     }
     
@@ -599,7 +574,7 @@ class move_r {
      * @param params parameters
      * @return the suffix array range [l,r]
      */
-    std::vector<uint_t> SA(retrieve_params params = {}) {
+    std::vector<uint_t> SA(retrieve_params params = {}) const {
         adjust_retrieve_params(params,n-1);
         std::vector<uint_t> SA_range;
         no_init_resize(SA_range,params.r-params.l+1);
@@ -614,7 +589,7 @@ class move_r {
      * @param report function that is called with every tuple (i,s) as a parameter, where i in [l,r] and s = SA[i]
      * @param params parameters
      */
-    void SA(const std::function<void(uint_t,uint_t)>& report, retrieve_params params = {});
+    void SA(const std::function<void(uint_t,uint_t)>& report, retrieve_params params = {}) const;
 
     /**
      * @brief writes the values in the suffix array of the input in the range [l,r] blockwise to the file out (0 <= l <= r <= input size),
@@ -622,7 +597,7 @@ class move_r {
      * @param out file to write the suffix array to
      * @param params parameters
      */
-    void SA(std::ofstream& out, retrieve_params params = {}) {
+    void SA(std::ofstream& out, retrieve_params params = {}) const {
         retrieve_range<uint_t,true>(&move_r<uint_t>::SA,out,params);
     }
 
@@ -633,10 +608,10 @@ class move_r {
      * @param out output stream to store the index to
      * @param support supported operations to store data structures for
      */
-    void serialize(std::ostream& out, std::vector<move_r_supp> support = _full_support) {
+    void serialize(std::ostream& out, std::vector<move_r_supp> support = _full_support) const {
         adjust_supports(support);
 
-        if (!is_subset_of(support,this->support)) {
+        if (!is_subset_of(support,this->_support)) {
             std::cout << "error: cannot store an index with support it has not been built with" << std::flush;
             return;
         }
@@ -659,27 +634,27 @@ class move_r {
         out.write((char*)&p_r,sizeof(uint16_t));
 
         if (p_r > 0) {
-            out.write((char*)&D_e[0],(p_r-1)*2*sizeof(uint_t));
+            out.write((char*)&_D_e[0],(p_r-1)*2*sizeof(uint_t));
         }
 
         out.write((char*)&chars_remapped,1);
         if (chars_remapped) {
-            out.write((char*)&map_char[0],256);
-            out.write((char*)&unmap_char[0],256);
+            out.write((char*)&_map_char[0],256);
+            out.write((char*)&_unmap_char[0],256);
         }
 
-        M_LF.serialize(out);
+        _M_LF.serialize(out);
 
         if (contains(support,_count)) {
-            RS_L_.serialize(out);
+            _RS_L_.serialize(out);
         }
 
         if (contains(support,_locate)) {
             out.write((char*)&r__,sizeof(uint_t));
-            M_Phi.serialize(out);
+            _M_Phi.serialize(out);
 
             out.write((char*)&omega_idx,1);
-            SA_phi.serialize(out);
+            _SA_Phi.serialize(out);
         }
 
         std::streamoff offs_end = out.tellp()-pos_data_structure_offsets;
@@ -711,15 +686,15 @@ class move_r {
 
         uint8_t num_supports;
         in.read((char*)&num_supports,1);
-        this->support.resize(num_supports);
-        in.read((char*)&this->support[0],num_supports*sizeof(move_r_supp));
+        this->_support.resize(num_supports);
+        in.read((char*)&this->_support[0],num_supports*sizeof(move_r_supp));
 
-        if (!is_subset_of(support,this->support)) {
+        if (!is_subset_of(support,this->_support)) {
             std::cout << "error: cannot load an index with support it has not been built with" << std::flush;
             return;
         }
 
-        this->support = support;
+        this->_support = support;
 
         in.read((char*)&n,sizeof(uint_t));
         in.read((char*)&sigma,1);
@@ -729,37 +704,37 @@ class move_r {
         in.read((char*)&p_r,sizeof(uint16_t));
 
         if (p_r > 0) {
-            D_e.resize(p_r-1);
-            in.read((char*)&D_e[0],(p_r-1)*2*sizeof(uint_t));
+            _D_e.resize(p_r-1);
+            in.read((char*)&_D_e[0],(p_r-1)*2*sizeof(uint_t));
         }
 
         in.read((char*)&chars_remapped,1);
         if (chars_remapped) {
-            map_char.resize(256);
-            in.read((char*)&map_char[0],256);
+            _map_char.resize(256);
+            in.read((char*)&_map_char[0],256);
 
-            unmap_char.resize(256);
-            in.read((char*)&unmap_char[0],256);
+            _unmap_char.resize(256);
+            in.read((char*)&_unmap_char[0],256);
         }
 
-        M_LF.load(in);
+        _M_LF.load(in);
 
         if (contains(support,_count)) {
-            RS_L_.load(in);
+            _RS_L_.load(in);
         }
 
         if (contains(support,_locate)) {
             in.read((char*)&r__,sizeof(uint_t));
-            M_Phi.load(in);
+            _M_Phi.load(in);
 
             in.read((char*)&omega_idx,1);
-            SA_phi.load(in);
+            _SA_Phi.load(in);
         }
 
         in.seekg(pos_data_structure_offsets+offs_end,std::ios::beg);
     }
 
-    std::ostream& operator>>(std::ostream& os) {
+    std::ostream& operator>>(std::ostream& os) const {
         serialize(os);
         return os;
     }

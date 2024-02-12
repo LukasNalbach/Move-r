@@ -93,8 +93,8 @@ void move_r<uint_t>::construction::preprocess_t(bool use_libsais, std::ifstream*
         // build the mapping function map_char that remaps the characters of T, s.t. it does
         // not contain 0 or 1; also build its inverse function unmap_char
 
-        idx.map_char.resize(256,0);
-        idx.unmap_char.resize(256,0);
+        idx._map_char.resize(256,0);
+        idx._unmap_char.resize(256,0);
 
         /* To preserve the order among characters in T[0..n-2], we start by mapping smallest
            character in T[0..n-2] to 2, the second smallest to 3, ... . */
@@ -105,8 +105,8 @@ void move_r<uint_t>::construction::preprocess_t(bool use_libsais, std::ifstream*
 
         for (uint16_t cur_uchar=0; cur_uchar<next_uchar_to_remap_to; cur_uchar++) {
             if (contains_uchar[cur_uchar] == 1) {
-                idx.map_char[cur_uchar] = next_uchar_to_remap_to;
-                idx.unmap_char[next_uchar_to_remap_to] = cur_uchar;
+                idx._map_char[cur_uchar] = next_uchar_to_remap_to;
+                idx._unmap_char[next_uchar_to_remap_to] = cur_uchar;
                 max_remapped_uchar = cur_uchar;
                 next_uchar_to_remap_to++;
             }
@@ -116,8 +116,8 @@ void move_r<uint_t>::construction::preprocess_t(bool use_libsais, std::ifstream*
 
         for (uint16_t cur_uchar=max_remapped_to_uchar+1; cur_uchar<256; cur_uchar++) {
             if (contains_uchar[cur_uchar] == 1) {
-                idx.map_char[cur_uchar] = cur_uchar;
-                idx.unmap_char[cur_uchar] = cur_uchar;
+                idx._map_char[cur_uchar] = cur_uchar;
+                idx._unmap_char[cur_uchar] = cur_uchar;
             }
         }
 
@@ -126,7 +126,7 @@ void move_r<uint_t>::construction::preprocess_t(bool use_libsais, std::ifstream*
             #pragma omp parallel for num_threads(p)
             for (uint64_t i=0; i<n-1; i++) {
                 if (char_to_uchar(T[i]) <= max_remapped_uchar) {
-                    T[i] = idx.map_to_internal(T[i]);
+                    T[i] = idx.map_char(T[i]);
                 }
             }
         }
@@ -149,7 +149,7 @@ void move_r<uint_t>::construction::preprocess_t(bool use_libsais, std::ifstream*
                 #pragma omp parallel for num_threads(p)
                 for (uint64_t i=0; i<cur_t_buf_size; i++) {
                     if (char_to_uchar(T_buf[i]) <= max_remapped_uchar) {
-                        T_buf[i] = idx.map_to_internal(T_buf[i]);
+                        T_buf[i] = idx.map_char(T_buf[i]);
                     }
                 }
             }
@@ -276,14 +276,14 @@ void move_r<uint_t>::construction::build_mlf() {
         std::cout << std::endl << "building M_LF" << std::flush;
     }
 
-    idx.M_LF = std::move(move_data_structure_str<uint_t>(std::move(I_LF),n,{
+    idx._M_LF = std::move(move_data_structure_str<uint_t>(std::move(I_LF),n,{
         .num_threads=p,
         .a=idx.a,
         .log=log,
         .mf=mf_mds,
     }));
 
-    r_ = idx.M_LF.num_intervals();
+    r_ = idx._M_LF.num_intervals();
     idx.r_ = r_;
 
     if (log) {
@@ -324,12 +324,12 @@ void move_r<uint_t>::construction::build_l__sas() {
         uint_t rp_diff = r_p[i_p+1]-r_p[i_p];
 
         // Index of the current input interval in M_LF, initially the index of the input interval of M_LF containing b
-        uint_t j = bin_search_max_leq<uint_t>(b,0,r_-1,[this](uint_t x){return idx.M_LF.p(x);});
+        uint_t j = bin_search_max_leq<uint_t>(b,0,r_-1,[this](uint_t x){return idx._M_LF.p(x);});
         // Starting position of the next bwt run.
         uint_t l_ = b;
 
         for (uint_t i=0; i<rp_diff; i++) {
-            idx.M_LF.template set_character(j,run_char(i_p,i));
+            idx._M_LF.template set_character(j,run_char(i_p,i));
             j++;
 
             // update l_ to the next run start position
@@ -337,9 +337,9 @@ void move_r<uint_t>::construction::build_l__sas() {
 
             // iterate over all input intervals in M_LF within the i-th bwt within thread i_p's section run that have been
             // created by the balancing algorithm
-            while (idx.M_LF.p(j) < l_) {
+            while (idx._M_LF.p(j) < l_) {
                 if (build_locate_support) SA_s[j-1] = n;
-                idx.M_LF.template set_character(j,run_char(i_p,i));
+                idx._M_LF.template set_character(j,run_char(i_p,i));
                 j++;
             }
             
@@ -399,14 +399,14 @@ void move_r<uint_t>::construction::build_mphi() {
         std::cout << std::endl << "building M_Phi" << std::flush;
     }
 
-    idx.M_Phi = std::move(move_data_structure<uint_t>(std::move(I_Phi),n,{
+    idx._M_Phi = std::move(move_data_structure<uint_t>(std::move(I_Phi),n,{
         .num_threads=p,
         .a=idx.a,
         .log=log,
         .mf=mf_mds,
     },&pi_mphi));
 
-    r__ = idx.M_Phi.num_intervals();
+    r__ = idx._M_Phi.num_intervals();
     idx.r__ = r__;
 
     if (log) {
@@ -422,7 +422,7 @@ void move_r<uint_t>::construction::build_mphi() {
 template <typename uint_t>
 void move_r<uint_t>::construction::build_saphi() {
     time = now();
-    if (log) std::cout << "building SA_phi" << std::flush;
+    if (log) std::cout << "building SA_Phi" << std::flush;
 
     no_init_resize(pi_,r_);
 
@@ -438,9 +438,9 @@ void move_r<uint_t>::construction::build_saphi() {
         ips4o::sort(pi_.begin(),pi_.end(),comp_pi_);
     }
 
-    idx.omega_idx = idx.M_Phi.width_idx();
-    idx.SA_phi = std::move(interleaved_vectors<uint_t>({(uint8_t)(idx.omega_idx/8)}));
-    idx.SA_phi.resize_no_init(r_);
+    idx.omega_idx = idx._M_Phi.width_idx();
+    idx._SA_Phi = std::move(interleaved_vectors<uint_t>({(uint8_t)(idx.omega_idx/8)}));
+    idx._SA_Phi.resize_no_init(r_);
 
     /* Now we will divide the range [0..n-1] up into p non-overlapping sub-ranges [s[i_p]..s[i_p+1]-1],
     for each i_p in [0..p-1], with 0 = s[0] < s[1] < ... < s[p] = n, where
@@ -511,7 +511,7 @@ void move_r<uint_t>::construction::build_saphi() {
             r_x = r__-1;
             while (l_x != r_x) {
                 m_x = l_x+(r_x-l_x)/2;
-                if (idx.M_Phi.q(pi_mphi[m_x]) < m_s) {
+                if (idx._M_Phi.q(pi_mphi[m_x]) < m_s) {
                     l_x = m_x+1;
                 } else {
                     r_x = m_x;
@@ -559,18 +559,18 @@ void move_r<uint_t>::construction::build_saphi() {
 
         // Check if the range, over which the thread i_p has to iterate in SA_s, is empty
         if (j < j_) {
-            while (idx.M_Phi.q(pi_mphi[i]) != SA_s[pi_[j]]) {
+            while (idx._M_Phi.q(pi_mphi[i]) != SA_s[pi_[j]]) {
                 i++;
             }
 
             /* Iterate over SA_s[pi'[j]],SA_s[pi'[j+1]],...,SA_s[pi'[j'-1]] */
             while (j < j_) {
                 // Skip the output intervals the balancing algorithm has added to I_Phi
-                while (idx.M_Phi.q(pi_mphi[i]) != SA_s[pi_[j]]) {
+                while (idx._M_Phi.q(pi_mphi[i]) != SA_s[pi_[j]]) {
                     i++;
                 }
                 
-                idx.set_SA_phi(pi_[j],pi_mphi[i]);
+                idx.set_SA_Phi(pi_[j],pi_mphi[i]);
 
                 i++;
                 j++;
@@ -579,12 +579,12 @@ void move_r<uint_t>::construction::build_saphi() {
     }
 
     /* Since we set SA_s[j] = n for each j-th input interval of M_LF, whiches end position is not the end position of a bwt run,
-     * where j \in [0,r'), SA_s[pi'[r]],SA_s[pi'[r+1]],...,SA_s[pi'[r'-1]] = n holds, hence we set SA_phi[pi'[i]] = r'' for
-     * i \in [r,r') to mark that we cannot recover SA_s[M_LF[x+1]-1] = M_Phi.q[SA_phi[x]] for each x-th input interval of
+     * where j \in [0,r'), SA_s[pi'[r]],SA_s[pi'[r+1]],...,SA_s[pi'[r'-1]] = n holds, hence we set SA_Phi[pi'[i]] = r'' for
+     * i \in [r,r') to mark that we cannot recover SA_s[M_LF[x+1]-1] = M_Phi.q[SA_Phi[x]] for each x-th input interval of
      * M_LF, whiches end position is not the end position of a bwt run and where x \in [0,r'). */
     #pragma omp parallel for num_threads(p)
     for (uint64_t i=r; i<r_; i++) {
-        idx.set_SA_phi(pi_[i],r__);
+        idx.set_SA_Phi(pi_[i],r__);
     }
 
     x.clear();
@@ -610,12 +610,12 @@ void move_r<uint_t>::construction::build_de() {
         idx.p_r = 1;
     }
     
-    idx.D_e.resize(idx.p_r-1);
+    idx._D_e.resize(idx.p_r-1);
     
     #pragma omp parallel for num_threads(p)
     for (uint16_t i=0; i<idx.p_r-1; i++) {
         uint_t x = bin_search_min_geq<uint_t>((i+1)*((n-1)/idx.p_r),0,r-1,[this](uint_t x){return (((int64_t)SA_s[pi_[x]])-1)%n;});
-        idx.D_e[i] = std::make_pair(pi_[x],(uint_t)((((int64_t)SA_s[pi_[x]])-1)%n));
+        idx._D_e[i] = std::make_pair(pi_[x],(uint_t)((((int64_t)SA_s[pi_[x]])-1)%n));
     }
 
     SA_s.clear();
@@ -632,7 +632,7 @@ void move_r<uint_t>::construction::build_rsl_() {
         std::cout << "building RS_L'" << std::flush;
     }
     
-    idx.RS_L_ = std::move(string_rank_select_support<uint_t>([this](uint_t i){return idx.L_(i);},0,r_-1,p));
+    idx._RS_L_ = std::move(string_rank_select_support<uint_t>([this](uint_t i){return idx.L_(i);},0,r_-1,p));
 
     if (log) {
         if (mf_idx != NULL) *mf_idx << " time_build_rsl_=" << time_diff_ns(time,now());

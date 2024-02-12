@@ -132,7 +132,7 @@ class interleaved_vectors {
      * @brief returns the size of each stored vector
      * @return the size of each stored vector
      */
-    uint64_t size() {
+    uint64_t size() const {
         return size_vectors;
     }
 
@@ -140,7 +140,7 @@ class interleaved_vectors {
      * @brief returns whether the interleaved vectors are empty
      * @return whether the interleaved vectors are empty
      */
-    bool empty() {
+    bool empty() const {
         return size_vectors == 0;
     }
 
@@ -148,7 +148,7 @@ class interleaved_vectors {
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
      */
-    uint64_t size_in_bytes() {
+    uint64_t size_in_bytes() const {
         return
             2*sizeof(uint64_t)+1+ // variables
             num_vectors*sizeof(uint64_t)+ // widths
@@ -160,7 +160,7 @@ class interleaved_vectors {
      * @brief returns total width (number of bytes) per entry, that is the (sum of all widths)
      * @return number of bytes per entry
      */
-    uint8_t bytes_per_entry() {
+    uint8_t bytes_per_entry() const {
         return this->width_entry;
     }
 
@@ -169,7 +169,7 @@ class interleaved_vectors {
      * @param vec vector index
      * @return its witdth in bytes
      */
-    uint8_t width(uint8_t vec) {
+    uint8_t width(uint8_t vec) const {
         return widths[vec];
     }
 
@@ -177,8 +177,8 @@ class interleaved_vectors {
      * @brief returns a pointer to the data of the interleved vectors
      * @return pointer to the data of the interleved vectors
      */
-    char* data() {
-        return &data_vectors[0];
+    char* data() const {
+        return bases[0];
     }
 
     /**
@@ -186,7 +186,7 @@ class interleaved_vectors {
      * @param i entry index (0 <= i < size_vectors)
      * @return i-th entry of the vector with index 0 
      */
-    uint_t operator[](uint_t i) {
+    uint_t operator[](uint_t i) const {
         return get<0>(i);
     }
 
@@ -362,7 +362,7 @@ class interleaved_vectors {
      * @return value
      */
     template <uint8_t vec>
-    inline uint_t get(uint_t i) {
+    inline uint_t get(uint_t i) const {
         static_assert(vec < num_vectors);
         return *reinterpret_cast<uint_t*>(bases[vec] + i * width_entry) & masks[vec];
     }
@@ -376,7 +376,7 @@ class interleaved_vectors {
      * @return value
      */
     template <uint8_t vec, typename T>
-    inline uint_t get_unsafe(uint_t i) {
+    inline uint_t get_unsafe(uint_t i) const {
         static_assert(vec < num_vectors);
         return *reinterpret_cast<T*>(bases[vec] + i * width_entry);
     }
@@ -401,7 +401,7 @@ class interleaved_vectors {
      * @brief serializes the interleaved vectors to an output stream
      * @param out output stream
      */
-    void serialize(std::ostream& out) {
+    void serialize(std::ostream& out) const {
         out.write((char*)&size_vectors,sizeof(uint64_t));
         out.write((char*)&width_entry,sizeof(uint64_t));
 
@@ -434,5 +434,15 @@ class interleaved_vectors {
             resize_no_init(old_size);
             read_from_file(in,(char*)&data_vectors[0],size_vectors*width_entry);
         }
+    }
+
+    std::ostream& operator>>(std::ostream& os) const {
+        serialize(os);
+        return os;
+    }
+
+    std::istream& operator<<(std::istream& is) {
+        load(is);
+        return is;
     }
 };

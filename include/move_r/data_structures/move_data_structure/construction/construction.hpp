@@ -69,6 +69,7 @@ class move_data_structure<uint_t>::construction {
     std::chrono::steady_clock::time_point time_start; // time point of the start of the entire construction
     interleaved_vectors<uint_t> D_q; // [0..k'-1] output interval starting positions (ordered by the input interval starting positions)
     std::vector<uint_t> pi; // [0..k'-1] permutation storing the order of the output interval starting postions
+    bool is_str; // true <=> the move data structure to build has type move_data_structure_str
 
     /**
      * @brief [0..p-1] section start positions in the range [0..n], 0 = s[0] < s[1] < ... < s[p-1] = n.
@@ -98,7 +99,7 @@ class move_data_structure<uint_t>::construction {
      * @param params construction parameters
      * @param pi_mphi vector to move pi into after the construction
      */
-    construction(move_data_structure<uint_t>& mds, pair_arr_t& I, uint_t n, bool delete_i, mds_params params, std::vector<uint_t>* pi_mphi = NULL) : mds(mds), I(I) {
+    construction(move_data_structure<uint_t>& mds, pair_arr_t& I, uint_t n, bool delete_i, bool is_str, mds_params params, std::vector<uint_t>* pi_mphi = NULL) : mds(mds), I(I) {
         this->n = n;
         this->k = I.size();
         this->a = params.a;
@@ -106,6 +107,7 @@ class move_data_structure<uint_t>::construction {
         this->delete_i = delete_i;
         this->log = params.log;
         this->mf = params.mf;
+        this->is_str = is_str;
 
         if (log) {
             time = now();

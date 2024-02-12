@@ -46,7 +46,7 @@ template <typename uint_t>
 void move_data_structure<uint_t>::construction::build_dp_dq_v1() {
     if (log) log_message("building D_p and D_q");
 
-    mds.resize(n,k_);
+    mds.resize(n,k_,is_str);
     D_q = interleaved_vectors<uint_t>({(uint8_t)(mds.omega_p/8)});
     D_q.resize_no_init(k_);
     D_q.template set<0>(k_,n);

@@ -77,7 +77,7 @@ class hybrid_bit_vector {
         sd_arr = std::move(sd_array<uint_t>(std::move(sd_vec)));
     }
 
-    inline bool is_initialized() {
+    inline bool is_initialized() const {
         return sd_arr.has_value() || plain_bit_vec.has_value();
     }
 
@@ -85,7 +85,7 @@ class hybrid_bit_vector {
      * @brief returns, whether the bit vector is compressed
      * @return whether the bit vector is compressed
      */
-    inline bool is_compressed() {
+    inline bool is_compressed() const {
         return sd_arr.has_value();
     }
 
@@ -93,7 +93,7 @@ class hybrid_bit_vector {
      * @brief returns the size of the bit vector
      * @return the size of the bit vector 
      */
-    inline uint_t size() {
+    inline uint_t size() const {
         if (is_compressed()) {
             return sd_arr.value().size();
         } else {
@@ -102,10 +102,18 @@ class hybrid_bit_vector {
     }
 
     /**
+     * @brief returns whether the input bit vector is empty
+     * @return whether the bit vector is empty
+     */
+    bool empty() const {
+        return size() == 0;
+    }
+
+    /**
      * @brief returns the number of ones in the bit vector
      * @return the number of ones in the bit vector 
      */
-    inline uint_t num_ones() {
+    inline uint_t num_ones() const {
         if (is_compressed()) {
             return sd_arr.value().num_ones();
         } else {
@@ -117,7 +125,7 @@ class hybrid_bit_vector {
      * @brief returns the number of zeros in the bit vector
      * @return the number of ones in the bit vector 
      */
-    inline uint_t num_zeros() {
+    inline uint_t num_zeros() const {
         if (is_compressed()) {
             return sd_arr.value().num_zeros();
         } else {
@@ -130,7 +138,7 @@ class hybrid_bit_vector {
      * @param i [0..size]
      * @return the number of ones before index i 
      */
-    inline uint_t rank_1(uint_t i) {
+    inline uint_t rank_1(uint_t i) const {
         static_assert(build_rank_support);
         if (is_compressed()) {
             return sd_arr.value().rank_1(i);
@@ -144,7 +152,7 @@ class hybrid_bit_vector {
      * @param i [1..number of ones]
      * @return the index of the i-th one 
      */
-    inline uint_t select_1(uint_t i) {
+    inline uint_t select_1(uint_t i) const {
         static_assert(build_select_1_support);
         if (is_compressed()) {
             return sd_arr.value().select_1(i);
@@ -158,7 +166,7 @@ class hybrid_bit_vector {
      * @param i [0..size]
      * @return the number of zeros before index i 
      */
-    inline uint_t rank_0(uint_t i) {
+    inline uint_t rank_0(uint_t i) const {
         static_assert(build_rank_support);
         if (is_compressed()) {
             return sd_arr.value().rank_0(i);
@@ -172,7 +180,7 @@ class hybrid_bit_vector {
      * @param i [1..number of zeros]
      * @return the index of the i-th zero 
      */
-    inline uint_t select_0(uint_t i) {
+    inline uint_t select_0(uint_t i) const {
         static_assert(build_select_0_support);
         if (is_compressed()) {
             return sd_arr.value().select_0(i);
@@ -186,7 +194,7 @@ class hybrid_bit_vector {
      * @param i [1..size-1]
      * @return the index of the next one after index i
      */
-    inline uint_t next_1(uint_t i) {
+    inline uint_t next_1(uint_t i) const {
         if (is_compressed()) {
             return sd_arr.value().next_1(i);
         } else {
@@ -199,7 +207,7 @@ class hybrid_bit_vector {
      * @param i [1..size-1]
      * @return the index of the previous one before index i
      */
-    inline uint_t previous_1(uint_t i) {
+    inline uint_t previous_1(uint_t i) const {
         if (is_compressed()) {
             return sd_arr.value().previous_1(i);
         } else {
@@ -212,7 +220,7 @@ class hybrid_bit_vector {
      * @param i [1..size-1]
      * @return the index of the next zero after index i
      */
-    inline uint_t next_0(uint_t i) {
+    inline uint_t next_0(uint_t i) const {
         if (is_compressed()) {
             return sd_arr.value().next_0(i);
         } else {
@@ -225,7 +233,7 @@ class hybrid_bit_vector {
      * @param i [1..size-1]
      * @return the index of the previous zero before index i
      */
-    inline uint_t previous_0(uint_t i) {
+    inline uint_t previous_0(uint_t i) const {
         if (is_compressed()) {
             return sd_arr.value().previous_0(i);
         } else {
@@ -238,7 +246,7 @@ class hybrid_bit_vector {
      * @param i [0..size-1]
      * @return whether there is a one at index i
      */
-    inline bool operator[](uint_t i) {
+    inline bool operator[](uint_t i) const {
         if (is_compressed()) {
             return sd_arr.value()[i];
         } else {
@@ -250,7 +258,7 @@ class hybrid_bit_vector {
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
      */
-    inline uint64_t size_in_bytes() {
+    inline uint64_t size_in_bytes() const {
         if (!is_initialized()) return 0;
 
         if (is_compressed()) {
@@ -264,7 +272,7 @@ class hybrid_bit_vector {
      * @brief serializes the hybrid_bit_vector to an output stream
      * @param out output stream
      */
-    void serialize(std::ostream& out) {
+    void serialize(std::ostream& out) const {
         bool is_init = is_initialized();
         out.write((char*)&is_init,1);
         if (!is_init) return;
@@ -296,5 +304,15 @@ class hybrid_bit_vector {
             plain_bit_vec = std::move(plain_bv_t());
             plain_bit_vec.value().load(in);
         }
+    }
+
+    std::ostream& operator>>(std::ostream& os) const {
+        serialize(os);
+        return os;
+    }
+
+    std::istream& operator<<(std::istream& is) {
+        load(is);
+        return is;
     }
 };

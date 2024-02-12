@@ -112,15 +112,23 @@ class sd_array {
      * @brief returns the size of the bit vector
      * @return the size of the bit vector 
      */
-    uint_t size() {
+    uint_t size() const {
         return sd_vector.size();
+    }
+
+    /**
+     * @brief returns whether the input bit vector is empty
+     * @return whether the bit vector is empty
+     */
+    bool empty() const {
+        return size() == 0;
     }
 
     /**
      * @brief returns the number of ones in the bit vector
      * @return the number of ones in the bit vector 
      */
-    uint_t num_ones() {
+    uint_t num_ones() const {
         return ones;
     }
 
@@ -128,7 +136,7 @@ class sd_array {
      * @brief returns the number of zeros in the bit vector
      * @return the number of ones in the bit vector 
      */
-    uint_t num_zeros() {
+    uint_t num_zeros() const {
         return zeros;
     }
 
@@ -137,7 +145,7 @@ class sd_array {
      * @param i [0..size]
      * @return the number of ones before index i 
      */
-    inline uint_t rank_1(uint_t i) {
+    inline uint_t rank_1(uint_t i) const {
         return rank_1_support.rank(i);
     }
 
@@ -146,7 +154,7 @@ class sd_array {
      * @param i [1..number of ones]
      * @return the index of the i-th one 
      */
-    inline uint_t select_1(uint_t i) {
+    inline uint_t select_1(uint_t i) const {
         return select_1_support.select(i);
     }
 
@@ -155,7 +163,7 @@ class sd_array {
      * @param i [0..size]
      * @return the number of zeros before index i 
      */
-    inline uint_t rank_0(uint_t i) {
+    inline uint_t rank_0(uint_t i) const {
         return rank_0_support.rank(i);
     }
 
@@ -164,7 +172,7 @@ class sd_array {
      * @param i [1..number of zeros]
      * @return the index of the i-th zero 
      */
-    inline uint_t select_0(uint_t i) {
+    inline uint_t select_0(uint_t i) const {
         return select_0_support.select(i);
     }
 
@@ -173,7 +181,7 @@ class sd_array {
      * @param i [1..size-1]
      * @return the index of the next one after index i
      */
-    inline uint_t next_1(uint_t i) {
+    inline uint_t next_1(uint_t i) const {
         return select_1(rank_1(i+1)+1);
     }
 
@@ -182,7 +190,7 @@ class sd_array {
      * @param i [1..size-1]
      * @return the index of the previous one before index i
      */
-    inline uint_t previous_1(uint_t i) {
+    inline uint_t previous_1(uint_t i) const {
         return select_1(rank_1(i));
     }
 
@@ -191,7 +199,7 @@ class sd_array {
      * @param i [1..size-1]
      * @return the index of the next zero after index i
      */
-    inline uint_t next_0(uint_t i) {
+    inline uint_t next_0(uint_t i) const {
         return select_0(rank_0(i+1)+1);
     }
 
@@ -200,7 +208,7 @@ class sd_array {
      * @param i [1..size-1]
      * @return the index of the previous zero before index i
      */
-    inline uint_t previous_0(uint_t i) {
+    inline uint_t previous_0(uint_t i) const {
         return select_0(rank_0(i));
     }
 
@@ -209,7 +217,7 @@ class sd_array {
      * @param i [0..size-1]
      * @return whether there is a one at index i
      */
-    inline bool operator[](uint_t i) {
+    inline bool operator[](uint_t i) const {
         return sd_vector[i];
     }
 
@@ -217,7 +225,7 @@ class sd_array {
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
      */
-    uint64_t size_in_bytes() {
+    uint64_t size_in_bytes() const {
         return sdsl::size_in_bytes(sd_vector);
     }
 
@@ -225,7 +233,7 @@ class sd_array {
      * @brief serializes the sd_array to an output stream
      * @param out output stream
      */
-    void serialize(std::ostream& out) {
+    void serialize(std::ostream& out) const {
         sd_vector.serialize(out);
     }
 
@@ -236,5 +244,15 @@ class sd_array {
     void load(std::istream& in) {
         sd_vector.load(in);
         setup();
+    }
+
+    std::ostream& operator>>(std::ostream& os) const {
+        serialize(os);
+        return os;
+    }
+
+    std::istream& operator<<(std::istream& is) {
+        load(is);
+        return is;
     }
 };

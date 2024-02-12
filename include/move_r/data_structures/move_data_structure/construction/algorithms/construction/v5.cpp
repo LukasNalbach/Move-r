@@ -156,7 +156,7 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v5() {
     k_ = x[p];
 
     // resize the interleaved vectors in the move data structure
-    mds.resize(n,k_);
+    mds.resize(n,k_,is_str);
     
     if (log) {
         float k__k = std::round(100.0*k_/k)/100.0;

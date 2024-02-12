@@ -112,7 +112,9 @@ void measure_locate() {
             ips4o::sort(occurrences.begin(),occurrences.end());
             is_sorted = true;
 
-            if (occurrences.size() != (count = index.count(pattern))) std::cout << "error: wrong number of located occurrences: " << occurrences.size() << "/" << count << std::endl;
+            if (occurrences.size() != (count = index.count(pattern))) {
+                std::cout << "error: wrong number of located occurrences: " << occurrences.size() << "/" << count << std::endl;
+            }
 
             for (uint_t occurrence : occurrences) {
                 equal = true;
@@ -163,8 +165,8 @@ void measure_locate() {
         mf << " n=" << index.input_size();
         mf << " sigma=" << std::to_string(index.alphabet_size());
         mf << " r=" << index.num_bwt_runs();
-        mf << " r_=" << index.num_intervals_m_lf();
-        mf << " r__=" << index.num_intervals_m_phi();
+        mf << " r_=" << index.M_LF().num_intervals();
+        mf << " r__=" << index.M_Phi().num_intervals();
         mf << " pattern_length=" << pattern_length;
         index.log_data_structure_sizes(mf);
         mf << " num_patterns=" << num_patterns;

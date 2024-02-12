@@ -231,7 +231,7 @@ void move_r<uint_t>::construction::unmap_t() {
     #pragma omp parallel for num_threads(p)
     for (uint64_t i=0; i<n-1; i++) {
         if (char_to_uchar(T[i]) <= max_remapped_to_uchar) {
-            T[i] = idx.unmap_from_internal(T[i]);
+            T[i] = idx.unmap_char(T[i]);
         }
     }
 }

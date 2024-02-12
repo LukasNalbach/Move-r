@@ -61,7 +61,7 @@ void measure_revert() {
     std::cout << std::endl;
     index.log_data_structure_sizes();
     std::cout << std::endl;
-    std::chrono::steady_clock::time_point t2,t3;
+    std::chrono::steady_clock::time_point t2,t3,t4;
     std::string input;
     p = std::min({(uint16_t)omp_get_max_threads(),index.max_revert_threads(),p});
 
@@ -70,15 +70,20 @@ void measure_revert() {
         t2 = now();
         input = index.revert({.num_threads = p});
         t3 = now();
+        log_runtime(t2,t3);
+        std::cout << "writing the input to the file " << std::flush;
+        write_to_file(output_file,input.c_str(),input.size());
+        t4 = now();
+        log_runtime(t3,t4);
     } else {
         std::cout << "reverting the index using " << format_threads(p) << std::flush;
         t2 = now();
         index.revert(output_file,{.num_threads = p});
-        t3 = now();
+        t4 = now();
+        log_runtime(t2,t4);
     }
     
-    log_runtime(t2,t3);
-    uint64_t time_revert = time_diff_ns(t2,t3);
+    uint64_t time_revert = time_diff_ns(t2,t4);
 
     if (mf.is_open()) {
         mf << "RESULT";
@@ -88,15 +93,13 @@ void measure_revert() {
         mf << " n=" << index.input_size();
         mf << " sigma=" << std::to_string(index.alphabet_size());
         mf << " r=" << index.num_bwt_runs();
-        mf << " r_=" << index.num_intervals_m_lf();
-        mf << " r__=" << index.num_intervals_m_phi();
+        mf << " r_=" << index.M_LF().num_intervals();
+        mf << " r__=" << index.M_Phi().num_intervals();
         index.log_data_structure_sizes(mf);
         mf << " time_revert=" << time_revert;
         mf << std::endl;
         mf.close();
     }
-
-    if (revert_in_memory) write_to_file(output_file,input.c_str(),input.size());
 }
 
 int main(int argc, char **argv) {

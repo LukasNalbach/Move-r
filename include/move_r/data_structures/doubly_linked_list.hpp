@@ -125,7 +125,7 @@ class doubly_linked_list {
      * @brief checks whether the list is empty
      * @return whether the list is empty
      */
-    inline bool empty() {
+    inline bool empty() const {
         return s == 0;
     }
 
@@ -133,7 +133,7 @@ class doubly_linked_list {
      * @brief returns the number of nodes in the list
      * @return number of nodes in the list
      */
-    inline uint64_t size() {
+    inline uint64_t size() const {
         return s;
     }
 
@@ -149,7 +149,7 @@ class doubly_linked_list {
      * @brief returns the head of the list
      * @return the head of the list
      */
-    inline doubly_linked_list_node* head() {
+    inline doubly_linked_list_node* head() const {
         return hd;
     }
 
@@ -165,7 +165,7 @@ class doubly_linked_list {
      * @brief returns the tail of the list
      * @return the tail of the list
      */
-    inline doubly_linked_list_node* tail() {
+    inline doubly_linked_list_node* tail() const {
         return tl;
     }
 
@@ -408,7 +408,7 @@ class doubly_linked_list {
          * @brief checks whether the iterator can iterate forward
          * @return whether it can iterate forward
          */
-        inline bool has_next() {
+        inline bool has_next() const {
             return cur->sc != NULL;
         }
 
@@ -416,7 +416,7 @@ class doubly_linked_list {
          * @brief checks whether the iterator can iterate backward
          * @return whether it can iterate backward
          */
-        inline bool has_prev() {
+        inline bool has_prev() const {
             return cur->pr != NULL;
         }
 
@@ -424,7 +424,7 @@ class doubly_linked_list {
          * @brief returns the value of the node, the iterator points to
          * @return the node, the iterator points to
          */
-        inline doubly_linked_list_node* current() {
+        inline doubly_linked_list_node* current() const {
             return cur;
         }
 
@@ -460,7 +460,7 @@ class doubly_linked_list {
      * @param n a node in the list
      * @return an iterator
      */
-    inline doubly_linked_list<T>::dll_it iterator(doubly_linked_list_node *n) {
+    inline doubly_linked_list<T>::dll_it iterator(doubly_linked_list_node *n) const {
         return doubly_linked_list<T>::dll_it(this,n);
     }
 
@@ -468,7 +468,7 @@ class doubly_linked_list {
      * @brief returns an iterator pointing to the head of the list
      * @return an iterator
      */
-    inline doubly_linked_list<T>::dll_it iterator() {
+    inline doubly_linked_list<T>::dll_it iterator() const {
         return doubly_linked_list<T>::dll_it(this,hd);
     }
 };

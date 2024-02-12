@@ -120,15 +120,23 @@ class plain_bit_vector {
      * @brief returns the size of the bit vector
      * @return the size of the bit vector 
      */
-    uint_t size() {
+    uint_t size() const {
         return vec.size();
+    }
+
+    /**
+     * @brief returns whether the input bit vector is empty
+     * @return whether the bit vector is empty
+     */
+    bool empty() const {
+        return size() == 0;
     }
 
     /**
      * @brief returns the number of ones in the bit vector
      * @return the number of ones in the bit vector 
      */
-    uint_t num_ones() {
+    uint_t num_ones() const {
         return ones;
     }
 
@@ -136,7 +144,7 @@ class plain_bit_vector {
      * @brief returns the number of zeros in the bit vector
      * @return the number of ones in the bit vector 
      */
-    uint_t num_zeros() {
+    uint_t num_zeros() const {
         return zeros;
     }
 
@@ -145,7 +153,7 @@ class plain_bit_vector {
      * @param i [0..size]
      * @return the number of ones before index i 
      */
-    inline uint_t rank_1(uint_t i) {
+    inline uint_t rank_1(uint_t i) const {
         return rank_1_support.rank(i);
     }
 
@@ -154,7 +162,7 @@ class plain_bit_vector {
      * @param i [1..number of ones]
      * @return the index of the i-th one 
      */
-    inline uint_t select_1(uint_t i) {
+    inline uint_t select_1(uint_t i) const {
         return select_1_support.select(i);
     }
 
@@ -163,7 +171,7 @@ class plain_bit_vector {
      * @param i [0..size]
      * @return the number of zeros before index i 
      */
-    inline uint_t rank_0(uint_t i) {
+    inline uint_t rank_0(uint_t i) const {
         return i-(rank_1(i));
     }
 
@@ -172,7 +180,7 @@ class plain_bit_vector {
      * @param i [1..number of zeros]
      * @return the index of the i-th zero 
      */
-    inline uint_t select_0(uint_t i) {
+    inline uint_t select_0(uint_t i) const {
         return select_0_support.select(i);
     }
 
@@ -181,7 +189,7 @@ class plain_bit_vector {
      * @param i [1..size-1]
      * @return the index of the next one after index i
      */
-    inline uint_t next_1(uint_t i) {
+    inline uint_t next_1(uint_t i) const {
         return select_1(rank_1(i+1)+1);
     }
 
@@ -190,7 +198,7 @@ class plain_bit_vector {
      * @param i [1..size-1]
      * @return the index of the previous one before index i
      */
-    inline uint_t previous_1(uint_t i) {
+    inline uint_t previous_1(uint_t i) const {
         return select_1(rank_1(i));
     }
 
@@ -199,7 +207,7 @@ class plain_bit_vector {
      * @param i [1..size-1]
      * @return the index of the next zero after index i
      */
-    inline uint_t next_0(uint_t i) {
+    inline uint_t next_0(uint_t i) const {
         return select_0(rank_0(i+1)+1);
     }
 
@@ -208,7 +216,7 @@ class plain_bit_vector {
      * @param i [1..size-1]
      * @return the index of the previous zero before index i
      */
-    inline uint_t previous_0(uint_t i) {
+    inline uint_t previous_0(uint_t i) const {
         return select_0(rank_0(i));
     }
 
@@ -217,7 +225,7 @@ class plain_bit_vector {
      * @param i [0..size-1]
      * @return whether there is a one at index i
      */
-    inline bool operator[](uint_t i) {
+    inline bool operator[](uint_t i) const {
         return vec[i];
     }
 
@@ -225,7 +233,7 @@ class plain_bit_vector {
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
      */
-    uint64_t size_in_bytes() {
+    uint64_t size_in_bytes() const {
         return sdsl::size_in_bytes(vec)+
                sdsl::size_in_bytes(rank_1_support)+
                sdsl::size_in_bytes(select_0_support)+
@@ -236,7 +244,7 @@ class plain_bit_vector {
      * @brief serializes the plain_bit_vector to an output stream
      * @param out output stream
      */
-    void serialize(std::ostream& out) {
+    void serialize(std::ostream& out) const {
         out.write((char*)&ones,sizeof(uint_t));
         out.write((char*)&zeros,sizeof(uint_t));
 
@@ -264,5 +272,15 @@ class plain_bit_vector {
         rank_1_support.set_vector(&vec);
         select_0_support.set_vector(&vec);
         select_1_support.set_vector(&vec);
+    }
+
+    std::ostream& operator>>(std::ostream& os) const {
+        serialize(os);
+        return os;
+    }
+
+    std::istream& operator<<(std::istream& is) {
+        load(is);
+        return is;
     }
 };

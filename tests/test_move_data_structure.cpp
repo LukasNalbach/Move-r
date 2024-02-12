@@ -5,10 +5,11 @@
 TEST(test_move_data_structure,fuzzy_test) {
     std::random_device rd;
     std::mt19937 gen(rd());
+    uint16_t max_num_threads = omp_get_max_threads();
 
     std::uniform_int_distribution<uint32_t> input_size_distrib(1,200000);
     std::lognormal_distribution<double> avg_interval_length_distrib(4.0,2.0);
-    std::uniform_int_distribution<uint16_t> num_threads_distrib(1,omp_get_max_threads());
+    std::uniform_int_distribution<uint16_t> num_threads_distrib(1,max_num_threads);
     std::lognormal_distribution<double> a_distrib(2.0,3.0);
 
     uint32_t input_size;
@@ -18,8 +19,8 @@ TEST(test_move_data_structure,fuzzy_test) {
 
     auto start_time = now();
 
-    // generate random disjoint interval sequences and test the move data structure until 10 minutes have passed
-    while (time_diff_min(start_time,now()) < 10) {
+    // generate random disjoint interval sequences and test the move data structure until one hour has passed
+    while (time_diff_min(start_time,now()) < 60) {
         // choose a random input size
         input_size = input_size_distrib(gen);
         num_intervals = 0;
@@ -39,6 +40,7 @@ TEST(test_move_data_structure,fuzzy_test) {
 
         // permute the input intervals randomly into the output intervals
         interval_permutation.resize(num_intervals);
+        #pragma omp parallel for num_threads(max_num_threads)
         for (uint32_t i=0; i<num_intervals; i++) {
             interval_permutation[i] = i;
         }
@@ -62,6 +64,7 @@ TEST(test_move_data_structure,fuzzy_test) {
         EXPECT_TRUE(mds.num_intervals()/(double)num_intervals <= (a/(double)(a-1))*1.125);
 
         // check if there is an a-heavy output interval
+        #pragma omp parallel for num_threads(max_num_threads)
         for (uint32_t i=0; i<mds.num_intervals(); i++) {
             uint32_t j = bin_search_min_geq<uint32_t>(mds.q(i),0,mds.num_intervals()-1,[&mds](auto x){return mds.p(x);});
             uint16_t num_intervals_in_output_interval = 0;
@@ -76,6 +79,7 @@ TEST(test_move_data_structure,fuzzy_test) {
         // using the move data structure and the original interval sequence and compare the output values
         uint32_t avg_step_size = std::max<uint32_t>(2,input_size/10000);
         std::uniform_int_distribution<uint32_t> step_size_distrib(avg_step_size/1.5,1.5*avg_step_size);
+        #pragma omp parallel for num_threads(max_num_threads)
         for (uint32_t i=0; i<input_size; i+=step_size_distrib(gen)) {
             std::pair<uint32_t,uint32_t> ix_mds{i,
                 bin_search_max_leq<uint32_t>(i,0,mds.num_intervals()-1,[&mds](uint32_t x){return mds.p(x);})

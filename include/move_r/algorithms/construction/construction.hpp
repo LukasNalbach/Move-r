@@ -31,7 +31,7 @@ class move_r<uint_t>::construction {
     uint64_t baseline_mem_usage = 0; // memory allocation at the start of the construction
     uint64_t bigbwt_peak_mem_usage = 0;
     bool build_count_support = false; // = true <=> build support for count (RS_L')
-    bool build_locate_support = false; // = true <=> build support for locate (SA_phi and M_Phi) and build parallel revert support (D_e)
+    bool build_locate_support = false; // = true <=> build support for locate (SA_Phi and M_Phi) and build parallel revert support (D_e)
     uint8_t min_valid_char = 0; // the minimum valid character that is allowed to occur in T
     uint8_t max_remapped_uchar = 0; // the maximum character in T that has been remappd
     uint8_t max_remapped_to_uchar = 0; // the maximum character in T that a character has been remappd to
@@ -94,12 +94,12 @@ class move_r<uint_t>::construction {
             }
         };
 
-        for (uint8_t i=0; i<idx.support.size()-1; i++) {
-            report_support(idx.support[i]);
+        for (uint8_t i=0; i<idx._support.size()-1; i++) {
+            report_support(idx._support[i]);
             std::cout << ", ";
         }
 
-        report_support(idx.support.back());
+        report_support(idx._support.back());
         std::cout << std::endl;
     }
 
@@ -188,15 +188,15 @@ class move_r<uint_t>::construction {
         baseline_mem_usage = malloc_count_current();
         if (log) malloc_count_reset_peak();
 
-        adjust_supports(idx.support);
+        adjust_supports(idx._support);
 
-        if (!contains(idx.support,_revert)) {
+        if (!contains(idx._support,_revert)) {
             std::cout << "error: cannot build an index without revert support";
             return;
         }
 
-        build_count_support = contains(idx.support,_count);
-        build_locate_support = contains(idx.support,_locate);
+        build_count_support = contains(idx._support,_count);
+        build_locate_support = contains(idx._support,_locate);
 
         // print the operations to build support for
         if (log) {
@@ -251,7 +251,7 @@ class move_r<uint_t>::construction {
     // ############################# CONSTRUCTORS #############################
 
     void read_parameters(move_r_params& params) {
-        idx.support = params.support;
+        idx._support = params.support;
         this->p = params.num_threads;
         idx.a = params.a;
         this->log = params.log;
@@ -496,7 +496,7 @@ class move_r<uint_t>::construction {
     void build_mphi();
 
     /**
-     * @brief builds SA_phi
+     * @brief builds SA_Phi
      */
     void build_saphi();
 

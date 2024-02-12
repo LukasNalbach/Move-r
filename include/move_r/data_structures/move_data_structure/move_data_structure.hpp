@@ -26,7 +26,6 @@ class move_data_structure {
     using pair_t = std::pair<uint_t,uint_t>;
     using pair_arr_t = std::vector<pair_t>;
 
-    bool is_move_data_structure_str = false; // true <=> this move data structure is of type move_data_structure_str
     uint_t n = 0; // n = p_{k_'-1} + d_{k_'-1}, k_' <= n
     uint_t k = 0; // k, number of intervals in the original disjoint inteval sequence I
     uint_t k_ = 0; // k', number of intervals in the balanced disjoint inteval sequence B_a(I), k <= k_'
@@ -51,7 +50,7 @@ class move_data_structure {
      * @param pi_mphi vector to move pi into after the construction
      */
     move_data_structure(pair_arr_t&& I, uint_t n, mds_params params = {}, std::vector<uint_t>* pi_mphi = NULL) {
-        construction(*this,I,n,true,params,pi_mphi);
+        construction(*this,I,n,true,false,params,pi_mphi);
     }
 
     /**
@@ -62,14 +61,14 @@ class move_data_structure {
      * @param pi_mphi vector to move pi into after the construction
      */
     move_data_structure(pair_arr_t& I, uint_t n, mds_params params = {}, std::vector<uint_t>* pi_mphi = NULL) {
-        construction(*this,I,n,false,params,pi_mphi);
+        construction(*this,I,n,false,false,params,pi_mphi);
     }
 
     /**
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
      */
-    uint64_t size_in_bytes() {
+    uint64_t size_in_bytes() const {
         return
             1+2*sizeof(uint_t)+3+ // variables
             data.size_in_bytes(); // data
@@ -79,7 +78,7 @@ class move_data_structure {
      * @brief returns the maximum value n = p_k + d_k of the stored disjoint interval sequence
      * @return n = p_k + d_k
      */
-    inline uint_t max_value() {
+    inline uint_t max_value() const {
         return n;
     }
 
@@ -87,7 +86,7 @@ class move_data_structure {
      * @brief returns the number k' of intervals in the move data structure
      * @return k'
      */
-    inline uint_t num_intervals() {
+    inline uint_t num_intervals() const {
         return k_;
     }
 
@@ -95,7 +94,7 @@ class move_data_structure {
      * @brief returns a
      * @return a 
      */
-    inline uint16_t balancing_parameter() {
+    inline uint16_t balancing_parameter() const {
         return a;
     }
 
@@ -103,7 +102,7 @@ class move_data_structure {
      * @brief returns the number omega_p of bits used by one entry in D_p (word width of D_p)
      * @return omega_p 
      */
-    inline uint8_t width_p() {
+    inline uint8_t width_p() const {
         return omega_p;
     }
 
@@ -111,7 +110,7 @@ class move_data_structure {
      * @brief returns the number omega_p of bits used by one entry in D_idx (word width of D_idx)
      * @return omega_idx
      */
-    inline uint8_t width_idx() {
+    inline uint8_t width_idx() const {
         return omega_idx;
     }
 
@@ -119,7 +118,7 @@ class move_data_structure {
      * @brief returns the number omega_p of bits used by one entry in D_offs (word width of D_offs)
      * @return omega_offs
      */
-    inline uint8_t width_offs() {
+    inline uint8_t width_offs() const {
         return omega_offs;
     }
 
@@ -129,14 +128,14 @@ class move_data_structure {
      * @param n maximum value
      * @param k_ size
      */
-    void resize(uint_t n, uint_t k_) {
+    void resize(uint_t n, uint_t k_, bool is_str) {
         this->n = n;
         this->k_ = k_;
 
         omega_p = std::max((uint8_t)8,(uint8_t)(std::ceil(std::log2(n+1)/(double)8)*8));
         omega_idx = std::max((uint8_t)8,(uint8_t)(std::ceil(std::log2(k_+1)/(double)8)*8));
 
-        if (is_move_data_structure_str) {
+        if (is_str) {
             data = std::move(interleaved_vectors<uint_t>({
                 (uint8_t)(omega_p/8),
                 (uint8_t)(omega_idx/8),
@@ -190,7 +189,7 @@ class move_data_structure {
      * @param x [0..k_']
      * @return D_p[x]
      */
-    inline uint_t p(uint_t x) {
+    inline uint_t p(uint_t x) const {
         return data.template get<0>(x);
     }
 
@@ -199,7 +198,7 @@ class move_data_structure {
      * @param x [0..k_'-1]
      * @return q_x
      */
-    inline uint_t q(uint_t x) {
+    inline uint_t q(uint_t x) const {
         return p(idx(x))+offs(x);
     }
 
@@ -208,7 +207,7 @@ class move_data_structure {
      * @param x [0..k_'-1]
      * @return D_idx[x]
      */
-    inline uint_t idx(uint_t x) {
+    inline uint_t idx(uint_t x) const {
         return data.template get<1>(x);
     }
 
@@ -217,7 +216,7 @@ class move_data_structure {
      * @param x [0..k_'-1]
      * @return D_offs[x]
      */
-    inline uint_t offs(uint_t x) {
+    inline uint_t offs(uint_t x) const {
         return data.template get<2>(x);
     }
 
@@ -227,7 +226,7 @@ class move_data_structure {
      * @param i [0..n-1]
      * @param x [0..k_'-1], where i in [p_x, p_x + d_x)
      */
-    inline void move(uint_t& i, uint_t& x) {
+    inline void move(uint_t& i, uint_t& x) const {
         i = q(x)+(i-p(x));
         x = idx(x);
         while (i >= p(x+1)) {
@@ -242,7 +241,7 @@ class move_data_structure {
      * @param x [0..k_'-1], where i in [p_x, p_x + d_x)
      * @returns
      */
-    inline pair_t move(pair_t ix) {
+    inline pair_t move(pair_t ix) const {
         move(ix.first,ix.second);
         return ix;
     }
@@ -251,7 +250,7 @@ class move_data_structure {
      * @brief serializes the move data structure to an output stream
      * @param out output stream
      */
-    void serialize(std::ostream& out) {
+    void serialize(std::ostream& out) const {
         out.write((char*)&n,sizeof(uint_t));
         out.write((char*)&k,sizeof(uint_t));
         out.write((char*)&k_,sizeof(uint_t));
@@ -275,6 +274,16 @@ class move_data_structure {
         in.read((char*)&omega_idx,1);
         in.read((char*)&omega_offs,1);
         data.load(in);
+    }
+
+    std::ostream& operator>>(std::ostream& os) const {
+        serialize(os);
+        return os;
+    }
+
+    std::istream& operator<<(std::istream& is) {
+        load(is);
+        return is;
     }
 };
 

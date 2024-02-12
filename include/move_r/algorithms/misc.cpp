@@ -1,9 +1,11 @@
 template <typename uint_t>
 template <typename output_t, bool output_reversed>
 void move_r<uint_t>::retrieve_range(
-    void(move_r<uint_t>::*retrieve_method)(const std::function<void(uint_t,output_t)>&,move_r<uint_t>::retrieve_params),
+    void(move_r<uint_t>::*retrieve_method)(const std::function<void(uint_t,output_t)>&,move_r<uint_t>::retrieve_params)const,
     std::ofstream& out, move_r<uint_t>::retrieve_params params
-) {
+) const {
+    adjust_retrieve_params(params,n-2);
+    
     uint_t l = params.l;
     uint_t r = params.r;
     uint16_t num_threads = params.num_threads;

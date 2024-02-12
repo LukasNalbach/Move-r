@@ -19,12 +19,10 @@ class move_data_structure_str : public move_data_structure<uint_t> {
      * @param n n = p_k + d_j
      * @param delete_i whether I can be deleted during the construction
      * @param params construction parameters
-     * @param pi_mphi vector to move pi into after the construction
      */
-    void build(pair_arr_t& I, uint_t n, bool delete_i, mds_params params, std::vector<uint_t>* pi_mphi) {
-        move_data_structure<uint_t>::is_move_data_structure_str = true;
+    void build(pair_arr_t& I, uint_t n, bool delete_i, mds_params params) {
         typename move_data_structure<uint_t>::construction(
-            *reinterpret_cast<move_data_structure<uint_t>*>(this),I,n,delete_i,params,pi_mphi
+            *reinterpret_cast<move_data_structure<uint_t>*>(this),I,n,delete_i,true,params,NULL
         );
         set_character(move_data_structure<uint_t>::k_,0);
     }
@@ -37,10 +35,9 @@ class move_data_structure_str : public move_data_structure<uint_t> {
      * @param I a disjoint interval sequence
      * @param n n = p_k + d_j
      * @param params construction parameters
-     * @param pi_mphi vector to move pi into after the construction
      */
-    move_data_structure_str(pair_arr_t&& I, uint_t n, mds_params params = {}, std::vector<uint_t>* pi_mphi = NULL) {
-        build(I,n,true,params,pi_mphi);
+    move_data_structure_str(pair_arr_t&& I, uint_t n, mds_params params = {}) {
+        build(I,n,true,params);
     }
 
     /**
@@ -48,10 +45,9 @@ class move_data_structure_str : public move_data_structure<uint_t> {
      * @param I a disjoint interval sequence
      * @param n n = p_k + d_j
      * @param params construction parameters
-     * @param pi_mphi vector to move pi into after the construction
      */
-    move_data_structure_str(pair_arr_t& I, uint_t n, mds_params params = {}, std::vector<uint_t>* pi_mphi = NULL) {
-        build(I,n,false,params,pi_mphi);
+    move_data_structure_str(pair_arr_t& I, uint_t n, mds_params params = {}) {
+        build(I,n,false,params);
     }
 
     /**
@@ -59,7 +55,7 @@ class move_data_structure_str : public move_data_structure<uint_t> {
      * @param x index in [0..k_'-1]
      * @return the character at position x
      */
-    inline char character(uint_t x) {
+    inline char character(uint_t x) const {
         return move_data_structure<uint_t>::data.template get_unsafe<3,char>(x);
     }
 

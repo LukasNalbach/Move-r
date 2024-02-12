@@ -1,41 +1,41 @@
 template <typename uint_t>
-void move_r<uint_t>::setup_phi_move_pair(uint_t x, uint_t& s, uint_t& s_) {
+void move_r<uint_t>::setup_phi_move_pair(uint_t x, uint_t& s, uint_t& s_) const {
     // the index of the pair in M_Phi creating the output interval with start position s = SA[M_LF.p[x+1]-1]
-    uint_t x_s_ = SA_phi[x];
+    uint_t x_s_ = _SA_Phi[x];
 
     // set s_ to the index of the input interval in M_Phi containing s
-    s_ = M_Phi.idx(x_s_);
+    s_ = _M_Phi.idx(x_s_);
     
     // compute s
-    s = M_Phi.p(s_)+M_Phi.offs(x_s_);
+    s = _M_Phi.p(s_)+_M_Phi.offs(x_s_);
 }
 
 template <typename uint_t>
-char move_r<uint_t>::BWT(uint_t i) {
+char move_r<uint_t>::BWT(uint_t i) const {
     // find the index of the input interval in M_LF containing i with a binary search.
-    return access_l_(bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x){return M_LF.p(x);}));
+    return unmap_char(L_(bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x){return _M_LF.p(x);})));
 }
 
 template <typename uint_t>
-uint_t move_r<uint_t>::SA(uint_t i) {
+uint_t move_r<uint_t>::SA(uint_t i) const {
     // index of the input interval in M_LF containing i.
-    uint_t x = bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x_){return M_LF.p(x_);});
+    uint_t x = bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x_){return _M_LF.p(x_);});
 
     /* if i is a run start position (i = M_LF.p(x)), then
         SA[i] = Phi^{-1}(SA_s[(x-1) mod r'])
-              = Phi^{-1}(M_Phi.q(SA_phi[(x-1) mod r']))
-              =          M_Phi.p(SA_phi[(x-1) mod r'])
+              = Phi^{-1}(M_Phi.q(SA_Phi[(x-1) mod r']))
+              =          M_Phi.p(SA_Phi[(x-1) mod r'])
     */
-    if (i == M_LF.p(x)) {
+    if (i == _M_LF.p(x)) {
         if (x == 0) {
-            return M_Phi.p(SA_phi[r_-1]);
-        } else if (SA_phi[x-1] != r__) {
-            return M_Phi.p(SA_phi[x-1]);
+            return _M_Phi.p(_SA_Phi[r_-1]);
+        } else if (_SA_Phi[x-1] != r__) {
+            return _M_Phi.p(_SA_Phi[x-1]);
         }
     }
 
     // increment x until the end position of the x-th input interval of M_LF is an end position of a bwt run
-    while (SA_phi[x] == r__) {
+    while (_SA_Phi[x] == r__) {
         x++;
     }
 
@@ -43,7 +43,7 @@ uint_t move_r<uint_t>::SA(uint_t i) {
     // suffix array sample at the end position of the x-th input interval
 
     // position in the suffix array of the current suffix s
-    uint_t j = M_LF.p(x+1)-1;
+    uint_t j = _M_LF.p(x+1)-1;
 
     // index of the input interval in M_Phi containing s
     uint_t s_;
@@ -56,7 +56,7 @@ uint_t move_r<uint_t>::SA(uint_t i) {
     // i; in each iteration, s = SA[j] = \Phi^{i-j}(SA[i]) holds.
     while (j > i) {
         // Set s = \Phi(s)
-        M_Phi.move(s,s_);
+        _M_Phi.move(s,s_);
         j--;
     }
 
@@ -65,7 +65,7 @@ uint_t move_r<uint_t>::SA(uint_t i) {
 }
 
 template <typename uint_t>
-uint_t move_r<uint_t>::count(uint_t m, const std::function<char(uint_t)>& read) {
+uint_t move_r<uint_t>::count(uint_t m, const std::function<char(uint_t)>& read) const {
     // Left interval limit of the suffix array interval.
     uint_t b = 0;
     // Right interval limit of the suffix array interval.
@@ -82,29 +82,29 @@ uint_t move_r<uint_t>::count(uint_t m, const std::function<char(uint_t)>& read) 
     // Read P backwards from right to left.
     for (int64_t i=m-1; i>=0; i--) {
         // If the characters have been remapped internally, the pattern also has to be remapped.
-        Pi = chars_remapped ? map_to_internal(read(i)) : read(i);
+        Pi = map_char(read(i));
 
         // If P[i] does not occur in T, P does neither, so return.
-        if (!RS_L_.contains_character(Pi)) return 0;
+        if (!_RS_L_.contains_character(Pi)) return 0;
 
         // Find the lexicographically smallest suffix in the current suffix array interval that is prefixed by P[i]
         if (Pi != L_(b_)) {
             /* To do so, we can at first find the first (sub-)run with character P[i] after the b_-th (sub-)run, save
             its index in b_ and set b to its start position M_LF.p(b_). */
-            b_ = RS_L_.rank(Pi,b_);
-            if (b_ == RS_L_.num_occurrences(Pi)) return 0;
-            b_ = RS_L_.select(Pi,b_+1);
-            b = M_LF.p(b_);
+            b_ = _RS_L_.rank(Pi,b_);
+            if (b_ == _RS_L_.frequency(Pi)) return 0;
+            b_ = _RS_L_.select(Pi,b_+1);
+            b = _M_LF.p(b_);
         }
 
         // Find the lexicographically largest suffix in the current suffix array interval that is prefixed by P[i]
         if (Pi != L_(e_)) {
             /* To do so, we can at first find the (sub-)last run with character P[i] before the e_-th (sub-)run, save
             its index in e_ and set e to its end position M_LF.p(e_+1)-1. */
-            e_ = RS_L_.rank(Pi,e_);
+            e_ = _RS_L_.rank(Pi,e_);
             if (e_ == 0) return 0;
-            e_ = RS_L_.select(Pi,e_);
-            e = M_LF.p(e_+1)-1;
+            e_ = _RS_L_.select(Pi,e_);
+            e = _M_LF.p(e_+1)-1;
         }
         
         // Else, because each suffix i in the previous suffix array interval starts with P[i+1..m] and the current 
@@ -119,8 +119,8 @@ uint_t move_r<uint_t>::count(uint_t m, const std::function<char(uint_t)>& read) 
         if (b > e) return 0;
         
         // Else, set b <- LF(b) and e <- LF(e)
-        M_LF.move(b,b_);
-        M_LF.move(e,e_);
+        _M_LF.move(b,b_);
+        _M_LF.move(e,e_);
     }
 
     // Return the size e-b+1 of the suffix array interval [b,e] of P.
@@ -128,7 +128,7 @@ uint_t move_r<uint_t>::count(uint_t m, const std::function<char(uint_t)>& read) 
 }
 
 template <typename uint_t>
-void move_r<uint_t>::locate(uint_t m, const std::function<char(uint_t)>& read, const std::function<void(uint_t)>& report) {
+void move_r<uint_t>::locate(uint_t m, const std::function<char(uint_t)>& read, const std::function<void(uint_t)>& report) const {
     // Left interval limit of the suffix array interval.
     uint_t b = 0;
     // Right interval limit of the suffix array interval.
@@ -148,29 +148,29 @@ void move_r<uint_t>::locate(uint_t m, const std::function<char(uint_t)>& read, c
     // Read P backwards from right to left.
     for (int64_t i=m-1; i>=0; i--) {
         // If the characters have been remapped internally, the pattern also has to be remapped.
-        Pi = chars_remapped ? map_to_internal(read(i)) : read(i);
+        Pi = map_char(read(i));
         
         // If P[i] does not occur in T, P does neither, so return.
-        if (!RS_L_.contains_character(Pi)) return;
+        if (!_RS_L_.contains_character(Pi)) return;
 
         // Find the lexicographically smallest suffix in the current suffix array interval that is prefixed by P[i]
         if (Pi != L_(b_)) {
             /* To do so, we can at first find the first (sub-)run with character P[i] after the b_-th (sub-)run, save
             its index in b_ and set b to its start position M_LF.p(b_). */
-            b_ = RS_L_.rank(Pi,b_);
-            if (b_ == RS_L_.num_occurrences(Pi)) return;
-            b_ = RS_L_.select(Pi,b_+1);
-            b = M_LF.p(b_);
+            b_ = _RS_L_.rank(Pi,b_);
+            if (b_ == _RS_L_.frequency(Pi)) return;
+            b_ = _RS_L_.select(Pi,b_+1);
+            b = _M_LF.p(b_);
         }
 
         // Find the lexicographically largest suffix in the current suffix array interval that is prefixed by P[i]
         if (Pi != L_(e_)) {
             /* To do so, we can at first find the (sub-)last run with character P[i] before the e_-th (sub-)run, save
             its index in e_ and set e to its end position M_LF.p(e_+1)-1. */
-            e_ = RS_L_.rank(Pi,e_);
+            e_ = _RS_L_.rank(Pi,e_);
             if (e_ == 0) return;
-            e_ = RS_L_.select(Pi,e_);
-            e = M_LF.p(e_+1)-1;
+            e_ = _RS_L_.select(Pi,e_);
+            e = _M_LF.p(e_+1)-1;
             
             // update y (Case 1).
             y = i;
@@ -192,8 +192,8 @@ void move_r<uint_t>::locate(uint_t m, const std::function<char(uint_t)>& read, c
         if (b > e) return;
         
         // Else, set b <- LF(b) and e <- LF(e)
-        M_LF.move(b,b_);
-        M_LF.move(e,e_);
+        _M_LF.move(b,b_);
+        _M_LF.move(e,e_);
     }
     
     /* Initially, this is the value in the suffix array at the right interval limit of the suffix array
@@ -214,20 +214,20 @@ void move_r<uint_t>::locate(uint_t m, const std::function<char(uint_t)>& read, c
         /* If s < M_Phi.p[s_] now an input interval of M_Phi before the s_-th one contains s, so we
         have to decrease s_. To find the correct value for s_, we perform an exponential search to the
         left over the input interval starting positions of M_Phi starting at s_. */
-        if (s < M_Phi.p(s_)) {
-            s_ = exp_search_max_leq<uint_t,LEFT>(s,0,s_,[this](uint_t x){return M_Phi.p(x);});
+        if (s < _M_Phi.p(s_)) {
+            s_ = exp_search_max_leq<uint_t,LEFT>(s,0,s_,[this](uint_t x){return _M_Phi.p(x);});
         }
         
         // Perform e-b Phi queries with (s,s_) and at each step, report s.
         for (uint_t i=b; i<e; i++) {
-            M_Phi.move(s,s_);
+            _M_Phi.move(s,s_);
             report(s);
         }
     }
 }
 
 template <typename uint_t>
-void move_r<uint_t>::revert(const std::function<void(uint_t,char)>& report, retrieve_params params) {
+void move_r<uint_t>::revert(const std::function<void(uint_t,char)>& report, retrieve_params params) const {
     adjust_retrieve_params(params,n-2);
 
     uint_t l = params.l;
@@ -242,8 +242,8 @@ void move_r<uint_t>::revert(const std::function<void(uint_t,char)>& report, retr
         s_l = 0;
         s_r = 0;
     } else {
-        s_l = bin_search_min_gt<uint_t>(l,0,p_r-1,[this](uint_t x){return D_e[x].second;});
-        s_r = bin_search_min_geq<uint_t>(r,0,p_r-1,[this](uint_t x){return D_e[x].second;});
+        s_l = bin_search_min_gt<uint_t>(l,0,p_r-1,[this](uint_t x){return _D_e[x].second;});
+        s_r = bin_search_min_geq<uint_t>(r,0,p_r-1,[this](uint_t x){return _D_e[x].second;});
     }
 
     uint16_t p = std::max(
@@ -266,14 +266,14 @@ void move_r<uint_t>::revert(const std::function<void(uint_t,char)>& report, retr
         uint16_t sr_ip = i_p == p-1 ? s_r : s_l+((i_p+1)*(s_r-s_l+1))/p-1;
 
         // Iteration range start position of thread i_p.
-        uint_t j_l = std::max(l,sl_ip == 0 ? 0 : (D_e[sl_ip-1].second+1)%n);
+        uint_t j_l = std::max(l,sl_ip == 0 ? 0 : (_D_e[sl_ip-1].second+1)%n);
         // Iteration range end position of thread i_p.
-        uint_t j_r = sr_ip == p_r-1 ? n-2 : D_e[sr_ip].second;
+        uint_t j_r = sr_ip == p_r-1 ? n-2 : _D_e[sr_ip].second;
 
         // index of the input interval in M_LF containing i.
-        uint_t x = sr_ip == p_r-1 ? 0 : D_e[sr_ip].first;
+        uint_t x = sr_ip == p_r-1 ? 0 : _D_e[sr_ip].first;
         // The position in the bwt of the current character in T.
-        uint_t i = sr_ip == p_r-1 ? 0 : M_LF.p(x+1)-1;
+        uint_t i = sr_ip == p_r-1 ? 0 : _M_LF.p(x+1)-1;
 
         // start iterating at the right iteration range end position
         uint_t j = j_r;
@@ -281,26 +281,26 @@ void move_r<uint_t>::revert(const std::function<void(uint_t,char)>& report, retr
         // iterate until j = r
         while (j > r) {
             // Set i <- LF(i) and j <- j-1.
-            M_LF.move(i,x);
+            _M_LF.move(i,x);
             j--;
         }
 
         // Report T[r] = T[j] = L[i] = L'[x]
-        report(j,access_l_(x));
+        report(j,unmap_char(L_(x)));
 
         // report T[l,r-1] from right to left
         while (j > j_l) {
             // Set i <- LF(i) and j <- j-1.
-            M_LF.move(i,x);
+            _M_LF.move(i,x);
             j--;
             // Report T[j] = L[i] = L'[x].
-            report(j,access_l_(x));
+            report(j,unmap_char(L_(x)));
         }
     }
 }
 
 template <typename uint_t>
-void move_r<uint_t>::BWT(const std::function<void(uint_t,char)>& report, retrieve_params params) {
+void move_r<uint_t>::BWT(const std::function<void(uint_t,char)>& report, retrieve_params params) const {
     adjust_retrieve_params(params,n-1);
 
     uint_t l = params.l;
@@ -329,17 +329,17 @@ void move_r<uint_t>::BWT(const std::function<void(uint_t,char)>& report, retriev
         uint_t i = b;
 
         // index of the input interval in M_LF containing i.
-        uint_t x = bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x_){return M_LF.p(x_);});
+        uint_t x = bin_search_max_leq<uint_t>(i,0,r_-1,[this](uint_t x_){return _M_LF.p(x_);});
 
         // start position of the next input interval in M_LF
         uint_t l_xp1;
 
         // iterate until x is the input interval containing e
-        while ((l_xp1 = M_LF.p(x+1)) <= e) {
+        while ((l_xp1 = _M_LF.p(x+1)) <= e) {
 
             // iterate over all positions in the x-th input interval
             while (i < l_xp1) {
-                report(i,access_l_(x));
+                report(i,unmap_char(L_(x)));
                 i++;
             }
             
@@ -348,14 +348,14 @@ void move_r<uint_t>::BWT(const std::function<void(uint_t,char)>& report, retriev
 
         // report the remaining characters
         while (i <= e) {
-            report(i,access_l_(x));
+            report(i,unmap_char(L_(x)));
             i++;
         }
     }
 }
 
 template <typename uint_t>
-void move_r<uint_t>::SA(const std::function<void(uint_t,uint_t)>& report, retrieve_params params) {
+void move_r<uint_t>::SA(const std::function<void(uint_t,uint_t)>& report, retrieve_params params) const {
     adjust_retrieve_params(params,n-1);
 
     uint_t l = params.l;
@@ -381,15 +381,15 @@ void move_r<uint_t>::SA(const std::function<void(uint_t,uint_t)>& report, retrie
         uint_t e = i_p == p-1 ? r : l+(i_p+1)*((r-l+1)/p)-1;
 
         // the input interval of M_LF containing i
-        uint_t x = bin_search_max_leq<uint_t>(e,0,r_-1,[this](uint_t x_){return M_LF.p(x_);});
+        uint_t x = bin_search_max_leq<uint_t>(e,0,r_-1,[this](uint_t x_){return _M_LF.p(x_);});
 
         // increment x until the end position of the x-th input interval of M_LF is an end position of a bwt run
-        while (SA_phi[x] == r__) {
+        while (_SA_Phi[x] == r__) {
             x++;
         }
 
         // current position in the suffix array, initially the end position of the x-th interval of M_LF
-        uint_t i = M_LF.p(x+1)-1;
+        uint_t i = _M_LF.p(x+1)-1;
 
         // index of the input interval in M_Phi containing s
         uint_t s_;
@@ -401,7 +401,7 @@ void move_r<uint_t>::SA(const std::function<void(uint_t,uint_t)>& report, retrie
 
         // iterate down to the iteration range end position
         while (i > e) {
-            M_Phi.move(s,s_);
+            _M_Phi.move(s,s_);
             i--;
         }
 
@@ -410,7 +410,7 @@ void move_r<uint_t>::SA(const std::function<void(uint_t,uint_t)>& report, retrie
 
         // report the SA-values SA[e,e-1] from right to left
         while (i > b) {
-            M_Phi.move(s,s_);
+            _M_Phi.move(s,s_);
             i--;
             report(i,s);
         }

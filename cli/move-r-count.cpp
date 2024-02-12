@@ -97,8 +97,8 @@ void measure_count() {
         mf << " n=" << index.input_size();
         mf << " sigma=" << std::to_string(index.alphabet_size());
         mf << " r=" << index.num_bwt_runs();
-        mf << " r_=" << index.num_intervals_m_lf();
-        mf << " r__=" << index.num_intervals_m_phi();
+        mf << " r_=" << index.M_LF().num_intervals();
+        mf << " r__=" << index.M_Phi().num_intervals();
         mf << " pattern_length=" << pattern_length;
         index.log_data_structure_sizes(mf);
         mf << " num_patterns=" << num_patterns;
