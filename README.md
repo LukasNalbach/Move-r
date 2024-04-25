@@ -1,5 +1,5 @@
 # Move-r
-This is an optimized and parallelized implementation of the modified r-index described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)).
+This [2] is an optimized and parallelized implementation of the modified r-index described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)).
 
 ## External Dependencies
 - [OpenMP](https://www.openmp.org/)
@@ -310,3 +310,6 @@ them into LaTeX, use [sqlplot-tools](https://github.com/bingmann/sqlplot-tools).
 [1] Takaaki Nishimoto and Yasuo Tabei. Optimal-time queries on bwt-runs compressed indexes.
 In 48th International Colloquium on Automata, Languages, and Programming (ICALP 2021),
 volume 198, page 101. Schloss Dagstuhl–Leibniz-Zentrum für Informatik, 2021.
+[2] Nico Bertram, Johannes Fischer and Lukas Nalbach.
+Move-r: Optimizing the r-index
+Symposium on Experimental Algorithms (SEA), 2024.
