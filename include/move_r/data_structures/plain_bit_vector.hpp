@@ -6,11 +6,11 @@
 
 /**
  * @brief wrapper class for the bit_vector from sdsl
- * @tparam uint_t unsigned integer type
+ * @tparam pos_t unsigned integer type
  */
-template <typename uint_t = uint32_t, bool build_rank_support = false, bool build_select_0_support = false, bool build_select_1_support = false>
+template <typename pos_t = uint32_t, bool build_rank_support = false, bool build_select_0_support = false, bool build_select_1_support = false>
 class plain_bit_vector {
-    static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
+    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
 
     protected:
     sdsl::bit_vector vec; // the bit_vector
@@ -18,8 +18,8 @@ class plain_bit_vector {
     sdsl::bit_vector::select_1_type select_1_support; // select_1 support for vec
     sdsl::bit_vector::select_0_type select_0_support; // select_1 support for vec
 
-    uint_t zeros = 0;
-    uint_t ones = 0;
+    pos_t zeros = 0;
+    pos_t ones = 0;
 
     /**
      * @brief copies another plain_bit_vector object into this object
@@ -120,7 +120,7 @@ class plain_bit_vector {
      * @brief returns the size of the bit vector
      * @return the size of the bit vector 
      */
-    uint_t size() const {
+    inline pos_t size() const {
         return vec.size();
     }
 
@@ -128,7 +128,7 @@ class plain_bit_vector {
      * @brief returns whether the input bit vector is empty
      * @return whether the bit vector is empty
      */
-    bool empty() const {
+    inline bool empty() const {
         return size() == 0;
     }
 
@@ -136,7 +136,7 @@ class plain_bit_vector {
      * @brief returns the number of ones in the bit vector
      * @return the number of ones in the bit vector 
      */
-    uint_t num_ones() const {
+    inline pos_t num_ones() const {
         return ones;
     }
 
@@ -144,7 +144,7 @@ class plain_bit_vector {
      * @brief returns the number of zeros in the bit vector
      * @return the number of ones in the bit vector 
      */
-    uint_t num_zeros() const {
+    inline pos_t num_zeros() const {
         return zeros;
     }
 
@@ -153,7 +153,7 @@ class plain_bit_vector {
      * @param i [0..size]
      * @return the number of ones before index i 
      */
-    inline uint_t rank_1(uint_t i) const {
+    inline pos_t rank_1(pos_t i) const {
         return rank_1_support.rank(i);
     }
 
@@ -162,7 +162,7 @@ class plain_bit_vector {
      * @param i [1..number of ones]
      * @return the index of the i-th one 
      */
-    inline uint_t select_1(uint_t i) const {
+    inline pos_t select_1(pos_t i) const {
         return select_1_support.select(i);
     }
 
@@ -171,7 +171,7 @@ class plain_bit_vector {
      * @param i [0..size]
      * @return the number of zeros before index i 
      */
-    inline uint_t rank_0(uint_t i) const {
+    inline pos_t rank_0(pos_t i) const {
         return i-(rank_1(i));
     }
 
@@ -180,7 +180,7 @@ class plain_bit_vector {
      * @param i [1..number of zeros]
      * @return the index of the i-th zero 
      */
-    inline uint_t select_0(uint_t i) const {
+    inline pos_t select_0(pos_t i) const {
         return select_0_support.select(i);
     }
 
@@ -189,7 +189,7 @@ class plain_bit_vector {
      * @param i [1..size-1]
      * @return the index of the next one after index i
      */
-    inline uint_t next_1(uint_t i) const {
+    inline pos_t next_1(pos_t i) const {
         return select_1(rank_1(i+1)+1);
     }
 
@@ -198,7 +198,7 @@ class plain_bit_vector {
      * @param i [1..size-1]
      * @return the index of the previous one before index i
      */
-    inline uint_t previous_1(uint_t i) const {
+    inline pos_t previous_1(pos_t i) const {
         return select_1(rank_1(i));
     }
 
@@ -207,7 +207,7 @@ class plain_bit_vector {
      * @param i [1..size-1]
      * @return the index of the next zero after index i
      */
-    inline uint_t next_0(uint_t i) const {
+    inline pos_t next_0(pos_t i) const {
         return select_0(rank_0(i+1)+1);
     }
 
@@ -216,7 +216,7 @@ class plain_bit_vector {
      * @param i [1..size-1]
      * @return the index of the previous zero before index i
      */
-    inline uint_t previous_0(uint_t i) const {
+    inline pos_t previous_0(pos_t i) const {
         return select_0(rank_0(i));
     }
 
@@ -225,7 +225,7 @@ class plain_bit_vector {
      * @param i [0..size-1]
      * @return whether there is a one at index i
      */
-    inline bool operator[](uint_t i) const {
+    inline bool operator[](pos_t i) const {
         return vec[i];
     }
 
@@ -245,8 +245,8 @@ class plain_bit_vector {
      * @param out output stream
      */
     void serialize(std::ostream& out) const {
-        out.write((char*)&ones,sizeof(uint_t));
-        out.write((char*)&zeros,sizeof(uint_t));
+        out.write((char*)&ones,sizeof(pos_t));
+        out.write((char*)&zeros,sizeof(pos_t));
 
         vec.serialize(out);
 
@@ -260,8 +260,8 @@ class plain_bit_vector {
      * @param in input stream
      */
     void load(std::istream& in) {
-        in.read((char*)&ones,sizeof(uint_t));
-        in.read((char*)&zeros,sizeof(uint_t));
+        in.read((char*)&ones,sizeof(pos_t));
+        in.read((char*)&zeros,sizeof(pos_t));
         
         vec.load(in);
 

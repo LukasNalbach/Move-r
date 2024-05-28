@@ -1,21 +1,21 @@
 #include <ips4o.hpp>
 
-template <typename uint_t>
-inline uint_t move_data_structure<uint_t>::construction::interval_length_v2v3_seq(lin_node_t_v2v3v4 *ln) {
+template <typename pos_t>
+inline pos_t move_data_structure<pos_t>::construction::interval_length_v2v3_seq(lin_node_t_v2v3v4 *ln) {
     return (ln->sc != NULL ? ln->sc->v.first : n) - ln->v.first;
 }
 
-template <typename uint_t>
-inline typename move_data_structure<uint_t>::construction::lin_node_t_v2v3v4* move_data_structure<uint_t>::construction::is_a_heavy_v2v3v4(
+template <typename pos_t>
+inline typename move_data_structure<pos_t>::construction::lin_node_t_v2v3v4* move_data_structure<pos_t>::construction::is_a_heavy_v2v3v4(
     lin_node_t_v2v3v4 **ln_IpI_,
-    uint_t* i_,
+    pos_t* i_,
     tout_node_t_v2v3v4 *tn_J,
     tout_node_t_v2v3v4 *tn_J_
 ) {
     // [l,r] = [q_j, q_j + d_j)
 
     // r + 1
-    uint_t rp1 = tn_J_ == NULL ?
+    pos_t rp1 = tn_J_ == NULL ?
         tn_J->v.v.second + interval_length_v2v3_seq(&tn_J->v)
         : tn_J_->v.v.second;
 
@@ -24,7 +24,7 @@ inline typename move_data_structure<uint_t>::construction::lin_node_t_v2v3v4* mo
     if (rp1-tn_J->v.v.second < two_a) return NULL;
 
     // Temporarily store the initial value i'' of i'
-    uint_t i__ = *i_;
+    pos_t i__ = *i_;
 
     /* Count the number i of input intervals connected to [l,r]
     in the permutation graph and stop as soon as i > a. */
@@ -58,8 +58,8 @@ inline typename move_data_structure<uint_t>::construction::lin_node_t_v2v3v4* mo
     }
 }
 
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::build_lin_tout_v2v3v4() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4() {
     L_in_v2v3v4.resize(p);
     T_out_v2v3v4.resize(p);
 
@@ -79,7 +79,7 @@ void move_data_structure<uint_t>::construction::build_lin_tout_v2v3v4() {
         std::vector<
             typename avl_tree<
                 typename doubly_linked_list<
-                    std::pair<no_init<uint_t>,no_init<uint_t>>
+                    std::pair<no_init<pos_t>,no_init<pos_t>>
                 >::doubly_linked_list_node
             >::avl_node
         >*
@@ -93,18 +93,18 @@ void move_data_structure<uint_t>::construction::build_lin_tout_v2v3v4() {
         #pragma omp single
         {
             for (uint16_t i_p=0; i_p<2*p; i_p++) {
-                uint_t l2 = x[i_p/2];
-                uint_t r2 = x[i_p/2+1];
+                pos_t l2 = x[i_p/2];
+                pos_t r2 = x[i_p/2+1];
 
                 if (r2 > l2) {
-                    uint_t m2 = l2+(r2-l2)/2;
+                    pos_t m2 = l2+(r2-l2)/2;
 
-                    uint_t l = i_p%2 == 0 ? l2 : (m2+1);
-                    uint_t r = i_p%2 == 0 ? m2 : r2-1;
+                    pos_t l = i_p%2 == 0 ? l2 : (m2+1);
+                    pos_t r = i_p%2 == 0 ? m2 : r2-1;
 
                     #pragma omp task
                     {
-                        for (uint_t i=l; i<=r; i++) {
+                        for (pos_t i=l; i<=r; i++) {
                             nodes_v2v3v4[i].v.v = I[i];
                             nodes_v2v3v4[i].v.pr = &nodes_v2v3v4[i-1].v;
                             nodes_v2v3v4[i].v.sc = &nodes_v2v3v4[i+1].v;
@@ -151,7 +151,7 @@ void move_data_structure<uint_t>::construction::build_lin_tout_v2v3v4() {
 
     /* This function returns for the value i in [0,k-1] the node in nodes_v2v3v4[0..k-1],
     that stores the pair creating the i-th output interval. */
-    std::function<tout_node_t_v2v3v4*(uint_t)> at = [this](uint_t i){
+    std::function<tout_node_t_v2v3v4*(pos_t)> at = [this](pos_t i){
         return &nodes_v2v3v4[pi[i]];
     };
 
@@ -209,7 +209,7 @@ void move_data_structure<uint_t>::construction::build_lin_tout_v2v3v4() {
             );
 
             // find i_ in [0,p-1], so that s[i_] <= tn->v.first < s[i_+1]
-            uint16_t i_ = bin_search_max_leq<uint_t>(ln->v.first,0,p-1,[this](uint_t x){return s[x];});
+            uint16_t i_ = bin_search_max_leq<pos_t>(ln->v.first,0,p-1,[this](pos_t x){return s[x];});
 
             L_in_v2v3v4[i_].insert_after_node(&tn->v,ln);
             T_out_v2v3v4[i].insert_node(tn);
@@ -245,7 +245,7 @@ void move_data_structure<uint_t>::construction::build_lin_tout_v2v3v4() {
             );
 
             // find i_ in [0,p-1], so that s[i_] <= tn->v.v.second < s[i_+1]
-            uint16_t i_ = bin_search_max_leq<uint_t>(tn->v.v.second,0,p-1,[this](uint_t x){return s[x];});
+            uint16_t i_ = bin_search_max_leq<pos_t>(tn->v.v.second,0,p-1,[this](pos_t x){return s[x];});
 
             T_out_v2v3v4[i_].insert_node(tn);
             L_in_v2v3v4[i].push_front_node(&tn->v);
@@ -300,7 +300,7 @@ void move_data_structure<uint_t>::construction::build_lin_tout_v2v3v4() {
                 // check if [p_i, p_i + d_i) still is too long
                 if (ln_I->sc != NULL && ln_I->sc->v.first - ln_I->v.first > l_max) {
                     // find i_p' in [0,p-1], so that s[i_p'] <= q_j < s[i_p'+1]
-                    uint16_t i_p_ = bin_search_max_leq<uint_t>(ln_I->v.second,0,p-1,[this](uint_t x){return s[x];});
+                    uint16_t i_p_ = bin_search_max_leq<pos_t>(ln_I->v.second,0,p-1,[this](pos_t x){return s[x];});
 
                     /* iteratively split [p_i, p_i + d_i) from left to right into new input intervals of length <= l_max,
                        s.t. in the end all input intervals in starting in the range [p_i, p_i + d_i) have length <= l_max */
@@ -362,8 +362,8 @@ void move_data_structure<uint_t>::construction::build_lin_tout_v2v3v4() {
     }
 }
 
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::build_dp_dq_v2v3v4() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::build_dp_dq_v2v3v4() {
     s.clear();
     s.shrink_to_fit();
     
@@ -391,10 +391,10 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v2v3v4() {
         log_message("building D_p and D_q");
     }
 
-    mds.resize(n,k_,is_str);
-    D_q = interleaved_vectors<uint_t>({(uint8_t)(mds.omega_p/8)});
+    mds.resize(n,k_,width_l_);
+    D_q = interleaved_vectors<pos_t,pos_t>({(uint8_t)(mds.omega_p/8)});
     D_q.resize_no_init(k_+1);
-    D_q.template set<0>(k_,n);
+    D_q.template set<0,pos_t>(k_,n);
 
     // write the pairs L_in[0..p-1] to D_p in mds and D_q
     #pragma omp parallel num_threads(p)
@@ -402,14 +402,14 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v2v3v4() {
         #pragma omp single
         {
             for (uint16_t i_p=0; i_p<p; i_p++) {
-                uint_t l = x[i_p];
-                uint_t r = x[i_p+1];
+                pos_t l = x[i_p];
+                pos_t r = x[i_p+1];
 
                 auto ln_I = L_in_v2v3v4[i_p].head();
 
-                for (uint_t i=l; i<r; i++) {
+                for (pos_t i=l; i<r; i++) {
                     mds.set_p(i,ln_I->v.first);
-                    D_q.template set<0>(i,ln_I->v.second);
+                    D_q.template set<0,pos_t>(i,ln_I->v.second);
                     ln_I = ln_I->sc;
                 }
             }

@@ -1,5 +1,5 @@
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::balance_v2_seq() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::balance_v2_seq() {
     if (log) log_message("building T_e");
     
     std::vector<te_node_t_v2> nodes_te = std::vector<te_node_t_v2>();
@@ -14,7 +14,7 @@ void move_data_structure<uint_t>::construction::balance_v2_seq() {
 
     // temporary variables
     lin_node_t_v2v3v4 *ln_IpA;
-    uint_t i_ = 1;
+    pos_t i_ = 1;
 
     /* At the start of each iteration, [p_i, p_i + d_i) is the first input interval connected
     to [q_j, q_j + d_j) in the permutation graph */
@@ -43,10 +43,10 @@ void move_data_structure<uint_t>::construction::balance_v2_seq() {
     }
 
     // Build T_e_v2 from nodes_te.
-    std::function<te_node_t_v2*(uint_t)> at = [&nodes_te](uint_t i){return &nodes_te[i];};
+    std::function<te_node_t_v2*(pos_t)> at = [&nodes_te](pos_t i){return &nodes_te[i];};
 
     if (!nodes_te.empty()) {
-        T_e_v2.insert_array((uint_t)0,(uint_t)nodes_te.size()-1,at);
+        T_e_v2.insert_array((pos_t)0,(pos_t)nodes_te.size()-1,at);
     }
 
     if (log) {
@@ -56,7 +56,7 @@ void move_data_structure<uint_t>::construction::balance_v2_seq() {
     }
 
     // temporary variables
-    uint_t p_j,q_j,d_j,d,q_y;
+    pos_t p_j,q_j,d_j,d,q_y;
     tout_node_t_v2v3v4 *tn_J,*tn_NEW,*tn_Y;
     lin_node_t_v2v3v4 *ln_Ip2A,*ln_Z,*ln_ZpA;
 
@@ -119,7 +119,7 @@ void move_data_structure<uint_t>::construction::balance_v2_seq() {
             // check if case 2.1 holds
             if (p_j + d < q_j || ln_Z->pr == NULL || ln_Z->pr->v.first < q_y) {
                 ln_Z = &tn_NEW->v;
-                uint_t i__ = i_;
+                pos_t i__ = i_;
 
                 // check if [q_y, q_y + d_y) is a-heavy
                 ln_ZpA = is_a_heavy_v2v3v4(&ln_Z,&i_,tn_Y);

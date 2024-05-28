@@ -1,13 +1,13 @@
-template <typename uint_t>
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 template <typename output_t, bool output_reversed>
-void move_r<uint_t>::retrieve_range(
-    void(move_r<uint_t>::*retrieve_method)(const std::function<void(uint_t,output_t)>&,move_r<uint_t>::retrieve_params)const,
-    std::ofstream& out, move_r<uint_t>::retrieve_params params
+void move_r<locate_support,sym_t,pos_t>::retrieve_range(
+    void(move_r<locate_support,sym_t,pos_t>::*retrieve_method)(const std::function<void(pos_t,output_t)>&,move_r<locate_support,sym_t,pos_t>::retrieve_params)const,
+    std::ofstream& out, move_r<locate_support,sym_t,pos_t>::retrieve_params params
 ) const {
     adjust_retrieve_params(params,n-2);
     
-    uint_t l = params.l;
-    uint_t r = params.r;
+    pos_t l = params.l;
+    pos_t r = params.r;
     uint16_t num_threads = params.num_threads;
     int64_t max_writebuffer_size = params.max_bytes_alloc != -1 ?
         params.max_bytes_alloc/(num_threads*sizeof(output_t)) :
@@ -18,7 +18,7 @@ void move_r<uint_t>::retrieve_range(
         no_init_resize(write_buffer,max_writebuffer_size);
         int64_t pos_cur;
 
-        (this->*retrieve_method)([&out,&pos_cur,&write_buffer,&max_writebuffer_size](uint_t, output_t v){
+        (this->*retrieve_method)([&out,&pos_cur,&write_buffer,&max_writebuffer_size](pos_t, output_t v){
             write_buffer[pos_cur++] = v;
             
             if (pos_cur == max_writebuffer_size) {
@@ -36,13 +36,13 @@ void move_r<uint_t>::retrieve_range(
         }
 
         #pragma omp parallel for num_threads(num_threads)
-        for (uint_t i=0; i<num_threads; i++) {
+        for (pos_t i=0; i<num_threads; i++) {
             no_init_resize(write_buffer[i],max_writebuffer_size);
         }
         
         std::vector<int64_t> pos_cur(num_threads,0);
         
-        (this->*retrieve_method)([&files,&pos_cur,&write_buffer,&max_writebuffer_size](uint_t, output_t v){
+        (this->*retrieve_method)([&files,&pos_cur,&write_buffer,&max_writebuffer_size](pos_t, output_t v){
             write_buffer[omp_get_thread_num()][pos_cur[omp_get_thread_num()]++] = v;
             
             if (pos_cur[omp_get_thread_num()] == max_writebuffer_size) {

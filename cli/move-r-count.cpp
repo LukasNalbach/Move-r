@@ -36,12 +36,12 @@ void parse_args(char **argv, int argc, int &ptr) {
     }
 }
 
-template <typename uint_t>
+template <typename pos_t, move_r_locate_supp locate_support>
 void measure_count() {
     std::cout << std::setprecision(4);
     std::cout << "loading the index" << std::flush;
     auto t1 = now();
-    move_r<uint_t> index;
+    move_r<locate_support,char,pos_t> index;
     index.load(index_file,{_count});
     log_runtime(t1);
     index_file.close();
@@ -124,11 +124,21 @@ int main(int argc, char **argv) {
 
     bool is_64_bit;
     index_file.read((char*)&is_64_bit,1);
+    move_r_locate_supp _locate_support;
+    index_file.read((char*)&_locate_support,sizeof(move_r_locate_supp));
     index_file.seekg(0,std::ios::beg);
 
-    if (is_64_bit) {
-        measure_count<uint64_t>();
+    if (_locate_support == _phi) {
+        if (is_64_bit) {
+            measure_count<uint64_t,_phi>();
+        } else {
+            measure_count<uint32_t,_phi>();
+        }
     } else {
-        measure_count<uint32_t>();
+        if (is_64_bit) {
+            measure_count<uint64_t,_rlzdsa>();
+        } else {
+            measure_count<uint32_t,_rlzdsa>();
+        }
     }
 }

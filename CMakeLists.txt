@@ -62,20 +62,27 @@ target_include_directories(sdsl PUBLIC "${CMAKE_BINARY_DIR}/external/sdsl-lite/e
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/abseil-cpp/")
 
+# unordered_dense
+add_subdirectory("${CMAKE_SOURCE_DIR}/external/unordered_dense/")
+
 # Big-BWT
 execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/Big-BWT/")
+
+# sais-lite-lcp
+add_library(sais-lite-lcp INTERFACE)
+target_include_directories(sais-lite-lcp INTERFACE "${CMAKE_SOURCE_DIR}/external/sais-lite-lcp/")
 
 ############################# move-r #############################
 
 # move-r
 add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
-target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree malloc_count concurrentqueue)
+target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree malloc_count concurrentqueue unordered_dense sais-lite-lcp)
 
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)
 option(MOVE_R_BUILD_BENCH_CLI "Build the benchmark cli program" ON)
-option(MOVE_R_BUILD_EXAMPLES "Build the example programs" OFF)
-option(MOVE_R_BUILD_TESTS "Build tests" OFF)
+option(MOVE_R_BUILD_EXAMPLES "Build the example programs" ON)
+option(MOVE_R_BUILD_TESTS "Build tests" ON)
 
 ############################# move-r cli #############################
 
@@ -218,17 +225,20 @@ if(MOVE_R_BUILD_TESTS)
   include(Dart)
 
   add_executable(test-move_r "${CMAKE_SOURCE_DIR}/tests/test_move_r.cpp")
+  add_executable(test-move_r_int "${CMAKE_SOURCE_DIR}/tests/test_move_r_int.cpp")
   add_executable(test-move_data_structure "${CMAKE_SOURCE_DIR}/tests/test_move_data_structure.cpp")
 
   target_link_libraries(test-move_r PRIVATE gtest_main move_r)
+  target_link_libraries(test-move_r_int PRIVATE gtest_main move_r)
   target_link_libraries(test-move_data_structure PRIVATE gtest_main move_r)
 
   set_target_properties(
-    test-move_r test-move_data_structure
+    test-move_r test-move_r_int test-move_data_structure
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY
     "${CMAKE_BINARY_DIR}/tests/"
   )
 
   gtest_discover_tests(test-move_r)
+  gtest_discover_tests(test-move_r_int)
   gtest_discover_tests(test-move_data_structure)
 endif()

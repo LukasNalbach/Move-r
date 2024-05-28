@@ -1,6 +1,6 @@
 #include <move_r/misc/utils.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
-#include <move_r/data_structures/move_data_structure/move_data_structure_str.hpp>
+#include <move_r/data_structures/move_data_structure/move_data_structure_l_.hpp>
 
 int main() {
     // Build a move data structure from the disjoint interval
@@ -14,13 +14,13 @@ int main() {
     std::cout << to_string<>(ix = mds.move(ix)) << std::endl;
     std::cout << to_string<>(ix = mds.move(ix)) << std::endl;
 
-    // build a move_data_structure_str (intended for I_LF);
+    // build a move_data_structure_l_ (intended for I_LF);
     // this move data structure additionally stores a string interleaved
     // with the arrays needed for performing move queries (intended for
     // storing the characters of the bwt (sub-)runs);
 
     // use at most 4 threads and set a = 2
-    move_data_structure_str<> mds_str({{0,4},{1,5},{2,6},{3,7},{4,0}},8,{
+    move_data_structure_l_<> mds_str({{0,4},{1,5},{2,6},{3,7},{4,0}},8,{
         .num_threads = 4, .a = 2
     });
 

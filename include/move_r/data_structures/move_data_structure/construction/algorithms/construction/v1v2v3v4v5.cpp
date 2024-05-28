@@ -1,7 +1,7 @@
 #include <ips4o.hpp>
 
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::build_pi_for_I() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::build_pi_for_I() {
     no_init_resize(pi,k);
     
     // write the identity permutation of [0..k-1] to pi
@@ -11,7 +11,7 @@ void move_data_structure<uint_t>::construction::build_pi_for_I() {
     }
 
     // sort pi by the output interval starting positions in I
-    auto comp_pi = [this](uint_t i, uint_t j){return I[i].second < I[j].second;};
+    auto comp_pi = [this](pos_t i, pos_t j){return I[i].second < I[j].second;};
     if (p > 1) {
         ips4o::parallel::sort(pi.begin(),pi.end(),comp_pi);
     } else {
@@ -19,8 +19,8 @@ void move_data_structure<uint_t>::construction::build_pi_for_I() {
     }
 }
 
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::build_pi_for_dq() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::build_pi_for_dq() {
     no_init_resize(pi,k_+1);
 
     // write the identity permutation of [0..k'] to pi
@@ -30,7 +30,7 @@ void move_data_structure<uint_t>::construction::build_pi_for_dq() {
     }
 
     // sort pi by D_q
-    auto comp_pi = [this](uint_t i, uint_t j){return D_q[i] < D_q[j];};
+    auto comp_pi = [this](pos_t i, pos_t j){return D_q[i] < D_q[j];};
     if (p > 1) {
         ips4o::parallel::sort(pi.begin(),pi.end(),comp_pi);
     } else {
@@ -38,8 +38,8 @@ void move_data_structure<uint_t>::construction::build_pi_for_dq() {
     }
 }
 
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::calculate_seperation_positions_for_I() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::calculate_seperation_positions_for_I() {
     s.resize(p+1);
     s[0] = 0;
     s[p] = n;
@@ -59,26 +59,26 @@ void move_data_structure<uint_t>::construction::calculate_seperation_positions_f
         uint16_t i_p = omp_get_thread_num();
 
         // The optimal value i_p * lfloor 2k/p rfloor for s[i_p].
-        uint_t o = i_p*((2*k)/p);
+        pos_t o = i_p*((2*k)/p);
 
         // Left interval limit of the binary search for s[i_p].
-        uint_t l_s;
+        pos_t l_s;
         // Left interval limit of the binary search for x[i_p].
-        uint_t l_x;
+        pos_t l_x;
         // Left interval limit of the binary search for u[i_p].
-        uint_t l_u;
+        pos_t l_u;
         // Candidate position in the binary search for s[i_p].
-        uint_t m_s;
+        pos_t m_s;
         // Candidate position in the binary search for x[i_p].
-        uint_t m_x;
+        pos_t m_x;
         // Candidate position in the binary search for u[i_p].
-        uint_t m_u;
+        pos_t m_u;
         // Right interval limit of the binary search for s[i_p].
-        uint_t r_s;
+        pos_t r_s;
         // Right interval limit of the binary search for x[i_p].
-        uint_t r_x;
+        pos_t r_x;
         // Right interval limit of the binary search for u[i_p].
-        uint_t r_u;
+        pos_t r_u;
 
         // Initialize the search range for s[i_p] to [0..n-1].
         l_s = 0;
@@ -135,8 +135,8 @@ void move_data_structure<uint_t>::construction::calculate_seperation_positions_f
     }
 }
 
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::calculate_seperation_positions_for_dq_and_mds() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::calculate_seperation_positions_for_dq_and_mds() {
     x.resize(p+1);
     x[0] = 0;
     x[p] = k_;
@@ -152,26 +152,26 @@ void move_data_structure<uint_t>::construction::calculate_seperation_positions_f
         uint16_t i_p = omp_get_thread_num();
 
         // The optimal value i_p * lfloor (r'+r'')/p rfloor for s[i_p].
-        uint_t o = i_p*((2*k_)/p);
+        pos_t o = i_p*((2*k_)/p);
 
         // Left interval limit of the binary search for s[i_p].
-        uint_t l_s;
+        pos_t l_s;
         // Left interval limit of the binary search for x[i_p].
-        uint_t l_x;
+        pos_t l_x;
         // Left interval limit of the binary search for u[i_p].
-        uint_t l_u;
+        pos_t l_u;
         // Candidate position in the binary search for s[i_p].
-        uint_t m_s;
+        pos_t m_s;
         // Candidate position in the binary search for x[i_p].
-        uint_t m_x;
+        pos_t m_x;
         // Candidate position in the binary search for u[i_p].
-        uint_t m_u;
+        pos_t m_u;
         // Right interval limit of the binary search for s[i_p].
-        uint_t r_s;
+        pos_t r_s;
         // Right interval limit of the binary search for x[i_p].
-        uint_t r_x;
+        pos_t r_x;
         // Right interval limit of the binary search for u[i_p].
-        uint_t r_u;
+        pos_t r_u;
 
         // Initialize the search range for s[i_p] to [0..n-1].
         l_s = 0;
@@ -230,8 +230,8 @@ void move_data_structure<uint_t>::construction::calculate_seperation_positions_f
 /**
  * @brief builds D_offs and D_idx
  */
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::build_didx_doffs_v2v3v4v5() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::build_didx_doffs_v2v3v4v5() {
     if (log) log_message("building D_offs and D_idx");
 
     build_pi_for_dq();
@@ -246,11 +246,11 @@ void move_data_structure<uint_t>::construction::build_didx_doffs_v2v3v4v5() {
         // Check if thread i_p's section D_q[u[i_p]..u[i_p+1]-1] is empty.
         if (u[i_p] < u[i_p+1]) {
             // Iteration range start position in D_p.
-            uint_t i = x[i_p];
+            pos_t i = x[i_p];
             // Iteration range start position in D_q.
-            uint_t j = u[i_p];
+            pos_t j = u[i_p];
             // Iteration range end position in D_q + 1.
-            uint_t j_ = u[i_p+1];
+            pos_t j_ = u[i_p+1];
 
             // Check if the first value D_q[pi[j]] lies before the x[i_p]-th input interval.
             while (D_q[pi[j]] < mds.p(i)) {

@@ -8,7 +8,7 @@ int main() {
     // bytes ~ 4GB) with only count support, use Big-BWT
     // construction algorithm, use at most 8 threads and set the 
     // balancing parameter a to 4
-    move_r<uint64_t> index_2("a large string",{
+    move_r<_phi,char,uint64_t> index_2("a large string",{
         .support = {_count}, .mode = _bigbwt,
         .num_threads = 8, .a = 4
     });
@@ -22,11 +22,29 @@ int main() {
     // print the number of occurences of a pattern
     std::cout << index.count("test") << std::endl;
 
-    // print all occurences of a pattern
-    index.locate("is",[](auto o){std::cout << o << ", ";});
+    // store all occurences of a pattern in a vector
+    auto Occ = index.locate("is");
+    for (auto o : Occ) std::cout << o << ", ";
     std::cout << std::endl;
 
-    // store all occurences of a pattern in a vector
-    auto Occ = index.locate("test");
-    for (auto o : Occ) std::cout << o << ", ";
+    // build an index for an integer vector using a relative
+    // lempel-ziv encoded differential suffix array (rlzdsa)
+    move_r<_rlzdsa,int32_t> index_3({2,-1,5,-1,7,2,-1});
+
+    // incrementally search the pattern 2,-1 in the input vector (from
+    // right to left) and print the number of occurrences after each step
+    auto query = index_3.query();
+    query.prepend(-1);
+    std::cout << query.num_occ() << std::endl;
+    query.prepend(2);
+    std::cout << query.num_occ() << std::endl;
+
+    // print the suffix-array [b,e] interval of 2,-1
+    std::cout << "b = " << query.sa_interval().first
+            << ", e = " << query.sa_interval().second << std::endl;
+
+    // incrementally locate the occurrences of 2,-1 in the input vector
+    while (query.num_occ_rem() > 0) {
+        std::cout << query.next_occ() << ", " << std::flush;
+    }
 }

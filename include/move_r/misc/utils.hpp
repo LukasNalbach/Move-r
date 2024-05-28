@@ -184,6 +184,13 @@ bool contains(std::vector<T> vec, T val) {
 }
 
 template <typename T>
+void remove(std::vector<T> vec, T val) {
+    while (contains(vec,val)) {
+        vec.erase(std::find(vec.begin(),vec.end(),val));
+    }
+}
+
+template <typename T>
 bool is_subset_of(std::vector<T> first, std::vector<T> second) {
     std::sort(first.begin(), first.end());
     std::sort(second.begin(), second.end());
@@ -203,8 +210,8 @@ std::string random_alphanumeric_string(uint64_t length) {
     return str_rand;
 }
 
-template <typename uint_t = uint32_t>
-std::string to_string(std::pair<uint_t,uint_t> pair) {
+template <typename pos_t = uint32_t>
+std::string to_string(std::pair<pos_t,pos_t> pair) {
     std::string str = "(";
     str.append(std::to_string(pair.first));
     str.push_back(',');
@@ -256,9 +263,9 @@ void no_init_resize(std::vector<std::tuple<T,T,T>>& vec, size_t size) {
     (*reinterpret_cast<std::vector<std::tuple<no_init<T>,no_init<T>,no_init<T>>>*>(&vec)).resize(size);
 }
 
-template <typename uint_t>
-uint_t bin_search_max_leq(uint_t value, uint_t left, uint_t right, std::function<uint_t(uint_t)> value_at) {
-    uint_t middle;
+template <typename pos_t>
+pos_t bin_search_max_leq(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at) {
+    pos_t middle;
 
     while (left != right) {
         middle = left+(right-left)/2+1;
@@ -273,9 +280,9 @@ uint_t bin_search_max_leq(uint_t value, uint_t left, uint_t right, std::function
     return left;
 }
 
-template <typename uint_t>
-uint_t bin_search_min_geq(uint_t value, uint_t left, uint_t right, std::function<uint_t(uint_t)> value_at) {
-    uint_t middle;
+template <typename pos_t>
+pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at) {
+    pos_t middle;
 
     while (left != right) {
         middle = left+(right-left)/2;
@@ -290,9 +297,9 @@ uint_t bin_search_min_geq(uint_t value, uint_t left, uint_t right, std::function
     return left;
 }
 
-template <typename uint_t>
-uint_t bin_search_min_gt(uint_t value, uint_t left, uint_t right, std::function<uint_t(uint_t)> value_at) {
-    uint_t middle;
+template <typename pos_t>
+pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at) {
+    pos_t middle;
 
     while (left != right) {
         middle = left+(right-left)/2;
@@ -309,9 +316,9 @@ uint_t bin_search_min_gt(uint_t value, uint_t left, uint_t right, std::function<
 
 enum exp_search_dir {LEFT,RIGHT};
 
-template <typename uint_t, exp_search_dir search_dir>
-uint_t exp_search_max_leq(uint_t value, uint_t left, uint_t right, std::function<uint_t(uint_t)> value_at) {
-    uint_t cur_step_size = 1;
+template <typename pos_t, exp_search_dir search_dir>
+pos_t exp_search_max_leq(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at) {
+    pos_t cur_step_size = 1;
 
     if constexpr (search_dir == LEFT) {
         right -= cur_step_size;
@@ -328,7 +335,7 @@ uint_t exp_search_max_leq(uint_t value, uint_t left, uint_t right, std::function
             right -= cur_step_size;
         }
 
-        return bin_search_max_leq<uint_t>(value,right,right+cur_step_size-1,value_at);
+        return bin_search_max_leq<pos_t>(value,right,right+cur_step_size-1,value_at);
     } else {
         left += cur_step_size;
 
@@ -344,7 +351,7 @@ uint_t exp_search_max_leq(uint_t value, uint_t left, uint_t right, std::function
             left += cur_step_size;
         }
 
-        return bin_search_max_leq<uint_t>(value,left-cur_step_size+1,left,value_at);
+        return bin_search_max_leq<pos_t>(value,left-cur_step_size+1,left,value_at);
     }
 }
 

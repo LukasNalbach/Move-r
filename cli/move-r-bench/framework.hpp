@@ -97,11 +97,11 @@ uint64_t build_index_from_sa_and_bwt(idx_t& index, uint16_t num_threads);
 template <typename idx_t>
 void destroy_index(idx_t& index);
 
-template <typename uint_t, typename idx_t>
-uint_t count_pattern(idx_t& index, std::string& pattern);
+template <typename pos_t, typename idx_t>
+pos_t count_pattern(idx_t& index, std::string& pattern);
 
-template <typename uint_t, typename idx_t>
-void locate_pattern(idx_t& index, std::string& pattern, std::vector<uint_t>& occurrences);
+template <typename pos_t, typename idx_t>
+void locate_pattern(idx_t& index, std::string& pattern, std::vector<pos_t>& occurrences);
 
 struct build_result {
     uint16_t num_threads;
@@ -123,7 +123,7 @@ void map_string(std::string& str) {
     }
 }
 
-template <typename uint_t, typename idx_t>
+template <typename pos_t, typename idx_t>
 query_result count_patterns(idx_t& index) {
     patterns_file_1.seekg(0);
     std::string header;
@@ -140,7 +140,7 @@ query_result count_patterns(idx_t& index) {
         for (uint64_t cur_query=0; cur_query<num_queries; cur_query++) {
             patterns_file_1.read((char*)&pattern[0],pattern_length);
             if (chars_remapped) map_string(pattern);
-            count_pattern<uint_t,idx_t>(index,pattern);
+            count_pattern<pos_t,idx_t>(index,pattern);
         }
 
         patterns_file_1.seekg(0);
@@ -151,7 +151,7 @@ query_result count_patterns(idx_t& index) {
         patterns_file_1.read((char*)&pattern[0],pattern_length);
         if (chars_remapped) map_string(pattern);
         t1 = now();
-        num_occurrences += count_pattern<uint_t,idx_t>(index,pattern);
+        num_occurrences += count_pattern<pos_t,idx_t>(index,pattern);
         t2 = now();
         time_query += time_diff_ns(t1,t2);
     }
@@ -159,7 +159,7 @@ query_result count_patterns(idx_t& index) {
     return query_result{num_queries,pattern_length,num_occurrences,time_query};
 }
 
-template <typename uint_t, typename idx_t>
+template <typename pos_t, typename idx_t>
 query_result locate_patterns(idx_t& index, std::ifstream& patterns_file) {
     patterns_file.seekg(0);
     std::string header;
@@ -167,7 +167,7 @@ query_result locate_patterns(idx_t& index, std::ifstream& patterns_file) {
     uint64_t num_queries = number_of_patterns(header);
     uint64_t pattern_length = patterns_length(header);
     uint64_t num_occurrences = 0;
-    std::vector<uint_t> occurrences;
+    std::vector<pos_t> occurrences;
     uint64_t time_query = 0;
     std::string pattern;
     no_init_resize(pattern,pattern_length);
@@ -178,7 +178,7 @@ query_result locate_patterns(idx_t& index, std::ifstream& patterns_file) {
         for (uint64_t cur_query=0; cur_query<num_queries; cur_query++) {
             patterns_file.read((char*)&pattern[0],pattern_length);
             if (chars_remapped) map_string(pattern);
-            locate_pattern<uint_t,idx_t>(index,pattern,occurrences);
+            locate_pattern<pos_t,idx_t>(index,pattern,occurrences);
             occurrences.clear();
         }
 
@@ -190,14 +190,14 @@ query_result locate_patterns(idx_t& index, std::ifstream& patterns_file) {
         patterns_file.read((char*)&pattern[0],pattern_length);
         if (chars_remapped) map_string(pattern);
         t1 = now();
-        locate_pattern<uint_t,idx_t>(index,pattern,occurrences);
+        locate_pattern<pos_t,idx_t>(index,pattern,occurrences);
         t2 = now();
         time_query += time_diff_ns(t1,t2);
         num_occurrences += occurrences.size();
 
         if (check_correctness) {
-            for (uint_t occurrence : occurrences) {
-                for (uint_t pos=0; pos<pattern_length; pos++) {
+            for (pos_t occurrence : occurrences) {
+                for (pos_t pos=0; pos<pattern_length; pos++) {
                     if (input[occurrence+pos] != pattern[pos]) {
                         correct = false;
                         break;
@@ -207,7 +207,7 @@ query_result locate_patterns(idx_t& index, std::ifstream& patterns_file) {
                 if (!correct) break;
             }
 
-            if (!correct || occurrences.size() != count_pattern<uint_t,idx_t>(index,pattern)) {
+            if (!correct || occurrences.size() != count_pattern<pos_t,idx_t>(index,pattern)) {
                 correct = false;
                 break;
             }
@@ -278,7 +278,7 @@ void write_measurement_data(
     }
 }
 
-template <typename uint_t, typename idx_t, bool bench_count, bool bench_locate>
+template <typename pos_t, typename idx_t, bool bench_count, bool bench_locate>
 void bench_index(std::string index_name, std::string index_log_name) {
     idx_t index;
     std::chrono::steady_clock::time_point t1,t2;
@@ -309,7 +309,7 @@ void bench_index(std::string index_name, std::string index_log_name) {
     
     if constexpr (bench_count) {
         std::cout << "counting the first set of patterns" << std::flush;
-        result_count = count_patterns<uint_t>(index);
+        result_count = count_patterns<pos_t>(index);
         if (!check_correctness) std::cout << ": " << format_query_throughput(result_count.num_queries,result_count.time_query);
         std::cout << std::endl << "total number of occurrences: " << result_count.num_occurrences << std::endl;
 
@@ -318,14 +318,14 @@ void bench_index(std::string index_name, std::string index_log_name) {
 
     if constexpr (bench_locate) {
         std::cout << "locating the first set of patterns" << std::flush;
-        result_locate_1 = locate_patterns<uint_t,idx_t>(index,patterns_file_1);
+        result_locate_1 = locate_patterns<pos_t,idx_t>(index,patterns_file_1);
         if (!check_correctness) std::cout << ": " << format_query_throughput(result_locate_1.num_queries,result_locate_1.time_query);
         std::cout << std::endl << "total number of occurrences: " << result_locate_1.num_occurrences << std::endl;
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
         
         std::cout << "locating the second set of patterns" << std::flush;
-        result_locate_2 = locate_patterns<uint_t,idx_t>(index,patterns_file_2);
+        result_locate_2 = locate_patterns<pos_t,idx_t>(index,patterns_file_2);
         if (!check_correctness) std::cout << ": " << format_query_throughput(result_locate_2.num_queries,result_locate_2.time_query);
         std::cout << std::endl << "total number of occurrences: " << result_locate_2.num_occurrences << std::endl;
     }
@@ -346,7 +346,7 @@ void bench_index(std::string index_name, std::string index_log_name) {
     }
 }
 
-template <typename uint_t, typename sa_sint_t>
+template <typename pos_t, typename sa_sint_t>
 void bench_a() {
     std::cout << std::endl << "building the suffix array" << std::flush;
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>();
@@ -376,7 +376,7 @@ void bench_a() {
 
     std::cout << std::endl << std::endl;
 
-    move_r<uint_t> index;
+    move_r<_phi,char,pos_t> index;
     uint64_t m1,m2,size_index;
     std::chrono::steady_clock::time_point t1,t2;
     query_result result_count,result_locate_1,result_locate_2;
@@ -387,11 +387,11 @@ void bench_a() {
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
         std::cout << std::endl << "building move_r using " << format_threads(max_num_threads) << std::flush;
-        index = move_r<uint_t>();
+        index = move_r<_phi,char,pos_t>();
         malloc_count_reset_peak();
         m1 = malloc_count_current();
         t1 = now();
-        index = std::move(move_r<uint_t>(get_sa<sa_sint_t>(),BWT,{.num_threads=max_num_threads,.a=a}));
+        index = std::move(move_r<_phi,char,pos_t>(get_sa<sa_sint_t>(),BWT,{.num_threads=max_num_threads,.a=a}));
         t2 = now();
         m2 = malloc_count_current();
         size_index = m2-m1;
@@ -404,21 +404,21 @@ void bench_a() {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         
         std::cout << std::endl << "counting the first set of patterns" << std::flush;
-        result_count = count_patterns<uint_t>(index);
+        result_count = count_patterns<pos_t>(index);
         std::cout << ": " << format_query_throughput(result_count.num_queries,result_count.time_query);
         std::cout << std::endl << "total number of occurrences: " << result_count.num_occurrences << std::endl;
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
         std::cout << "locating the first set of patterns" << std::flush;
-        result_locate_1 = locate_patterns<uint_t,move_r<uint_t>>(index,patterns_file_1);
+        result_locate_1 = locate_patterns<pos_t,move_r<_phi,char,pos_t>>(index,patterns_file_1);
         std::cout << ": " << format_query_throughput(result_locate_1.num_queries,result_locate_1.time_query);
         std::cout << std::endl << "total number of occurrences: " << result_locate_1.num_occurrences << std::endl;
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
         
         std::cout << "locating the second set of patterns" << std::flush;
-        result_locate_2 = locate_patterns<uint_t,move_r<uint_t>>(index,patterns_file_2);
+        result_locate_2 = locate_patterns<pos_t,move_r<_phi,char,pos_t>>(index,patterns_file_2);
         std::cout << ": " << format_query_throughput(result_locate_2.num_queries,result_locate_2.time_query);
         std::cout << std::endl << "total number of occurrences: " << result_locate_2.num_occurrences << std::endl;
 

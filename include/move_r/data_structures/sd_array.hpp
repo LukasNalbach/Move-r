@@ -6,11 +6,11 @@
 
 /**
  * @brief wrapper class for the sd_vector from sdsl
- * @tparam uint_t unsigned integer type
+ * @tparam pos_t unsigned integer type
  */
-template <typename uint_t = uint32_t>
+template <typename pos_t = uint32_t>
 class sd_array {
-    static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
+    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
 
     protected:
     sdsl::sd_vector<> sd_vector; // the sd_vector
@@ -19,8 +19,8 @@ class sd_array {
     sdsl::sd_vector<>::select_0_type select_0_support; // select_1 support for sd_vector
     sdsl::sd_vector<>::select_1_type select_1_support; // select_1 support for sd_vector
 
-    uint_t zeros = 0;
-    uint_t ones = 0;
+    pos_t zeros = 0;
+    pos_t ones = 0;
 
     /**
      * @brief copies another sd_array object into this object
@@ -112,7 +112,7 @@ class sd_array {
      * @brief returns the size of the bit vector
      * @return the size of the bit vector 
      */
-    uint_t size() const {
+    inline pos_t size() const {
         return sd_vector.size();
     }
 
@@ -120,7 +120,7 @@ class sd_array {
      * @brief returns whether the input bit vector is empty
      * @return whether the bit vector is empty
      */
-    bool empty() const {
+    inline bool empty() const {
         return size() == 0;
     }
 
@@ -128,7 +128,7 @@ class sd_array {
      * @brief returns the number of ones in the bit vector
      * @return the number of ones in the bit vector 
      */
-    uint_t num_ones() const {
+    inline pos_t num_ones() const {
         return ones;
     }
 
@@ -136,7 +136,7 @@ class sd_array {
      * @brief returns the number of zeros in the bit vector
      * @return the number of ones in the bit vector 
      */
-    uint_t num_zeros() const {
+    inline pos_t num_zeros() const {
         return zeros;
     }
 
@@ -145,7 +145,7 @@ class sd_array {
      * @param i [0..size]
      * @return the number of ones before index i 
      */
-    inline uint_t rank_1(uint_t i) const {
+    inline pos_t rank_1(pos_t i) const {
         return rank_1_support.rank(i);
     }
 
@@ -154,7 +154,7 @@ class sd_array {
      * @param i [1..number of ones]
      * @return the index of the i-th one 
      */
-    inline uint_t select_1(uint_t i) const {
+    inline pos_t select_1(pos_t i) const {
         return select_1_support.select(i);
     }
 
@@ -163,7 +163,7 @@ class sd_array {
      * @param i [0..size]
      * @return the number of zeros before index i 
      */
-    inline uint_t rank_0(uint_t i) const {
+    inline pos_t rank_0(pos_t i) const {
         return rank_0_support.rank(i);
     }
 
@@ -172,7 +172,7 @@ class sd_array {
      * @param i [1..number of zeros]
      * @return the index of the i-th zero 
      */
-    inline uint_t select_0(uint_t i) const {
+    inline pos_t select_0(pos_t i) const {
         return select_0_support.select(i);
     }
 
@@ -181,7 +181,7 @@ class sd_array {
      * @param i [1..size-1]
      * @return the index of the next one after index i
      */
-    inline uint_t next_1(uint_t i) const {
+    inline pos_t next_1(pos_t i) const {
         return select_1(rank_1(i+1)+1);
     }
 
@@ -190,7 +190,7 @@ class sd_array {
      * @param i [1..size-1]
      * @return the index of the previous one before index i
      */
-    inline uint_t previous_1(uint_t i) const {
+    inline pos_t previous_1(pos_t i) const {
         return select_1(rank_1(i));
     }
 
@@ -199,7 +199,7 @@ class sd_array {
      * @param i [1..size-1]
      * @return the index of the next zero after index i
      */
-    inline uint_t next_0(uint_t i) const {
+    inline pos_t next_0(pos_t i) const {
         return select_0(rank_0(i+1)+1);
     }
 
@@ -208,7 +208,7 @@ class sd_array {
      * @param i [1..size-1]
      * @return the index of the previous zero before index i
      */
-    inline uint_t previous_0(uint_t i) const {
+    inline pos_t previous_0(pos_t i) const {
         return select_0(rank_0(i));
     }
 
@@ -217,7 +217,7 @@ class sd_array {
      * @param i [0..size-1]
      * @return whether there is a one at index i
      */
-    inline bool operator[](uint_t i) const {
+    inline bool operator[](pos_t i) const {
         return sd_vector[i];
     }
 

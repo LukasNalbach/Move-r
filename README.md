@@ -12,6 +12,8 @@ This [2] is an optimized and parallelized implementation of the modified r-index
 - [concurrentqueue](https://github.com/cameron314/concurrentqueue)
 - [Big-BWT](https://gitlab.com/manzai/Big-BWT)
 - [sdsl-lite](https://github.com/simongog/sdsl-lite)
+- [sais-lite-lcp](https://github.com/kurpicz/sais-lite-lcp)
+- [unordered_dense](https://github.com/martinus/unordered_dense)
 
 ## CLI Build Instructions
 This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed.
@@ -57,7 +59,7 @@ int main() {
    // bytes ~ 4GB) with only count support, use Big-BWT
    // construction algorithm, use at most 8 threads and set the 
    // balancing parameter a to 4
-   move_r<uint64_t> index_2("a large string",{
+   move_r<_phi,char,uint64_t> index_2("a large string",{
       .support = {_count}, .mode = _bigbwt,
       .num_threads = 8, .a = 4
    });
@@ -71,13 +73,31 @@ int main() {
    // print the number of occurences of a pattern
    std::cout << index.count("test") << std::endl;
 
-   // print all occurences of a pattern
-   index.locate("is",[](auto o){std::cout << o << ", ";});
+   // store all occurences of a pattern in a vector
+   auto Occ = index.locate("is");
+   for (auto o : Occ) std::cout << o << ", ";
    std::cout << std::endl;
 
-   // store all occurences of a pattern in a vector
-   auto Occ = index.locate("test");
-   for (auto o : Occ) std::cout << o << ", ";
+   // build an index for an integer vector and implement locate with
+   // a relative lempel-ziv encoded differential suffix array (rlzdsa)
+   move_r<_rlzdsa,int32_t> index_3({2,-1,5,-1,7,2,-1});
+
+   // incrementally search the pattern 2,-1 in the input vector (from
+   // right to left) and print the number of occurrences after each step
+   auto query = index_3.query();
+   query.prepend(-1);
+   std::cout << query.num_occ() << std::endl;
+   query.prepend(2);
+   std::cout << query.num_occ() << std::endl;
+
+   // print the suffix array interval [b,e] of the pattern 2,-1
+   std::cout << "b = " << query.sa_interval().first
+           << ", e = " << query.sa_interval().second << std::endl;
+
+   // incrementally locate the occurrences of 2,-1 in the input vector
+   while (query.num_occ_rem() > 0) {
+      std::cout << query.next_occ() << ", " << std::flush;
+   }
 }
 ```
 
@@ -85,7 +105,7 @@ int main() {
 ```c++
 #include <move_r/misc/utils.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
-#include <move_r/data_structures/move_data_structure/move_data_structure_str.hpp>
+#include <move_r/data_structures/move_data_structure/move_data_structure_l_.hpp>
 
 int main() {
    // Build a move data structure from the disjoint interval
@@ -99,13 +119,13 @@ int main() {
    std::cout << to_string<>(ix = mds.move(ix)) << std::endl;
    std::cout << to_string<>(ix = mds.move(ix)) << std::endl;
 
-   // build a move_data_structure_str (intended for I_LF);
+   // build a move_data_structure_l_ (intended for I_LF);
    // this move data structure additionally stores a string interleaved
    // with the arrays needed for performing move queries (intended for
    // storing the characters of the bwt (sub-)runs);
 
    // use at most 4 threads and set a = 2
-   move_data_structure_str<> mds_str({{0,4},{1,5},{2,6},{3,7},{4,0}},8,{
+   move_data_structure_l_<> mds_str({{0,4},{1,5},{2,6},{3,7},{4,0}},8,{
       .num_threads = 4, .a = 2
    });
 
@@ -200,7 +220,9 @@ usage: move-r-build [options] <input_file>
    -c <mode>          construction mode: runtime or space (default: runtime)
    -o <base_name>     names the index file base_name.move-r (default: input_file)
    -s <op1> <op2> ... supported operations: revert, count and locate
-                      (default: all operations)
+                      (default: revert, count, locate)
+   -rlzdsa            implement locate support by relative lempel-ziv encoding the
+                      differential suffix array instead of implementing Phi
    -p <integer>       number of threads to use during the construction of the index
                       (default: all threads)
    -a <integer>       balancing parameter; a must be an integer number and a >= 2 (default: 8)
@@ -311,6 +333,5 @@ them into LaTeX, use [sqlplot-tools](https://github.com/bingmann/sqlplot-tools).
 In 48th International Colloquium on Automata, Languages, and Programming (ICALP 2021),
 volume 198, page 101. Schloss Dagstuhl–Leibniz-Zentrum für Informatik, 2021.
 
-[2] Nico Bertram, Johannes Fischer and Lukas Nalbach.
-Move-r: Optimizing the r-index
-Symposium on Experimental Algorithms (SEA), 2024.
+[2] Nico Bertram, Johannes Fischer and Lukas Nalbach. Move-r: Optimizing the r-index.
+In Symposium on Experimental Algorithms (SEA), 2024.

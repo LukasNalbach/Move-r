@@ -1,9 +1,9 @@
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::balance_v1_seq() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::balance_v1_seq() {
     if (log) log_message("building T_e");
 
     // build T_e_v1
-    uint_t q_i,q_next;
+    pos_t q_i,q_next;
     tin_node_t_v1* node_cur = T_in_v1.min();
     tin_node_t_v1* node_cur_2;
     uint32_t e;
@@ -38,11 +38,11 @@ void move_data_structure<uint_t>::construction::balance_v1_seq() {
     }
 
     // balance the disjoint interval sequence
-    uint_t d,q_j,p_j,q_y,d_j,d_y;
+    pos_t d,q_j,p_j,q_y,d_j,d_y;
     pair_t pair_NEW,pair_Y;
     tin_node_t_v1 *node_Ipa;
     tout_te_node_t_v1 *node_NEW,*node_Y,*min;
-    std::vector<std::tuple<uint_t,uint_t,pair_t>> intervals_to_check;
+    std::vector<std::tuple<pos_t,pos_t,pair_t>> intervals_to_check;
     while (!T_e_v1.empty()) {
         /* Find the pair creating the first a-heavy output interval [q_j, q_j + d_j)
         and remove it from T_e_v1. */

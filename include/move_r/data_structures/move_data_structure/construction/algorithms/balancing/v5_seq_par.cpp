@@ -1,5 +1,5 @@
-template <typename uint_t>
-inline uint_t move_data_structure<uint_t>::construction::is_a_heavy_v5_seq_par(tin_it_t_v5& tn_I, uint_t q_J_) {
+template <typename pos_t>
+inline pos_t move_data_structure<pos_t>::construction::is_a_heavy_v5_seq_par(tin_it_t_v5& tn_I, pos_t q_J_) {
     // current number of input interval starting in [q_j, q_j + d_j)
     uint16_t e = 1;
 
@@ -15,7 +15,7 @@ inline uint_t move_data_structure<uint_t>::construction::is_a_heavy_v5_seq_par(t
     } else {
         // else tn_I points to the a+1-th input interval starting in [q_j, q_j + d_j)
         // and since q_j + d = p_{i+a} we can now set qj_pd
-        uint_t qj_pd = (*tn_I).first;
+        pos_t qj_pd = (*tn_I).first;
 
         // count the number of input interval starting in [q_j, q_j + d_j) up to 2a
         while (e < two_a && (*tn_I).first < q_J_) {
@@ -33,16 +33,16 @@ inline uint_t move_data_structure<uint_t>::construction::is_a_heavy_v5_seq_par(t
     }
 }
 
-template <typename uint_t>
-inline typename move_data_structure<uint_t>::construction::tout_it_t_v5 move_data_structure<uint_t>::construction::balance_upto_v5_seq_par(tout_it_t_v5& tn_J_, uint_t qj_pd, uint_t q_u) {
+template <typename pos_t>
+inline typename move_data_structure<pos_t>::construction::tout_it_t_v5 move_data_structure<pos_t>::construction::balance_upto_v5_seq_par(tout_it_t_v5& tn_J_, pos_t qj_pd, pos_t q_u) {
     // Index in [0..p-1] of the current thread.
     uint16_t i_p = omp_get_thread_num();
 
-    uint_t q_J_ = (*tn_J_).second; // q_j'
+    pos_t q_J_ = (*tn_J_).second; // q_j'
     tout_it_t_v5 tn_J = tn_J_; // iterator pointing to the pair (p_j',q_j') in T_out_v5[i_p]
     tn_J--;
-    uint_t q_j = (*tn_J).second; // iterator pointing to the pair (p_j,q_j) in T_out_v5[i_p]
-    uint_t pj_pd = (*tn_J).first + (qj_pd - q_j); // p_j + d
+    pos_t q_j = (*tn_J).second; // iterator pointing to the pair (p_j,q_j) in T_out_v5[i_p]
+    pos_t pj_pd = (*tn_J).first + (qj_pd - q_j); // p_j + d
     pair_t pr_new{pj_pd,qj_pd}; // the newly created pair
 
     // insert the newly created pair into the current thread's tree in T_out_v5
@@ -51,7 +51,7 @@ inline typename move_data_structure<uint_t>::construction::tout_it_t_v5 move_dat
     // check, if the newly created has to be inserted into a tree in T_in_v5 of another thread
     if (p != 1 && !(s[i_p] <= pj_pd && pj_pd < s[i_p+1])) {
         // calculate the index i_p' of the thread, into whiches tree in T_in_v5, the newly created pair has to be inserted
-        uint16_t i_p_ = bin_search_max_leq<uint_t>(pj_pd,0,p-1,[this](uint_t x){return s[x];});
+        uint16_t i_p_ = bin_search_max_leq<pos_t>(pj_pd,0,p-1,[this](pos_t x){return s[x];});
 
         // store the newly created pair in Q_v5[i_p'][i_p]
         Q_v5[i_p_][i_p].emplace_back(pr_new);
@@ -79,7 +79,7 @@ inline typename move_data_structure<uint_t>::construction::tout_it_t_v5 move_dat
 
             // iterate one step with tn_Y, s.t. it now points to the output interval starting direclty after [q_y, q_y + d_y)
             tn_Y++;
-            uint_t qy_pd_; // q_y + d', where d' = p_{z+a} - q_y
+            pos_t qy_pd_; // q_y + d', where d' = p_{z+a} - q_y
 
             // check if [q_y, q_y + d_y) is a-heavy and balanced
             if ((qy_pd_ = is_a_heavy_v5_seq_par(tin_n_new,(*tn_Y).second))) {
@@ -98,8 +98,8 @@ inline typename move_data_structure<uint_t>::construction::tout_it_t_v5 move_dat
     return tout_n_new;
 }
 
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::balance_v5_seq_par() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::balance_v5_seq_par() {
     if (log) {
         std::string msg = "balancing";
         if (p > 1) msg.append(" (phase 1)");
@@ -130,7 +130,7 @@ void move_data_structure<uint_t>::construction::balance_v5_seq_par() {
            that starts direclty after [q_j, q_j + d_j) */
         tout_it_t_v5 tn_J_ = tn_J; 
         tn_J_++;
-        uint_t qj_pd; // q_j + d (temporary variable)
+        pos_t qj_pd; // q_j + d (temporary variable)
         bool stop = false;
 
         while (!stop) {
@@ -189,7 +189,7 @@ void move_data_structure<uint_t>::construction::balance_v5_seq_par() {
             // Index in [0..p-1] of the current thread.
             uint16_t i_p = omp_get_thread_num();
 
-            uint_t qy_pd; // q_y + d
+            pos_t qy_pd; // q_y + d
             tin_it_t_v5 tn_new = T_in_v5[i_p].end(); // iterator pointing to the newly created pair in T_out_v5[i_p]
             tout_it_t_v5 tn_Y = T_out_v5[i_p].end(); // iterator pointing to the pair (p_y, q_y) in T_out_v5[i_p]
 

@@ -1,9 +1,7 @@
 #pragma once
 
-template <typename uint_t>
-class move_r<uint_t>::construction {
-    static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
-
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+class move_r<locate_support,sym_t,pos_t>::construction {
     public:
     construction() = delete;
     construction(construction&&) = delete;
@@ -14,7 +12,8 @@ class move_r<uint_t>::construction {
 
     // ############################# MISC VARIABLES #############################
 
-    std::string T_tmp;
+    std::string T_str_tmp;
+    std::vector<sym_t> T_vec_tmp;
     std::string L_tmp;
     std::vector<int32_t> SA_32_tmp;
     std::vector<int64_t> SA_64_tmp;
@@ -31,24 +30,27 @@ class move_r<uint_t>::construction {
     uint64_t baseline_mem_usage = 0; // memory allocation at the start of the construction
     uint64_t bigbwt_peak_mem_usage = 0;
     bool build_count_support = false; // = true <=> build support for count (RS_L')
-    bool build_locate_support = false; // = true <=> build support for locate (SA_Phi and M_Phi) and build parallel revert support (D_e)
+    // = true <=> build support for locate (either SA_Phi and M_Phi, or SA_s,R,PT,SP,SR and LP); and buildparallel revert support (D_e)
+    bool build_locate_support = false;
     uint8_t min_valid_char = 0; // the minimum valid character that is allowed to occur in T
     uint8_t max_remapped_uchar = 0; // the maximum character in T that has been remappd
     uint8_t max_remapped_to_uchar = 0; // the maximum character in T that a character has been remappd to
 
     // ############################# INDEX VARIABLES #############################
 
-    uint_t n = 0; // the length of T
-    uint_t r = 0; // r, the number of runs in L
-    uint_t r_ = 0; // r', the number of input/output intervals in M_LF
-    uint_t r__ = 0; // r'', the number of input/output intervals in M_Phi
+    pos_t n = 0; // the length of T
+    pos_t r = 0; // r, the number of runs in L
+    pos_t r_ = 0; // r', the number of input/output intervals in M_LF
+    pos_t r__ = 0; // r'', the number of input/output intervals in M_Phi
 
     // ############################# CONSTRUCTION DATA STRUCTURE VARIABLES #############################
 
     /** the string containing T */
-    std::string& T;
+    std::string& T_str;
+    /** the vector containing T */
+    std::vector<sym_t>& T_vec;
     /** The move-r index to construct */
-    move_r<uint_t>& idx;
+    move_r<locate_support,sym_t,pos_t>& idx;
     /** [0..n-1] The suffix array (32-bit) */
     std::vector<int32_t>& SA_32;
     /** [0..n-1] The suffix array (64-bit) */
@@ -56,25 +58,25 @@ class move_r<uint_t>::construction {
     /** [0..n-1] The BWT */
     std::string& L;
     /** [0..p-1] vectors that contain the RLBWT concatenated */
-    std::vector<interleaved_vectors<uint32_t>> RLBWT;
+    std::vector<interleaved_vectors<uint32_t,uint32_t>> RLBWT;
     /** [0..p] n_p[0] < n_p[1] < ... < n_p[p] = n; n_p[i] = start position of thread i's section in L and SA */
-    std::vector<uint_t> n_p;
+    std::vector<pos_t> n_p;
     /** [0..p] r_p[0] < r_p[1] < ... < r_p[p] = r; r_p[i] = index of the first run in L starting in
      * [n_p[i]..n_p[i+1]-1]; there is a run starting at n_p[i] */
-    std::vector<uint_t> r_p;
+    std::vector<pos_t> r_p;
     /** [0..p][0..255] see the code to see how this variable is used */
-    std::vector<std::vector<uint_t>> C;
+    std::vector<std::vector<pos_t>> C;
     /** The disjoint interval sequence for LF */
-    std::vector<std::pair<uint_t,uint_t>> I_LF;
+    std::vector<std::pair<pos_t,pos_t>> I_LF;
     /** The disjoint interval sequence for Phi */
-    std::vector<std::pair<uint_t,uint_t>> I_Phi;
+    std::vector<std::pair<pos_t,pos_t>> I_Phi;
     /** [0..r'-1] if the end position of the i-th input interval of M_LF is the end position of a BWT run, then
-     * SA_[i] is the suffix array sample at the end position of the i-th input interval of M_LF; else SA_s[i] = n */
-    std::vector<uint_t> SA_s;
-    /** [0..r'-1] Permutation storing the order of the values in SA_s */
-    std::vector<uint_t> pi_;
+     * SA_s'[i] is the suffix array sample at the end position of the i-th input interval of M_LF; else SA_s'[i] = n */
+    std::vector<pos_t> SA_s_;
+    /** [0..r'-1] Permutation storing the order of the values in SA_s' */
+    std::vector<pos_t> pi_;
     /** [0..r''-1] Permutation storing the order of the output interval starting positions of M_Phi */
-    std::vector<uint_t> pi_mphi;
+    std::vector<pos_t> pi_mphi;
 
     // ############################# COMMON MISC METHODS #############################
 
@@ -104,6 +106,18 @@ class move_r<uint_t>::construction {
     }
 
     /**
+     * @brief returns T at index i
+     * @return T at index i
+     */
+    inline sym_t& T(pos_t i) {
+        if constexpr (std::is_same<sym_t,char>::value) {
+            return T_str[i];
+        } else {
+            return T_vec[i];
+        }
+    }
+
+    /**
      * @brief returns the suffix array
      * @tparam sa_sint_t suffix array signed integer type
      * @return the suffix array
@@ -117,13 +131,21 @@ class move_r<uint_t>::construction {
         }
     }
 
+    inline pos_t symbol_idx(sym_t sym) {
+        if constexpr (std::is_same<sym_t,char>::value) {
+            return char_to_uchar(sym);
+        } else {
+            return sym;
+        }
+    };
+
     /**
      * @brief sets the run length of the i-th BWT run in thread i_p's section to len
      * @param i_p [0..p-1] thread index
      * @param i [0..r-1] run index
      * @param len run length
      */
-    void set_run_length(uint16_t i_p, uint_t i, uint32_t len) {
+    inline void set_run_length(uint16_t i_p, pos_t i, uint32_t len) {
         RLBWT[i_p].set_unsafe<1,uint32_t>(i,len);
     }
 
@@ -133,7 +155,7 @@ class move_r<uint_t>::construction {
      * @param i [0..r-1] run index
      * @return run length
      */
-    uint32_t run_length(uint16_t i_p, uint_t i) {
+    inline uint32_t run_length(uint16_t i_p, pos_t i) {
         return RLBWT[i_p].get_unsafe<1,uint32_t>(i);
     }
 
@@ -143,18 +165,8 @@ class move_r<uint_t>::construction {
      * @param i [0..r-1] run index
      * @param c character
      */
-    void set_run_char(uint16_t i_p, uint_t i, char c) {
-        RLBWT[i_p].set_unsafe<0,char>(i,c);
-    }
-
-    /**
-     * @brief sets the character of the i-th BWT run in thread i_p's section to c
-     * @param i_p [0..p-1] thread index
-     * @param i [0..r-1] run index
-     * @param c character
-     */
-    void set_run_uchar(uint16_t i_p, uint_t i, uint8_t c) {
-        RLBWT[i_p].set_unsafe<0,uint8_t>(i,c);
+    inline void set_run_symbol(uint16_t i_p, pos_t i, sym_t c) {
+        RLBWT[i_p].set<0,sym_t>(i,c);
     }
 
     /**
@@ -163,18 +175,8 @@ class move_r<uint_t>::construction {
      * @param i [0..r-1] run index
      * @return character
      */
-    char run_char(uint16_t i_p, uint_t i) {
-        return RLBWT[i_p].get_unsafe<0,char>(i);
-    }
-
-    /**
-     * @brief returns the character of the i-th BWT run in thread i_p's section
-     * @param i_p [0..p-1] thread index
-     * @param i [0..r-1] run index
-     * @return character
-     */
-    uint8_t run_uchar(uint16_t i_p, uint_t i) {
-        return RLBWT[i_p].get_unsafe<0,uint8_t>(i);
+    inline sym_t run_symbol(uint16_t i_p, pos_t i) {
+        return RLBWT[i_p].get<0,sym_t>(i);
     }
 
     /**
@@ -210,7 +212,7 @@ class move_r<uint_t>::construction {
      */
     void prepare_phase_2() {
         if (p > 1 && 1000*p > n) {
-            p = std::max<uint_t>(1,n/1000);
+            p = std::max<pos_t>(1,n/1000);
             if (log) std::cout << "warning: p > n/1000, setting p to n/1000 ~ " << std::to_string(p) << std::endl;
         }
     }
@@ -267,20 +269,24 @@ class move_r<uint_t>::construction {
      * @param delete_T controls whether T should be deleted once it is not needed anymore
      * @param params construction parameters
      */
-    construction(move_r<uint_t>& index, std::string& T, bool delete_T, move_r_params params)
-    : T(T), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
+    construction(move_r<locate_support,sym_t,pos_t>& index, std::string& T, bool delete_T, move_r_params params)
+    requires(std::is_same<sym_t,char>::value)
+    : T_str(T), T_vec(T_vec_tmp), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
         this->delete_T = delete_T;
         read_parameters(params);
         prepare_phase_1();
 
         if (params.mode == _libsais) {
-            min_valid_char = 2;
+            min_valid_char = 1;
             T.push_back(uchar_to_char((uint8_t)0));
             n = T.size();
             idx.n = n;
             construct_libsais();
-            T.resize(n-1);
-            if (idx.chars_remapped) unmap_t();
+
+            if (!delete_T) {
+                T.resize(n-1);
+                if (idx.symbols_remapped) unmap_t();
+            }
         } else {
             min_valid_char = 3;
             n = T.size()+1;
@@ -293,19 +299,47 @@ class move_r<uint_t>::construction {
     }
 
     /**
+     * @brief constructs a move_r index of the vector input
+     * @param index The move-r index to construct
+     * @param T the vector containing T
+     * @param alphabet_size alphabet size of the input vector (= maximum value in the input vector)
+     * @param delete_T controls whether T should be deleted once it is not needed anymore
+     * @param params construction parameters
+     */
+    construction(move_r<locate_support,sym_t,pos_t>& index, std::vector<sym_t>& T, bool delete_T, move_r_params params)
+    requires(!std::is_same<sym_t,char>::value)
+    : T_str(T_str_tmp), T_vec(T), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
+        this->delete_T = delete_T;
+        read_parameters(params);
+        prepare_phase_1();
+        T.push_back(0);
+        n = T.size();
+        idx.n = n;
+        construct_libsais();
+
+        if (!delete_T) {
+            T.resize(n-1);
+            if (idx.symbols_remapped) unmap_t();
+        }
+
+        if (log) log_finished();
+    }
+
+    /**
      * @brief constructs a move_r index from an input file
      * @param index The move-r index to construct
      * @param T_ifile file containing T
      * @param params construction parameters
      */
-    construction(move_r<uint_t>& index, std::ifstream& T_ifile, move_r_params params)
-    : T(T_tmp), idx(index), SA_32(SA_32_tmp), SA_64(SA_64_tmp), L(L_tmp) {
+    construction(move_r<locate_support,sym_t,pos_t>& index, std::ifstream& T_ifile, move_r_params params)
+    requires(std::is_same<sym_t,char>::value)
+    : T_str(T_str_tmp), T_vec(T_vec_tmp), idx(index), SA_32(SA_32_tmp), SA_64(SA_64_tmp), L(L_tmp) {
         read_parameters(params);
         prepare_phase_1();
 
         if (params.mode == _libsais) {
-            min_valid_char = 2;
-            read_t_from_file_libsais(T_ifile);
+            min_valid_char = 1;
+            read_t_from_file(T_ifile);
             construct_libsais();
         } else {
             min_valid_char = 3;
@@ -323,8 +357,9 @@ class move_r<uint_t>::construction {
      * @param bwt string containing the bwt of the input
      * @param params construction parameters
      */
-    construction(move_r<uint_t>& index, std::vector<int32_t>& suffix_array, std::string& bwt, move_r_params params)
-    : T(T_tmp), L(bwt), SA_32(suffix_array), SA_64(SA_64_tmp), idx(index) {
+    construction(move_r<locate_support,sym_t,pos_t>& index, std::vector<int32_t>& suffix_array, std::string& bwt, move_r_params params)
+    requires(std::is_same<sym_t,char>::value)
+    : T_str(T_str_tmp), T_vec(T_vec_tmp), L(bwt), SA_32(suffix_array), SA_64(SA_64_tmp), idx(index) {
         read_parameters(params);        
         construct_from_sa_and_l<int32_t>();
     }
@@ -336,8 +371,9 @@ class move_r<uint_t>::construction {
      * @param bwt string containing the bwt of the input
      * @param params construction parameters
      */
-    construction(move_r<uint_t>& index, std::vector<int64_t>& suffix_array, std::string& bwt, move_r_params params)
-    : T(T_tmp), L(bwt), SA_32(SA_32_tmp), SA_64(suffix_array), idx(index) {
+    construction(move_r<locate_support,sym_t,pos_t>& index, std::vector<int64_t>& suffix_array, std::string& bwt, move_r_params params)
+    requires(std::is_same<sym_t,char>::value)
+    : T_str(T_str_tmp), T_vec(T_vec_tmp), L(bwt), SA_32(SA_32_tmp), SA_64(suffix_array), idx(index) {
         read_parameters(params);
         construct_from_sa_and_l<int64_t>();
     }
@@ -350,7 +386,7 @@ class move_r<uint_t>::construction {
     template <typename sa_sint_t>
     void construct_from_sa_and_l() {
         build_from_sa_and_l = true;
-        min_valid_char = 2;
+        min_valid_char = 1;
         n = L.size();
         idx.n = n;
 
@@ -360,14 +396,18 @@ class move_r<uint_t>::construction {
         if (log) log_statistics();
         build_ilf();
         build_mlf();
-        if (build_locate_support) build_iphi_libsais<sa_sint_t>();
-        build_l__sas();
+        if (build_locate_support) build_iphi_from_sa<sa_sint_t>();
+        build_l__sas_();
 
         if (build_locate_support) {
-            sort_iphi();
-            build_mphi();
-            build_saphi();
-            build_de();
+            if constexpr (locate_support == _phi) {
+                sort_iphi();
+                build_mphi();
+                build_saphi();
+                build_de();
+            } else {
+                build_rlzdsa<false,sa_sint_t>();
+            }
         }
 
         if (build_count_support) build_rsl_();
@@ -378,7 +418,7 @@ class move_r<uint_t>::construction {
      * @brief constructs the index from a string in memory (uses libsais)
      */
     void construct_libsais() {
-        if constexpr (std::is_same<uint_t,uint32_t>::value) {
+        if constexpr (std::is_same<pos_t,uint32_t>::value) {
             if (n <= INT_MAX) {
                 construct_libsais<int32_t>();
             } else {
@@ -397,19 +437,29 @@ class move_r<uint_t>::construction {
     void construct_libsais() {
         preprocess_t(true);
         prepare_phase_2();
-        build_sa_libsais<sa_sint_t>();
+
+        if constexpr (std::is_same<sym_t,char>::value) {
+            build_sa<sa_sint_t,char>();
+        } else {
+            build_sa<sa_sint_t>();
+        }
+        
         build_rlbwt_c_libsais<false,sa_sint_t>();
         if (log) log_statistics();
         build_ilf();
-        if (build_locate_support) build_iphi_libsais<sa_sint_t>();
+        if (build_locate_support) build_iphi_from_sa<sa_sint_t>();
         build_mlf();
-        build_l__sas();
+        build_l__sas_();
 
         if (build_locate_support) {
-            sort_iphi();
-            build_mphi();
-            build_saphi();
-            build_de();
+            if constexpr (locate_support == _phi) {
+                sort_iphi();
+                build_mphi();
+                build_saphi();
+                build_de();
+            } else {
+                build_rlzdsa<false,sa_sint_t>();
+            }
         }
 
         if (build_count_support) build_rsl_();
@@ -419,6 +469,11 @@ class move_r<uint_t>::construction {
      * @brief constructs the index from a file using Big-BWT
      */
     void construct_bigbwt() {
+        if constexpr (locate_support == _rlzdsa) {
+            std::cout << "error: bigbwt is not supported when using rlzdsa";
+            return;
+        }
+
         prepare_phase_2();
         bigbwt();
         build_rlbwt_c_bigbwt();
@@ -433,15 +488,22 @@ class move_r<uint_t>::construction {
 
         build_ilf();
         build_mlf();
-        if (build_locate_support) read_iphi_bigbwt();
-        build_l__sas();
+        if (build_locate_support) read_iphi_from_bigbwt();
+        build_l__sas_();
 
         if (build_locate_support) {
             store_mlf();
-            sort_iphi();
-            build_mphi();
-            build_saphi();
-            build_de();
+
+            if constexpr (locate_support == _phi) {
+                
+                sort_iphi();
+                build_mphi();
+                build_saphi();
+                build_de();
+            } else {
+                build_rlzdsa<false,int32_t>();
+            }
+
             load_mlf();
         }
 
@@ -458,7 +520,7 @@ class move_r<uint_t>::construction {
     void preprocess_t(bool use_libsais, std::ifstream* T_ifile = NULL);
 
     /**
-     * @brief builds the RLBWT and C in-memory
+     * @brief builds the RLBWT and C
      * @tparam sa_sint_t suffix array signed integer type
      * @tparam read_l whether the RLBWT should be read from L
      */
@@ -481,9 +543,9 @@ class move_r<uint_t>::construction {
     void build_mlf();
 
     /**
-     * @brief builds L' (and SA_s)
+     * @brief builds L' (and SA_s')
      */
-    void build_l__sas();
+    void build_l__sas_();
 
     /**
      * @brief sorts I_Phi
@@ -510,27 +572,66 @@ class move_r<uint_t>::construction {
      */
     void build_rsl_();
 
+    /**
+     * @brief builds the rlzdsa
+     * @tparam bigbwt controls, whether to use the suffix array file output by Big-BWT
+     * @tparam sa_sint_t suffix array signed integer type
+     */
+    template <bool bigbwt, typename sa_sint_t>
+    void build_rlzdsa();
+
     // ############################# IN-MEMORY CONSTRUCTION METHODS #############################
 
     /**
      * @brief reads T from t_file
      * @param t_file file containing T
      */
-    void read_t_from_file_libsais(std::ifstream& t_file);
+    void read_t_from_file(std::ifstream& t_file);
 
     /**
-     * @brief builds the suffix array in-memory
-     * @tparam sa_sint_t suffix array signed integer type
+     * @brief execute the correct libsais algorithm
+     * @tparam inp_t input type
+     * @param T text
+     * @param SA suffix array
+     * @param fs free space at the end of the suffix array
      */
-    template <typename sa_sint_t = int32_t>
-    void build_sa_libsais();
+    template <typename inp_t>
+    void execute_libsais(inp_t* T, int32_t* SA, pos_t fs);
 
     /**
-     * @brief builds SA_s from SA in memory
+     * @brief builds the suffix array
+     * @tparam sa_sint_t suffix array signed integer type
+     * @tparam inp_t input type
+     */
+    template <typename sa_sint_t, typename inp_t>
+    void build_sa();
+
+    /**
+     * @brief builds the suffix array
      * @tparam sa_sint_t suffix array signed integer type
      */
     template <typename sa_sint_t>
-    void build_iphi_libsais();
+    void build_sa() {
+        uint8_t bytes = std::ceil(std::log2(idx.sigma+1)/(double)8);
+
+        switch (bytes) {
+            case 1:
+                build_sa<sa_sint_t,uint8_t>();
+                break;
+            case 2:
+                build_sa<sa_sint_t,uint16_t>();
+                break;
+            default:
+                build_sa<sa_sint_t,int32_t>();
+        }
+    }
+
+    /**
+     * @brief builds SA_s' from SA in memory
+     * @tparam sa_sint_t suffix array signed integer type
+     */
+    template <typename sa_sint_t>
+    void build_iphi_from_sa();
 
     /**
      * @brief unmaps T from the internal alphabet
@@ -557,7 +658,7 @@ class move_r<uint_t>::construction {
     /**
      * @brief reads I_Phi
      */
-    void read_iphi_bigbwt();
+    void read_iphi_from_bigbwt();
 
     /**
      * @brief stores M_LF in a file
@@ -573,3 +674,4 @@ class move_r<uint_t>::construction {
 #include "modes/common.cpp"
 #include "modes/libsais.cpp"
 #include "modes/bigbwt.cpp"
+#include "modes/rlzdsa.cpp"

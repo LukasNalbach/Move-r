@@ -9,6 +9,7 @@ uint16_t p = 1;
 std::string path_prefix_index_file;
 move_r_constr_mode mode = _libsais;
 std::vector<move_r_supp> support = _full_support;
+move_r_locate_supp locate_support = _phi;
 std::ofstream mf_idx;
 std::ofstream mf_mds;
 std::ifstream input_file;
@@ -24,7 +25,9 @@ void help(std::string msg) {
     std::cout << "   -c <mode>          construction mode: libsais or bigbwt (default: libsais)" << std::endl;
     std::cout << "   -o <base_name>     names the index file base_name.move-r (default: input_file)" << std::endl;
     std::cout << "   -s <op1> <op2> ... supported operations: revert, count and locate" << std::endl;
-    std::cout << "                      (default: all operations)" << std::endl;
+    std::cout << "                      (default: revert, count, locate)" << std::endl;
+    std::cout << "   -rlzdsa            implement locate support by relative lempel-ziv encoding the" << std::endl;
+    std::cout << "                      differential suffix array instead of implementing Phi" << std::endl;
     std::cout << "   -p <integer>       number of threads to use during the construction of the index" << std::endl;
     std::cout << "                      (default: all threads)" << std::endl;
     std::cout << "   -a <integer>       balancing parameter; a must be an integer number and a >= 2 (default: 8)" << std::endl;
@@ -59,10 +62,10 @@ void parse_args(char** argv, int argc, int &ptr) {
         bool parsed_first_op = false;
 
         while (true) {
-            std::string support_str = argv[ptr++];
-            if (support_str == "revert") support.emplace_back(_revert);
-            else if (support_str == "count") support.emplace_back(_count);
-            else if (support_str == "locate") support.emplace_back(_locate);
+            std::string support_str = argv[ptr];
+            if (support_str == "revert") {ptr++;support.emplace_back(_revert);}
+            else if (support_str == "count") {ptr++;support.emplace_back(_count);}
+            else if (support_str == "locate") {ptr++;support.emplace_back(_locate);}
             else if (!parsed_first_op) help("error: unknown mode provided with -s option");
             else break;
             parsed_first_op = true;
@@ -71,6 +74,9 @@ void parse_args(char** argv, int argc, int &ptr) {
         if (ptr >= argc-1) help("error: missing parameter after -a option");
         a = atoi(argv[ptr++]);
         if (a < 2) help("error: a < 2");
+    } else if (s == "-rlzdsa") {
+        if (ptr >= argc-1) help("error: missing parameter after -rlzdsa option");
+        locate_support = _rlzdsa;
     } else if (s == "-m_idx") {
         if (ptr >= argc-1) help("error: missing parameter after -m_idx option");
         std::string path_mf_idx = argv[ptr++];
@@ -86,9 +92,9 @@ void parse_args(char** argv, int argc, int &ptr) {
     }
 }
 
-template <typename uint_t>
+template <typename pos_t, move_r_locate_supp locate_support>
 void build() {
-    move_r<uint_t> index(input_file,{
+    move_r<locate_support,char,pos_t> index(input_file,{
         .support=support,
         .mode=mode,
         .num_threads=p,
@@ -98,12 +104,11 @@ void build() {
         .mf_mds=mf_mds.is_open() ? &mf_mds : NULL,
         .name_text_file=name_text_file
     });
-
     input_file.close();
-    auto time = now();
     std::cout << "serializing the index" << std::flush;
-    index.serialize(index_file,support);
-    time = log_runtime(time);
+    auto time = now();
+    index.serialize(index_file);
+    log_runtime(time);
 }
 
 int main(int argc, char** argv) {
@@ -131,10 +136,10 @@ int main(int argc, char** argv) {
     input_file.seekg(0,std::ios::beg);
 
     if (p > 1 && 1000*p > n) {
-        p = std::max((uint64_t)1,n/1000);
+        p = std::max<uint16_t>(1,n/1000);
         std::cout << "n = " << n << ", warning: p > n/1000, setting p to n/1000 ~ "<< std::to_string(p) << std::endl;
     } else {
-        p = std::min({(uint64_t)omp_get_max_threads(),n/1000,(uint64_t)p});
+        p = std::max<uint16_t>(1,std::min<uint16_t>({omp_get_max_threads(),n/1000,p}));
     }
 
     if (mf_idx.is_open()) {
@@ -145,10 +150,18 @@ int main(int argc, char** argv) {
             << " a=" << a;
     }
 
-    if (n < UINT_MAX) {
-        build<uint32_t>();
+    if (locate_support == _phi) {
+        if (n < UINT_MAX) {
+            build<uint32_t,_phi>();
+        } else {
+            build<uint64_t,_phi>();
+        }
     } else {
-        build<uint64_t>();
+        if (n < UINT_MAX) {
+            build<uint32_t,_rlzdsa>();
+        } else {
+            build<uint64_t,_rlzdsa>();
+        }
     }
 
     if (mf_idx.is_open()) mf_idx.close();

@@ -54,13 +54,13 @@ void parse_args(char **argv, int argc, int &ptr) {
     }
 }
 
-template <typename uint_t>
+template <typename pos_t, move_r_locate_supp locate_support>
 void measure_locate() {
     std::cout << std::setprecision(4);
     std::cout << "loading the index" << std::flush;
     auto t1 = now();
-    move_r<uint_t> index;
-    index.load(index_file,{_locate});
+    move_r<locate_support,char,pos_t> index;
+    index.load(index_file);
     log_runtime(t1);
     index_file.close();
     std::cout << std::endl;
@@ -88,9 +88,9 @@ void measure_locate() {
     std::chrono::steady_clock::time_point t2,t3;
     std::string pattern;
     no_init_resize(pattern,pattern_length);
-    std::vector<uint_t> occurrences;
+    std::vector<pos_t> occurrences;
     bool is_sorted, equal;
-    uint_t count;
+    pos_t count;
 
     for (uint64_t i=0; i<num_patterns; i++) {
         perc = (100*i) / num_patterns;
@@ -103,7 +103,7 @@ void measure_locate() {
 
         patterns_file.read((char*)&pattern[0],pattern_length);
         t2 = now();
-        index.locate(pattern,[&occurrences](uint_t occurrence){occurrences.emplace_back(occurrence);});
+        index.locate(pattern,occurrences);
         t3 = now();
         time_locate += time_diff_ns(t2,t3);
         num_occurrences += occurrences.size();
@@ -116,10 +116,10 @@ void measure_locate() {
                 std::cout << "error: wrong number of located occurrences: " << occurrences.size() << "/" << count << std::endl;
             }
 
-            for (uint_t occurrence : occurrences) {
+            for (pos_t occurrence : occurrences) {
                 equal = true;
 
-                for (uint_t pos=0; pos<pattern_length; pos++) {
+                for (pos_t pos=0; pos<pattern_length; pos++) {
                     if (input[occurrence+pos] != pattern[pos]) {
                         equal = false;
                         break;
@@ -128,9 +128,9 @@ void measure_locate() {
 
                 if (!equal) {
                     std::cout << "error: wrong occurrence: " << occurrence << " ("  << num_occurrences << " occurrences) "<< std::endl;
-                    for (uint_t pos=0; pos<pattern_length; pos++) std::cout << input[occurrence+pos];
+                    for (pos_t pos=0; pos<pattern_length; pos++) std::cout << input[occurrence+pos];
                     std::cout << std::endl << std::endl << "/" << std::endl << std::endl;
-                    for (uint_t pos=0; pos<pattern_length; pos++) std::cout << pattern[pos];
+                    for (pos_t pos=0; pos<pattern_length; pos++) std::cout << pattern[pos];
                     std::cout << std::endl;
                     break;
                 }
@@ -202,12 +202,22 @@ int main(int argc, char **argv) {
 
     bool is_64_bit;
     index_file.read((char*)&is_64_bit,1);
+    move_r_locate_supp _locate_support;
+    index_file.read((char*)&_locate_support,sizeof(move_r_locate_supp));
     index_file.seekg(0,std::ios::beg);
 
-    if (is_64_bit) {
-        measure_locate<uint64_t>();
+    if (_locate_support == _phi) {
+        if (is_64_bit) {
+            measure_locate<uint64_t,_phi>();
+        } else {
+            measure_locate<uint32_t,_phi>();
+        }
     } else {
-        measure_locate<uint32_t>();
+        if (is_64_bit) {
+            measure_locate<uint64_t,_rlzdsa>();
+        } else {
+            measure_locate<uint32_t,_rlzdsa>();
+        }
     }
 
     patterns_file.close();

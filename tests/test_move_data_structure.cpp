@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
-#include <move_r/data_structures/move_data_structure/move_data_structure_str.hpp>
+#include <move_r/data_structures/move_data_structure/move_data_structure_l_.hpp>
 
 TEST(test_move_data_structure,fuzzy_test) {
     std::random_device rd;

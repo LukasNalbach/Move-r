@@ -1,5 +1,5 @@
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::build_tin_tout_v5() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::build_tin_tout_v5() {
     if (log) log_message("building pi");
         
     // build pi to construct T_out faster
@@ -19,10 +19,10 @@ void move_data_structure<uint_t>::construction::build_tin_tout_v5() {
     {
         uint16_t i_p = omp_get_thread_num();
 
-        uint_t b = u[i_p];
-        uint_t e = u[i_p+1];
+        pos_t b = u[i_p];
+        pos_t e = u[i_p+1];
 
-        for (uint_t i=b; i<e; i++) {
+        for (pos_t i=b; i<e; i++) {
             T_out_v5[i_p].emplace_hint(T_out_v5[i_p].end(),I[pi[i]]);
         }
     }
@@ -65,7 +65,7 @@ void move_data_structure<uint_t>::construction::build_tin_tout_v5() {
         if (T_in_v5[i].empty() || (*T_in_v5[i].begin()).first != s[i]) {
             pair_t pr_split = *T_in_v5[i-1].rbegin();
             pair_t pr_new{s[i], pr_split.second + (s[i] - pr_split.first)};
-            uint16_t i_p_ = bin_search_max_leq<uint_t>(pr_new.second,0,p-1,[this](uint_t x){return s[x];});
+            uint16_t i_p_ = bin_search_max_leq<pos_t>(pr_new.second,0,p-1,[this](pos_t x){return s[x];});
             T_in_v5[i].emplace(pr_new);
             T_out_v5[i_p_].emplace(pr_new);
         }
@@ -76,7 +76,7 @@ void move_data_structure<uint_t>::construction::build_tin_tout_v5() {
         if (T_out_v5[i].empty() || (*T_out_v5[i].begin()).second != s[i]) {
             pair_t pr_split = *T_out_v5[i-1].rbegin();
             pair_t pr_new{pr_split.first + (s[i] - pr_split.second), s[i]};
-            uint16_t i_p_ = bin_search_max_leq<uint_t>(pr_new.first,0,p-1,[this](uint_t x){return s[x];});
+            uint16_t i_p_ = bin_search_max_leq<pos_t>(pr_new.first,0,p-1,[this](pos_t x){return s[x];});
             T_in_v5[i_p_].emplace(pr_new);
             T_out_v5[i].emplace(pr_new);
         }
@@ -112,7 +112,7 @@ void move_data_structure<uint_t>::construction::build_tin_tout_v5() {
                 pr_Im1 = *tn_I;
                 tn_I++;
 
-                uint16_t i_p_ = bin_search_max_leq<uint_t>(pr_Im1.second,0,p-1,[this](uint_t x){return s[x];});
+                uint16_t i_p_ = bin_search_max_leq<pos_t>(pr_Im1.second,0,p-1,[this](pos_t x){return s[x];});
 
                 // store each new pair in its corresponding tree in T_out_temp_v5
                 T_out_temp_v5[i_p_][i_p].emplace(pr_Im1);
@@ -142,8 +142,8 @@ void move_data_structure<uint_t>::construction::build_tin_tout_v5() {
     }
 }
 
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::build_dp_dq_v5() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::build_dp_dq_v5() {
     // recalculate the indices x of the seperation positions in the interval sequence
     x.resize(p+1);
     x[0] = 0;
@@ -156,7 +156,7 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v5() {
     k_ = x[p];
 
     // resize the interleaved vectors in the move data structure
-    mds.resize(n,k_,is_str);
+    mds.resize(n,k_,width_l_);
     
     if (log) {
         float k__k = std::round(100.0*k_/k)/100.0;
@@ -168,9 +168,9 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v5() {
         log_message("building D_p and D_q");
     }
 
-    D_q = interleaved_vectors<uint_t>({(uint8_t)(mds.omega_p/8)});
+    D_q = interleaved_vectors<pos_t,pos_t>({(uint8_t)(mds.omega_p/8)});
     D_q.resize_no_init(k_+1);
-    D_q.template set<0>(k_,n);
+    D_q.template set<0,pos_t>(k_,n);
 
     // write the input interval starting positions to D_p (in the move data structure) and
     // write the output interval starting positions to D_q
@@ -178,14 +178,14 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v5() {
     {
         uint16_t i_p = omp_get_thread_num();
 
-        uint_t b = x[i_p];
-        uint_t e = x[i_p+1];
+        pos_t b = x[i_p];
+        pos_t e = x[i_p+1];
 
         tin_it_t_v5 tin_it = T_in_v5[i_p].begin();
 
-        for (uint_t i=b; i<e; i++) {
+        for (pos_t i=b; i<e; i++) {
             mds.set_p(i,(*tin_it).first);
-            D_q.template set<0>(i,(*tin_it).second);
+            D_q.template set<0,pos_t>(i,(*tin_it).second);
             tin_it++;
         }
     }

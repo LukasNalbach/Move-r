@@ -1,9 +1,9 @@
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::build_tin_tout_v1() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::build_tin_tout_v1() {
     if (log) log_message("building T_in");
 
     // build T_in_v1 and T_out_v1
-    for (uint_t i=0; i<k; i++) {
+    for (pos_t i=0; i<k; i++) {
         T_in_v1.insert(I[i]);
     }
 
@@ -15,7 +15,7 @@ void move_data_structure<uint_t>::construction::build_tin_tout_v1() {
         log_message("building T_out");
     }
 
-    for (uint_t i=0; i<k; i++) {
+    for (pos_t i=0; i<k; i++) {
         T_out_v1.insert(I[i]);
     }
 
@@ -42,20 +42,20 @@ void move_data_structure<uint_t>::construction::build_tin_tout_v1() {
     }
 }
 
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::build_dp_dq_v1() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::build_dp_dq_v1() {
     if (log) log_message("building D_p and D_q");
 
-    mds.resize(n,k_,is_str);
-    D_q = interleaved_vectors<uint_t>({(uint8_t)(mds.omega_p/8)});
+    mds.resize(n,k_,width_l_);
+    D_q = interleaved_vectors<pos_t,pos_t>({(uint8_t)(mds.omega_p/8)});
     D_q.resize_no_init(k_);
-    D_q.template set<0>(k_,n);
+    D_q.template set<0,pos_t>(k_,n);
 
     auto it = T_in_v1.iterator();
 
-    for (uint_t i=0; i<=k_; i++) {
+    for (pos_t i=0; i<=k_; i++) {
         mds.set_p(i,it.current()->v.first);
-        D_q.template set<0>(i,it.current()->v.second);
+        D_q.template set<0,pos_t>(i,it.current()->v.second);
         it.next();
     }
 
@@ -67,15 +67,15 @@ void move_data_structure<uint_t>::construction::build_dp_dq_v1() {
     }
 }
 
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::build_didx_doffs_v1() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::build_didx_doffs_v1() {
     if (log) log_message("building D_idx and D_offs");
     
-    for (uint_t j=0; j<k_; j++) {
+    for (pos_t j=0; j<k_; j++) {
         /* For each output interval [q_j, q_j + d_j), find the input interval [p_i, p_i + d_i)
         containing q_j and set D_idx[j] = i. Find the maximum integer i in [0,k'-1], s.t.
         p_i <= q_j with a binary search over D_pair. */
-        uint_t i = bin_search_max_leq<uint_t>(D_q[j],0,k_-1,[this](uint_t x){return mds.p(x);});
+        pos_t i = bin_search_max_leq<pos_t>(D_q[j],0,k_-1,[this](pos_t x){return mds.p(x);});
 
         mds.set_idx(j,i);
         mds.set_offs(j,D_q[j]-mds.p(i));

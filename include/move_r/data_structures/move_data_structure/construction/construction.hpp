@@ -12,11 +12,11 @@
 
 /**
  * @brief constructs a move data structure out of a disjoint interval sequence
- * @tparam uint_t unsigned integer type of the interval starting positions
+ * @tparam pos_t unsigned integer type of the interval starting positions
  */
-template <typename uint_t>
-class move_data_structure<uint_t>::construction {
-    static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
+template <typename pos_t>
+class move_data_structure<pos_t>::construction {
+    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
 
     public:
     construction() = delete;
@@ -52,24 +52,24 @@ class move_data_structure<uint_t>::construction {
     /* 1 + epsilon is the maximum factor, by which the number of intervals can increase in the 
      * process of splitting too long intervals*/
     static constexpr double epsilon = 0.125;
-    move_data_structure<uint_t>& mds; // the move data structure to construct
+    move_data_structure<pos_t>& mds; // the move data structure to construct
     pair_arr_t& I; // the disjoint interval sequence to construct the move data structure out of
-    uint_t n; // maximum value, n = p_{k-1} + d_{k-1}, k <= n
-    uint_t k; // number of intervals in the (possibly a-heavy) inteval sequence I, 0 < k
-    uint_t k_; // number of intervals in the a-balanced inteval sequence B_a(I), 0 < k <= k'
+    pos_t n; // maximum value, n = p_{k-1} + d_{k-1}, k <= n
+    pos_t k; // number of intervals in the (possibly a-heavy) inteval sequence I, 0 < k
+    pos_t k_; // number of intervals in the a-balanced inteval sequence B_a(I), 0 < k <= k'
     uint16_t a; // balancing parameter, restricts size increase to the factor (a/(a-1)), 2 <= a
     uint16_t two_a; // 2*a
     uint16_t p; // number of threads to use
     bool log; // toggles log messages
     bool delete_i;
     std::ostream* mf; // measurement file
-    uint_t l_max; // maximum interval length
+    pos_t l_max; // maximum interval length
     uint64_t baseline_mem_usage; // baseline memory allocation in bytes
     std::chrono::steady_clock::time_point time; // time point of the start of the last construction phase
     std::chrono::steady_clock::time_point time_start; // time point of the start of the entire construction
-    interleaved_vectors<uint_t> D_q; // [0..k'-1] output interval starting positions (ordered by the input interval starting positions)
-    std::vector<uint_t> pi; // [0..k'-1] permutation storing the order of the output interval starting postions
-    bool is_str; // true <=> the move data structure to build has type move_data_structure_str
+    interleaved_vectors<pos_t,pos_t> D_q; // [0..k'-1] output interval starting positions (ordered by the input interval starting positions)
+    std::vector<pos_t> pi; // [0..k'-1] permutation storing the order of the output interval starting postions
+    uint8_t width_l_; // width of L_
 
     /**
      * @brief [0..p-1] section start positions in the range [0..n], 0 = s[0] < s[1] < ... < s[p-1] = n.
@@ -80,13 +80,13 @@ class move_data_structure<uint_t>::construction {
                                 u[i_p] = min {u' in [0,k-1], s.t. q_{pi[u']} >= s'}
               } holds.
      */
-    std::vector<uint_t> s;
+    std::vector<pos_t> s;
 
     // [0..p], x[i] stores the number of input intervals in I starting before s[i]
-    std::vector<uint_t> x;
+    std::vector<pos_t> x;
 
     // [0..p], u[i] stores the number of output intervals in I starting before s[i]
-    std::vector<uint_t> u;
+    std::vector<pos_t> u;
 
     // ############################# COMMON METHODS #############################
 
@@ -99,7 +99,15 @@ class move_data_structure<uint_t>::construction {
      * @param params construction parameters
      * @param pi_mphi vector to move pi into after the construction
      */
-    construction(move_data_structure<uint_t>& mds, pair_arr_t& I, uint_t n, bool delete_i, bool is_str, mds_params params, std::vector<uint_t>* pi_mphi = NULL) : mds(mds), I(I) {
+    construction(
+        move_data_structure<pos_t>& mds,
+        pair_arr_t& I,
+        pos_t n,
+        bool delete_i,
+        uint8_t width_l_,
+        mds_params params,
+        std::vector<pos_t>* pi_mphi = NULL
+    ) : mds(mds), I(I) {
         this->n = n;
         this->k = I.size();
         this->a = params.a;
@@ -107,7 +115,7 @@ class move_data_structure<uint_t>::construction {
         this->delete_i = delete_i;
         this->log = params.log;
         this->mf = params.mf;
-        this->is_str = is_str;
+        this->width_l_ = width_l_;
 
         if (log) {
             time = now();
@@ -120,7 +128,7 @@ class move_data_structure<uint_t>::construction {
         two_a = 2*a;
 
         if (p > 1 && 1000*p > k) {
-            p = std::max((uint_t)1,k/1000);
+            p = std::max((pos_t)1,k/1000);
             if (log) std::cout << "warning: p > k/1000, setting p to k/1000 ~ " << p << std::endl;
         }
 
@@ -343,7 +351,7 @@ class move_data_structure<uint_t>::construction {
      * @param ln (p_i,q_i)
      * @return length of the input/output interval starting at p_i/q_i
      */
-    inline uint_t interval_length_v2v3_seq(lin_node_t_v2v3v4 *ln);
+    inline pos_t interval_length_v2v3_seq(lin_node_t_v2v3v4 *ln);
 
     /**
      * @brief checks if the output interval [q_j, q_j + d_j) is a-heavy and iterates
@@ -357,7 +365,7 @@ class move_data_structure<uint_t>::construction {
      */
     inline lin_node_t_v2v3v4* is_a_heavy_v2v3v4(
         lin_node_t_v2v3v4 **ln_IpI_,
-        uint_t* i_,
+        pos_t* i_,
         tout_node_t_v2v3v4 *tn_J,
         tout_node_t_v2v3v4 *tn_J_ = NULL
     );
@@ -407,9 +415,9 @@ class move_data_structure<uint_t>::construction {
     inline tout_node_t_v2v3v4* balance_upto_v3_seq(
         lin_node_t_v2v3v4 *ln_IpA,
         tout_node_t_v2v3v4 *tn_J,
-        uint_t q_u,
-        uint_t p_cur,
-        uint_t* i_
+        pos_t q_u,
+        pos_t p_cur,
+        pos_t* i_
     );
 
     /**
@@ -451,9 +459,9 @@ class move_data_structure<uint_t>::construction {
         lin_node_t_v2v3v4* ln_IpA,
         tout_node_t_v2v3v4* tn_J,
         tout_node_t_v2v3v4* tn_J_,
-        uint_t q_u,
-        uint_t p_cur,
-        uint_t* i_
+        pos_t q_u,
+        pos_t p_cur,
+        pos_t* i_
     );
 
     /**
@@ -488,9 +496,9 @@ class move_data_structure<uint_t>::construction {
         lin_node_t_v2v3v4 *ln_IpA,
         tout_node_t_v2v3v4 *tn_J,
         tout_node_t_v2v3v4* tn_J_,
-        uint_t q_u,
-        uint_t p_cur,
-        uint_t* i_
+        pos_t q_u,
+        pos_t p_cur,
+        pos_t* i_
     );
 
     /**
@@ -577,7 +585,7 @@ class move_data_structure<uint_t>::construction {
      * @param q_J_ q_j' the starting position of the output interval that starts directly after [q_j, q_j+ d_j)
      * @return q_j + d (where d = p_{i+a}); the position at which [q_j, q_j + d_j) has to be split
      */
-    inline uint_t is_a_heavy_v5_seq_par(tin_it_t_v5& tn_I, uint_t q_J_);
+    inline pos_t is_a_heavy_v5_seq_par(tin_it_t_v5& tn_I, pos_t q_J_);
 
     /**
      * @brief balances the output interval [q_j, q_j + d_j) and all a-heavy output intervals in [s[i_p],s[i_p+1])
@@ -591,7 +599,7 @@ class move_data_structure<uint_t>::construction {
      * @return an iterator pointing to the newly created pair (p_j + d, q_j + d) in T_out_v5, if no recursive call
      *         has been made in this call of balance_upto_v5_seq_par, else returns an iterator pointing to T_out_v5[i_p].end()
      */
-    inline tout_it_t_v5 balance_upto_v5_seq_par(tout_it_t_v5& tn_J_, uint_t qj_pd, uint_t q_u);
+    inline tout_it_t_v5 balance_upto_v5_seq_par(tout_it_t_v5& tn_J_, pos_t qj_pd, pos_t q_u);
 
     /**
      * @brief balances the disjoint interval sequence in L_in_v5[0..p-1] and T_out_v5[0..p-1] sequentially or in parallel

@@ -7,11 +7,20 @@
 
 /**
  * @brief variable-width interleaved vectors (widths are fixed to whole bytes)
- * @tparam uint_t unsigned integer type
+ * @tparam pos_t unsigned integer type
  */
-template <typename uint_t = uint32_t, uint8_t num_vectors = 8>
+template <typename val_t, typename pos_t = uint32_t, uint8_t num_vectors = 8>
 class interleaved_vectors {
-    static_assert(std::is_same<uint_t,uint32_t>::value || std::is_same<uint_t,uint64_t>::value);
+    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
+
+    static_assert(
+        std::is_same<val_t,char>::value ||
+        std::is_same<val_t,uint8_t>::value ||
+        std::is_same<val_t,uint16_t>::value ||
+        std::is_same<val_t,uint32_t>::value ||
+        std::is_same<val_t,uint64_t>::value
+    );
+
     static_assert(num_vectors > 0);
 
     protected:
@@ -31,13 +40,13 @@ class interleaved_vectors {
 
     /** @brief [0..num_vectors-1] masks that are used to mask off data of other vector entries when
      *        accessing a vector */
-    std::array<uint_t,num_vectors> masks;
+    std::array<val_t,num_vectors> masks;
 
     /**
      * @brief initializes the interleaved_vectors with the vector-widths stored in widths
      * @param widths vector containing the widths (in bytes) of the interleaved arrays
      */
-    void initialize(std::array<uint8_t,num_vectors> widths = {sizeof(uint_t)}) {
+    void initialize(std::array<uint8_t,num_vectors> widths = {sizeof(val_t)}) {
         size_vectors = 0;
         capacity_vectors = 0;
         width_entry = 0;
@@ -52,7 +61,7 @@ class interleaved_vectors {
             } else {
                 this->widths[i] = widths[i];
                 width_entry += widths[i];
-                masks[i] = std::numeric_limits<uint_t>::max()>>(8*(sizeof(uint_t)-widths[i]));
+                masks[i] = std::numeric_limits<val_t>::max()>>(8*(sizeof(val_t)-widths[i]));
             }
         }
 
@@ -132,7 +141,7 @@ class interleaved_vectors {
      * @brief returns the size of each stored vector
      * @return the size of each stored vector
      */
-    uint64_t size() const {
+    inline uint64_t size() const {
         return size_vectors;
     }
 
@@ -140,7 +149,7 @@ class interleaved_vectors {
      * @brief returns whether the interleaved vectors are empty
      * @return whether the interleaved vectors are empty
      */
-    bool empty() const {
+    inline bool empty() const {
         return size_vectors == 0;
     }
 
@@ -152,7 +161,7 @@ class interleaved_vectors {
         return
             2*sizeof(uint64_t)+1+ // variables
             num_vectors*sizeof(uint64_t)+ // widths
-            2*num_vectors*sizeof(uint_t)+ // masks
+            2*num_vectors*sizeof(val_t)+ // masks
             size_vectors*width_entry; // data_vectors
     }
 
@@ -160,7 +169,7 @@ class interleaved_vectors {
      * @brief returns total width (number of bytes) per entry, that is the (sum of all widths)
      * @return number of bytes per entry
      */
-    uint8_t bytes_per_entry() const {
+    inline uint8_t bytes_per_entry() const {
         return this->width_entry;
     }
 
@@ -169,7 +178,7 @@ class interleaved_vectors {
      * @param vec vector index
      * @return its witdth in bytes
      */
-    uint8_t width(uint8_t vec) const {
+    inline uint8_t width(uint8_t vec) const {
         return widths[vec];
     }
 
@@ -177,7 +186,7 @@ class interleaved_vectors {
      * @brief returns a pointer to the data of the interleved vectors
      * @return pointer to the data of the interleved vectors
      */
-    char* data() const {
+    inline char* data() const {
         return bases[0];
     }
 
@@ -186,8 +195,8 @@ class interleaved_vectors {
      * @param i entry index (0 <= i < size_vectors)
      * @return i-th entry of the vector with index 0 
      */
-    uint_t operator[](uint_t i) const {
-        return get<0>(i);
+    inline val_t operator[](pos_t i) const {
+        return get<0,val_t>(i);
     }
 
     /**
@@ -251,7 +260,7 @@ class interleaved_vectors {
     /**
      * @brief resizes all stored vectors to size 0
      */
-    void clear() {
+    inline void clear() {
         resize(0);
     }
 
@@ -272,7 +281,7 @@ class interleaved_vectors {
      * @param vals tuple of vec values
      */
     template <typename... Ts>
-    void emplace_back(std::tuple<Ts...>&& vals) {
+    inline void emplace_back(std::tuple<Ts...>&& vals) {
         static_assert(std::tuple_size<std::tuple<Ts...>>::value <= num_vectors);
         
         if (size_vectors == capacity_vectors) {
@@ -280,7 +289,7 @@ class interleaved_vectors {
         }
 
         for_constexpr<0,sizeof...(Ts),1>([this,&vals](auto vec){
-            set<vec>(size_vectors,vals[vec]);
+            set<vec>(size_vectors,std::get<vec>(vals));
         });
 
         size_vectors++;
@@ -291,7 +300,7 @@ class interleaved_vectors {
      * @param values tuple of vec values
      */
     template <typename... Ts>
-    void push_back(std::tuple<Ts...> values) {
+    inline void push_back(std::tuple<Ts...> values) {
         emplace_back<Ts...>(std::move(values));
     }
 
@@ -302,7 +311,7 @@ class interleaved_vectors {
      * @param vals tuple of vec values
      */
     template <typename... Ts>
-    void emplace_back_unsafe(std::tuple<Ts...>&& vals) {
+    inline void emplace_back_unsafe(std::tuple<Ts...>&& vals) {
         static_assert(std::tuple_size<std::tuple<Ts...>>::value <= num_vectors);
 
         if (size_vectors == capacity_vectors) {
@@ -321,7 +330,7 @@ class interleaved_vectors {
      * @param vals tuple of vec values
      */
     template <typename... Ts>
-    void push_back_unsafe(std::tuple<Ts...> vals) {
+    inline void push_back_unsafe(std::tuple<Ts...> vals) {
         emplace_back_unsafe<Ts...>(std::move(vals));
     }
 
@@ -331,8 +340,8 @@ class interleaved_vectors {
      * @param i entry index (0 <= i < size_vectors)
      * @param v value to store
      */
-    template <uint8_t vec>
-    inline void set(uint_t i, uint_t v) {
+    template <uint8_t vec, typename T = val_t>
+    inline void set(pos_t i, T v) {
         static_assert(vec < num_vectors);
 
         for (uint64_t byte=0; byte<widths[vec]; byte++) {
@@ -349,8 +358,8 @@ class interleaved_vectors {
      * @param i entry index (0 <= i < size_vectors)
      * @param v value to store
      */
-    template <uint8_t vec, typename T>
-    inline void set_unsafe(uint_t i, T v) {
+    template <uint8_t vec, typename T = val_t>
+    inline void set_unsafe(pos_t i, T v) {
         static_assert(vec < num_vectors);
         *reinterpret_cast<T*>(bases[vec] + i * width_entry) = v;
     }
@@ -361,22 +370,22 @@ class interleaved_vectors {
      * @param i entry index (0 <= i < size_vectors)
      * @return value
      */
-    template <uint8_t vec>
-    inline uint_t get(uint_t i) const {
+    template <uint8_t vec, typename T = val_t>
+    inline T get(pos_t i) const {
         static_assert(vec < num_vectors);
-        return *reinterpret_cast<uint_t*>(bases[vec] + i * width_entry) & masks[vec];
+        return *reinterpret_cast<T*>(bases[vec] + i * width_entry) & masks[vec];
     }
 
     /**
      * @brief interprets the memory location of the i-th entry in the vector with index vec as an object of type
      * T and returns it (if sizeof(T) > widths[vec], the returned value contains data from subsequent entries)
      * @tparam vec vector index (0 <= vec < num_vectors)
-     * @tparam uint_t type to treat the i-th entry in the vector with index vec as
+     * @tparam pos_t type to treat the i-th entry in the vector with index vec as
      * @param i entry index (0 <= i < size_vectors)
      * @return value
      */
-    template <uint8_t vec, typename T>
-    inline uint_t get_unsafe(uint_t i) const {
+    template <uint8_t vec, typename T = val_t>
+    inline pos_t get_unsafe(pos_t i) const {
         static_assert(vec < num_vectors);
         return *reinterpret_cast<T*>(bases[vec] + i * width_entry);
     }
@@ -407,7 +416,7 @@ class interleaved_vectors {
 
         if (num_vectors > 0) {
             out.write((char*)&widths[0],num_vectors*sizeof(uint64_t));
-            out.write((char*)&masks[0],num_vectors*sizeof(uint_t));
+            out.write((char*)&masks[0],num_vectors*sizeof(val_t));
         }
 
         if (size_vectors > 0) {
@@ -427,7 +436,7 @@ class interleaved_vectors {
 
         if (num_vectors > 0) {
             in.read((char*)&widths[0],num_vectors*sizeof(uint64_t));
-            in.read((char*)&masks[0],num_vectors*sizeof(uint_t));
+            in.read((char*)&masks[0],num_vectors*sizeof(val_t));
         }
 
         if (old_size > 0) {

@@ -1,5 +1,5 @@
-template <typename uint_t>
-void move_data_structure<uint_t>::construction::verify_correctness() {
+template <typename pos_t>
+void move_data_structure<pos_t>::construction::verify_correctness() {
     std::cout << "verifying correctness of the interval sequence:" << std::endl;
     bool correct = true;
 
@@ -50,9 +50,9 @@ void move_data_structure<uint_t>::construction::verify_correctness() {
         }
     }
 
-    uint_t i = 0;
-    uint_t j = 0;
-    uint_t e;
+    pos_t i = 0;
+    pos_t j = 0;
+    pos_t e;
 
     // check if there is an a-heavy output interval by iterating over the input- and output intervals with pi
     while (i < k && j < k) {
