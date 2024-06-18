@@ -159,6 +159,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa() {
     std::uniform_int_distribution<uint32_t> pos_distrib(0,n-1-s);
     absl::btree_set<std::pair<pos_t,pos_t>> segments;
     pos_t size_R_current = 0;
+    //std::geometric_distribution<pos_t> geo_distrib(6.0/s);
 
     while (size_R_current < size_R_target) {
         pos_t best_pos = 0;
@@ -171,7 +172,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa() {
             std::random_device rd;
             std::mt19937 gen(rd());
             pos_t pos = pos_distrib(gen);
-            pos_t len = s;
+            pos_t len = s;//-std::min<pos_t>(s-1,geo_distrib(gen));
             float score = 0;
             ankerl::unordered_dense::set<uint32_t> processed_values;
             typename absl::btree_set<std::pair<pos_t,pos_t>>::iterator it_thr = segments.end();
@@ -193,8 +194,12 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa() {
                     pos_t end_last = (*it_thr_before).first+(*it_thr_before).second;
 
                     if (pos < end_last) {
-                        len -= end_last-pos;
-                        pos = end_last;
+                        if (pos+len < end_last) {
+                            len = 0;
+                        } else {
+                            len -= end_last-pos;
+                            pos = end_last;
+                        }
                     }
                 }
             }

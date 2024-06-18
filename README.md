@@ -1,6 +1,21 @@
 # Move-r
 This [2] is an optimized and parallelized implementation of the modified r-index described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)).
 
+## Comparison with other BWT-Runs Compressed Indexes
+### Query Performance
+![](measurements/results/queries.png?raw=true)
+### Construction Performance
+![](measurements/results/construction.png?raw=true)
+### Tested Texts
+![](measurements/results/texts.jpg?raw=true)
+
+#### GitHub repositories of the other indexes
+- [block-rlbwt](https://github.com/saskeli/block_RLBWT/tree/main)
+- [r-index](https://github.com/alshai/r-index/tree/master)
+- [r-index-f](https://github.com/drnatebrown/r-index-f/tree/master)
+- [rcomp-glfig](https://github.com/kampersanda/rcomp/tree/main)
+- [online-rlbwt](https://github.com/itomomoti/OnlineRlbwt/tree/master)
+
 ## External Dependencies
 - [OpenMP](https://www.openmp.org/)
 - [intel TBB](https://www.intel.com/content/www/us/en/developer/tools/oneapi/onetbb.html)
@@ -217,7 +232,7 @@ int main() {
 ### move-r-build: builds move-r.
 ```
 usage: move-r-build [options] <input_file>
-   -c <mode>          construction mode: runtime or space (default: runtime)
+   -c <mode>          construction mode: libsais or bigbwt (default: libsais)
    -o <base_name>     names the index file base_name.move-r (default: input_file)
    -s <op1> <op2> ... supported operations: revert, count and locate
                       (default: revert, count, locate)
@@ -301,13 +316,6 @@ usage 2: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file
                       to locate
    <num_threads>   maximum number of threads to use
 ```
-
-#### GitHub repositories of the other indexes
-- [block-rlbwt](https://github.com/saskeli/block_RLBWT/tree/main)
-- [r-index](https://github.com/alshai/r-index/tree/master)
-- [r-index-f](https://github.com/drnatebrown/r-index-f/tree/master)
-- [rcomp-glfig](https://github.com/kampersanda/rcomp/tree/main)
-- [online-rlbwt](https://github.com/itomomoti/OnlineRlbwt/tree/master)
 
 #### How to replicate the measurements
 1. Build the project with `MOVE_R_BUILD_BENCH_CLI` set to `ON`.

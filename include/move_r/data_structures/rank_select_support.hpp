@@ -179,7 +179,7 @@ class rank_select_support {
         frequencies.resize(alphabet_size,0);
 
         for (uint64_t i=l; i<=r; i++) {
-            vector_buffer[i-l] = read(i);
+            vector_buffer[i-l] = read(i-l);
             frequencies[symbol_idx(read(i-l))]++;
         }
 
