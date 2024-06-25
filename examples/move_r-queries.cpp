@@ -31,7 +31,7 @@ int main() {
     // lempel-ziv encoded differential suffix array (rlzdsa)
     move_r<_rlzdsa,int32_t> index_3({2,-1,5,-1,7,2,-1});
 
-    // incrementally search the pattern 2,-1 in the input vector (from
+    // incrementally search the pattern [2,-1] in the input vector (from
     // right to left) and print the number of occurrences after each step
     auto query = index_3.query();
     query.prepend(-1);
@@ -39,12 +39,19 @@ int main() {
     query.prepend(2);
     std::cout << query.num_occ() << std::endl;
 
-    // print the suffix-array [b,e] interval of 2,-1
+    // print the suffix-array interval [b,e] of [2,-1]
     std::cout << "b = " << query.sa_interval().first
             << ", e = " << query.sa_interval().second << std::endl;
 
-    // incrementally locate the occurrences of 2,-1 in the input vector
+    // incrementally locate the occurrences of [2,-1] in the input vector
     while (query.num_occ_rem() > 0) {
         std::cout << query.next_occ() << ", " << std::flush;
     }
+
+    // compute the longest suffix of [0,7,2] that occurs in the input vector
+    std::vector<int32_t> pattern = {0,7,2};
+    auto query_2 = index_3.query();
+    int suffix = pattern.size();
+    while (suffix > 0 && query_2.prepend(pattern[suffix-1])) suffix--;
+    std::cout << std::endl << suffix << std::flush;
 }

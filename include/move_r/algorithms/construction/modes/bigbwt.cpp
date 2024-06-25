@@ -1,4 +1,7 @@
+#pragma once
+
 #include <filesystem>
+#include <move_r/move_r.hpp>
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::preprocess_and_store_t_in_file() {
@@ -14,7 +17,7 @@ template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::bigbwt() {
     if (log) {
         time = now();
-        std::cout << "executing Big-BWT" << std::endl << std::endl;
+        std::cout << "running Big-BWT" << std::endl << std::endl;
     }
 
     system((
@@ -45,6 +48,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::bigbwt() {
         if (mf_idx != NULL) *mf_idx << " time_pfp=" << time_diff_ns(time,now());
         std::cout << std::endl;
         time = log_runtime(time);
+        log_peak_mem_usage();
     }
 }
 
@@ -56,23 +60,23 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c_bigbwt() {
     }
 
     std::ifstream bwt_file(prefix_tmp_files + ".bwt");
-    RLBWT.resize(p,std::move(interleaved_vectors<uint32_t,uint32_t>({1,4})));
+    RLBWT.resize(p_,std::move(interleaved_vectors<uint32_t,uint32_t>({1,4})));
 
-    for (uint16_t i=0; i<p; i++) {
-        n_p.emplace_back(i*(n/p));
+    for (uint16_t i=0; i<p_; i++) {
+        n_p.emplace_back(i*(n/p_));
     }
 
     n_p.emplace_back(n);
-    r_p.resize(p+1,0);
+    r_p.resize(p_+1,0);
     r_p[0] = 0;
-    C.resize(p+1,std::vector<pos_t>(256,0));
+    C.resize(p_+1,std::vector<pos_t>(256,0));
 
-    char cur_char;
-    char prev_char;
-    bwt_file.read(&prev_char,1);
+    i_sym_t cur_char;
+    i_sym_t prev_char;
+    bwt_file.read((char*)&prev_char,1);
 
-    if (prev_char == uchar_to_char(2)) {
-        prev_char = uchar_to_char(0);
+    if (prev_char == 2) {
+        prev_char = 0;
     }
 
     pos_t i_ = 0;
@@ -92,11 +96,11 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c_bigbwt() {
         i_buf = 0;
         
         while (i_buf < cur_bwt_buf_size) {
-            cur_char = bwt_buf[i_buf] == uchar_to_char(2) ? uchar_to_char(0) : bwt_buf[i_buf];
+            cur_char = char_to_uchar(bwt_buf[i_buf]) == 2 ? 0 : char_to_uchar(bwt_buf[i_buf]);
 
             if (cur_char != prev_char) {
-                C[i_p][char_to_uchar(prev_char)] += i-i_;
-                RLBWT[0].emplace_back_unsafe<char,uint32_t>({prev_char,i-i_});
+                C[i_p][prev_char] += i-i_;
+                RLBWT[0].emplace_back_unsafe<i_sym_t,uint32_t>({prev_char,i-i_});
                 prev_char = cur_char;
                 i_ = i;
 
@@ -114,8 +118,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c_bigbwt() {
         }
     }
 
-    RLBWT[0].emplace_back_unsafe<char,uint32_t>({prev_char,n-i_});
-    C[i_p][char_to_uchar(prev_char)] += n-i_;
+    RLBWT[0].emplace_back_unsafe<i_sym_t,uint32_t>({prev_char,n-i_});
+    C[i_p][prev_char] += n-i_;
     RLBWT[0].shrink_to_fit();
     bwt_buf.clear();
     bwt_buf.shrink_to_fit();
@@ -166,7 +170,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::read_iphi_from_bigbwt() {
 
     #pragma omp parallel for num_threads(p)
     for (uint64_t i=0; i<r-1; i++) {
-        if constexpr (std::is_same<pos_t,uint32_t>::value) {
+        if constexpr (std::is_same_v<pos_t,uint32_t>) {
             I_Phi[i].first = ssa.template get_unsafe<0,uint32_t>(i);
             I_Phi[i+1].second = esa.template get_unsafe<0,uint32_t>(i);
         } else {
@@ -190,42 +194,6 @@ void move_r<locate_support,sym_t,pos_t>::construction::read_iphi_from_bigbwt() {
     
     if (log) {
         if (mf_idx != NULL) *mf_idx << " time_read_iphi=" << time_diff_ns(time,now());
-        time = log_runtime(time);
-    }
-}
-
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::store_mlf() {
-    if (log) {
-        time = now();
-        std::cout << "storing M_LF in a file" << std::flush;
-    }
-
-    std::ofstream file_mlf(prefix_tmp_files + ".mlf");
-    idx._M_LF.serialize(file_mlf);
-    idx._M_LF = std::move(move_data_structure_l_<pos_t,sym_t>());
-    file_mlf.close();
-
-    if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_store_mlf=" << time_diff_ns(time,now());
-        time = log_runtime(time);
-    }
-}
-
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::load_mlf() {
-    if (log) {
-        time = now();
-        std::cout << "loading M_LF from a file" << std::flush;
-    }
-
-    std::ifstream file_mlf(prefix_tmp_files + ".mlf");
-    idx._M_LF.load(file_mlf);
-    file_mlf.close();
-    std::filesystem::remove(prefix_tmp_files + ".mlf");
-
-    if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_load_mlf=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }

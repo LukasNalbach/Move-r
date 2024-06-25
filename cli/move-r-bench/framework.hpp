@@ -352,7 +352,7 @@ void bench_a() {
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>();
     no_init_resize(SA,input_size);
 
-    if constexpr (std::is_same<sa_sint_t,int32_t>::value) {
+    if constexpr (std::is_same_v<sa_sint_t,int32_t>) {
         if (max_num_threads == 1) {
             libsais((uint8_t*)&input[0],&SA[0],input_size,0,NULL);
         } else {

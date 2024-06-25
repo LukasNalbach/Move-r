@@ -1,3 +1,5 @@
+#pragma once
+
 template <typename pos_t>
 inline typename move_data_structure<pos_t>::construction::tout_node_t_v2v3v4* move_data_structure<pos_t>::construction::balance_upto_v3_par(
     lin_node_t_v2v3v4* ln_IpA,

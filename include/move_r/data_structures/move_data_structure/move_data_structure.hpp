@@ -18,13 +18,13 @@ struct mds_params {
  */
 template <typename pos_t = uint32_t>
 class move_data_structure {
-    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
+    static_assert(std::is_same_v<pos_t,uint32_t> || std::is_same_v<pos_t,uint64_t>);
 
     protected:
     class construction;
 
-    using pair_t = std::pair<pos_t,pos_t>;
-    using pair_arr_t = std::vector<pair_t>;
+    using pair_t = std::pair<pos_t,pos_t>; // pair type
+    using pair_arr_t = std::vector<pair_t>; // pair array type
 
     pos_t n = 0; // n = p_{k_'-1} + d_{k_'-1}, k_' <= n
     pos_t k = 0; // k, number of intervals in the original disjoint inteval sequence I
@@ -260,6 +260,7 @@ class move_data_structure {
         out.write((char*)&omega_p,1);
         out.write((char*)&omega_idx,1);
         out.write((char*)&omega_offs,1);
+        out.write((char*)&omega_l_,1);
         data.serialize(out);
     }
 
@@ -275,6 +276,7 @@ class move_data_structure {
         in.read((char*)&omega_p,1);
         in.read((char*)&omega_idx,1);
         in.read((char*)&omega_offs,1);
+        in.read((char*)&omega_l_,1);
         data.load(in);
     }
 

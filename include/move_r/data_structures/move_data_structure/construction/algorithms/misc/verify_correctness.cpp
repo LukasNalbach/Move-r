@@ -1,3 +1,5 @@
+#pragma once
+
 template <typename pos_t>
 void move_data_structure<pos_t>::construction::verify_correctness() {
     std::cout << "verifying correctness of the interval sequence:" << std::endl;

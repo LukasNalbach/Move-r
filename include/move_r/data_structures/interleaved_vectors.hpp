@@ -11,14 +11,14 @@
  */
 template <typename val_t, typename pos_t = uint32_t, uint8_t num_vectors = 8>
 class interleaved_vectors {
-    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
+    static_assert(std::is_same_v<pos_t,uint32_t> || std::is_same_v<pos_t,uint64_t>);
 
     static_assert(
-        std::is_same<val_t,char>::value ||
-        std::is_same<val_t,uint8_t>::value ||
-        std::is_same<val_t,uint16_t>::value ||
-        std::is_same<val_t,uint32_t>::value ||
-        std::is_same<val_t,uint64_t>::value
+        std::is_same_v<val_t,char> ||
+        std::is_same_v<val_t,uint8_t> ||
+        std::is_same_v<val_t,uint16_t> ||
+        std::is_same_v<val_t,uint32_t> ||
+        std::is_same_v<val_t,uint64_t>
     );
 
     static_assert(num_vectors > 0);
@@ -205,7 +205,7 @@ class interleaved_vectors {
      * @param capacity capacity
      * @param num_threads number of threads to use when copying entries (default: 1)
      */
-    void reserve(uint64_t capacity, uint8_t num_threads = 1) {
+    void reserve(uint64_t capacity, uint16_t num_threads = 1) {
         if (capacity_vectors < capacity) {
             std::vector<char> new_data_vectors;
             no_init_resize(new_data_vectors,(capacity+1)*width_entry);
@@ -229,7 +229,7 @@ class interleaved_vectors {
      * @param num_threads number of threads to use when copying entries and initializing new entries
      *                    to 0 (default: 1)
      */
-    void resize(uint64_t size, uint8_t num_threads = 1) {
+    void resize(uint64_t size, uint16_t num_threads = 1) {
         uint64_t size_vectors_old = size_vectors;
 
         if (capacity_vectors < size) {
@@ -238,7 +238,7 @@ class interleaved_vectors {
         
         #pragma omp parallel for num_threads(num_threads)
         for (uint64_t i=size_vectors_old*width_entry; i<size*width_entry; i++) {
-            data_vectors[i] = uchar_to_char(0);
+            data_vectors[i] = 0;
         }
 
         size_vectors = size;
@@ -249,7 +249,7 @@ class interleaved_vectors {
      * @param size size
      * @param num_threads number of threads to use when copying entries (default: 1)
      */
-    void resize_no_init(uint64_t size, uint8_t num_threads = 1) {
+    void resize_no_init(uint64_t size, uint16_t num_threads = 1) {
         if (capacity_vectors < size) {
             reserve(size,num_threads);
         }
@@ -296,12 +296,30 @@ class interleaved_vectors {
     }
 
     /**
+     * @brief appends the tuple (val) to the end of the interleaved vectors
+     * @param val value
+     */
+    template <typename T>
+    inline void emplace_back(T&& val) {
+        emplace_back<T>(std::tuple<T>{val});
+    }
+
+    /**
      * @brief appends a tuple of vec values to the end of the interleaved vectors
      * @param values tuple of vec values
      */
     template <typename... Ts>
-    inline void push_back(std::tuple<Ts...> values) {
+    inline void push_back(const std::tuple<Ts...>& values) {
         emplace_back<Ts...>(std::move(values));
+    }
+
+    /**
+     * @brief appends the tuple (val) to the end of the interleaved vectors
+     * @param val value
+     */
+    template <typename T>
+    inline void push_back(const T& val) {
+        emplace_back<T>(std::tuple<T>{val});
     }
 
     /**

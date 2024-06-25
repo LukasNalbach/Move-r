@@ -60,7 +60,7 @@ void measure_locate() {
     std::cout << "loading the index" << std::flush;
     auto t1 = now();
     move_r<locate_support,char,pos_t> index;
-    index.load(index_file);
+    index.load(index_file,{_locate});
     log_runtime(t1);
     index_file.close();
     std::cout << std::endl;

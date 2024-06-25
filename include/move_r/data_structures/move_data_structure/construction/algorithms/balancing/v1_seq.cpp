@@ -1,3 +1,5 @@
+#pragma once
+
 template <typename pos_t>
 void move_data_structure<pos_t>::construction::balance_v1_seq() {
     if (log) log_message("building T_e");

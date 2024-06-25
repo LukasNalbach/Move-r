@@ -62,8 +62,11 @@ target_include_directories(sdsl PUBLIC "${CMAKE_BINARY_DIR}/external/sdsl-lite/e
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/abseil-cpp/")
 
-# unordered_dense
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/unordered_dense/")
+# gtl
+add_subdirectory("${CMAKE_SOURCE_DIR}/external/gtl/")
+
+# sparse-map
+add_subdirectory("${CMAKE_SOURCE_DIR}/external/sparse-map/")
 
 # Big-BWT
 execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/Big-BWT/")
@@ -77,7 +80,10 @@ target_include_directories(sais-lite-lcp INTERFACE "${CMAKE_SOURCE_DIR}/external
 # move-r
 add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
-target_link_libraries(move_r INTERFACE OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree malloc_count concurrentqueue unordered_dense sais-lite-lcp)
+target_link_libraries(move_r INTERFACE
+  OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree gtl sparse_map
+  malloc_count concurrentqueue sais-lite-lcp sais-lite-lcp
+)
 
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)
 option(MOVE_R_BUILD_BENCH_CLI "Build the benchmark cli program" ON)

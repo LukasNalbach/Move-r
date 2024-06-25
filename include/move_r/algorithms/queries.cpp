@@ -80,6 +80,36 @@ pos_t move_r<locate_support,sym_t,pos_t>::SA(pos_t i) const {
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+bool move_r<locate_support,sym_t,pos_t>::query_context::prepend(sym_t sym) {
+    pos_t b_tmp = b;
+    pos_t e_tmp = e;
+    pos_t b__tmp = b_;
+    pos_t e__tmp = e_;
+    pos_t hat_e_ap_y_tmp = hat_e_ap_y;
+    pos_t hat_b_ap_z_tmp = hat_b_ap_z;
+    int64_t y_tmp = y;
+    int64_t z_tmp = z;
+
+    if (idx->backward_search_step(sym,b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z)) {
+        l++;
+        i = b;
+        
+        return true;
+    } else {
+        b = b_tmp;
+        e = e_tmp;
+        b_ = b__tmp;
+        e_ = e__tmp;
+        hat_e_ap_y = hat_e_ap_y_tmp;
+        hat_b_ap_z = hat_b_ap_z_tmp;
+        y = y_tmp;
+        z = z_tmp;
+
+        return false;
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 pos_t move_r<locate_support,sym_t,pos_t>::query_context::next_occ() {
     if constexpr (locate_support == _rlzdsa) {
         if (i == b) {
@@ -148,7 +178,7 @@ void move_r<locate_support,sym_t,pos_t>::query_context::locate(std::vector<pos_t
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::backward_search_step(
+bool move_r<locate_support,sym_t,pos_t>::backward_search_step(
     sym_t sym,
     pos_t& b, pos_t& e,
     pos_t& b_, pos_t& e_,
@@ -156,18 +186,18 @@ void move_r<locate_support,sym_t,pos_t>::backward_search_step(
     int64_t& z, pos_t& hat_b_ap_z
 ) const {
     // If the characters have been remapped internally, the pattern also has to be remapped.
-    sym = map_symbol(sym);
+    i_sym_t i_sym = map_symbol(sym);
 
     // If sym does not occur in L', then P[i..m] does not occur in T
-    if (sym == 0 || !RS_L_().contains(sym)) {e = 0; b = 1; return;}
+    if (i_sym == 0 || !RS_L_().contains(i_sym)) return false;
 
     // Find the lexicographically smallest suffix in the current suffix array interval that is prefixed by P[i]
-    if (sym != L_(b_)) {
+    if (i_sym != L_(b_)) {
         /* To do so, we can at first find the first (sub-)run with character P[i] after the b_-th (sub-)run, save
         its index in b_ and set b to its start position M_LF.p(b_). */
-        b_ = RS_L_().rank(sym,b_);
-        if (b_ == RS_L_().frequency(sym)) {e = 0; b = 1; return;}
-        b_ = RS_L_().select(sym,b_+1);
+        b_ = RS_L_().rank(i_sym,b_);
+        if (b_ == RS_L_().frequency(i_sym)) return false;
+        b_ = RS_L_().select(i_sym,b_+1);
         b = M_LF().p(b_);
         
         // update z (Case 1).
@@ -179,12 +209,12 @@ void move_r<locate_support,sym_t,pos_t>::backward_search_step(
     }
 
     // Find the lexicographically largest suffix in the current suffix array interval that is prefixed by P[i]
-    if (sym != L_(e_)) {
+    if (i_sym != L_(e_)) {
         /* To do so, we can at first find the (sub-)last run with character P[i] before the e_-th (sub-)run, save
         its index in e_ and set e to its end position M_LF.p(e_+1)-1. */
-        e_ = RS_L_().rank(sym,e_);
-        if (e_ == 0) {e = 0; b = 1; return;}
-        e_ = RS_L_().select(sym,e_);
+        e_ = RS_L_().rank(i_sym,e_);
+        if (e_ == 0) return false;
+        e_ = RS_L_().select(i_sym,e_);
         e = M_LF().p(e_+1)-1;
         
         // update y (Case 1).
@@ -205,10 +235,8 @@ void move_r<locate_support,sym_t,pos_t>::backward_search_step(
     because LF(i) is monotonic for a fixed L[i], hence it suffices to check, whether
     b <= e holds. */
 
-    // If the suffix array interval is empty, P does not occur in T, so return.
-    if (b > e) {
-        return;
-    }
+    // If the suffix array interval is empty, P does not occur in T, so return false.
+    if (b > e) return false;
     
     /* Else, set b <- LF(b) and e <- LF(e). The following two optimizations increase query throughput slightly
         if there are only few occurrences */
@@ -236,6 +264,8 @@ void move_r<locate_support,sym_t,pos_t>::backward_search_step(
         M_LF().move(b,b_);
         M_LF().move(e,e_);
     }
+
+    return true;
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
@@ -405,14 +435,15 @@ void move_r<locate_support,sym_t,pos_t>::locate_rlzdsa(
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
     std::vector<pos_t>& Occ
 ) const {
-    while (i <= e) {
+    while (true) {
         // decode all copy phrases before the next literal phrase
-        while (!PT(x_p) && i <= e) {
+        while (!PT(x_p)) {
             // decode the x_cp-th copy phrase
-            while (i < s_np && i <= e) {
+            while (i < s_np) {
                 s += R(x_r);
                 s -= n;
                 Occ.emplace_back(s);
+                if (i == e) return;
                 i++;
                 x_r++;
             }
@@ -424,10 +455,11 @@ void move_r<locate_support,sym_t,pos_t>::locate_rlzdsa(
         }
 
         // decode all literal phrases before the next copy phrase
-        while (PT(x_p) && i <= e) {
+        while (PT(x_p)) {
             // decode the x_lp-th literal phrase
             s = LP(x_lp);
             Occ.emplace_back(s);
+            if (i == e) return;
             i++;
             x_p++;
             x_lp++;
@@ -440,16 +472,14 @@ void move_r<locate_support,sym_t,pos_t>::locate_rlzdsa(
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-pos_t move_r<locate_support,sym_t,pos_t>::count(const input_t& P) const {
+pos_t move_r<locate_support,sym_t,pos_t>::count(const i_cont_t& P) const {
     pos_t l,b,e,b_,e_,hat_e_ap_y,hat_b_ap_z;
     int64_t y,z;
 
     init_backward_search(b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z);
 
     for (int64_t i=P.size()-1; i>=0; i--) {
-        backward_search_step(P[i],b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z);
-
-        if (b > e) {
+        if (!backward_search_step(P[i],b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z)) {
             return 0;
         }
     }
@@ -458,16 +488,14 @@ pos_t move_r<locate_support,sym_t,pos_t>::count(const input_t& P) const {
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::locate(const input_t& P, std::vector<pos_t>& Occ) const {
+void move_r<locate_support,sym_t,pos_t>::locate(const i_cont_t& P, std::vector<pos_t>& Occ) const {
     pos_t l,b,e,b_,e_,hat_e_ap_y,hat_b_ap_z;
     int64_t y,z;
 
     init_backward_search(b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z);
 
     for (int64_t i=P.size()-1; i>=0; i--) {
-        backward_search_step(P[i],b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z);
-
-        if (b > e) {
+        if (!backward_search_step(P[i],b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z)) {
             return;
         }
     }

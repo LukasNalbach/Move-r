@@ -7,28 +7,39 @@
 #include <move_r/data_structures/hybrid_bit_vector.hpp>
 
 /**
- * @brief a string rank-select data structure using hybrid bit vectors (either sd_array or plain bit vector)
- * @tparam pos_t unsigned integer type
+ * @brief a rank-select data structure using hybrid bit vectors (either sd_array or plain bit vector), or the gmr data structure
+ * @tparam sym_t symbol type type
+ * @tparam pos_t position type
  */
 template <typename sym_t, typename pos_t = uint32_t>
 class rank_select_support {
-    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
+    protected:
+
+    static_assert(std::is_same_v<pos_t,uint32_t> || std::is_same_v<pos_t,uint64_t>);
     
     static_assert(
-        std::is_same<sym_t,char>::value ||
-        std::is_same<sym_t,uint8_t>::value ||
-        std::is_same<sym_t,uint16_t>::value ||
-        std::is_same<sym_t,uint32_t>::value ||
-        std::is_same<sym_t,uint64_t>::value
+        std::is_same_v<sym_t,char> ||
+        std::is_same_v<sym_t,uint8_t> ||
+        std::is_same_v<sym_t,uint16_t> ||
+        std::is_same_v<sym_t,uint32_t> ||
+        std::is_same_v<sym_t,uint64_t>
     );
-    
-    using hybrid_bv_t = hybrid_bit_vector<pos_t,true,false,true>;
 
-    protected:
-    pos_t string_size = 0; // the size of the input
-    pos_t sigma = 0; // the number of distinct symbols in the input
-    std::vector<char> characters; // vector containing exactly the characters occurring in the input (only used if sym_t = char)
-    std::vector<pos_t> frequencies; // [0..255/sigma-1] (for sym_t = char/.) stores at position c the frequency of c in the input
+    static constexpr bool str_input = std::is_same_v<sym_t,char>; // true <=> the input is a string
+    static constexpr bool use_bvs = sizeof(sym_t) == 1; // true <=> use bit vectors
+
+    using i_sym_t = std::conditional_t<str_input,uint8_t,sym_t>; // internal (unsigned) symbol type
+    using hybrid_bv_t = hybrid_bit_vector<pos_t,true,false,true>; // hybrid bit vector type
+
+    // ############################# COMMON VARIABLES #############################
+
+    pos_t input_size = 0; // the size of the input
+    std::vector<pos_t> freq; // stores at position c the frequency of c in the input
+
+    // ############################# VARIABLES FOR use_bvs = true #############################
+
+    pos_t sigma = 0; // the number of distinct alphabet in the input
+    std::vector<i_sym_t> alphabet; // the symbols occurring in the input sorted descendingly by their frequency
 
     /**
      * @brief hyb_bit_vecs[c] contains a hybrid bit vector [0..size-1] that marks (with ones) the occurrences of c
@@ -36,94 +47,69 @@ class rank_select_support {
      */
     std::vector<hybrid_bv_t> hyb_bit_vecs;
 
+    // ############################# VARIABLES FOR use_bvs = false #############################
+
     /**
-     * @brief rank-select data structure for integer alphabets (for sym_t != char)
+     * @brief rank-select data structure for integer alphabets
      */
     sdsl::wt_gmr_rs<> gmr;
 
+    // ######################################################################################
+
     pos_t symbol_idx(sym_t sym) const {
-        if constexpr (std::is_same<sym_t,char>::value) {
+        if constexpr (str_input) {
             return char_to_uchar(sym);
         } else {
             return sym;
         }
     };
 
-    public:
-    rank_select_support() = default;
+    void build_bvs(const std::function<sym_t(pos_t)>& read, pos_t l, pos_t r, uint16_t num_threads) {
+        input_size = r-l+1;
+        std::vector<std::vector<pos_t>> occurrences_thr(num_threads,std::vector<pos_t>(256,0));
 
-    /**
-     * @brief builds the data structure from the range [l,r] in an input (0 <= l <= r < string.size()),
-     * else if l > r, then the the data structure is built for the whole input
-     * @param string the input
-     * @param l left range limit (l <= r)
-     * @param r right range limit (l <= r)
-     * @param p the number of threads to use
-     */
-    rank_select_support(const std::string& string, pos_t l = 1, pos_t r = 0, uint16_t p = omp_get_max_threads()) requires(std::is_same<sym_t,char>::value) {
-        if (l > r) {
-            l = 0;
-            r = string.size()-1;
-        }
-        
-        r = std::min(r,string.size()-1);
-        *this = std::move(rank_select_support([&string](uint i){return string[i];},l,r,p));
-    }
-    
-    /**
-     * @brief builds the data structure by reading the input using the function read
-     * @param read function to read the input with; it is called with i in [l,r]
-     * as a parameter and must return the value of the input at index i
-     * @param l left range limit (l <= r)
-     * @param r right range limit (l <= r)
-     * @param p the number of threads to use
-     */
-    rank_select_support(const std::function<char(pos_t)>& read, pos_t l = 1, pos_t r = 0, uint16_t p = omp_get_max_threads()) requires(std::is_same<sym_t,char>::value) {
-        string_size = r-l+1;
-        std::vector<std::vector<pos_t>> occurrences_thr(p,std::vector<pos_t>(256,0));
-
-        #pragma omp parallel for num_threads(p)
+        #pragma omp parallel for num_threads(num_threads)
         for (uint64_t i=l; i<=r; i++) {
-            occurrences_thr[omp_get_thread_num()][char_to_uchar(read(i))]++;
+            occurrences_thr[omp_get_thread_num()][symbol_idx(read(i))]++;
         }
 
-        frequencies.resize(256);
+        freq.resize(256);
 
         for (uint16_t cur_char=0; cur_char<256; cur_char++) {
-            for (uint16_t i_p=0; i_p<p; i_p++) {
-                frequencies[cur_char] += occurrences_thr[i_p][cur_char];
+            for (uint16_t i_p=0; i_p<num_threads; i_p++) {
+                freq[cur_char] += occurrences_thr[i_p][cur_char];
             }
 
-            if (frequencies[cur_char] != 0) {
-                characters.emplace_back(uchar_to_char((uint8_t)cur_char));
+            if (freq[cur_char] != 0) {
+                alphabet.emplace_back(cur_char);
             }
         }
 
         occurrences_thr.clear();
         occurrences_thr.shrink_to_fit();
-        sigma = characters.size();
+        sigma = alphabet.size();
         uint16_t num_chars = sigma;
-        std::sort(characters.begin(),characters.end(),[this](char a, char b){return frequencies[char_to_uchar(a)] > frequencies[char_to_uchar(b)];});
+        std::sort(alphabet.begin(),alphabet.end(),[this](i_sym_t a, i_sym_t b){return freq[a] > freq[b];});
         std::vector<uint8_t> is_compressed(256,1);
         std::vector<sdsl::sd_vector_builder> sdv_builders(256);
         std::vector<sdsl::bit_vector> plain_bvs(256);
 
-        #pragma omp parallel for num_threads(p)
+        #pragma omp parallel for num_threads(num_threads)
         for (uint16_t i=0; i<num_chars; i++) {
-            uint8_t cur_char = char_to_uchar(characters[i]);
+            uint8_t cur_char = alphabet[i];
 
-            if (frequencies[cur_char] > string_size * hybrid_bit_vector<pos_t>::compression_threshold) {
+            if (freq[cur_char] > input_size * hybrid_bit_vector<pos_t>::compression_threshold) {
                 is_compressed[cur_char] = 0;
-                plain_bvs[cur_char] = std::move(sdsl::bit_vector(string_size));
+                plain_bvs[cur_char] = std::move(sdsl::bit_vector(input_size));
             } else {
-                sdv_builders[cur_char] = std::move(sdsl::sd_vector_builder(string_size,frequencies[cur_char]));
+                sdv_builders[cur_char] = std::move(sdsl::sd_vector_builder(input_size,freq[cur_char]));
             }
         }
 
         uint8_t cur_char;
 
         for (uint64_t i=l; i<=r; i++) {
-            cur_char = char_to_uchar(read(i));
+            cur_char = symbol_idx(read(i));
 
             if (is_compressed[cur_char]) {
                 sdv_builders[cur_char].set(i-l);
@@ -134,9 +120,9 @@ class rank_select_support {
 
         hyb_bit_vecs.resize(256);
 
-        #pragma omp parallel for num_threads(p)
+        #pragma omp parallel for num_threads(num_threads)
         for (uint16_t i=0; i<num_chars; i++) {
-            uint8_t cur_char = char_to_uchar(characters[i]);
+            uint8_t cur_char = symbol_idx(alphabet[i]);
 
             if (is_compressed[cur_char]) {
                 hyb_bit_vecs[cur_char] = std::move(hybrid_bv_t(std::move(sdsl::sd_vector<>(sdv_builders[cur_char]))));
@@ -146,22 +132,71 @@ class rank_select_support {
         }
     }
 
+    void build_gmr(const std::function<sym_t(pos_t)>& read, pos_t alphabet_size, pos_t l, pos_t r) {
+        sigma = alphabet_size;
+        std::string vector_buffer_filename = "vec_" + random_alphanumeric_string(10);
+        sdsl::int_vector_buffer<> vector_buffer(vector_buffer_filename,std::ios::out);
+        freq.resize(alphabet_size,0);
+
+        for (uint64_t i=l; i<=r; i++) {
+            vector_buffer[i-l] = read(i-l);
+            freq[read(i-l)]++;
+        }
+
+        gmr = std::move(sdsl::wt_gmr_rs<>(vector_buffer,r-l+1));
+        vector_buffer.close();
+        std::filesystem::remove(vector_buffer_filename);
+    }
+
+    public:
+    rank_select_support() = default;
+
+    /**
+     * @brief builds the data structure from the range [l,r] in an input (0 <= l <= r < string.size()),
+     * else if l > r, then the the data structure is built for the whole input
+     * @param string the input
+     * @param l left range limit (l <= r)
+     * @param r right range limit (l <= r)
+     * @param num_threads the number of threads to use
+     */
+    rank_select_support(const std::string& string, pos_t l = 1, pos_t r = 0, uint16_t num_threads = omp_get_max_threads()) requires(use_bvs) {
+        if (l > r) {
+            l = 0;
+            r = string.size()-1;
+        }
+        
+        r = std::min(r,string.size()-1);
+        build_bvs([&string](uint i){return string[i];},l,r,num_threads);
+    }
+    
+    /**
+     * @brief builds the data structure by reading the input using the function read
+     * @param read function to read the input with; it is called with i in [l,r]
+     * as a parameter and must return the value of the input at index i
+     * @param l left range limit (l <= r)
+     * @param r right range limit (l <= r)
+     * @param num_threads the number of threads to use
+     */
+    rank_select_support(const std::function<sym_t(pos_t)>& read, pos_t l = 1, pos_t r = 0, uint16_t num_threads = omp_get_max_threads()) requires(use_bvs) {
+        build_bvs(read,l,r,num_threads);
+    }
+
     /**
      * @brief builds the data structure by reading the input vector
      * @param vector input vector
      * @param alphabet_size number of distinct symbols in vector (= maximum value in vector)
      * @param l left range limit (l <= r)
      * @param r right range limit (l <= r)
-     * @param p the number of threads to use
+     * @param num_threads the number of threads to use
      */
-    rank_select_support(const std::vector<sym_t>& vector, pos_t alphabet_size, pos_t l = 1, pos_t r = 0) requires(!std::is_same<sym_t,char>::value) {
+    rank_select_support(const std::vector<sym_t>& vector, pos_t alphabet_size, pos_t l = 1, pos_t r = 0) requires(!use_bvs) {
         if (l > r) {
             l = 0;
             r = vector.size()-1;
         }
         
         r = std::min(r,vector.size()-1);
-        *this = std::move(rank_select_support([&vector](uint i){return vector[i];},alphabet_size,l,r));
+        build_gmr([&vector](uint i){return vector[i];},alphabet_size,l,r);
     }
 
     /**
@@ -172,20 +207,8 @@ class rank_select_support {
      * @param l left range limit (l <= r)
      * @param r right range limit (l <= r)
      */
-    rank_select_support(const std::function<sym_t(pos_t)>& read, pos_t alphabet_size, pos_t l = 1, pos_t r = 0) requires(!std::is_same<sym_t,char>::value) {
-        sigma = alphabet_size;
-        std::string vector_buffer_filename = "vec_" + random_alphanumeric_string(10);
-        sdsl::int_vector_buffer<> vector_buffer(vector_buffer_filename,std::ios::out);
-        frequencies.resize(alphabet_size,0);
-
-        for (uint64_t i=l; i<=r; i++) {
-            vector_buffer[i-l] = read(i-l);
-            frequencies[symbol_idx(read(i-l))]++;
-        }
-
-        gmr = std::move(sdsl::wt_gmr_rs<>(vector_buffer,r-l+1));
-        vector_buffer.close();
-        std::filesystem::remove(vector_buffer_filename);
+    rank_select_support(const std::function<sym_t(pos_t)>& read, pos_t alphabet_size, pos_t l = 1, pos_t r = 0) requires(!use_bvs) {
+        build_gmr(read,alphabet_size,l,r);
     }
 
     /**
@@ -194,14 +217,14 @@ class rank_select_support {
      * @return the value at index i in the input
      */
     inline sym_t operator[](pos_t i) const {
-        if constexpr (std::is_same<sym_t,char>::value) {
-            for (char c : characters) {
-                if (hyb_bit_vecs[char_to_uchar(c)][i] == 1) {
+        if constexpr (use_bvs) {
+            for (i_sym_t c : alphabet) {
+                if (hyb_bit_vecs[c][i] == 1) {
                     return c;
                 }
             }
 
-            return uchar_to_char(0);
+            return 0;
         } else {
             return gmr[i];
         }
@@ -212,8 +235,8 @@ class rank_select_support {
      * @return the size of the input
      */
     inline pos_t size() const {
-        if constexpr (std::is_same<sym_t,char>::value) {
-            return string_size;
+        if constexpr (use_bvs) {
+            return input_size;
         } else {
             return gmr.size();
         }
@@ -232,8 +255,8 @@ class rank_select_support {
      * @return size of the data structure in bytes
      */
     uint64_t size_in_bytes() const {
-        if constexpr (std::is_same<sym_t,char>::value) {
-            uint64_t size = sizeof(pos_t)+characters.size()+sizeof(pos_t)*characters.size();
+        if constexpr (use_bvs) {
+            uint64_t size = sizeof(pos_t)+alphabet.size()+sizeof(pos_t)*alphabet.size();
 
             for (uint16_t i=0; i<hyb_bit_vecs.size(); i++) {
                 size += hyb_bit_vecs[i].size_in_bytes();
@@ -254,8 +277,8 @@ class rank_select_support {
     }
 
     inline bool contains(sym_t v) const {
-        if constexpr (std::is_same<sym_t,char>::value) {
-            return frequencies[symbol_idx(v)] > 0;
+        if constexpr (use_bvs) {
+            return freq[symbol_idx(v)] > 0;
         } else {
             return v < sigma;
         }
@@ -267,7 +290,7 @@ class rank_select_support {
      * @return the number of occurrences of v in the input
      */
     inline pos_t frequency(sym_t v) const {
-        return frequencies[symbol_idx(v)];
+        return freq[symbol_idx(v)];
     }
 
     /**
@@ -277,8 +300,8 @@ class rank_select_support {
      * @return number of occurrences of c before index i
      */
     inline pos_t rank(sym_t v, pos_t i) const {
-        if constexpr (std::is_same<sym_t,char>::value) {
-            return hyb_bit_vecs[char_to_uchar(v)].rank_1(i);
+        if constexpr (use_bvs) {
+            return hyb_bit_vecs[symbol_idx(v)].rank_1(i);
         } else {
             return gmr.rank(i,v);
         }
@@ -291,8 +314,8 @@ class rank_select_support {
      * @return index of the i-th occurrence of c
      */
     inline pos_t select(sym_t v, pos_t i) const {
-        if constexpr (std::is_same<sym_t,char>::value) {
-            return hyb_bit_vecs[char_to_uchar(v)].select_1(i);
+        if constexpr (use_bvs) {
+            return hyb_bit_vecs[symbol_idx(v)].select_1(i);
         } else {
             return gmr.select(i,v);
         }
@@ -303,25 +326,25 @@ class rank_select_support {
      * @param out output stream
      */
     void serialize(std::ostream& out) const {
-        if constexpr (std::is_same<sym_t,char>::value) {
-            out.write((char*)&string_size,sizeof(pos_t));
+        if constexpr (use_bvs) {
+            out.write((char*)&input_size,sizeof(pos_t));
             
-            if (string_size > 0) {
-                uint8_t num_chars = characters.size();
+            if (input_size > 0) {
+                uint8_t num_chars = alphabet.size();
                 out.write((char*)&num_chars,1);
 
-                out.write((char*)&characters[0],characters.size());
-                out.write((char*)&frequencies[0],256*sizeof(pos_t));
+                out.write((char*)&alphabet[0],alphabet.size());
+                out.write((char*)&freq[0],256*sizeof(pos_t));
 
-                for (uint16_t i=0; i<characters.size(); i++) {
-                    hyb_bit_vecs[char_to_uchar(characters[i])].serialize(out);
+                for (uint16_t i=0; i<alphabet.size(); i++) {
+                    hyb_bit_vecs[alphabet[i]].serialize(out);
                 }
             }
         } else {
             pos_t vector_size = gmr.size();
             out.write((char*)&vector_size,sizeof(pos_t));
             out.write((char*)&sigma,sizeof(pos_t));
-            out.write((char*)&frequencies[0],sigma*sizeof(pos_t));
+            out.write((char*)&freq[0],sigma*sizeof(pos_t));
             
             if (vector_size > 0) {
                 gmr.serialize(out);
@@ -334,30 +357,30 @@ class rank_select_support {
      * @param in input stream
      */
     void load(std::istream& in) {
-        if constexpr (std::is_same<sym_t,char>::value) {
-            in.read((char*)&string_size,sizeof(pos_t));
+        if constexpr (use_bvs) {
+            in.read((char*)&input_size,sizeof(pos_t));
 
-            if (string_size > 0) {
+            if (input_size > 0) {
                 uint8_t num_chars;
                 in.read((char*)&num_chars,1);
 
-                characters.resize(num_chars);
-                in.read((char*)&characters[0],num_chars);
+                alphabet.resize(num_chars);
+                in.read((char*)&alphabet[0],num_chars);
 
-                frequencies.resize(256);
-                in.read((char*)&frequencies[0],256*sizeof(pos_t));
+                freq.resize(256);
+                in.read((char*)&freq[0],256*sizeof(pos_t));
 
                 hyb_bit_vecs.resize(256);
 
-                for (uint16_t i=0; i<characters.size(); i++) {
-                    hyb_bit_vecs[char_to_uchar(characters[i])].load(in);
+                for (uint16_t i=0; i<alphabet.size(); i++) {
+                    hyb_bit_vecs[alphabet[i]].load(in);
                 }
             }
         } else {
             pos_t vector_size;
             in.read((char*)&vector_size,sizeof(pos_t));
             in.read((char*)&sigma,sizeof(pos_t));
-            in.read((char*)&frequencies[0],sigma*sizeof(pos_t));
+            in.read((char*)&freq[0],sigma*sizeof(pos_t));
 
             if (vector_size > 0) {
                 gmr.load(in);

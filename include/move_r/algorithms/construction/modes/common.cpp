@@ -1,29 +1,29 @@
-#include <ips4o.hpp>
+#pragma once
+
 #include <cmath>
-#include <move_r/data_structures/file_vector.hpp>
+#include <ips4o.hpp>
+#include <move_r/move_r.hpp>
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool use_libsais, std::ifstream* T_ifile) {
+void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool in_memory, std::ifstream* T_ifile) {
     if (log) std::cout << "preprocessing T" << std::flush;
 
-    if constexpr (std::is_same<sym_t,char>::value) {
-        if (!use_libsais) {
+    if constexpr (byte_alphabet) {
+        // contains_uchar_thr[i_p][c] = true <=> thread i_p found the character c in its section of T[0..n-2].
+        std::vector<std::vector<uint8_t>> contains_uchar_thr(p,std::vector<uint8_t>(256,0));
+
+        if (in_memory) {
+            // Iterate over T[0..n-2] and report the occurrence of each found character in T[0..n-2] in contains_uchar_thr.
+            #pragma omp parallel for num_threads(p)
+            for (uint64_t i=0; i<n-1; i++) {
+                contains_uchar_thr[omp_get_thread_num()][T<i_sym_t>(i)] = 1;
+            }
+        } else {
             T_ifile->seekg(0,std::ios::end);
             n = T_ifile->tellg()+(std::streamsize)+1;
             idx.n = n;
             T_ifile->seekg(0,std::ios::beg);
-        }
 
-        // contains_uchar_thr[i_p][c] = true <=> thread i_p found the character c in its section of T[0..n-2].
-        std::vector<std::vector<uint8_t>> contains_uchar_thr(p,std::vector<uint8_t>(256,0));
-
-        if (use_libsais) {
-            // Iterate over T[0..n-2] and report the occurrence of each found character in T[0..n-2] in contains_uchar_thr.
-            #pragma omp parallel for num_threads(p)
-            for (uint64_t i=0; i<n-1; i++) {
-                contains_uchar_thr[omp_get_thread_num()][char_to_uchar(T(i))] = 1;
-            }
-        } else {
             pos_t max_t_buf_size = std::max((pos_t)1,n/500);
             std::string T_buf;
             no_init_resize(T_buf,max_t_buf_size);
@@ -66,7 +66,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool use_lib
         // The number of distinct characters in T[0..n-1].
         idx.sigma = 1;
 
-        // Count the number of ones in contains_uchar[0..255] in idx._unmap_int.
+        // Count the number of ones in contains_uchar[0..255] in idx._map_ext.
         for (uint16_t cur_uchar=0; cur_uchar<256; cur_uchar++) {
             if (contains_uchar[cur_uchar] == 1) {
                 idx.sigma++;
@@ -96,8 +96,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool use_lib
             // build the mapping function map_symbol that remaps the characters of T, s.t. it does
             // not contain 0 or 1; also build its inverse function unmap_symbol
 
-            idx._map_char.resize(256,0);
-            idx._unmap_char.resize(256,0);
+            idx._map_int.resize(256,0);
+            idx._map_ext.resize(256,0);
 
             /* To preserve the order among characters in T[0..n-2], we start by mapping smallest
             character in T[0..n-2] to 2, the second smallest to 3, ... . */
@@ -108,8 +108,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool use_lib
 
             for (uint16_t cur_uchar=0; cur_uchar<next_uchar_to_remap_to; cur_uchar++) {
                 if (contains_uchar[cur_uchar] == 1) {
-                    idx._map_char[cur_uchar] = next_uchar_to_remap_to;
-                    idx._unmap_char[next_uchar_to_remap_to] = cur_uchar;
+                    idx._map_int[cur_uchar] = next_uchar_to_remap_to;
+                    idx._map_ext[next_uchar_to_remap_to] = cur_uchar;
                     max_remapped_uchar = cur_uchar;
                     next_uchar_to_remap_to++;
                 }
@@ -119,59 +119,61 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool use_lib
 
             for (uint16_t cur_uchar=max_remapped_to_uchar+1; cur_uchar<256; cur_uchar++) {
                 if (contains_uchar[cur_uchar] == 1) {
-                    idx._map_char[cur_uchar] = cur_uchar;
-                    idx._unmap_char[cur_uchar] = cur_uchar;
+                    idx._map_int[cur_uchar] = cur_uchar;
+                    idx._map_ext[cur_uchar] = cur_uchar;
                 }
             }
 
             // Apply map_symbol to T.
-            if (use_libsais) {
+            if (in_memory) {
                 #pragma omp parallel for num_threads(p)
                 for (uint64_t i=0; i<n-1; i++) {
-                    if (char_to_uchar(T(i)) <= max_remapped_uchar) {
-                        T(i) = idx.map_symbol(T(i));
+                    if (T<i_sym_t>(i) <= max_remapped_uchar) {
+                        T<i_sym_t>(i) = idx._map_int[T<i_sym_t>(i)];
                     }
                 }
             }
         }
 
-        if (!use_libsais) {
+        if (!in_memory) {
             prefix_tmp_files = "move-r_" + random_alphanumeric_string(10);
             std::ofstream T_ofile(prefix_tmp_files);
             pos_t max_t_buf_size = std::max((pos_t)1,n/500);
-            std::string T_buf;
+            std::vector<uint8_t> T_buf;
             no_init_resize(T_buf,max_t_buf_size);
             pos_t cur_t_buf_size;
             pos_t n_ = n-1;
 
             while (n_ > 0) {
                 cur_t_buf_size = std::min(n_,max_t_buf_size);
-                read_from_file(*T_ifile,T_buf.c_str(),cur_t_buf_size);
+                read_from_file(*T_ifile,(char*)&T_buf[0],cur_t_buf_size);
 
                 if (idx.symbols_remapped) {
                     #pragma omp parallel for num_threads(p)
                     for (uint64_t i=0; i<cur_t_buf_size; i++) {
-                        if (char_to_uchar(T_buf[i]) <= max_remapped_uchar) {
-                            T_buf[i] = idx.map_symbol(T_buf[i]);
+                        if (T_buf[i] <= max_remapped_uchar) {
+                            T_buf[i] = idx._map_int[T_buf[i]];
                         }
                     }
                 }
 
-                write_to_file(T_ofile,T_buf.c_str(),cur_t_buf_size);
+                write_to_file(T_ofile,(char*)&T_buf[0],cur_t_buf_size);
                 n_ -= cur_t_buf_size;
             }
             
             T_ifile->close();
             T_ofile.close();
         }
-    } else if (idx.sigma == 0) {
+
+        p_ = p;
+    } else {
         idx.symbols_remapped = true;
         uint64_t alloc_before = malloc_count_current();
-        std::vector<ankerl::unordered_dense::map<sym_t,sym_t>> map_int_thr(p);
+        std::vector<gtl::flat_hash_map<sym_t,i_sym_t>> map_int_thr(p);
 
         #pragma omp parallel for num_threads(p)
         for (uint64_t i=0; i<n-1; i++) {
-            map_int_thr[omp_get_thread_num()].try_emplace(T(i),0);
+            map_int_thr[omp_get_thread_num()].try_emplace(T<sym_t>(i),0);
         }
 
         for (uint16_t j=1; j<=std::ceil(std::log2(p)); j++) {
@@ -186,29 +188,30 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool use_lib
 
                 for (auto m : merges) {
                     map_int_thr[m.first].insert(map_int_thr[m.second].begin(),map_int_thr[m.second].end());
-                    map_int_thr[m.second] = ankerl::unordered_dense::map<sym_t,sym_t>();
+                    map_int_thr[m.second] = gtl::flat_hash_map<sym_t,i_sym_t>();
                 }
             }
         }
 
-        idx._map_int = std::move(map_int_thr[0]);
+        idx._map_int.insert(map_int_thr[0].begin(),map_int_thr[0].end());
         map_int_thr.clear();
         map_int_thr.shrink_to_fit();
         idx.size_map_int = malloc_count_current()-alloc_before;
         idx.sigma = idx._map_int.size()+1;
-        no_init_resize(idx._unmap_int,idx.sigma);
-        idx._unmap_int[0] = 0;
+        p_ = std::min<pos_t>({p,std::max<pos_t>(1,n/1000),std::max<pos_t>(6,(n/idx.sigma)-1)});
+        no_init_resize(idx._map_ext,idx.sigma);
+        idx._map_ext[0] = 0;
         pos_t sym_cur = 1;
 
         for (auto p : idx._map_int) {
-            idx._unmap_int[sym_cur] = p.first;
+            idx._map_ext[sym_cur] = p.first;
             sym_cur++;
         }
 
         if (p == 1) {
-            ips4o::sort(idx._unmap_int.begin()+1,idx._unmap_int.end());
+            ips4o::sort(idx._map_ext.begin()+1,idx._map_ext.end());
         } else {
-            ips4o::parallel::sort(idx._unmap_int.begin()+1,idx._unmap_int.end());
+            ips4o::parallel::sort(idx._map_ext.begin()+1,idx._map_ext.end());
         }
         
         if (idx.sigma > p) {
@@ -216,22 +219,17 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool use_lib
             {
                 uint16_t i_p = omp_get_thread_num();
 
-                sym_t b = 1 + i_p*((idx.sigma-1)/p);
-                sym_t e = i_p == p-1 ? idx.sigma-1 : ((i_p+1)*((idx.sigma-1)/p));
+                i_sym_t b = 1 + i_p*((idx.sigma-1)/p);
+                i_sym_t e = i_p == p-1 ? idx.sigma-1 : ((i_p+1)*((idx.sigma-1)/p));
 
-                for (sym_t i=b; i<=e; i++) {
-                    idx._map_int[idx._unmap_int[i]] = i;
+                for (i_sym_t i=b; i<=e; i++) {
+                    idx._map_int[idx._map_ext[i]] = i;
                 }
             }
         } else {
-            for (sym_t i=1; i<idx.sigma; i++) {
-                idx._map_int[idx._unmap_int[i]] = i;
+            for (i_sym_t i=1; i<idx.sigma; i++) {
+                idx._map_int[idx._map_ext[i]] = i;
             }
-        }
-
-        #pragma omp parallel for num_threads(p)
-        for (uint64_t i=0; i<n-1; i++) {
-            T(i) = idx._map_int[T(i)];
         }
     }
 
@@ -244,24 +242,25 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool use_lib
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::process_c() {
     /* Now, C[i_p][c] is the number of occurrences of c in L[b..e], where [b..e] is the range of the
-    thread i_p in [0..p-1]. Also, we have C[p][0..255] = 0. */
+    thread i_p in [0..p'-1]. Also, we have C[p'][0..255] = 0. */
 
     /* We want to have C[i_p][c] = rank(L,c,b-1), where b is the iteration range start position of
-    thread i_p in [0..p-1]. Also, we want C[p][0..255] to be the C-array, that is C[p][c] stores
+    thread i_p in [0..p'-1]. Also, we want C[p'][0..255] to be the C-array, that is C[p'][c] stores
     the number of occurrences of all smaller characters c' < c in L[0..n-1], for c in [0..255]. */
 
-    pos_t max_symbol = std::is_same<sym_t,char>::value ? 256 : idx.sigma;
+    pos_t max_symbol = byte_alphabet ? 256 : idx.sigma;
+    C.emplace_back(std::vector<pos_t>(max_symbol,0));
 
-    for (pos_t i=1; i<p; i++) {
+    for (pos_t i=1; i<p_; i++) {
         for (pos_t j=0; j<max_symbol; j++) {
             C[i][j] += C[i-1][j];
         }
     }
 
-    /* Now, we have C[i_p][c] = rank(L,c,e), for each c in [0..255] and i_p in [0..p-1],
+    /* Now, we have C[i_p][c] = rank(L,c,e), for each c in [0..255] and i_p in [0..p'-1],
     where e is the iteration range end position of thread i_p. */
 
-    for (pos_t i=p; i>0; i--) {
+    for (pos_t i=p_; i>0; i--) {
         for (pos_t j=0; j<max_symbol; j++) {
             C[i][j] = C[i-1][j];
         }
@@ -271,23 +270,23 @@ void move_r<locate_support,sym_t,pos_t>::construction::process_c() {
         C[0][j] = 0;
     }
 
-    /* Now, we have C[i_p][c] = rank(L,c,b-1), for each c in [0..255] and i_p in [0..p-1],
-    where b is the iteration range start position of thread i_p, so we are done with C[0..p-1][0..255].
-    Also, we have C[p][c] = rank(L,c,n-1), for c in [0..255]. */
+    /* Now, we have C[i_p][c] = rank(L,c,b-1), for each c in [0..255] and i_p in [0..p'-1],
+    where b is the iteration range start position of thread i_p, so we are done with C[0..p'-1][0..255].
+    Also, we have C[p'][c] = rank(L,c,n-1), for c in [0..255]. */
 
     for (pos_t i=max_symbol-1; i>0; i--) {
-        C[p][i] = C[p][i-1];
+        C[p_][i] = C[p_][i-1];
     }
 
-    C[p][0] = 0;
+    C[p_][0] = 0;
 
-    // Now, we have C[p][c] = rank(L,c-1,n-1), for c in [1..255], and C[p][0] = 0.
+    // Now, we have C[p'][c] = rank(L,c-1,n-1), for c in [1..255], and C[p'][0] = 0.
 
     for (pos_t i=2; i<max_symbol; i++) {
-        C[p][i] += C[p][i-1];
+        C[p_][i] += C[p_][i-1];
     }
 
-    // Now we are done with C, since C[p] is the C-array.
+    // Now we are done with C, since C[p'] is the C-array.
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
@@ -299,9 +298,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_ilf() {
 
     no_init_resize(I_LF,r);
 
-    #pragma omp parallel num_threads(p)
+    #pragma omp parallel num_threads(p_)
     {
-        // Index in [0..p-1] of the current thread.
+        // Index in [0..p'-1] of the current thread.
         uint16_t i_p = omp_get_thread_num();
 
         // Iteration range start position of thread i_p.
@@ -316,12 +315,12 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_ilf() {
         // Build I_LF
         for (pos_t i=0; i<rp_diff; i++) {
             /* Write the pair (i',LF(i')) to the next position i in I_LF, where
-            LF(i') = C[L[i']] + rank(L,L[i'],i'-1) = C[p][L[i']] + C[i_p][L[i']]. */
-            I_LF[b_r+i] = std::make_pair(i_,C[p][symbol_idx(run_symbol(i_p,i))]+C[i_p][symbol_idx(run_symbol(i_p,i))]);
+            LF(i') = C[L[i']] + rank(L,L[i'],i'-1) = C[p'][L[i']] + C[i_p][L[i']]. */
+            I_LF[b_r+i] = std::make_pair(i_,C[p_][run_sym(i_p,i)]+C[i_p][run_sym(i_p,i)]);
 
             /* Update the rank-function in C[i_p] to store C[i_p][c] = rank(L,c,i'-1),
             for each c in [0..255] */
-            C[i_p][symbol_idx(run_symbol(i_p,i))] += run_length(i_p,i);
+            C[i_p][run_sym(i_p,i)] += run_length(i_p,i);
 
             // Update the position of the last-seen run.
             i_ += run_length(i_p,i);
@@ -351,13 +350,13 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_mlf() {
         std::cout << std::endl << "building M_LF" << std::flush;
     }
 
-    idx._M_LF = std::move(move_data_structure_l_<pos_t,sym_t>(std::move(I_LF),n,{
+    idx._M_LF = std::move(move_data_structure_l_<pos_t,i_sym_t>(std::move(I_LF),n,{
             .num_threads=p,
             .a=idx.a,
             .log=log,
             .mf=mf_mds,
         },
-        std::is_same<sym_t,char>::value ? 8 : (uint8_t)(std::ceil(std::log2(idx.sigma+1)/(double)8)*8)
+        byte_alphabet ? 8 : (uint8_t)(std::ceil(std::log2(idx.sigma+1)/(double)8)*8)
     ));
 
     r_ = idx._M_LF.num_intervals();
@@ -374,21 +373,22 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_mlf() {
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <bool build_sas_>
 void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas_() {
     if (log) {
         time = now();
-        std::cout << "building L'" << (std::string)(build_locate_support ? " and SA_s'" : "") << std::flush;
+        std::cout << "building L'" << (std::string)(build_sas_ ? " and SA_s'" : "") << std::flush;
     }
 
-    if (build_locate_support) {
+    if constexpr (build_sas_) {
         no_init_resize(SA_s_,r_);
         SA_s_[r_-1] = I_Phi[0].second;
     }
 
     // Simultaneously iterate over the input intervals of M_LF nad the bwt runs to build L'
-    #pragma omp parallel num_threads(p)
+    #pragma omp parallel num_threads(p_)
     {
-        // Index in [0..p-1] of the current thread.
+        // Index in [0..p'-1] of the current thread.
         uint16_t i_p = omp_get_thread_num();
 
         // Bwt range start position of thread i_p.
@@ -406,7 +406,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas_() {
         pos_t l_ = b;
 
         for (pos_t i=0; i<rp_diff; i++) {
-            idx._M_LF.template set_L_(j,run_symbol(i_p,i));
+            idx._M_LF.template set_L_(j,run_sym(i_p,i));
             j++;
 
             // update l_ to the next run start position
@@ -415,12 +415,16 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas_() {
             // iterate over all input intervals in M_LF within the i-th bwt within thread i_p's section run that have been
             // created by the balancing algorithm
             while (idx._M_LF.p(j) < l_) {
-                if (build_locate_support) SA_s_[j-1] = n;
-                idx._M_LF.template set_L_(j,run_symbol(i_p,i));
+                if constexpr (build_sas_) SA_s_[j-1] = n;
+                idx._M_LF.template set_L_(j,run_sym(i_p,i));
                 j++;
             }
             
-            if (build_locate_support && b_r+i+1 != r) SA_s_[j-1] = I_Phi[b_r+i+1].second;
+            if constexpr (build_sas_) {
+                if (b_r+i+1 != r) {
+                    SA_s_[j-1] = I_Phi[b_r+i+1].second;
+                }
+            }
         }
     }
 
@@ -707,14 +711,50 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rsl_() {
         std::cout << "building RS_L'" << std::flush;
     }
     
-    if constexpr (std::is_same<sym_t,char>::value) {
-        idx._RS_L_ = std::move(rank_select_support<char,pos_t>([this](pos_t i){return idx.L_(i);},0,r_-1,p));
+    if constexpr (byte_alphabet) {
+        idx._RS_L_ = std::move(rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},0,r_-1,p));
     } else {
-        idx._RS_L_ = std::move(rank_select_support<uint32_t,pos_t>([this](pos_t i){return idx.L_(i);},idx.sigma,0,r_-1));
+        idx._RS_L_ = std::move(rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},idx.sigma,0,r_-1));
     }
 
     if (log) {
         if (mf_idx != NULL) *mf_idx << " time_build_rsl_=" << time_diff_ns(time,now());
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+void move_r<locate_support,sym_t,pos_t>::construction::store_mlf() {
+    if (log) {
+        time = now();
+        std::cout << "storing M_LF to disk" << std::flush;
+    }
+
+    std::ofstream file_mlf(prefix_tmp_files + ".mlf");
+    idx._M_LF.serialize(file_mlf);
+    idx._M_LF = std::move(move_data_structure_l_<pos_t,i_sym_t>());
+    file_mlf.close();
+
+    if (log) {
+        if (mf_idx != NULL) *mf_idx << " time_store_mlf=" << time_diff_ns(time,now());
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+void move_r<locate_support,sym_t,pos_t>::construction::load_mlf() {
+    if (log) {
+        time = now();
+        std::cout << "loading M_LF from disk" << std::flush;
+    }
+
+    std::ifstream file_mlf(prefix_tmp_files + ".mlf");
+    idx._M_LF.load(file_mlf);
+    file_mlf.close();
+    std::filesystem::remove(prefix_tmp_files + ".mlf");
+
+    if (log) {
+        if (mf_idx != NULL) *mf_idx << " time_load_mlf=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }

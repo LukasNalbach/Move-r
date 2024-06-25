@@ -1,3 +1,5 @@
+#pragma once
+
 #include <ips4o.hpp>
 
 template <typename pos_t>

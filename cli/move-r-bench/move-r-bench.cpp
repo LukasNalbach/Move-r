@@ -27,7 +27,7 @@ int ptr = 1;
 
 template <typename sa_sint_t>
 constexpr std::vector<sa_sint_t>& get_sa() {
-    if constexpr (std::is_same<sa_sint_t,int32_t>::value) {
+    if constexpr (std::is_same_v<sa_sint_t,int32_t>) {
         return SA_32;
     } else {
         return SA_64;

@@ -8,10 +8,12 @@
  */
 template <typename pos_t = uint32_t, typename l_t = char>
 class move_data_structure_l_ : public move_data_structure<pos_t> {
-    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
+    static_assert(std::is_same_v<pos_t,uint32_t> || std::is_same_v<pos_t,uint64_t>);
 
-    using pair_t = typename move_data_structure<pos_t>::pair_t;
-    using pair_arr_t = typename move_data_structure<pos_t>::pair_arr_t;
+    using pair_t = typename move_data_structure<pos_t>::pair_t; // pair type
+    using pair_arr_t = typename move_data_structure<pos_t>::pair_arr_t; // pair array type
+
+    static constexpr bool str_L_ = std::is_same_v<l_t,char>; // true <=> L' is a string
 
     /**
      * @brief Constructs a new move data structure from a disjoint interval sequence
@@ -51,12 +53,20 @@ class move_data_structure_l_ : public move_data_structure<pos_t> {
     }
 
     /**
+     * @brief returns the number omega_l_ of bits used by one entry in L' (word width of L')
+     * @return omega_l_ 
+     */
+    inline uint8_t width_l_() const {
+        return move_data_structure<pos_t>::omega_l_;
+    }
+
+    /**
      * @brief returns the value in L_ at position x
      * @param x index in [0..k_'-1]
      * @return the value in L_ at position x
      */
     inline l_t L_(pos_t x) const {
-        if constexpr (std::is_same<l_t,char>::value) {
+        if constexpr (str_L_) {
             return move_data_structure<pos_t>::data.template get_unsafe<3,l_t>(x);
         } else {
             return move_data_structure<pos_t>::data.template get<3,l_t>(x);
@@ -69,7 +79,7 @@ class move_data_structure_l_ : public move_data_structure<pos_t> {
      * @param v a value
      */
     inline void set_L_(pos_t x, l_t v) {
-        if constexpr (std::is_same<l_t,char>::value) {
+        if constexpr (str_L_) {
             move_data_structure<pos_t>::data.template set_unsafe<3,l_t>(x,v);
         } else {
             move_data_structure<pos_t>::data.template set<3,l_t>(x,v);

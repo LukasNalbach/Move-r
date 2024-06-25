@@ -12,7 +12,7 @@
  */
 template <typename pos_t = uint32_t, bool build_rank_support = false, bool build_select_0_support = false, bool build_select_1_support = false>
 class hybrid_bit_vector {
-    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
+    static_assert(std::is_same_v<pos_t,uint32_t> || std::is_same_v<pos_t,uint64_t>);
 
     public:
     using plain_bv_t = plain_bit_vector<pos_t,build_rank_support,build_select_0_support,build_select_1_support>;

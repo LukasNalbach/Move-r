@@ -1,3 +1,5 @@
+#pragma once
+
 template <typename pos_t>
 void move_data_structure<pos_t>::construction::build_tin_tout_v5() {
     if (log) log_message("building pi");

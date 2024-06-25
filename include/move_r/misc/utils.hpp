@@ -392,3 +392,41 @@ constexpr void for_constexpr(T&& f) {
         for_constexpr<start+inc,end,inc>(f);
     }
 }
+
+template<bool B, typename T>
+struct constexpr_case {
+    static constexpr bool value = B;
+    using type = T;
+};
+
+template <bool B, typename TrueF, typename FalseF>
+struct eval_if {
+    using type = typename TrueF::type;
+};
+
+template <typename TrueF, typename FalseF>
+struct eval_if<false, TrueF, FalseF> {
+    using type = typename FalseF::type;
+};    
+
+template <bool B, typename T, typename F>
+using eval_if_t = typename eval_if<B, T, F>::type;
+
+template<typename Head, typename... Tail>
+struct constexpr_switch {
+    using type = eval_if_t<Head::value, Head, constexpr_switch<Tail...>>;
+};
+
+template <typename T>
+struct constexpr_switch<T> {
+    using type = T;
+};
+
+template <bool B, typename T>
+struct constexpr_switch<constexpr_case<B, T>> {
+    static_assert(B, "!");
+    using type = T;
+};
+
+template<typename Head, typename... Tail>
+using constexpr_switch_t = typename constexpr_switch<Head, Tail...>::type;

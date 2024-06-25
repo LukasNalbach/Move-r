@@ -1,3 +1,5 @@
+#pragma once
+
 template <typename pos_t>
 inline pos_t move_data_structure<pos_t>::construction::is_a_heavy_v5_seq_par(tin_it_t_v5& tn_I, pos_t q_J_) {
     // current number of input interval starting in [q_j, q_j + d_j)

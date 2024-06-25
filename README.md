@@ -1,20 +1,5 @@
 # Move-r
-This [2] is an optimized and parallelized implementation of the modified r-index described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)).
-
-## Comparison with other BWT-Runs Compressed Indexes
-### Query Performance
-![](measurements/results/queries.png?raw=true)
-### Construction Performance
-![](measurements/results/construction.png?raw=true)
-### Tested Texts
-![](measurements/results/texts.jpg?raw=true)
-
-#### GitHub repositories of the other indexes
-- [block-rlbwt](https://github.com/saskeli/block_RLBWT/tree/main)
-- [r-index](https://github.com/alshai/r-index/tree/master)
-- [r-index-f](https://github.com/drnatebrown/r-index-f/tree/master)
-- [rcomp-glfig](https://github.com/kampersanda/rcomp/tree/main)
-- [online-rlbwt](https://github.com/itomomoti/OnlineRlbwt/tree/master)
+This [2] is an optimized (see [benchmarks](BENCHMARKS.md)) and parallelized implementation of the modified r-index described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)).
 
 ## External Dependencies
 - [OpenMP](https://www.openmp.org/)
@@ -28,7 +13,7 @@ This [2] is an optimized and parallelized implementation of the modified r-index
 - [Big-BWT](https://gitlab.com/manzai/Big-BWT)
 - [sdsl-lite](https://github.com/simongog/sdsl-lite)
 - [sais-lite-lcp](https://github.com/kurpicz/sais-lite-lcp)
-- [unordered_dense](https://github.com/martinus/unordered_dense)
+- [gtl](https://github.com/greg7mdp/gtl)
 
 ## CLI Build Instructions
 This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed.
@@ -93,11 +78,11 @@ int main() {
    for (auto o : Occ) std::cout << o << ", ";
    std::cout << std::endl;
 
-   // build an index for an integer vector and implement locate with
-   // a relative lempel-ziv encoded differential suffix array (rlzdsa)
+   // build an index for an integer vector using a relative
+   // lempel-ziv encoded differential suffix array (rlzdsa)
    move_r<_rlzdsa,int32_t> index_3({2,-1,5,-1,7,2,-1});
 
-   // incrementally search the pattern 2,-1 in the input vector (from
+   // incrementally search the pattern [2,-1] in the input vector (from
    // right to left) and print the number of occurrences after each step
    auto query = index_3.query();
    query.prepend(-1);
@@ -105,14 +90,21 @@ int main() {
    query.prepend(2);
    std::cout << query.num_occ() << std::endl;
 
-   // print the suffix array interval [b,e] of the pattern 2,-1
+   // print the suffix-array interval [b,e] of [2,-1]
    std::cout << "b = " << query.sa_interval().first
-           << ", e = " << query.sa_interval().second << std::endl;
+         << ", e = " << query.sa_interval().second << std::endl;
 
-   // incrementally locate the occurrences of 2,-1 in the input vector
+   // incrementally locate the occurrences of [2,-1] in the input vector
    while (query.num_occ_rem() > 0) {
       std::cout << query.next_occ() << ", " << std::flush;
    }
+
+   // compute the longest suffix of [0,7,2] that occurs in the input vector
+   std::vector<int32_t> pattern = {0,7,2};
+   auto query_2 = index_3.query();
+   int suffix = pattern.size();
+   while (suffix > 0 && query_2.prepend(pattern[suffix-1])) suffix--;
+   std::cout << std::endl << suffix << std::flush;
 }
 ```
 

@@ -66,7 +66,7 @@ void test_move_r_int() {
     for (uint32_t i=0; i<input_size; i++) EXPECT_EQ(input[i],input_reverted[i]);
 
     // to build the suffix array, remap the symbols in the input to [1,2,...,alphabet_size]
-    ankerl::unordered_dense::map<int32_t,int32_t> map_int;
+    gtl::flat_hash_map<int32_t,int32_t> map_int;
     int32_t sym_cur = 1;
     for (uint32_t i=0; i<alphabet_size; i++) map_int[alphabet[i]] = sym_cur++;
     input_libsais.resize(input_size+1);

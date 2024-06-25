@@ -10,7 +10,7 @@
  */
 template <typename pos_t = uint32_t>
 class sd_array {
-    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
+    static_assert(std::is_same_v<pos_t,uint32_t> || std::is_same_v<pos_t,uint64_t>);
 
     protected:
     sdsl::sd_vector<> sd_vector; // the sd_vector

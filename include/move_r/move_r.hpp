@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <type_traits>
 #include <omp.h>
 #include <move_r/misc/utils.hpp>
 #include <move_r/data_structures/hybrid_bit_vector.hpp>
@@ -8,7 +9,7 @@
 #include <move_r/data_structures/interleaved_vectors.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure_l_.hpp>
-#include <ankerl/unordered_dense.h>
+#include <tsl/sparse_map.h>
 
 /**
  * @brief an operation that can be supported by a move_r object
@@ -39,8 +40,9 @@ enum move_r_locate_supp {
  * @brief move-r construction mode
  */
 enum move_r_constr_mode {
-    _bigbwt = 0,
-    _libsais = 1
+    _bigbwt = 0, // most space-efficient construction mode (stores many data structures on disk to reduce peak memory usage)
+    _libsais = 1, // least space-efficient construction mode (stores no data structures on disk)
+    _libsais_space = 2 // a bit more space-efficient than _libsais (stores some data structures on disk)
 };
 
 /**
@@ -65,43 +67,54 @@ struct move_r_params {
  */
 template <move_r_locate_supp locate_support = _phi, typename sym_t = char, typename pos_t = uint32_t>
 class move_r {
+    protected:
+
     // check if the position type is supported
     static_assert(
-        std::is_same<pos_t,uint32_t>::value ||
-        std::is_same<pos_t,uint64_t>::value
+        std::is_same_v<pos_t,uint32_t> ||
+        std::is_same_v<pos_t,uint64_t>
     );
 
     // check if the type of input is supported
     static_assert(
-        std::is_same<sym_t,char>::value ||
-        std::is_same<sym_t,uint8_t>::value ||
-        std::is_same<sym_t,uint16_t>::value ||
-        std::is_same<sym_t,uint32_t>::value ||
-        std::is_same<sym_t,uint64_t>::value ||
-        std::is_same<sym_t,int8_t>::value ||
-        std::is_same<sym_t,int16_t>::value ||
-        std::is_same<sym_t,int32_t>::value ||
-        std::is_same<sym_t,int64_t>::value
+        std::is_same_v<sym_t,char> ||
+        std::is_same_v<sym_t,uint8_t> ||
+        std::is_same_v<sym_t,uint16_t> ||
+        std::is_same_v<sym_t,uint32_t> ||
+        std::is_same_v<sym_t,uint64_t> ||
+        std::is_same_v<sym_t,int8_t> ||
+        std::is_same_v<sym_t,int16_t> ||
+        std::is_same_v<sym_t,int32_t> ||
+        std::is_same_v<sym_t,int64_t>
     );
+    
+    // internal (unsigned) symbol type
+    using i_sym_t = constexpr_switch_t<
+        constexpr_case<sizeof(sym_t) == 1,         uint8_t>,
+        constexpr_case<sizeof(sym_t) == 2,         uint16_t>,
+        constexpr_case<sizeof(sym_t) == 4,         uint32_t>,
+     /* constexpr_case<sizeof(sym_t) == 8, */      uint64_t
+    >;
+    
+    static constexpr bool str_input = std::is_same_v<sym_t,char>; // true <=> the input is a string
+    static constexpr bool int_input = !str_input; // true <=> the input is an iteger vector
+    static constexpr bool byte_alphabet = sizeof(sym_t) == 1; // true <=> the input uses a byte alphabet
 
-    // symbol type for RS_L'
-    using sym_t_rsl = std::conditional<std::is_same<sym_t,char>::value,char,uint32_t>::type;
+    using map_int_t = std::conditional_t<byte_alphabet,std::vector<uint8_t>,tsl::sparse_map<sym_t,i_sym_t>>; // type of map_int
+    using map_ext_t = std::vector<sym_t>; // type of map_ext
+    using i_cont_t = std::conditional<str_input,std::string,std::vector<sym_t>>::type; // input container type
     
-    // input type
-    using input_t = std::conditional<std::is_same<sym_t,char>::value,std::string,std::vector<sym_t>>::type;
-    
-    protected:
     // ############################# INDEX VARIABLES #############################
 
     pos_t n = 0; // the length of T
-    uint32_t sigma = 0; // the number of distinct characters (including the terminator symbol 1) of T
+    uint64_t sigma = 0; // the number of distinct characters (including the terminator symbol 1) of T
     pos_t r = 0; // r, the number of runs in L
     pos_t r_ = 0; // r', the number of input/output intervals in M_LF
     pos_t r__ = 0; // r'', the number of input/output intervals in M_Phi
     pos_t z = 0; // z, the number of phrases in the rlzdsa
-    pos_t z_l = 0; // z, the number of literal phrases in the rlzdsa
-    pos_t z_c = 0; // z, the number of copy-phrases in the rlzdsa
-    uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))), 2 <= a
+    pos_t z_l = 0; // z_l, the number of literal phrases in the rlzdsa
+    pos_t z_c = 0; // z_c, the number of copy-phrases in the rlzdsa
+    uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))+z), 2 <= a
     uint16_t p_r = 1; // maximum possible number of threads to use while reverting the index
     uint8_t omega_idx = 0; // word width of SA_Phi
 
@@ -109,25 +122,20 @@ class move_r {
     /* true <=> the characters of the input have been remapped internally, because sym_t != char or
        the input invalid characters */
     bool symbols_remapped = false;
-    uint64_t size_map_int = 0; // size of _map_int
+    uint64_t size_map_int = 0; // size of _map_int (for byte_alphabet = false)
 
     // ############################# INDEX DATA STRUCTURES #############################
 
-    /* mapping function from the alphabet of T to the internal effective alphabet (only for char alphabets) */
-    std::vector<uint8_t> _map_char;
-    // inverse function of _map_char (only for char alphabets)
-    std::vector<uint8_t> _unmap_char;
-
-    // mapping function from the alphabet of T to the internal effective alphabet (only for integer alphabets)
-    ankerl::unordered_dense::map<sym_t,sym_t> _map_int;
-    // inverse function of _map_int (only for integer alphabets)
-    std::vector<sym_t> _unmap_int;
-
+    // mapping function from the alphabet of T to the internal effective alphabet
+    map_int_t _map_int;
+    // inverse function from internal effective alphabet to the alphabet of T
+    map_ext_t _map_ext;
+    
     /* The Move Data Structure for LF. It also stores L', which can be accessed at
     position i with M_LF.L_(i). */
-    move_data_structure_l_<pos_t,sym_t> _M_LF;
+    move_data_structure_l_<pos_t,i_sym_t> _M_LF;
     // rank-select data structure for L'
-    rank_select_support<sym_t_rsl,pos_t> _RS_L_;
+    rank_select_support<i_sym_t,pos_t> _RS_L_;
 
     // The Move Data Structure for Phi.
     move_data_structure<pos_t> _M_Phi;
@@ -191,7 +199,7 @@ class move_r {
      * @param input the input
      * @param params construction parameters
      */
-    move_r(input_t& input, move_r_params params = {}) {
+    move_r(i_cont_t& input, move_r_params params = {}) {
         construction(*this,input,false,params);
     }
 
@@ -200,7 +208,7 @@ class move_r {
      * @param input the input
      * @param params construction parameters
      */
-    move_r(input_t&& input, move_r_params params = {}) {
+    move_r(i_cont_t&& input, move_r_params params = {}) {
         construction(*this,input,true,params);
     }
 
@@ -209,7 +217,7 @@ class move_r {
      * @param input_file input file
      * @param params construction parameters
      */
-    move_r(std::ifstream& input_file, move_r_params params = {}) requires(std::is_same<sym_t,char>::value) {
+    move_r(std::ifstream& input_file, move_r_params params = {}) requires(str_input) {
         construction(*this,input_file,params);
     }
 
@@ -221,7 +229,7 @@ class move_r {
      * @param params construction parameters
      */
     template <typename sa_sint_t>
-    move_r(std::vector<sa_sint_t>& suffix_array, std::string& bwt, move_r_params params = {}) requires(std::is_same<sym_t,char>::value) {
+    move_r(std::vector<sa_sint_t>& suffix_array, std::string& bwt, move_r_params params = {}) requires(str_input) {
         construction(*this,suffix_array,bwt,params);
     }
 
@@ -331,10 +339,11 @@ class move_r {
     void log_data_structure_sizes() const {
         std::cout << "index size: " << format_size(size_in_bytes()) << std::endl;
 
-        std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes()-(r_+1)) << std::endl;
-        std::cout << "L': " << format_size(r_+1) << std::endl;
+        uint64_t size_l_ = (_M_LF.width_l_()/8)*(r_+1);
+        std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes()-size_l_) << std::endl;
+        std::cout << "L': " << format_size(size_l_) << std::endl;
 
-        if constexpr (!std::is_same<sym_t,char>::value) {
+        if constexpr (int_input) {
             std::cout << "map_int: " << format_size(size_map_int) << std::endl;
             std::cout << "unmap_int: " << format_size(sizeof(sym_t)*sigma) << std::endl;
         }
@@ -364,12 +373,13 @@ class move_r {
      */
     void log_data_structure_sizes(std::ostream& out) const {
         out << " size_index=" << size_in_bytes();
-        out << " size_m_lf=" << _M_LF.size_in_bytes()-(r_+1);
-        out << " size_l_=" << r_+1;
+        uint64_t size_l_ = (_M_LF.width_l_()/8)*(r_+1);
+        out << " size_m_lf=" << _M_LF.size_in_bytes()-size_l_;
+        out << " size_l_=" << size_l_;
 
-        if constexpr (!std::is_same<sym_t,char>::value) {
+        if constexpr (int_input) {
             out << " size_map_int=" << size_map_int;
-            out << " size_unmap_int=" << sizeof(sym_t)*sigma;
+            out << " size_map_ext=" << sizeof(sym_t)*sigma;
         }
         
         if (does_support(_count)) {
@@ -397,7 +407,7 @@ class move_r {
      * @brief returns a reference to M_LF
      * @return M_LF
      */
-    inline const move_data_structure_l_<pos_t,sym_t>& M_LF() const {
+    inline const move_data_structure_l_<pos_t,i_sym_t>& M_LF() const {
         return _M_LF;
     }
 
@@ -413,7 +423,7 @@ class move_r {
      * @brief returns a reference to RS_L'
      * @return RS_L'
      */
-    inline const rank_select_support<sym_t_rsl,pos_t>& RS_L_() const {
+    inline const rank_select_support<i_sym_t,pos_t>& RS_L_() const {
         return _RS_L_;
     }
 
@@ -462,7 +472,7 @@ class move_r {
      * @param x [0..|R|-1] index in R
      * @return R[x]
      */
-    inline int64_t R(pos_t x) const {
+    inline uint64_t R(pos_t x) const {
         return _R[x];
     }
 
@@ -534,8 +544,35 @@ class move_r {
      * @param x [0..r'-1]
      * @return L'[x]
      */
-    inline sym_t L_(pos_t x) const {
+    inline i_sym_t L_(pos_t x) const {
         return _M_LF.L_(x);
+    }
+
+    /**
+     * @brief reinterprets an int8_t as a uint8_t
+     * @param sym symbol
+     * @return sym reinterpreted as uint8_t
+     */
+    uint8_t symbol_idx(uint8_t sym) {
+        return sym;
+    }
+
+    /**
+     * @brief reinterprets an int8_t as a uint8_t
+     * @param sym symbol
+     * @return sym reinterpreted as uint8_t
+     */
+    uint8_t symbol_idx(int8_t sym) {
+        return *reinterpret_cast<uint8_t*>(&sym);
+    }
+
+    /**
+     * @brief reinterprets an char as a uint8_t
+     * @param sym symbol
+     * @return sym reinterpreted as uint8_t
+     */
+    uint8_t symbol_idx(char sym) const {
+        return *reinterpret_cast<uint8_t*>(&sym);
     }
 
     /**
@@ -543,20 +580,16 @@ class move_r {
      * @param sym symbol
      * @return its corresponding symbol in the internal effective alphabet
      */
-    inline sym_t map_symbol(sym_t sym) const {
-        if constexpr (std::is_same<sym_t,char>::value) {
-            return symbols_remapped ? uchar_to_char(_map_char[char_to_uchar(sym)]) : sym;
+    inline i_sym_t map_symbol(sym_t sym) const {
+        if constexpr (byte_alphabet) {
+            return symbols_remapped ? _map_int[symbol_idx(sym)] : symbol_idx(sym);
         } else {
-            if (symbols_remapped) {
-                auto res = _map_int.find(sym);
+            auto res = _map_int.find(sym);
 
-                if (res == _map_int.end()) {
-                    return 0;
-                } else {
-                    return (*res).second;
-                }
+            if (res == _map_int.end()) {
+                return 0;
             } else {
-                return sym;
+                return (*res).second;
             }
         }
     }
@@ -567,12 +600,8 @@ class move_r {
      * @param sym a symbol that occurs in the internal effective alphabet
      * @return its corresponding symbol in the input
      */
-    inline sym_t unmap_symbol(sym_t sym) const {
-        if constexpr (std::is_same<sym_t,char>::value) {
-            return symbols_remapped ? uchar_to_char(_unmap_char[char_to_uchar(sym)]) : sym;
-        } else {
-            return symbols_remapped ? _unmap_int[sym] : sym;
-        }
+    inline sym_t unmap_symbol(i_sym_t sym) const {
+        return symbols_remapped ? _map_ext[sym] : sym;
     }
 
     /**
@@ -611,15 +640,6 @@ class move_r {
         int64_t y,z;
 
         const move_r<locate_support,sym_t,pos_t>* idx;
-        
-        /**
-         * @brief sets the query context to a state that indicates that
-         * the queried pattern has no occurrences
-         */
-        inline void no_occ() {
-            b = 1;
-            e = 0;
-        }
 
         public:
         /**
@@ -628,8 +648,15 @@ class move_r {
          */
         query_context(const move_r<locate_support,sym_t,pos_t>& idx) {
             this->idx = &idx;
+            reset();
+        }
+
+        /**
+         * @brief resets the query context to an empty pattern
+         */
+        inline void reset() {
+            idx->init_backward_search(b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z);
             l = 0;
-            idx.init_backward_search(b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z);
             i = b;
         }
 
@@ -665,11 +692,14 @@ class move_r {
             return std::make_pair(b,e);
         }
 
-        inline void prepend(sym_t sym) {
-            idx->backward_search_step(sym,b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z);
-            l++;
-            i = b;
-        }
+        /**
+         * @brief prepends sym to the currently matched pattern P; if symP occurs in the input, true is
+         * returned and the query context is adjusted to store the information for the pattern symP; else,
+         * false is returned and the query context is not modified
+         * @param sym 
+         * @return whether symP occurs in the input
+         */
+        bool prepend(sym_t sym);
 
         /**
          * @brief reports the next occurrence of the currently matched pattern
@@ -721,7 +751,8 @@ class move_r {
     }
     
     /**
-     * @brief matches the next symbol by prepending it to the currently matched pattern
+     * @brief prepends sym to the currently matched pattern P, adjusts the variables to store
+     * the query context for the pattern symP and returns whether symP occurs in the input
      * @param sym next symbol to match
      * @param b Left interval limit of the suffix array interval.
      * @param e Right interval limit of the suffix array interval.
@@ -731,8 +762,9 @@ class move_r {
      * @param hat_e_ap_y \hat{e}'_y
      * @param z z
      * @param hat_b_ap_z \hat{b}'_z
+     * @return whether symP occurs in the input
      */
-    inline void backward_search_step(
+    bool backward_search_step(
         sym_t sym,
         pos_t& b, pos_t& e,
         pos_t& b_, pos_t& e_,
@@ -832,14 +864,14 @@ class move_r {
      * @param P the pattern to count in the input
      * @return the number of occurrences of P in the input
      */
-    inline pos_t count(const input_t& P) const;
+    inline pos_t count(const i_cont_t& P) const;
 
     /**
      * @brief locates the pattern P in the input
      * @param P the pattern to locate in the input
      * @return a vector containing the occurrences of P in the input
      */
-    inline std::vector<pos_t> locate(const input_t& P) const {
+    inline std::vector<pos_t> locate(const i_cont_t& P) const {
         std::vector<pos_t> Occ;
         locate(P,Occ);
         return Occ;
@@ -850,7 +882,7 @@ class move_r {
      * @param P the pattern to locate in the input
      * @param Occ vector to append the occurrences of P in the input to
      */
-    void locate(const input_t& P, std::vector<pos_t>& Occ) const;
+    void locate(const i_cont_t& P, std::vector<pos_t>& Occ) const;
 
     // ############################# RETRIEVE-RANGE METHODS #############################
 
@@ -900,9 +932,9 @@ class move_r {
      * @param params parameters
      * @return the bwt range [l,r]
      */
-    input_t BWT(retrieve_params params = {}) const {
+    i_cont_t BWT(retrieve_params params = {}) const {
         adjust_retrieve_params(params,n-1);
-        input_t L;
+        i_cont_t L;
         no_init_resize(L,params.r-params.l+1);
         BWT([&L,&params](pos_t i, sym_t c){L[i-params.l] = c;},params);
         return L;
@@ -933,9 +965,9 @@ class move_r {
      * @param params parameters
      * @return the input range [l,r]
      */
-    input_t revert(retrieve_params params = {}) const {
+    i_cont_t revert(retrieve_params params = {}) const {
         adjust_retrieve_params(params,n-2);
-        input_t T;
+        i_cont_t T;
         no_init_resize(T,params.r-params.l+1);
         revert([&T,&params](pos_t i, sym_t c){T[i-params.l] = c;},params);
         return T;
@@ -1012,7 +1044,7 @@ class move_r {
             support = this->_support;
         }
 
-        bool is_64_bit = std::is_same<pos_t,uint64_t>::value;
+        bool is_64_bit = std::is_same_v<pos_t,uint64_t>;
         out.write((char*)&is_64_bit,1);
         move_r_locate_supp _locate_support = locate_support;
         out.write((char*)&_locate_support,sizeof(move_r_locate_supp));
@@ -1037,13 +1069,13 @@ class move_r {
 
         out.write((char*)&symbols_remapped,1);
         if (symbols_remapped) {
-            if constexpr (std::is_same<sym_t,char>::value) {
-                out.write((char*)&_map_char[0],256);
-                out.write((char*)&_unmap_char[0],256);
+            if constexpr (byte_alphabet) {
+                out.write((char*)&_map_int[0],256);
+                out.write((char*)&_map_ext[0],256);
             } else {
-                write_to_file(out,(char*)&_unmap_int[0],sizeof(sym_t)*sigma);
-                std::vector<std::pair<sym_t,sym_t>> map_int_vec(_map_int.begin(),_map_int.end());
-                write_to_file(out,(char*)&map_int_vec[0],sizeof(std::pair<sym_t,sym_t>)*sigma);
+                write_to_file(out,(char*)&_map_ext[0],sizeof(sym_t)*sigma);
+                std::vector<std::pair<sym_t,i_sym_t>> map_int_vec(_map_int.begin(),_map_int.end());
+                write_to_file(out,(char*)&map_int_vec[0],sizeof(std::pair<sym_t,i_sym_t>)*sigma);
             }
         }
 
@@ -1091,7 +1123,7 @@ class move_r {
         bool is_64_bit;
         in.read((char*)&is_64_bit,1);
 
-        if (is_64_bit != std::is_same<pos_t,uint64_t>::value) {
+        if (is_64_bit != std::is_same_v<pos_t,uint64_t>) {
             std::cout << "error: cannot load a" << (is_64_bit ? "64" : "32") << "-bit"
             << " index into a " << (is_64_bit ? "32" : "64") << "-bit index-object" << std::flush;
             return;
@@ -1140,19 +1172,19 @@ class move_r {
 
         in.read((char*)&symbols_remapped,1);
         if (symbols_remapped) {
-            if constexpr (std::is_same<sym_t,char>::value) {
-                _map_char.resize(256);
-                in.read((char*)&_map_char[0],256);
+            if constexpr (byte_alphabet) {
+                _map_int.resize(256);
+                in.read((char*)&_map_int[0],256);
 
-                _unmap_char.resize(256);
-                in.read((char*)&_unmap_char[0],256);
+                _map_ext.resize(256);
+                in.read((char*)&_map_ext[0],256);
             } else {
-                no_init_resize(_unmap_int,sigma);
-                read_from_file(in,(char*)&_unmap_int[0],sizeof(sym_t)*sigma);
+                no_init_resize(_map_ext,sigma);
+                read_from_file(in,(char*)&_map_ext[0],sizeof(sym_t)*sigma);
 
-                std::vector<std::pair<sym_t,sym_t>> map_int_vec;
+                std::vector<std::pair<sym_t,i_sym_t>> map_int_vec;
                 no_init_resize(map_int_vec,sigma);
-                read_from_file(in,(char*)&map_int_vec[0],sizeof(std::pair<sym_t,sym_t>)*sigma);
+                read_from_file(in,(char*)&map_int_vec[0],sizeof(std::pair<sym_t,i_sym_t>)*sigma);
                 _map_int.insert(map_int_vec.begin(),map_int_vec.end());
             }
         }

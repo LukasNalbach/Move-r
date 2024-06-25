@@ -16,7 +16,7 @@
  */
 template <typename pos_t>
 class move_data_structure<pos_t>::construction {
-    static_assert(std::is_same<pos_t,uint32_t>::value || std::is_same<pos_t,uint64_t>::value);
+    static_assert(std::is_same_v<pos_t,uint32_t> || std::is_same_v<pos_t,uint64_t>);
 
     public:
     construction() = delete;
