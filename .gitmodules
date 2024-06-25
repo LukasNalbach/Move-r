@@ -45,12 +45,12 @@
 [submodule "external/r-index"]
 	path = external/r-index
 	url = git@github.com:alshai/r-index.git
-[submodule "external/gtl"]
-	path = external/gtl
-	url = git@github.com:greg7mdp/gtl.git
 [submodule "external/sais-lite-lcp"]
 	path = external/sais-lite-lcp
 	url = git@github.com:kurpicz/sais-lite-lcp.git
+[submodule "external/gtl"]
+	path = external/gtl
+	url = git@github.com:greg7mdp/gtl.git
 [submodule "external/sparse-map"]
 	path = external/sparse-map
 	url = git@github.com:Tessil/sparse-map.git
