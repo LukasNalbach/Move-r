@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ips4o.hpp>
+#include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
 
 template <typename pos_t>
 void move_data_structure<pos_t>::construction::build_pi_for_I() {
@@ -185,7 +186,7 @@ void move_data_structure<pos_t>::construction::calculate_seperation_positions_fo
             between l_s and r_s. */
             m_s = l_s+(r_s-l_s)/2;
 
-            // Find the minimum x' in [0,r''-1], s.t. M_Phi.p(x') >= m_s.
+            // Find the minimum x' in [0,r''-1], s.t. D_p[x'] >= m_s.
             l_x = 0;
             r_x = k_-1;
             while (l_x != r_x) {
@@ -197,7 +198,7 @@ void move_data_structure<pos_t>::construction::calculate_seperation_positions_fo
                 }
             }
 
-            // Find the minimum u' in [0,r'-1], s.t. SA_s[pi'[u']] >= m_s.
+            // Find the minimum u' in [0,r'-1], s.t. D_q[pi'[u']] >= m_s.
             l_u = 0;
             r_u = k_-1;
             while (l_u != r_u) {

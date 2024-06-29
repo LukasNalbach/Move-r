@@ -1,13 +1,17 @@
+#pragma once
+
+#include <move_r/move_r.hpp>
+
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::setup_phi_move_pair(pos_t& x, pos_t& s, pos_t& s_) const {
-    // the index of the pair in M_Phi creating the output interval with start position s = SA[M_LF.p[x+1]-1]
-    pos_t x_s_ = SA_Phi(x);
+    // the index of the pair in M_Phi^{-1} creating the output interval with starting position s = SA[M_LF.p[x]]
+    pos_t x_s_ = SA_Phi_m1(x);
 
-    // set s_ to the index of the input interval in M_Phi containing s
-    s_ = M_Phi().idx(x_s_);
+    // set s_ to the index of the input interval in M_Phi^{-1} containing s
+    s_ = M_Phi_m1().idx(x_s_);
     
     // compute s
-    s = M_Phi().p(s_)+M_Phi().offs(x_s_);
+    s = M_Phi_m1().p(s_)+M_Phi_m1().offs(x_s_);
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
@@ -35,31 +39,27 @@ pos_t move_r<locate_support,sym_t,pos_t>::SA(pos_t i) const {
         // index of the input interval in M_LF containing i.
         pos_t x = bin_search_max_leq<pos_t>(i,0,r_-1,[this](pos_t x_){return M_LF().p(x_);});
 
-        /* if i is a run start position (i = M_LF.p(x)), then
-            SA[i] = Phi^{-1}(SA_s'[(x-1) mod r'])
-                  = Phi^{-1}(M_Phi.q(SA_Phi[(x-1) mod r']))
-                  =          M_Phi.p(SA_Phi[(x-1) mod r'])
+        /* if i is a bwt run end position (i = M_LF.p(x+1)-1) and SA_Phi^{-1}[x+1] != r'', then
+            SA[i] = Phi(SA_s[(x+1) mod r'])
+                  = Phi(M_Phi^{-1}.q(SA_Phi^{-1}[(x+1) mod r']))
+                  =     M_Phi^{-1}.p(SA_Phi^{-1}[(x+1) mod r'])
         */
-        if (i == M_LF().p(x)) {
-            if (x == 0) {
-                return M_Phi().p(SA_Phi(r_-1));
-            } else if (SA_Phi(x-1) != r__) {
-                return M_Phi().p(SA_Phi(x-1));
-            }
+        if (i == M_LF().p(x+1)-1 && SA_Phi_m1(x+1) != r__) {
+            return M_Phi_m1().p(SA_Phi_m1((x+1) % r_));
         }
 
-        // increment x until the end position of the x-th input interval of M_LF is an end position of a bwt run
-        while (SA_Phi(x) == r__) {
-            x++;
+        // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
+        while (SA_Phi_m1(x) == r__) {
+            x--;
         }
 
-        // begin iterating at the end of the x-th run, because there is a
+        // begin iterating at the start of the x-th run, because there is a
         // suffix array sample at the end position of the x-th input interval
 
         // position in the suffix array of the current suffix s
-        pos_t j = M_LF().p(x+1)-1;
+        pos_t j = M_LF().p(x);
 
-        // index of the input interval in M_Phi containing s
+        // index of the input interval in M_Phi^{-1} containing s
         pos_t s_;
         // the current suffix (s = SA[j])
         pos_t s;
@@ -68,10 +68,10 @@ pos_t move_r<locate_support,sym_t,pos_t>::SA(pos_t i) const {
 
         // Perform Phi-move queries until s is the suffix at position
         // i; in each iteration, s = SA[j] = \Phi^{i-j}(SA[i]) holds.
-        while (j > i) {
+        while (j < i) {
             // Set s = \Phi(s)
-            M_Phi().move(s,s_);
-            j--;
+            M_Phi_m1().move(s,s_);
+            j++;
         }
 
         // Since j = i, now s = SA[i] holds.
@@ -85,12 +85,10 @@ bool move_r<locate_support,sym_t,pos_t>::query_context::prepend(sym_t sym) {
     pos_t e_tmp = e;
     pos_t b__tmp = b_;
     pos_t e__tmp = e_;
-    pos_t hat_e_ap_y_tmp = hat_e_ap_y;
-    pos_t hat_b_ap_z_tmp = hat_b_ap_z;
+    pos_t hat_b_ap_y_tmp = hat_b_ap_y;
     int64_t y_tmp = y;
-    int64_t z_tmp = z;
 
-    if (idx->backward_search_step(sym,b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z)) {
+    if (idx->backward_search_step(sym,b,e,b_,e_,hat_b_ap_y,y)) {
         l++;
         i = b;
         
@@ -100,10 +98,8 @@ bool move_r<locate_support,sym_t,pos_t>::query_context::prepend(sym_t sym) {
         e = e_tmp;
         b_ = b__tmp;
         e_ = e__tmp;
-        hat_e_ap_y = hat_e_ap_y_tmp;
-        hat_b_ap_z = hat_b_ap_z_tmp;
+        hat_b_ap_y = hat_b_ap_y_tmp;
         y = y_tmp;
-        z = z_tmp;
 
         return false;
     }
@@ -114,7 +110,7 @@ pos_t move_r<locate_support,sym_t,pos_t>::query_context::next_occ() {
     if constexpr (locate_support == _rlzdsa) {
         if (i == b) {
             // compute the suffix array value at b
-            s = idx->SA_s(hat_b_ap_z)-(z+1);
+            s = idx->SA_s(hat_b_ap_y)-(y+1);
             i++;
             
             // check if there is more than one occurrence
@@ -130,11 +126,11 @@ pos_t move_r<locate_support,sym_t,pos_t>::query_context::next_occ() {
     } else {
         if (i == b) {
             // compute the suffix array value at b
-            idx->init_phi(b,e,s,s_,hat_e_ap_y,y);
+            idx->init_phi(b,e,s,s_,hat_b_ap_y,y);
             i++;
             return s;
         } else {
-            idx->M_Phi().move(s,s_);
+            idx->M_Phi_m1().move(s,s_);
             i++;
             return s;
         }
@@ -143,10 +139,12 @@ pos_t move_r<locate_support,sym_t,pos_t>::query_context::next_occ() {
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::query_context::locate(std::vector<pos_t>& Occ) {
+    Occ.reserve(num_occ_rem()-Occ.size());
+
     if constexpr (locate_support == _rlzdsa) {
         if (i == b) {
             // compute the suffix array value at b
-            s = idx->SA_s(hat_b_ap_z)-(z+1);
+            s = idx->SA_s(hat_b_ap_y)-(y+1);
             Occ.emplace_back(s);
             i++;
             
@@ -163,14 +161,14 @@ void move_r<locate_support,sym_t,pos_t>::query_context::locate(std::vector<pos_t
     } else {
         // compute the suffix array value at b
         if (i == b) {
-            idx->init_phi(i,b,e,s,s_,hat_e_ap_y,y);
+            idx->init_phi(b,e,s,s_,hat_b_ap_y,y);
             Occ.emplace_back(s);
             i++;
         }
         
         // compute the remaining occurrences SA(b,e]
         while (i <= e) {
-            M_Phi().move(s,s_);
+            M_Phi_m1().move(s,s_);
             Occ.emplace_back(s);
             i++;
         }
@@ -182,8 +180,7 @@ bool move_r<locate_support,sym_t,pos_t>::backward_search_step(
     sym_t sym,
     pos_t& b, pos_t& e,
     pos_t& b_, pos_t& e_,
-    int64_t& y, pos_t& hat_e_ap_y,
-    int64_t& z, pos_t& hat_b_ap_z
+    pos_t& hat_b_ap_y, int64_t& y
 ) const {
     // If the characters have been remapped internally, the pattern also has to be remapped.
     i_sym_t i_sym = map_symbol(sym);
@@ -200,12 +197,12 @@ bool move_r<locate_support,sym_t,pos_t>::backward_search_step(
         b_ = RS_L_().select(i_sym,b_+1);
         b = M_LF().p(b_);
         
-        // update z (Case 1).
-        z = 0;
-        // update \hat{b}'_z.
-        hat_b_ap_z = b_;
+        // update y (Case 1).
+        y = 0;
+        // update \hat{b}'_y.
+        hat_b_ap_y = b_;
     } else {
-        z++;
+        y++;
     }
 
     // Find the lexicographically largest suffix in the current suffix array interval that is prefixed by P[i]
@@ -216,16 +213,7 @@ bool move_r<locate_support,sym_t,pos_t>::backward_search_step(
         if (e_ == 0) return false;
         e_ = RS_L_().select(i_sym,e_);
         e = M_LF().p(e_+1)-1;
-        
-        // update y (Case 1).
-        y = 0;
-        // update \hat{e}'_y.
-        hat_e_ap_y = e_;
-    } else {
-        y++;
     }
-    /* Else Case 2 holds, hence y(i) = y(i+1) and therefore, \hat{e}'_{y(i)} = \hat{e}'_{y(i+1)}, so
-        don't change y and \hat{e}'_y */
     
     // Else, because each suffix i in the previous suffix array interval starts with P[i+1..m] and the current 
     // interval [b,e] contains all suffixes of it, before which there is a P[i] in T, all suffixes in the 
@@ -272,16 +260,16 @@ template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::init_phi(
     pos_t& b, pos_t& e,
     pos_t& s, pos_t& s_,
-    pos_t& hat_e_ap_y, int64_t& y
+    pos_t& hat_b_ap_y, int64_t& y
 ) const {
-    setup_phi_move_pair(hat_e_ap_y,s,s_);
+    setup_phi_move_pair(hat_b_ap_y,s,s_);
     s -= y+1;
 
-    // If there is more than one occurrence and s < M_Phi.p[s_], now an input interval of M_Phi before 
+    // If there is more than one occurrence and s < M_Phi^{-1}.p[s_], now an input interval of M_Phi^{-1} before 
     // the s_-th one contains s, so we have to decrease s_. To find the correct value for s_, we perform
-    // an exponential search to the left over the input interval starting positions of M_Phi starting at s_.
-    if (b < e && s < M_Phi().p(s_)) {
-        s_ = exp_search_max_leq<pos_t,LEFT>(s,0,s_,[this](pos_t x){return M_Phi().p(x);});
+    // an exponential search to the left over the input interval starting positions of M_Phi^{-1} starting at s_.
+    if (b < e && s < M_Phi_m1().p(s_)) {
+        s_ = exp_search_max_leq<pos_t,LEFT>(s,0,s_,[this](pos_t x){return M_Phi_m1().p(x);});
     }
 }
 
@@ -472,14 +460,14 @@ void move_r<locate_support,sym_t,pos_t>::locate_rlzdsa(
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-pos_t move_r<locate_support,sym_t,pos_t>::count(const i_cont_t& P) const {
-    pos_t l,b,e,b_,e_,hat_e_ap_y,hat_b_ap_z;
-    int64_t y,z;
+pos_t move_r<locate_support,sym_t,pos_t>::count(const inp_t& P) const {
+    pos_t l,b,e,b_,e_,hat_b_ap_y;
+    int64_t y;
 
-    init_backward_search(b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z);
+    init_backward_search(b,e,b_,e_,hat_b_ap_y,y);
 
     for (int64_t i=P.size()-1; i>=0; i--) {
-        if (!backward_search_step(P[i],b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z)) {
+        if (!backward_search_step(P[i],b,e,b_,e_,hat_b_ap_y,y)) {
             return 0;
         }
     }
@@ -488,22 +476,22 @@ pos_t move_r<locate_support,sym_t,pos_t>::count(const i_cont_t& P) const {
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::locate(const i_cont_t& P, std::vector<pos_t>& Occ) const {
-    pos_t l,b,e,b_,e_,hat_e_ap_y,hat_b_ap_z;
-    int64_t y,z;
+void move_r<locate_support,sym_t,pos_t>::locate(const inp_t& P, std::vector<pos_t>& Occ) const {
+    pos_t l,b,e,b_,e_,hat_b_ap_y;
+    int64_t y;
 
-    init_backward_search(b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z);
+    init_backward_search(b,e,b_,e_,hat_b_ap_y,y);
 
     for (int64_t i=P.size()-1; i>=0; i--) {
-        if (!backward_search_step(P[i],b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z)) {
+        if (!backward_search_step(P[i],b,e,b_,e_,hat_b_ap_y,y)) {
             return;
         }
     }
 
-    Occ.reserve(e-b+1);
+    Occ.reserve(Occ.size()+e-b+1);
     
     if constexpr (locate_support == _rlzdsa) {
-        pos_t s = SA_s(hat_b_ap_z)-(z+1);
+        pos_t s = SA_s(hat_b_ap_y)-(y+1);
         Occ.emplace_back(s);
 
         if (b < e) {
@@ -515,14 +503,14 @@ void move_r<locate_support,sym_t,pos_t>::locate(const i_cont_t& P, std::vector<p
         }
     } else {
         pos_t s,s_;
-        init_phi(b,e,s,s_,hat_e_ap_y,y);
+        init_phi(b,e,s,s_,hat_b_ap_y,y);
         Occ.emplace_back(s);
 
         if (b < e) {
             pos_t i = b+1;
             
             while (i <= e) {
-                M_Phi().move(s,s_);
+                M_Phi_m1().move(s,s_);
                 Occ.emplace_back(s);
                 i++;
             }
@@ -577,7 +565,7 @@ void move_r<locate_support,sym_t,pos_t>::revert(const std::function<void(pos_t,s
         // index of the input interval in M_LF containing i.
         pos_t x = sr_ip == p_r-1 ? 0 : _D_e[sr_ip].first;
         // The position in the bwt of the current character in T.
-        pos_t i = sr_ip == p_r-1 ? 0 : M_LF().p(x+1)-1;
+        pos_t i = sr_ip == p_r-1 ? 0 : M_LF().p(x);
 
         // start iterating at the right iteration range end position
         pos_t j = j_r;
@@ -713,39 +701,67 @@ void move_r<locate_support,sym_t,pos_t>::SA(const std::function<void(pos_t,pos_t
             pos_t e = i_p == p-1 ? r : l+(i_p+1)*((r-l+1)/p)-1;
 
             // the input interval of M_LF containing i
-            pos_t x = bin_search_max_leq<pos_t>(e,0,r_-1,[this](pos_t x_){return M_LF().p(x_);});
+            pos_t x = bin_search_max_leq<pos_t>(b,0,r_-1,[this](pos_t x_){return M_LF().p(x_);});
 
-            // increment x until the end position of the x-th input interval of M_LF is an end position of a bwt run
-            while (SA_Phi(x) == r__) {
-                x++;
+            // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
+            while (SA_Phi_m1(x) == r__) {
+                x--;
             }
 
-            // current position in the suffix array, initially the end position of the x-th interval of M_LF
-            pos_t i = M_LF().p(x+1)-1;
+            // current position in the suffix array, initially the starting position of the x-th interval of M_LF
+            pos_t i = M_LF().p(x);
 
-            // index of the input interval in M_Phi containing s
+            // index of the input interval in M_Phi^{-1} containing s
             pos_t s_;
             /* the current suffix array value (SA[i]), initially the suffix array sample of the x-th run,
-            initially the suffix array value at e */
+            initially the suffix array value at b */
             pos_t s;
 
             setup_phi_move_pair(x,s,s_);
 
-            // iterate down to the iteration range end position
-            while (i > e) {
-                M_Phi().move(s,s_);
-                i--;
+            // iterate up to the iteration range starting position
+            while (i < b) {
+                M_Phi_m1().move(s,s_);
+                i++;
             }
 
-            // report SA[e]
+            // report SA[b]
             report(i,s);
 
-            // report the SA-values SA[b,e-1] from right to left
-            while (i > b) {
-                M_Phi().move(s,s_);
-                i--;
+            // report the SA-values SA[b+1,e] from left to right
+            while (i < e) {
+                M_Phi_m1().move(s,s_);
+                i++;
                 report(i,s);
             }
         }
     }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <typename output_t, bool output_reversed>
+void move_r<locate_support,sym_t,pos_t>::retrieve_range(
+    void(move_r<locate_support,sym_t,pos_t>::*retrieve_method)(
+        const std::function<void(pos_t,output_t)>&,move_r<locate_support,sym_t,pos_t>::retrieve_params
+    )const, std::string file_name, move_r<locate_support,sym_t,pos_t>::retrieve_params params
+) const {
+    pos_t l = params.l;
+    pos_t r = params.r;
+    uint16_t num_threads = params.num_threads;
+    uint64_t buffer_size_per_thread = std::max<uint64_t>(1024,
+        params.max_bytes_alloc != -1 ?
+            params.max_bytes_alloc/num_threads :
+            ((r-l+1)*sizeof(output_t))/(num_threads*500)
+    );
+    
+    std::filesystem::resize_file(std::filesystem::current_path()/file_name,(r-l+1)*sizeof(output_t));
+    std::vector<sdsl::int_vector_buffer<>> file_bufs;
+
+    for (uint16_t i=0; i<num_threads; i++) {
+        file_bufs.emplace_back(sdsl::int_vector_buffer<>(file_name,std::ios::in,buffer_size_per_thread,sizeof(output_t)*8,true));
+    }
+
+    (this->*retrieve_method)([&](pos_t pos, output_t val){
+        file_bufs[omp_get_thread_num()][pos] = *reinterpret_cast<uint64_t*>(&val);
+    },params);
 }

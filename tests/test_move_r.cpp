@@ -22,7 +22,7 @@ std::string bwt_retrieved;
 std::vector<uint8_t> map_uchar;
 std::vector<uint8_t> unmap_uchar;
 std::vector<int32_t> suffix_array;
-std::vector<int32_t> suffix_array_retrieved;
+std::vector<uint32_t> suffix_array_retrieved;
 uint32_t max_pattern_length;
 uint32_t num_queries;
 
@@ -55,7 +55,7 @@ void test_move_r() {
     // build move-r and choose a random number of threads and balancing parameter, but always use libsais,
     // because there are bugs in Big-BWT that come through during fuzzing but not really in practice
     move_r<locate_support,char,uint32_t> index(input,{
-        .mode = _libsais,
+        .mode = _suffix_array,
         .num_threads = num_threads_distrib(gen),
         .a = std::min<uint16_t>(2+a_distrib(gen),32767)
     });
@@ -92,10 +92,7 @@ void test_move_r() {
         map_uchar.clear();
         unmap_uchar.clear();
     }
-    suffix_array_retrieved.resize(input_size+1);
-    index.SA([&suffix_array_retrieved](auto i,auto s){suffix_array_retrieved[i] = s;},{
-        .num_threads = num_threads_distrib(gen)
-    });
+    suffix_array_retrieved = index.SA({.num_threads = num_threads_distrib(gen)});
     #pragma omp parallel for num_threads(max_num_threads)
     for (uint32_t i=0; i<=input_size; i++) EXPECT_EQ(suffix_array[i],suffix_array_retrieved[i]);
     
@@ -160,7 +157,7 @@ TEST(test_move_r,fuzzy_test) {
 
     while (time_diff_min(start_time,now()) < 60) {
         if (prob_distrib(gen) < 0.5) {
-            test_move_r<_phi>();
+            test_move_r<_mds>();
         } else {
             test_move_r<_rlzdsa>();
         }

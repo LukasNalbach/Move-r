@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ips4o.hpp>
+#include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
 
 template <typename pos_t>
 inline pos_t move_data_structure<pos_t>::construction::interval_length_v2v3_seq(lin_node_t_v2v3v4 *ln) {

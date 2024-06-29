@@ -1,5 +1,7 @@
 #pragma once
 
+#include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
+
 template <typename pos_t>
 void move_data_structure<pos_t>::construction::verify_correctness() {
     std::cout << "verifying correctness of the interval sequence:" << std::endl;

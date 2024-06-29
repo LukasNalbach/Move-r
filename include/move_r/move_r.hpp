@@ -32,7 +32,7 @@ static std::vector<move_r_supp> _full_support = {_revert, _count, _locate};
  * @brief type of locate support
  */
 enum move_r_locate_supp {
-    _phi = 0, // locate support is implemented using a move data structure to answer phi-queries
+    _mds = 0, // locate support is implemented using a move data structure to answer Phi^{-1}-queries
     _rlzdsa = 1 // locate support is implemented by relative lepel-ziv encoding the differential suffix array
 };
 
@@ -40,9 +40,9 @@ enum move_r_locate_supp {
  * @brief move-r construction mode
  */
 enum move_r_constr_mode {
-    _bigbwt = 0, // most space-efficient construction mode (stores many data structures on disk to reduce peak memory usage)
-    _libsais = 1, // least space-efficient construction mode (stores no data structures on disk)
-    _libsais_space = 2 // a bit more space-efficient than _libsais (stores some data structures on disk)
+    _bigbwt = 0, // builds the bwt with Big-BWT and stores many data structures on disk to reduce peak memory usage
+    _suffix_array = 1, // builds the suffix array in-memory and stores no data structures on disk
+    _suffix_array_space = 2 // builds the suffix array and stores some data structures on disk
 };
 
 /**
@@ -50,7 +50,7 @@ enum move_r_constr_mode {
  */
 struct move_r_params {
     std::vector<move_r_supp> support = _full_support; // a vector containing move_r operations to build support for
-    move_r_constr_mode mode = _libsais; // cosntruction mode to use (default: libsais)
+    move_r_constr_mode mode = _suffix_array; // cosntruction mode to use (default: sa)
     uint16_t num_threads = omp_get_max_threads(); // maximum number of threads to use during the construction
     uint16_t a = 8; // balancing parameter, 2 <= a
     bool log = false; // controls, whether to print log messages
@@ -61,11 +61,11 @@ struct move_r_params {
 
 /**
  * @brief move-r index, size O(r*(a/(a-1)))
- * @tparam locate_support type of locate support (_phi or _rlzdsa)
+ * @tparam locate_support type of locate support (_mds or _rlzdsa)
  * @tparam sym_t value type (default: char for strings)
  * @tparam pos_t index integer type (use uint32_t if input size < UINT_MAX, else uint64_t)
  */
-template <move_r_locate_supp locate_support = _phi, typename sym_t = char, typename pos_t = uint32_t>
+template <move_r_locate_supp locate_support = _mds, typename sym_t = char, typename pos_t = uint32_t>
 class move_r {
     protected:
 
@@ -90,10 +90,10 @@ class move_r {
     
     // internal (unsigned) symbol type
     using i_sym_t = constexpr_switch_t<
-        constexpr_case<sizeof(sym_t) == 1,         uint8_t>,
-        constexpr_case<sizeof(sym_t) == 2,         uint16_t>,
-        constexpr_case<sizeof(sym_t) == 4,         uint32_t>,
-     /* constexpr_case<sizeof(sym_t) == 8, */      uint64_t
+        constexpr_case<sizeof(sym_t) == 1,    uint8_t>,
+        constexpr_case<sizeof(sym_t) == 2,    uint16_t>,
+        constexpr_case<sizeof(sym_t) == 4,    uint32_t>,
+     /* constexpr_case<sizeof(sym_t) == 8, */ uint64_t
     >;
     
     static constexpr bool str_input = std::is_same_v<sym_t,char>; // true <=> the input is a string
@@ -102,21 +102,21 @@ class move_r {
 
     using map_int_t = std::conditional_t<byte_alphabet,std::vector<uint8_t>,tsl::sparse_map<sym_t,i_sym_t>>; // type of map_int
     using map_ext_t = std::vector<sym_t>; // type of map_ext
-    using i_cont_t = std::conditional<str_input,std::string,std::vector<sym_t>>::type; // input container type
-    
+    using inp_t = std::conditional_t<str_input,std::string,std::vector<sym_t>>; // input container type
+
     // ############################# INDEX VARIABLES #############################
 
-    pos_t n = 0; // the length of T
+    pos_t n = 0; // the length of the input
     uint64_t sigma = 0; // the number of distinct characters (including the terminator symbol 1) of T
     pos_t r = 0; // r, the number of runs in L
     pos_t r_ = 0; // r', the number of input/output intervals in M_LF
-    pos_t r__ = 0; // r'', the number of input/output intervals in M_Phi
+    pos_t r__ = 0; // r'', the number of input/output intervals in M_Phi^{-1}
     pos_t z = 0; // z, the number of phrases in the rlzdsa
     pos_t z_l = 0; // z_l, the number of literal phrases in the rlzdsa
     pos_t z_c = 0; // z_c, the number of copy-phrases in the rlzdsa
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))+z), 2 <= a
     uint16_t p_r = 1; // maximum possible number of threads to use while reverting the index
-    uint8_t omega_idx = 0; // word width of SA_Phi
+    uint8_t omega_idx = 0; // word width of SA_Phi^{-1}
 
     std::vector<move_r_supp> _support; // contains all supported operations
     /* true <=> the characters of the input have been remapped internally, because sym_t != char or
@@ -126,9 +126,9 @@ class move_r {
 
     // ############################# INDEX DATA STRUCTURES #############################
 
-    // mapping function from the alphabet of T to the internal effective alphabet
+    // mapping function from the alphabet of the input to the internal effective alphabet
     map_int_t _map_int;
-    // inverse function from internal effective alphabet to the alphabet of T
+    // mapping function from the internal effective alphabet to the alphabet of the input
     map_ext_t _map_ext;
     
     /* The Move Data Structure for LF. It also stores L', which can be accessed at
@@ -137,12 +137,12 @@ class move_r {
     // rank-select data structure for L'
     rank_select_support<i_sym_t,pos_t> _RS_L_;
 
-    // The Move Data Structure for Phi.
-    move_data_structure<pos_t> _M_Phi;
-    // [0..r'-1] SA_Phi
-    interleaved_vectors<pos_t,pos_t> _SA_Phi;
+    // The Move Data Structure for Phi^{-1}.
+    move_data_structure<pos_t> _M_Phi_m1;
+    // [0..r'-1] stores at position x the index of the output interval of M_Phi^{-1} that starts with SA_s[x] = SA[M_LF.p[x]]
+    interleaved_vectors<pos_t,pos_t> _SA_Phi_m1;
 
-    /* [0..p_r-1], where D_e[i] = <x,j>, x in [0,r'-1] and j is minimal, s.t. SA_s'[x]=j > i* lfloor (n-1)/p rfloor;
+    /* [0..p_r-1], where D_e[i] = <x,j>, where x in [0,r'-1] and j is minimal, s.t. SA_s[x]=j > i* lfloor (n-1)/p rfloor;
     see the parallel revert algorithm to understand why this is useful. */
     std::vector<std::pair<pos_t,pos_t>> _D_e;
 
@@ -162,12 +162,12 @@ class move_r {
     // ############################# INTERNAL METHODS #############################
 
     /**
-     * @brief sets SA_Phi[x] to idx
+     * @brief sets SA_Phi^{-1}[x] to idx
      * @param x [0..r-1]
      * @param idx [0..r''-1]
      */
-    inline void set_SA_Phi(pos_t x, pos_t idx) {
-        _SA_Phi.template set<0,pos_t>(x,idx);
+    inline void set_SA_Phi_m1(pos_t x, pos_t idx) {
+        _SA_Phi_m1.template set<0,pos_t>(x,idx);
     }
 
     /**
@@ -199,7 +199,7 @@ class move_r {
      * @param input the input
      * @param params construction parameters
      */
-    move_r(i_cont_t& input, move_r_params params = {}) {
+    move_r(inp_t& input, move_r_params params = {}) {
         construction(*this,input,false,params);
     }
 
@@ -208,7 +208,7 @@ class move_r {
      * @param input the input
      * @param params construction parameters
      */
-    move_r(i_cont_t&& input, move_r_params params = {}) {
+    move_r(inp_t&& input, move_r_params params = {}) {
         construction(*this,input,true,params);
     }
 
@@ -260,6 +260,30 @@ class move_r {
     }
 
     /**
+     * @brief returns the number of phrases in the rlzdsa
+     * @return number of phrases in the rlzdsa
+     */
+    inline pos_t num_phrases_rlzdsa() const {
+        return z;
+    }
+
+    /**
+     * @brief returns the number of literal phrases in the rlzdsa
+     * @return number of literal phrases in the rlzdsa
+     */
+    inline pos_t num_literal_phrases_rlzdsa() const {
+        return z_l;
+    }
+
+    /**
+     * @brief returns the number of copy phrases in the rlzdsa
+     * @return number of copy phrases in the rlzdsa
+     */
+    inline pos_t num_copy_phrases_rlzdsa() const {
+        return z_c;
+    }
+
+    /**
      * @brief returns the balancing parameter the index has been built with
      * @return balancing parameter 
      */
@@ -268,7 +292,7 @@ class move_r {
     }
 
     /**
-     * @brief returns the number omega_idx of bits used by one entry in SA_Phi (word width of SA_Phi)
+     * @brief returns the number omega_idx of bits used by one entry in SA_Phi^{-1} (word width of SA_Phi^{-1})
      * @return omega_idx
      */
     inline uint8_t width_saphi() const {
@@ -311,14 +335,14 @@ class move_r {
             p_r*sizeof(pos_t)+ // D_e
             _M_LF.size_in_bytes()+ // M_LF and L'
             size_map_int+ // map_int
-            sizeof(sym_t)*sigma+ // unmap_int
+            sizeof(sym_t)*sigma+ // map_ext
             _RS_L_.size_in_bytes(); // RS_L'
 
         if (contains(_support,_locate)) {
-            if constexpr (locate_support == _phi) {
+            if constexpr (locate_support == _mds) {
                 size +=
-                    _M_Phi.size_in_bytes()+ // M_Phi
-                    _SA_Phi.size_in_bytes(); // SA_Phi
+                    _M_Phi_m1.size_in_bytes()+ // M_Phi^{-1}
+                    _SA_Phi_m1.size_in_bytes(); // SA_Phi^{-1}
             } else {
                 size +=
                     _SA_s.size_in_bytes()+ // SA_s
@@ -345,7 +369,7 @@ class move_r {
 
         if constexpr (int_input) {
             std::cout << "map_int: " << format_size(size_map_int) << std::endl;
-            std::cout << "unmap_int: " << format_size(sizeof(sym_t)*sigma) << std::endl;
+            std::cout << "map_ext: " << format_size(sizeof(sym_t)*sigma) << std::endl;
         }
 
         if (does_support(_count)) {
@@ -353,9 +377,9 @@ class move_r {
         }
 
         if (does_support(_locate)) {
-            if constexpr (locate_support == _phi) {
-                std::cout << "M_Phi: " << format_size(_M_Phi.size_in_bytes()) << std::endl;
-                std::cout << "SA_Phi: " << format_size(_SA_Phi.size_in_bytes()) << std::endl;
+            if constexpr (locate_support == _mds) {
+                std::cout << "M_Phi^{-1}: " << format_size(_M_Phi_m1.size_in_bytes()) << std::endl;
+                std::cout << "SA_Phi^{-1}: " << format_size(_SA_Phi_m1.size_in_bytes()) << std::endl;
             } else {
                 std::cout << "SA_s: " << format_size(_SA_s.size_in_bytes()) << std::endl;
                 std::cout << "R: " << format_size(_R.size_in_bytes()) << std::endl;
@@ -387,9 +411,9 @@ class move_r {
         }
 
         if (does_support(_locate)) {
-            if constexpr (locate_support == _phi) {
-                out << " size_m_phi=" << _M_Phi.size_in_bytes();
-                out << " size_sa_phi=" << _SA_Phi.size_in_bytes();
+            if constexpr (locate_support == _mds) {
+                out << " size_m_phim1=" << _M_Phi_m1.size_in_bytes();
+                out << " size_sa_phim1=" << _SA_Phi_m1.size_in_bytes();
             } else {
                 out << "size_sa_s: " << _SA_s.size_in_bytes();
                 out << "size_r: " << _R.size_in_bytes();
@@ -412,11 +436,11 @@ class move_r {
     }
 
     /**
-     * @brief returns a reference to M_Phi
-     * @return M_Phi
+     * @brief returns a reference to M_Phi^{-1}
+     * @return M_Phi^{-1}
      */
-    inline const move_data_structure<pos_t>& M_Phi() const {
-        return _M_Phi;
+    inline const move_data_structure<pos_t>& M_Phi_m1() const {
+        return _M_Phi_m1;
     }
 
     /**
@@ -513,30 +537,26 @@ class move_r {
     }
 
     /**
-     * @brief returns SA_Phi[x]
+     * @brief returns SA_Phi^{-1}[x]
      * @param x [0..r''-1]
-     * @return SA_Phi[x]
+     * @return SA_Phi^{-1}[x]
      */
-    inline pos_t SA_Phi(pos_t x) const {
-        return _SA_Phi[x];
-    }
-
-    /**
-     * @brief returns SA_s'[x]
-     * @param x [0..r'-1] the end position of the x-th input interval in M_LF must be an end position of a bwt run
-     * @return SA_s'[x]
-     */
-    inline pos_t SA_s_(pos_t x) const {
-        return _M_Phi.q(_SA_Phi[x]);
+    inline pos_t SA_Phi_m1(pos_t x) const {
+        return _SA_Phi_m1[x];
     }
 
     /**
      * @brief returns SA_s[x]
-     * @param x [0..r'-1] index of an input interval of M_LF
+     * @param x [0..r'-1] for (locate_support == _mds), the starting position
+     * of the x-th input interval in M_LF must be a starting position of a bwt run
      * @return SA_s[x]
      */
     inline pos_t SA_s(pos_t x) const {
-        return _SA_s[x];
+        if constexpr (locate_support == _mds) {
+            return _M_Phi_m1.q(_SA_Phi_m1[x]);
+        } else {
+            return _SA_s[x];
+        }
     }
 
     /**
@@ -601,7 +621,11 @@ class move_r {
      * @return its corresponding symbol in the input
      */
     inline sym_t unmap_symbol(i_sym_t sym) const {
-        return symbols_remapped ? _map_ext[sym] : sym;
+        if constexpr (byte_alphabet) {
+            return symbols_remapped ? _map_ext[sym] : sym;
+        } else {
+            return _map_ext[sym];
+        }
     }
 
     /**
@@ -609,7 +633,7 @@ class move_r {
      * @param i [0..max_revert_threads()-2]
      * @return D_e[i]
      */
-    inline pos_t D_e(uint16_t i) const {
+    inline std::pair<pos_t,pos_t> D_e(uint16_t i) const {
         return _D_e[i];
     }
 
@@ -636,10 +660,14 @@ class move_r {
         protected:
 
         pos_t l;  // length of the currently matched pattern
-        pos_t b,e,b_,e_,hat_e_ap_y,hat_b_ap_z,i,s,s_,x_p,x_lp,x_cp,x_r,s_np;
-        int64_t y,z;
+        pos_t b,e,b_,e_,hat_b_ap_y; // variables for backward search
+        int64_t y; // variable for backward search
+        pos_t i; // current position in the suffix array interval
+        pos_t s; // current suffix s = SA[i] in the suffix array interval
+        pos_t s_; // index of the input inteval of M_Phi^{-1} containing s
+        pos_t x_p,x_lp,x_cp,x_r,s_np; // variables for decoding the rlzdsa
 
-        const move_r<locate_support,sym_t,pos_t>* idx;
+        const move_r<locate_support,sym_t,pos_t>* idx; // index to query
 
         public:
         /**
@@ -655,7 +683,7 @@ class move_r {
          * @brief resets the query context to an empty pattern
          */
         inline void reset() {
-            idx->init_backward_search(b,e,b_,e_,y,hat_e_ap_y,z,hat_b_ap_z);
+            idx->init_backward_search(b,e,b_,e_,hat_b_ap_y,y);
             l = 0;
             i = b;
         }
@@ -712,6 +740,16 @@ class move_r {
          * @param Occ vector to append the occurrences to
          */
         inline void locate(std::vector<pos_t>& Occ);
+
+        /**
+         * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
+         * @return vector containing the occurrences
+         */
+        std::vector<pos_t> locate() {
+            std::vector<pos_t> Occ;
+            locate(Occ);
+            return Occ;
+        }
     };
 
     /**
@@ -729,25 +767,20 @@ class move_r {
      * @param e Right interval limit of the suffix array interval.
      * @param b_ index of the input interval in M_LF containing b.
      * @param e_ index of the input interval in M_LF containing e.
+     * @param hat_b_ap_y \hat{b}'_y
      * @param y y
-     * @param hat_e_ap_y \hat{e}'_y
-     * @param z z
-     * @param hat_b_ap_z \hat{b}'_z
      */
     inline void init_backward_search(
         pos_t& b, pos_t& e,
         pos_t& b_, pos_t& e_,
-        int64_t& y, pos_t& hat_e_ap_y,
-        int64_t& z, pos_t& hat_b_ap_z
+        pos_t& hat_b_ap_y, int64_t& y
     ) const {
         b = 0;
         e = n-1;
         b_ = 0;
         e_ = r_-1;
+        hat_b_ap_y = 0;
         y = -1;
-        hat_e_ap_y = r_-1;
-        z = -1;
-        hat_b_ap_z = 0;
     }
     
     /**
@@ -758,25 +791,22 @@ class move_r {
      * @param e Right interval limit of the suffix array interval.
      * @param b_ index of the input interval in M_LF containing b.
      * @param e_ index of the input interval in M_LF containing e.
+     * @param hat_b_ap_y \hat{b}'_y
      * @param y y
-     * @param hat_e_ap_y \hat{e}'_y
-     * @param z z
-     * @param hat_b_ap_z \hat{b}'_z
      * @return whether symP occurs in the input
      */
     bool backward_search_step(
         sym_t sym,
         pos_t& b, pos_t& e,
         pos_t& b_, pos_t& e_,
-        int64_t& y, pos_t& hat_e_ap_y,
-        int64_t& z, pos_t& hat_b_ap_z
+        pos_t& hat_b_ap_y, int64_t& y
     ) const;
 
     /**
      * @brief Sets the up a Phi-move-pair for the suffix array sample at the end position of the x-th input interval in M_LF
      * @param x an input interval in M_LF (the end position of the x-th input interval in M_LF must be an end position of a BWT run)
      * @param s variable to store the suffix array sample at position l'_{x+1}-1
-     * @param s_ variable to store the index of the input interval in M_Phi containing s
+     * @param s_ variable to store the index of the input interval in M_Phi^{-1} containing s
      */
     inline void setup_phi_move_pair(pos_t& x, pos_t& s, pos_t& s_) const;
 
@@ -785,14 +815,14 @@ class move_r {
      * @param b left interval limit of the suffix array interval
      * @param e right interval limit of the suffix array interval
      * @param s variable to store SA[b] in
-     * @param s_ index of the input interval in M_Phi containing s
-     * @param hat_e_ap_y \hat{e}'_y
+     * @param s_ index of the input interval in M_Phi^{-1} containing s
+     * @param hat_b_ap_y \hat{b}'_y
      * @param y y
      */
     inline void init_phi(
         pos_t& b, pos_t& e,
         pos_t& s, pos_t& s_,
-        pos_t& hat_e_ap_y, int64_t& y
+        pos_t& hat_b_ap_y, int64_t& y
     ) const;
     
     /**
@@ -864,14 +894,14 @@ class move_r {
      * @param P the pattern to count in the input
      * @return the number of occurrences of P in the input
      */
-    inline pos_t count(const i_cont_t& P) const;
+    inline pos_t count(const inp_t& P) const;
 
     /**
      * @brief locates the pattern P in the input
      * @param P the pattern to locate in the input
      * @return a vector containing the occurrences of P in the input
      */
-    inline std::vector<pos_t> locate(const i_cont_t& P) const {
+    inline std::vector<pos_t> locate(const inp_t& P) const {
         std::vector<pos_t> Occ;
         locate(P,Occ);
         return Occ;
@@ -882,7 +912,7 @@ class move_r {
      * @param P the pattern to locate in the input
      * @param Occ vector to append the occurrences of P in the input to
      */
-    void locate(const i_cont_t& P, std::vector<pos_t>& Occ) const;
+    void locate(const inp_t& P, std::vector<pos_t>& Occ) const;
 
     // ############################# RETRIEVE-RANGE METHODS #############################
 
@@ -915,13 +945,13 @@ class move_r {
      * @tparam output_t type of the output data
      * @tparam output_reversed controls, whether the output should be reversed
      * @param retrieve_method function, whiches output should be buffered
-     * @param out file to write the output to
+     * @param file_name name of the file to write the output to
      * @param params parameters
      */
     template <typename output_t, bool output_reversed>
     void retrieve_range(
         void(move_r<locate_support,sym_t,pos_t>::*retrieve_method)(const std::function<void(pos_t,output_t)>&,retrieve_params)const,
-        std::ofstream& out, retrieve_params params
+        std::string file_name, retrieve_params params
     ) const;
 
     public:
@@ -932,9 +962,9 @@ class move_r {
      * @param params parameters
      * @return the bwt range [l,r]
      */
-    i_cont_t BWT(retrieve_params params = {}) const {
+    inp_t BWT(retrieve_params params = {}) const {
         adjust_retrieve_params(params,n-1);
-        i_cont_t L;
+        inp_t L;
         no_init_resize(L,params.r-params.l+1);
         BWT([&L,&params](pos_t i, sym_t c){L[i-params.l] = c;},params);
         return L;
@@ -952,11 +982,12 @@ class move_r {
     /**
      * @brief writes the characters in the bwt in the range [l,r] blockwise to the file out (0 <= l <= r <= input size), else if
      * l > r, then the whole bwt is written (default); $ = 0, so if the input contained 0, the output is not equal to the real bwt
-     * @param out file to write the bwt to
+     * @param file_name name of the file to write the bwt to
      * @param params parameters
      */
-    void BWT(std::ofstream& out, retrieve_params params = {}) const {
-        retrieve_range<sym_t,false>(&move_r<locate_support,sym_t,pos_t>::BWT,out,params);
+    void BWT(std::string file_name, retrieve_params params = {}) const {
+        adjust_retrieve_params(params,n-1);
+        retrieve_range<sym_t,false>(&move_r<locate_support,sym_t,pos_t>::BWT,file_name,params);
     }
 
     /**
@@ -965,19 +996,19 @@ class move_r {
      * @param params parameters
      * @return the input range [l,r]
      */
-    i_cont_t revert(retrieve_params params = {}) const {
+    inp_t revert(retrieve_params params = {}) const {
         adjust_retrieve_params(params,n-2);
-        i_cont_t T;
-        no_init_resize(T,params.r-params.l+1);
-        revert([&T,&params](pos_t i, sym_t c){T[i-params.l] = c;},params);
-        return T;
+        inp_t input;
+        no_init_resize(input,params.r-params.l+1);
+        revert([&input,&params](pos_t i, sym_t c){input[i-params.l] = c;},params);
+        return input;
     }
 
     /**
      * @brief reports the characters in the input in the range [l,r] (0 <= l <= r < input size), else if l > r, then
      * all characters of the input are reported (default); if num_threads = 1, then the values are reported from right
      * to left, if num_threads > 1, the order may vary
-     * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = T[i]
+     * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = input[i]
      * @param params parameters
      */
     void revert(const std::function<void(pos_t,sym_t)>& report, retrieve_params params = {}) const;
@@ -985,11 +1016,12 @@ class move_r {
     /**
      * @brief reverts the input in the range [l,r] blockwise and writes it to the file out (0 <= l <= r < input size),
      * else if l > r, then the whole input is reverted (default)
-     * @param out file to write the reverted input to
+     * @param file_name name of the file to write the reverted input to
      * @param params parameters
      */
-    void revert(std::ofstream& out, retrieve_params params = {}) const {
-        retrieve_range<sym_t,true>(&move_r<locate_support,sym_t,pos_t>::revert,out,params);
+    void revert(std::string file_name, retrieve_params params = {}) const {
+        adjust_retrieve_params(params,n-2);
+        retrieve_range<sym_t,true>(&move_r<locate_support,sym_t,pos_t>::revert,file_name,params);
     }
     
     /**
@@ -1008,7 +1040,7 @@ class move_r {
 
     /**
      * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
-     * whole suffix array is reported (default); if num_threads = 1, then the values are reported from right to left,
+     * whole suffix array is reported (default); if num_threads = 1, then the values are reported from left to right,
      * if num_threads > 1, the order may vary
      * @param report function that is called with every tuple (i,s) as a parameter, where i in [l,r] and s = SA[i]
      * @param params parameters
@@ -1018,11 +1050,12 @@ class move_r {
     /**
      * @brief writes the values in the suffix array of the input in the range [l,r] blockwise to the file out (0 <= l <= r <= input size),
      * else if l > r, then the whole suffix array is written (default)
-     * @param out file to write the suffix array to
+     * @param file_name name of the file to write the suffix array to
      * @param params parameters
      */
-    void SA(std::ofstream& out, retrieve_params params = {}) const {
-        retrieve_range<pos_t,true>(&move_r<locate_support,sym_t,pos_t>::SA,out,params);
+    void SA(std::string file_name, retrieve_params params = {}) const {
+        adjust_retrieve_params(params,n-1);
+        retrieve_range<pos_t,false>(&move_r<locate_support,sym_t,pos_t>::SA,file_name,params);
     }
 
     // ############################# SERIALIZATION METHODS #############################
@@ -1086,12 +1119,12 @@ class move_r {
         }
 
         if (contains(support,_locate)) {
-            if constexpr (locate_support == _phi) {
+            if constexpr (locate_support == _mds) {
                 out.write((char*)&r__,sizeof(pos_t));
-                _M_Phi.serialize(out);
+                _M_Phi_m1.serialize(out);
 
                 out.write((char*)&omega_idx,1);
-                _SA_Phi.serialize(out);
+                _SA_Phi_m1.serialize(out);
             } else {
                 out.write((char*)&z,sizeof(pos_t));
                 out.write((char*)&z_l,sizeof(pos_t));
@@ -1196,12 +1229,12 @@ class move_r {
         }
 
         if (contains(support,_locate)) {
-            if constexpr (locate_support == _phi) {
+            if constexpr (locate_support == _mds) {
                 in.read((char*)&r__,sizeof(pos_t));
-                _M_Phi.load(in);
+                _M_Phi_m1.load(in);
 
                 in.read((char*)&omega_idx,1);
-                _SA_Phi.load(in);
+                _SA_Phi_m1.load(in);
             } else {
                 in.read((char*)&z,sizeof(pos_t));
                 in.read((char*)&z_l,sizeof(pos_t));
@@ -1231,5 +1264,4 @@ class move_r {
 };
 
 #include "algorithms/construction/construction.hpp"
-#include "algorithms/misc.cpp"
 #include "algorithms/queries.cpp"

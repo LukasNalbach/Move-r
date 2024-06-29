@@ -98,7 +98,7 @@ void measure_count() {
         mf << " sigma=" << std::to_string(index.alphabet_size());
         mf << " r=" << index.num_bwt_runs();
         mf << " r_=" << index.M_LF().num_intervals();
-        mf << " r__=" << index.M_Phi().num_intervals();
+        mf << " r__=" << index.M_Phi_m1().num_intervals();
         mf << " pattern_length=" << pattern_length;
         index.log_data_structure_sizes(mf);
         mf << " num_patterns=" << num_patterns;
@@ -128,11 +128,11 @@ int main(int argc, char **argv) {
     index_file.read((char*)&_locate_support,sizeof(move_r_locate_supp));
     index_file.seekg(0,std::ios::beg);
 
-    if (_locate_support == _phi) {
+    if (_locate_support == _mds) {
         if (is_64_bit) {
-            measure_count<uint64_t,_phi>();
+            measure_count<uint64_t,_mds>();
         } else {
-            measure_count<uint32_t,_phi>();
+            measure_count<uint32_t,_mds>();
         }
     } else {
         if (is_64_bit) {

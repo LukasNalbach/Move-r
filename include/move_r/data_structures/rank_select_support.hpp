@@ -26,18 +26,18 @@ class rank_select_support {
     );
 
     static constexpr bool str_input = std::is_same_v<sym_t,char>; // true <=> the input is a string
-    static constexpr bool use_bvs = sizeof(sym_t) == 1; // true <=> use bit vectors
+    static constexpr bool byte_alphabet = sizeof(sym_t) == 1; // true <=> use bit vectors
 
     using i_sym_t = std::conditional_t<str_input,uint8_t,sym_t>; // internal (unsigned) symbol type
     using hybrid_bv_t = hybrid_bit_vector<pos_t,true,false,true>; // hybrid bit vector type
 
     // ############################# COMMON VARIABLES #############################
 
-    pos_t input_size = 0; // the size of the input
     std::vector<pos_t> freq; // stores at position c the frequency of c in the input
 
-    // ############################# VARIABLES FOR use_bvs = true #############################
+    // ############################# VARIABLES FOR byte_alphabet = true #############################
 
+    pos_t input_size = 0; // the size of the input
     pos_t sigma = 0; // the number of distinct alphabet in the input
     std::vector<i_sym_t> alphabet; // the symbols occurring in the input sorted descendingly by their frequency
 
@@ -47,7 +47,7 @@ class rank_select_support {
      */
     std::vector<hybrid_bv_t> hyb_bit_vecs;
 
-    // ############################# VARIABLES FOR use_bvs = false #############################
+    // ############################# VARIABLES FOR byte_alphabet = false #############################
 
     /**
      * @brief rank-select data structure for integer alphabets
@@ -64,6 +64,14 @@ class rank_select_support {
         }
     };
 
+    /**
+     * @brief builds the bit vectors
+     * @param read function to read the input with; it is called with i in [l,r]
+     * as a parameter and must return the value of the input at index i
+     * @param l left range limit (l <= r)
+     * @param r right range limit (l <= r)
+     * @param num_threads the number of threads to use
+     */
     void build_bvs(const std::function<sym_t(pos_t)>& read, pos_t l, pos_t r, uint16_t num_threads) {
         input_size = r-l+1;
         std::vector<std::vector<pos_t>> occurrences_thr(num_threads,std::vector<pos_t>(256,0));
@@ -132,6 +140,14 @@ class rank_select_support {
         }
     }
 
+    /**
+     * @brief builds the gmr data structure
+     * @param read function to read the input with; it is called with i in [l,r]
+     * as a parameter and must return the value of the input at index i
+     * @param alphabet_size number of distinct symbols in vector (= maximum value in the input)
+     * @param l left range limit (l <= r)
+     * @param r right range limit (l <= r)
+     */
     void build_gmr(const std::function<sym_t(pos_t)>& read, pos_t alphabet_size, pos_t l, pos_t r) {
         sigma = alphabet_size;
         std::string vector_buffer_filename = "vec_" + random_alphanumeric_string(10);
@@ -159,13 +175,13 @@ class rank_select_support {
      * @param r right range limit (l <= r)
      * @param num_threads the number of threads to use
      */
-    rank_select_support(const std::string& string, pos_t l = 1, pos_t r = 0, uint16_t num_threads = omp_get_max_threads()) requires(use_bvs) {
+    rank_select_support(const std::string& string, pos_t l = 1, pos_t r = 0, uint16_t num_threads = omp_get_max_threads()) requires(byte_alphabet) {
         if (l > r) {
             l = 0;
             r = string.size()-1;
         }
         
-        r = std::min(r,string.size()-1);
+        r = std::min<pos_t>(r,string.size()-1);
         build_bvs([&string](uint i){return string[i];},l,r,num_threads);
     }
     
@@ -177,7 +193,7 @@ class rank_select_support {
      * @param r right range limit (l <= r)
      * @param num_threads the number of threads to use
      */
-    rank_select_support(const std::function<sym_t(pos_t)>& read, pos_t l = 1, pos_t r = 0, uint16_t num_threads = omp_get_max_threads()) requires(use_bvs) {
+    rank_select_support(const std::function<sym_t(pos_t)>& read, pos_t l = 1, pos_t r = 0, uint16_t num_threads = omp_get_max_threads()) requires(byte_alphabet) {
         build_bvs(read,l,r,num_threads);
     }
 
@@ -189,13 +205,13 @@ class rank_select_support {
      * @param r right range limit (l <= r)
      * @param num_threads the number of threads to use
      */
-    rank_select_support(const std::vector<sym_t>& vector, pos_t alphabet_size, pos_t l = 1, pos_t r = 0) requires(!use_bvs) {
+    rank_select_support(const std::vector<sym_t>& vector, pos_t alphabet_size, pos_t l = 1, pos_t r = 0) requires(!byte_alphabet) {
         if (l > r) {
             l = 0;
             r = vector.size()-1;
         }
         
-        r = std::min(r,vector.size()-1);
+        r = std::min<pos_t>(r,vector.size()-1);
         build_gmr([&vector](uint i){return vector[i];},alphabet_size,l,r);
     }
 
@@ -207,7 +223,7 @@ class rank_select_support {
      * @param l left range limit (l <= r)
      * @param r right range limit (l <= r)
      */
-    rank_select_support(const std::function<sym_t(pos_t)>& read, pos_t alphabet_size, pos_t l = 1, pos_t r = 0) requires(!use_bvs) {
+    rank_select_support(const std::function<sym_t(pos_t)>& read, pos_t alphabet_size, pos_t l = 1, pos_t r = 0) requires(!byte_alphabet) {
         build_gmr(read,alphabet_size,l,r);
     }
 
@@ -217,7 +233,7 @@ class rank_select_support {
      * @return the value at index i in the input
      */
     inline sym_t operator[](pos_t i) const {
-        if constexpr (use_bvs) {
+        if constexpr (byte_alphabet) {
             for (i_sym_t c : alphabet) {
                 if (hyb_bit_vecs[c][i] == 1) {
                     return c;
@@ -235,7 +251,7 @@ class rank_select_support {
      * @return the size of the input
      */
     inline pos_t size() const {
-        if constexpr (use_bvs) {
+        if constexpr (byte_alphabet) {
             return input_size;
         } else {
             return gmr.size();
@@ -255,7 +271,7 @@ class rank_select_support {
      * @return size of the data structure in bytes
      */
     uint64_t size_in_bytes() const {
-        if constexpr (use_bvs) {
+        if constexpr (byte_alphabet) {
             uint64_t size = sizeof(pos_t)+alphabet.size()+sizeof(pos_t)*alphabet.size();
 
             for (uint16_t i=0; i<hyb_bit_vecs.size(); i++) {
@@ -277,7 +293,7 @@ class rank_select_support {
     }
 
     inline bool contains(sym_t v) const {
-        if constexpr (use_bvs) {
+        if constexpr (byte_alphabet) {
             return freq[symbol_idx(v)] > 0;
         } else {
             return v < sigma;
@@ -300,7 +316,7 @@ class rank_select_support {
      * @return number of occurrences of c before index i
      */
     inline pos_t rank(sym_t v, pos_t i) const {
-        if constexpr (use_bvs) {
+        if constexpr (byte_alphabet) {
             return hyb_bit_vecs[symbol_idx(v)].rank_1(i);
         } else {
             return gmr.rank(i,v);
@@ -314,7 +330,7 @@ class rank_select_support {
      * @return index of the i-th occurrence of c
      */
     inline pos_t select(sym_t v, pos_t i) const {
-        if constexpr (use_bvs) {
+        if constexpr (byte_alphabet) {
             return hyb_bit_vecs[symbol_idx(v)].select_1(i);
         } else {
             return gmr.select(i,v);
@@ -326,7 +342,7 @@ class rank_select_support {
      * @param out output stream
      */
     void serialize(std::ostream& out) const {
-        if constexpr (use_bvs) {
+        if constexpr (byte_alphabet) {
             out.write((char*)&input_size,sizeof(pos_t));
             
             if (input_size > 0) {
@@ -357,7 +373,7 @@ class rank_select_support {
      * @param in input stream
      */
     void load(std::istream& in) {
-        if constexpr (use_bvs) {
+        if constexpr (byte_alphabet) {
             in.read((char*)&input_size,sizeof(pos_t));
 
             if (input_size > 0) {
@@ -380,6 +396,7 @@ class rank_select_support {
             pos_t vector_size;
             in.read((char*)&vector_size,sizeof(pos_t));
             in.read((char*)&sigma,sizeof(pos_t));
+            no_init_resize(freq,sigma);
             in.read((char*)&freq[0],sigma*sizeof(pos_t));
 
             if (vector_size > 0) {

@@ -7,9 +7,9 @@ uint64_t n;
 uint16_t a = 8;
 uint16_t p = 1;
 std::string path_prefix_index_file;
-move_r_constr_mode mode = _libsais;
+move_r_constr_mode mode = _suffix_array;
 std::vector<move_r_supp> support = _full_support;
-move_r_locate_supp locate_support = _phi;
+move_r_locate_supp locate_support = _mds;
 std::ofstream mf_idx;
 std::ofstream mf_mds;
 std::ifstream input_file;
@@ -22,7 +22,7 @@ void help(std::string msg) {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-build: builds move-r." << std::endl << std::endl;
     std::cout << "usage: move-r-build [options] <input_file>" << std::endl;
-    std::cout << "   -c <mode>          construction mode: libsais or bigbwt (default: libsais)" << std::endl;
+    std::cout << "   -c <mode>          construction mode: sa or bigbwt (default: sa)" << std::endl;
     std::cout << "   -o <base_name>     names the index file base_name.move-r (default: input_file)" << std::endl;
     std::cout << "   -s <op1> <op2> ... supported operations: revert, count and locate" << std::endl;
     std::cout << "                      (default: revert, count, locate)" << std::endl;
@@ -53,7 +53,7 @@ void parse_args(char** argv, int argc, int &ptr) {
     } else if (s == "-c") {
         if (ptr >= argc-1) help("error: missing parameter after -p option");
         std::string construction_mode_str = argv[ptr++];
-        if (construction_mode_str == "libsais") mode = _libsais;
+        if (construction_mode_str == "sa") mode = _suffix_array;
         else if (construction_mode_str == "bigbwt") mode = _bigbwt;
         else help("error: invalid option for -c");
     } else if (s == "-s") {
@@ -150,11 +150,11 @@ int main(int argc, char** argv) {
             << " a=" << a;
     }
 
-    if (locate_support == _phi) {
+    if (locate_support == _mds) {
         if (n < UINT_MAX) {
-            build<uint32_t,_phi>();
+            build<uint32_t,_mds>();
         } else {
-            build<uint64_t,_phi>();
+            build<uint64_t,_mds>();
         }
     } else {
         if (n < UINT_MAX) {

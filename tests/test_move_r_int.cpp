@@ -36,7 +36,7 @@ void test_move_r_int() {
     std::vector<int32_t> alphabet;
     for (uint32_t i=0; i<alphabet_size; i++) alphabet.emplace_back(symbol_distrib(gen));
     ips4o::parallel::sort(alphabet.begin(),alphabet.end());
-    std::unique(alphabet.begin(),alphabet.end());
+    alphabet.erase(std::unique(alphabet.begin(),alphabet.end()),alphabet.end());
     alphabet_size = alphabet.size();
 
     // choose a random input based on the alphabet
@@ -51,7 +51,7 @@ void test_move_r_int() {
     // build move-r and choose a random number of threads and balancing parameter, but always use libsais,
     // because there are bugs in Big-BWT that come through during fuzzing but not really in practice
     move_r<locate_support,int32_t,uint32_t> index(input,{
-        .mode = _libsais,
+        .mode = _suffix_array,
         .num_threads = num_threads_distrib(gen),
         .a = std::min<uint16_t>(2+a_distrib(gen),32767)
     });
@@ -143,7 +143,7 @@ TEST(test_move_r,fuzzy_test) {
 
     while (time_diff_min(start_time,now()) < 60) {
         if (prob_distrib(gen) < 0.5) {
-            test_move_r_int<_phi>();
+            test_move_r_int<_mds>();
         } else {
             test_move_r_int<_rlzdsa>();
         }

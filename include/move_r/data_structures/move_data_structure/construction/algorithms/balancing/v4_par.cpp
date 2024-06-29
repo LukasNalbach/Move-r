@@ -1,5 +1,7 @@
 #pragma once
 
+#include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
+
 template <typename pos_t>
 inline typename move_data_structure<pos_t>::construction::tout_node_t_v2v3v4* move_data_structure<pos_t>::construction::balance_upto_v4_par(
     lin_node_t_v2v3v4 *ln_IpA,

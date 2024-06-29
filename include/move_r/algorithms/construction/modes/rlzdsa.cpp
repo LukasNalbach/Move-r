@@ -7,7 +7,6 @@ template <bool bigbwt, typename sad_t, typename sa_sint_t>
 void move_r<locate_support,sym_t,pos_t>::construction::build_freq_sad() {
     if (log) {
         time = now();
-        log_peak_mem_usage();
         std::cout << std::endl;
         std::cout << "building rlzdsa:" << std::endl;
         std::cout << "computing frequencies of values in SA^d" << std::flush;
@@ -15,9 +14,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_freq_sad() {
 
     if constexpr (bigbwt) {
         for (uint16_t i=0; i<p; i++) {
-            SA_file_buf.emplace_back(sdsl::int_vector_buffer<>(
+            SA_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
                 prefix_tmp_files + ".sa", std::ios::in,
-                1024*1024, 40, true
+                128*1024, 40, true
             ));
         }
     }
@@ -97,7 +96,6 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_freq_sad() {
 
     if (log) {
         time = log_runtime(time);
-        log_peak_mem_usage();
     }
 }
 
@@ -105,17 +103,13 @@ template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 template <bool bigbwt, typename sad_t, typename sa_sint_t>
 void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
     if (log) {
-        std::cout << "building R and rev(R)" << std::flush;
+        std::cout << "building R" << std::flush;
     }
 
     std::vector<sad_freq_t<sad_t>>& SAd_freq = get_SAd_freq<sad_t>();
 
     idx._R = std::move(interleaved_vectors<uint64_t,pos_t>({(uint8_t)std::ceil(std::log2(2*n+1)/(double)8)}));
-    size_R_target = std::min(std::max<pos_t>(1,n/3),5*r_);
     std::mt19937 mt(std::random_device{}());
-    // TODO: somehow detect if choosing seg_size >> 2000 increases the compression rate (optimum is between 2000 and 12000)
-    // generally, the optimum is approx. 2000-3000, but sometimes it can be approx. 12000 (Horspool)
-    seg_size = std::min<pos_t>(3072,size_R_target);
     num_cand_segs = 4.5*powf(n/(float)r,0.6);
     pos_t num_cand_segs_thr = num_cand_segs/p+1; // number of considered candidate segments per thread
     std::vector<gtl::flat_hash_set<sad_t>> PV_thr(p);
@@ -123,6 +117,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
 
     for (uint16_t i_p=0; i_p<p; i_p++) {
         pos_distrib.emplace_back(new std::uniform_int_distribution<pos_t>(n_p[i_p],n_p[i_p+1]));
+        if constexpr (bigbwt) SA_file_bufs[i_p].buffersize(8*seg_size); 
     }
 
     while (size_R < size_R_target) {
@@ -239,6 +234,11 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
 
     T_s.clear();
 
+    if (log) {
+        time = log_runtime(time);
+        std::cout << "building rev(R)" << std::flush;
+    }
+
     std::vector<sad_t>& revR = get_revR<sad_t>();
     no_init_resize(revR,size_R);
     
@@ -270,41 +270,70 @@ void move_r<locate_support,sym_t,pos_t>::construction::store_r() {
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-template <typename sad_t>
+template <typename sad_t, typename irr_pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::build_idx_rev_r() {
     if (log) {
-        std::cout << "building move-r of rev(R)" << std::flush; // << std::endl << std::endl;
+        std::cout << "building move-r of rev(R)" << std::flush;
     }
 
     std::vector<sad_t>& revR = get_revR<sad_t>();
-    idx_revr_t<sad_t>& idx_revR = get_idx_revR<sad_t>();
+    idx_revr_t<sad_t,irr_pos_t>& idx_revR = get_idx_revR<sad_t,irr_pos_t>();
 
-    // TODO: implement space efficient move-r construction when using libsais; when using bigbwt to build the rlzdsa, sometimes
-    // the memory peak is attained during the construction of the index for rev(R), hence it can be further reduced below the
-    // memory peak of bigbwt by deleting SA as early as possible and temporarily storing M_LF and I_Phi to disk during the
-    // construction of the index for rev(R)
-    idx_revR = idx_revr_t<sad_t>(std::move(revR),{.num_threads=p}); // ,.log=log
+    idx_revR = idx_revr_t<sad_t,irr_pos_t>(std::move(revR),{
+        .mode = (mode == _bigbwt || mode == _suffix_array_space) ? _suffix_array_space : _suffix_array,
+        .num_threads = p
+    });
 
     if (log) {
+        std::cout << " (size: " << format_size(idx_revR.size_in_bytes()) << ")";
         time = log_runtime(time);
         log_peak_mem_usage();
     }
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-template <bool bigbwt, typename sad_t, typename sa_sint_t>
+template <bool bigbwt, bool space, typename sad_t, typename irr_pos_t, typename sa_sint_t>
 void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa_factorization() {
     if (log) {
         std::cout << "computing rlzdsa factorization" << std::flush;
     }
 
-    std::vector<sad_freq_t<sad_t>>& SAd_freq = get_SAd_freq<sad_t>();
-    idx_revr_t<sad_t> idx_revR = get_idx_revR<sad_t>();
+    idx_revr_t<sad_t,irr_pos_t>& idx_revR = get_idx_revR<sad_t,irr_pos_t>();
 
-    SCP.resize(p,interleaved_vectors<pos_t,pos_t>({std::ceil(std::log2(n+1)/(double)8)}));
-    SR.resize(p,interleaved_vectors<pos_t,pos_t>({std::ceil(std::log2(size_R+1)/(double)8)}));
-    LP.resize(p,interleaved_vectors<pos_t,pos_t>({std::ceil(std::log2(n+1)/(double)8)}));
-    PT.resize(p);
+    uint8_t width_scp = std::ceil(std::log2(n+1)/(double)8)*8;
+    uint8_t width_sr = std::ceil(std::log2(size_R+1)/(double)8)*8;
+    uint8_t width_lp = std::ceil(std::log2(n+1)/(double)8)*8;
+
+    if constexpr (space) {
+        for (uint16_t i=0; i<p; i++) {
+            SCP_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
+                prefix_tmp_files + ".scp_" + std::to_string(i),
+                std::ios::out, 128*1024, width_scp, false
+            ));
+
+            SR_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
+                prefix_tmp_files + ".sr_" + std::to_string(i),
+                std::ios::out, 128*1024, width_sr, false
+            ));
+
+            LP_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
+                prefix_tmp_files + ".lp_" + std::to_string(i),
+                std::ios::out, 128*1024, width_lp, false
+            ));
+
+            PT_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
+                prefix_tmp_files + ".pt_" + std::to_string(i),
+                std::ios::out, 128*1024, 1, false
+            ));
+
+            SA_file_bufs[i].buffersize(128*1024);
+        }
+    } else {
+        SCP.resize(p,interleaved_vectors<pos_t,pos_t>({width_scp/8}));
+        SR.resize(p,interleaved_vectors<pos_t,pos_t>({width_sr/8}));
+        LP.resize(p,interleaved_vectors<pos_t,pos_t>({width_lp/8}));
+        PT.resize(p);
+    }
 
     #pragma omp parallel num_threads(p)
     {
@@ -313,42 +342,74 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa_factorizatio
         pos_t b = n_p[i_p];
         pos_t e = n_p[i_p+1];
         pos_t j = 1;
+        pos_t pt_size = std::max<pos_t>(2,r/p);
 
-        PT[i_p].resize(1);
-        PT[i_p][0] = 1;
-        LP[i_p].emplace_back(SA<bigbwt,sa_sint_t>(i_p,b));
-
-        typename idx_revr_t<sad_t>::query_context query = idx_revR.query();
+        if constexpr (space) {
+            PT_file_bufs[i_p].push_back(1);
+            LP_file_bufs[i_p].push_back(SA<bigbwt,sa_sint_t>(i_p,b));
+        } else {
+            PT[i_p].resize(pt_size);
+            PT[i_p][0] = 1;
+            LP[i_p].emplace_back(SA<bigbwt,sa_sint_t>(i_p,b));
+        }
+        
+        auto query = idx_revR.query();
         
         for (pos_t i=b+1; i<e;) {
             query.reset();
-            j++;
-
             while (query.prepend(SAd<bigbwt,sa_sint_t>(i_p,i+query.length())) && i+query.length() < e);
-            PT[i_p].resize(j);
 
             if (query.length() <= 1) {
-                PT[i_p][j-1] = 1;
-                LP[i_p].emplace_back(SA<bigbwt,sa_sint_t>(i_p,i));
+                if constexpr (space) {
+                    PT_file_bufs[i_p].push_back(1);
+                    LP_file_bufs[i_p].push_back(SA<bigbwt,sa_sint_t>(i_p,i));
+                } else {
+                    PT[i_p][j] = 1;
+                    LP[i_p].emplace_back(SA<bigbwt,sa_sint_t>(i_p,i));
+                }
+
                 i++;
             } else {
-                SCP[i_p].emplace_back(i);
-                PT[i_p][j-1] = 0;
-                SR[i_p].emplace_back(size_R-query.next_occ()-query.length());
+                if constexpr (space) {
+                    PT_file_bufs[i_p].push_back(0);
+                    SCP_file_bufs[i_p].push_back(i);
+                    SR_file_bufs[i_p].push_back(size_R-query.next_occ()-query.length());
+                } else {
+                    PT[i_p][j] = 0;
+                    SCP[i_p].emplace_back(i);
+                    SR[i_p].emplace_back(size_R-query.next_occ()-query.length());
+                }
+
                 i += query.length();
             }
+            
+            if constexpr (!space) {
+                j++;
+
+                if (j == pt_size) {
+                    pt_size *= 2;
+                    PT[i_p].resize(pt_size);
+                }
+            }
         }
+
+        if constexpr (!space) PT[i_p].resize(j);
     }
 
-    idx_revR = std::move(move_r<_phi,sad_t,pos_t>());
+    idx_revR = idx_revr_t<sad_t,irr_pos_t>();
 
     z_p.emplace_back(0);
     zl_p.emplace_back(0);
     zc_p.emplace_back(0);
 
     for (uint16_t i=0; i<p; i++) {
-        idx.z += PT[i].size();
-        idx.z_l += LP[i].size();
+        if constexpr (space) {
+            idx.z += PT_file_bufs[i].size();
+            idx.z_l += LP_file_bufs[i].size();
+        } else {
+            idx.z += PT[i].size();
+            idx.z_l += LP[i].size();
+        }
 
         z_p.emplace_back(idx.z);
         zl_p.emplace_back(idx.z_l);
@@ -356,86 +417,154 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa_factorizatio
     }
 
     idx.z_c = zc_p[p];
+    
+    if constexpr (space) {
+        SCP_b = sdsl::sd_vector_builder(n+2,idx.z_c+2);
 
-    SCP_b = sdsl::sd_vector_builder(n+1,idx.z_c+1);
+        for (uint16_t i_p=0; i_p<p; i_p++) {
+            pos_t zc_diff = zc_p[i_p+1]-zc_p[i_p];
 
-    for (uint16_t i_p=0; i_p<p; i_p++) {
-        for (pos_t i=0; i<SCP[i_p].size(); i++) {
-            SCP_b.set(SCP[i_p][i]);
+            for (pos_t i=0; i<zc_diff; i++) {
+                SCP_b.set(SCP_file_bufs[i_p][i]);
+            }
         }
 
-        SCP[i_p].clear();
-        SCP[i_p].shrink_to_fit();
-    }
+        SCP_b.set(n);
+        SCP_b.set(n+1);
+        idx._SCP = std::move(sd_array<pos_t>(std::move(sdsl::sd_vector<>(SCP_b))));
 
-    SCP_b.set(n);
-    SCP.clear();
-    SCP.shrink_to_fit();
-    idx._SCP = std::move(sd_array<pos_t>(std::move(sdsl::sd_vector<>(SCP_b))));
-    
-    idx._SR = std::move(SR[0]);
-    idx._SR.resize_no_init(idx.z_c+1,p);
+        idx._SR = interleaved_vectors<pos_t,pos_t>({width_sr/8});
+        idx._SR.resize_no_init(idx.z_c+1);
 
-    #pragma omp parallel num_threads(p)
-    {
-        uint16_t i_p = omp_get_thread_num();
-
-        if (i_p > 0) {
+        for (uint16_t i_p=0; i_p<p; i_p++) {
             pos_t b_zc = zc_p[i_p];
             pos_t zc_diff = zc_p[i_p+1]-b_zc;
 
             for (pos_t i=0; i<zc_diff; i++) {
-                idx._SR.template set<0>(b_zc+i,SR[i_p][i]);
+                idx._SR.template set<0,pos_t>(b_zc+i,SR_file_bufs[i_p][i]);
             }
-            
-            SR[i_p].clear();
-            SR[i_p].shrink_to_fit();
         }
-    }
-    
-    SR.clear();
-    SR.shrink_to_fit();
-    idx._SR.template set<0>(idx.z_c,size_R);
-    PT[0].resize(idx.z+1);
-
-    for (uint16_t i_p=1; i_p<p; i_p++) {
-        pos_t b_z = z_p[i_p];
-        pos_t z_diff = z_p[i_p+1]-b_z;
         
-        for (pos_t i=0; i<z_diff; i++) {
-            PT[0][b_z+i] = PT[i_p][i];
-        }
+        idx._SR.template set<0,pos_t>(idx.z_c,size_R);
 
-        PT[i_p] = sdsl::bit_vector();
-    }
+        idx._LP = interleaved_vectors<pos_t,pos_t>({width_lp/8});
+        idx._LP.resize_no_init(idx.z_l,p);
 
-    PT[0][idx.z] = 0;
-    idx._PT = std::move(plain_bit_vector<pos_t,true,true,true>(std::move(PT[0])));
-    PT.clear();
-    PT.shrink_to_fit();
-
-    idx._LP = std::move(LP[0]);
-    idx._LP.resize_no_init(idx.z_l,p);
-
-    #pragma omp parallel num_threads(p)
-    {
-        uint16_t i_p = omp_get_thread_num();
-
-        if (i_p > 0) {
+        for (uint16_t i_p=0; i_p<p; i_p++) {
             pos_t b_zl = zl_p[i_p];
             pos_t zl_diff = zl_p[i_p+1]-b_zl;
 
             for (pos_t i=0; i<zl_diff; i++) {
-                idx._LP.template set<0>(b_zl+i,LP[i_p][i]);
+                idx._LP.template set<0,pos_t>(b_zl+i,LP_file_bufs[i_p][i]);
             }
-            
-            LP[i_p].clear();
-            LP[i_p].shrink_to_fit();
         }
-    }
 
-    LP.clear();
-    LP.shrink_to_fit();
+        sdsl::bit_vector PT_tmp;
+        PT_tmp.resize(idx.z+2);
+
+        for (uint16_t i_p=0; i_p<p; i_p++) {
+            pos_t b_z = z_p[i_p];
+            pos_t z_diff = z_p[i_p+1]-b_z;
+            
+            for (pos_t i=0; i<z_diff; i++) {
+                PT_tmp[b_z+i] = PT_file_bufs[i_p][i];
+            }
+        }
+
+        PT_tmp[idx.z] = 0;
+        PT_tmp[idx.z+1] = 0;
+        idx._PT = std::move(plain_bit_vector<pos_t,true,true,true>(std::move(PT_tmp)));
+
+        for (uint16_t i=0; i<p; i++) {
+            SCP_file_bufs[i].close(true);
+            SR_file_bufs[i].close(true);
+            LP_file_bufs[i].close(true);
+            PT_file_bufs[i].close(true);
+        }
+    } else {
+        idx._SR = std::move(SR[0]);
+        idx._SR.resize_no_init(idx.z_c+1,p);
+
+        #pragma omp parallel num_threads(p)
+        {
+            uint16_t i_p = omp_get_thread_num();
+
+            if (i_p > 0) {
+                pos_t b_zc = zc_p[i_p];
+                pos_t zc_diff = zc_p[i_p+1]-b_zc;
+
+                for (pos_t i=0; i<zc_diff; i++) {
+                    idx._SR.template set<0>(b_zc+i,SR[i_p][i]);
+                }
+                
+                SR[i_p].clear();
+                SR[i_p].shrink_to_fit();
+            }
+        }
+        
+        idx._SR.template set<0>(idx.z_c,size_R);
+        SR.clear();
+        SR.shrink_to_fit();
+
+        PT[0].resize(idx.z+2);
+
+        for (uint16_t i_p=1; i_p<p; i_p++) {
+            pos_t b_z = z_p[i_p];
+            pos_t z_diff = z_p[i_p+1]-b_z;
+            
+            for (pos_t i=0; i<z_diff; i++) {
+                PT[0][b_z+i] = PT[i_p][i];
+            }
+
+            PT[i_p] = sdsl::bit_vector();
+        }
+
+        PT[0][idx.z] = 0;
+        PT[0][idx.z+1] = 0;
+        idx._PT = std::move(plain_bit_vector<pos_t,true,true,true>(std::move(PT[0])));
+        PT.clear();
+        PT.shrink_to_fit();
+
+        idx._LP = std::move(LP[0]);
+        idx._LP.resize_no_init(idx.z_l,p);
+
+        #pragma omp parallel num_threads(p)
+        {
+            uint16_t i_p = omp_get_thread_num();
+
+            if (i_p > 0) {
+                pos_t b_zl = zl_p[i_p];
+                pos_t zl_diff = zl_p[i_p+1]-b_zl;
+
+                for (pos_t i=0; i<zl_diff; i++) {
+                    idx._LP.template set<0>(b_zl+i,LP[i_p][i]);
+                }
+                
+                LP[i_p].clear();
+                LP[i_p].shrink_to_fit();
+            }
+        }
+
+        LP.clear();
+        LP.shrink_to_fit();
+        
+        SCP_b = sdsl::sd_vector_builder(n+2,idx.z_c+2);
+
+        for (uint16_t i_p=0; i_p<p; i_p++) {
+            for (pos_t i=0; i<SCP[i_p].size(); i++) {
+                SCP_b.set(SCP[i_p][i]);
+            }
+
+            SCP[i_p].clear();
+            SCP[i_p].shrink_to_fit();
+        }
+
+        SCP_b.set(n);
+        SCP_b.set(n+1);
+        SCP.clear();
+        SCP.shrink_to_fit();
+        idx._SCP = std::move(sd_array<pos_t>(std::move(sdsl::sd_vector<>(SCP_b))));
+    }
 
     if (log) {
         time = log_runtime(time);
@@ -463,7 +592,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::load_r() {
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 template <bool bigbwt, typename sa_sint_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_sa_s() {
+void move_r<locate_support,sym_t,pos_t>::construction::build_sas_rlzdsa() {
     if (log) {
         std::cout << "building SA_s" << std::flush;
     }
@@ -471,31 +600,15 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_sa_s() {
     idx._SA_s = std::move(interleaved_vectors<pos_t,pos_t>({(uint8_t)std::ceil(std::log2(n+1)/(double)8)}));
     idx._SA_s.resize_no_init(idx.r_);
 
+    #pragma omp parallel for num_threads(p)
+    for (uint64_t i=0; i<r_; i++) {
+        idx._SA_s.template set<0>(i,SA<bigbwt,sa_sint_t>(omp_get_thread_num(),idx.M_LF().p(i)));
+    }
+
     if constexpr (bigbwt) {
-        #pragma omp parallel num_threads(p)
-        {
-            uint16_t i_p = omp_get_thread_num();
-
-            pos_t b = i_p == 0   ? 0  : bin_search_min_geq<pos_t>(n_p[i_p],  0,r_-1,[&](pos_t x){return idx.M_LF().p(x);});
-            pos_t e = i_p == p-1 ? r_ : bin_search_min_geq<pos_t>(n_p[i_p+1],0,r_-1,[&](pos_t x){return idx.M_LF().p(x);});
-
-            for (pos_t i=b; i<e; i++) {
-                idx._SA_s.template set<0>(i,SA<bigbwt,sa_sint_t>(i_p,idx.M_LF().p(i)));
-            }
-        }
-
-        for (uint16_t i_p=0; i_p<p; i_p++) {
-            SA_file_buf[i_p].close();
-        }
-
+        SA_file_bufs.clear();
+        SA_file_bufs.shrink_to_fit();
         std::filesystem::remove(prefix_tmp_files + ".sa");
-    } else {
-        std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>();
-
-        #pragma omp parallel for num_threads(p)
-        for (uint64_t i=0; i<r_; i++) {
-            idx._SA_s.template set<0>(i,SA[idx.M_LF().p(i)]);
-        }
     }
 
     if (log) {

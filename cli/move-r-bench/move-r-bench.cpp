@@ -67,7 +67,7 @@ void help(std::string msg) {
 
 template <typename pos_t>
 void bench_indexes() {
-    bench_index<pos_t,move_r<_phi,char,pos_t>,true,true>("move-r","move_r");
+    bench_index<pos_t,move_r<_mds,char,pos_t>,true,true>("move-r","move_r");
     
     block_rlbwt_data bd = prepare_blockrlbwt();
     measure_blockrlbwt("block_rlbwt_2",bd);

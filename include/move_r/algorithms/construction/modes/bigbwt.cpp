@@ -53,111 +53,13 @@ void move_r<locate_support,sym_t,pos_t>::construction::bigbwt() {
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c_bigbwt() {
+void move_r<locate_support,sym_t,pos_t>::construction::read_iphim1_bigbwt() {
     if (log) {
         time = now();
-        std::cout << "building RLBWT" << std::flush;
+        std::cout << "reading I_Phi^{-1}" << std::flush;
     }
 
-    std::ifstream bwt_file(prefix_tmp_files + ".bwt");
-    RLBWT.resize(p_,std::move(interleaved_vectors<uint32_t,uint32_t>({1,4})));
-
-    for (uint16_t i=0; i<p_; i++) {
-        n_p.emplace_back(i*(n/p_));
-    }
-
-    n_p.emplace_back(n);
-    r_p.resize(p_+1,0);
-    r_p[0] = 0;
-    C.resize(p_+1,std::vector<pos_t>(256,0));
-
-    i_sym_t cur_char;
-    i_sym_t prev_char;
-    bwt_file.read((char*)&prev_char,1);
-
-    if (prev_char == 2) {
-        prev_char = 0;
-    }
-
-    pos_t i_ = 0;
-    uint16_t i_p = 0;
-    uint16_t ip_nxt = 1;
-    pos_t np_nxt = n_p[ip_nxt];
-    pos_t cur_bwt_buf_size;
-    pos_t i = 1;
-    std::string bwt_buf;
-    pos_t max_bwt_buf_size = std::max((pos_t)1,n/500);
-    no_init_resize(bwt_buf,max_bwt_buf_size);
-    pos_t i_buf;
-
-    while (i < n) {
-        cur_bwt_buf_size = std::min(n-i,max_bwt_buf_size);
-        read_from_file(bwt_file,bwt_buf.c_str(),cur_bwt_buf_size);
-        i_buf = 0;
-        
-        while (i_buf < cur_bwt_buf_size) {
-            cur_char = char_to_uchar(bwt_buf[i_buf]) == 2 ? 0 : char_to_uchar(bwt_buf[i_buf]);
-
-            if (cur_char != prev_char) {
-                C[i_p][prev_char] += i-i_;
-                RLBWT[0].emplace_back_unsafe<i_sym_t,uint32_t>({prev_char,i-i_});
-                prev_char = cur_char;
-                i_ = i;
-
-                if (i >= np_nxt) {
-                    n_p[ip_nxt] = i;
-                    r_p[ip_nxt] = RLBWT[0].size();
-                    i_p++;
-                    ip_nxt++;
-                    np_nxt = n_p[ip_nxt];
-                }
-            }
-
-            i++;
-            i_buf++;
-        }
-    }
-
-    RLBWT[0].emplace_back_unsafe<i_sym_t,uint32_t>({prev_char,n-i_});
-    C[i_p][prev_char] += n-i_;
-    RLBWT[0].shrink_to_fit();
-    bwt_buf.clear();
-    bwt_buf.shrink_to_fit();
-    r = RLBWT[0].size();
-    idx.r = r;
-    r_p[i_p+1] = r;
-    n_p[i_p+1] = n;
-    i_p += 2;
-
-    while (i_p <= p) {
-        r_p[i_p] = r;
-        n_p[i_p] = n;
-        i_p++;
-    }
-
-    bwt_file.close();
-    std::filesystem::remove(prefix_tmp_files + ".bwt");
-
-    for (uint16_t i_p=1; i_p<p; i_p++) {
-        RLBWT[i_p].set_data(RLBWT[0].data()+5*r_p[i_p],r_p[i_p+1]-r_p[i_p]);
-    }
-
-    process_c();
-
-    if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_build_rlbwt=" << time_diff_ns(time,now());
-        time = log_runtime(time);
-    }
-}
-
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::read_iphi_from_bigbwt() {
-    if (log) {
-        time = now();
-        std::cout << "reading I_Phi" << std::flush;
-    }
-
-    no_init_resize(I_Phi,r);
+    no_init_resize(I_Phi_m1,r);
     std::ifstream ssa_file(prefix_tmp_files + ".ssa");
     std::ifstream esa_file(prefix_tmp_files + ".esa");
     
@@ -171,16 +73,16 @@ void move_r<locate_support,sym_t,pos_t>::construction::read_iphi_from_bigbwt() {
     #pragma omp parallel for num_threads(p)
     for (uint64_t i=0; i<r-1; i++) {
         if constexpr (std::is_same_v<pos_t,uint32_t>) {
-            I_Phi[i].first = ssa.template get_unsafe<0,uint32_t>(i);
-            I_Phi[i+1].second = esa.template get_unsafe<0,uint32_t>(i);
+            I_Phi_m1[i].second = ssa.template get_unsafe<0,uint32_t>(i);
+            I_Phi_m1[i+1].first = esa.template get_unsafe<0,uint32_t>(i);
         } else {
-            I_Phi[i].first = ssa[i];
-            I_Phi[i+1].second = esa[i];
+            I_Phi_m1[i].second = ssa[i];
+            I_Phi_m1[i+1].first = esa[i];
         }
     }
 
-    I_Phi[r-1].first = ssa[r-1];
-    I_Phi[0].second = esa[r-1];
+    I_Phi_m1[r-1].second = ssa[r-1];
+    I_Phi_m1[0].first = esa[r-1];
 
     ssa.clear();
     esa.clear();

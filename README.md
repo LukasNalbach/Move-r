@@ -59,7 +59,7 @@ int main() {
    // bytes ~ 4GB) with only count support, use Big-BWT
    // construction algorithm, use at most 8 threads and set the 
    // balancing parameter a to 4
-   move_r<_phi,char,uint64_t> index_2("a large string",{
+   move_r<_mds,char,uint64_t> index_2("a large string",{
       .support = {_count}, .mode = _bigbwt,
       .num_threads = 8, .a = 4
    });

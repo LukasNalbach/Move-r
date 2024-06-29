@@ -169,36 +169,20 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool in_memo
     } else {
         idx.symbols_remapped = true;
         uint64_t alloc_before = malloc_count_current();
-        std::vector<gtl::flat_hash_map<sym_t,i_sym_t>> map_int_thr(p);
 
-        #pragma omp parallel for num_threads(p)
-        for (uint64_t i=0; i<n-1; i++) {
-            map_int_thr[omp_get_thread_num()].try_emplace(T<sym_t>(i),0);
-        }
+        {
+            gtl::flat_hash_map<sym_t,i_sym_t> map_int_tmp;
 
-        for (uint16_t j=1; j<=std::ceil(std::log2(p)); j++) {
-            #pragma omp parallel for num_threads(p)
-            for (uint16_t i_p=0; i_p<p/(uint16_t)std::pow(2,j); i_p++) {
-                std::vector<std::pair<uint16_t,uint16_t>> merges;
-                merges.emplace_back(std::make_pair(std::pow(2,j)*i_p,std::pow(2,j)*i_p+std::pow(2,j-1)));
-
-                if (p%(uint16_t)std::pow(2,j) != 0 && i_p == p/(uint16_t)std::pow(2,j)-1) {
-                    merges.emplace_back(std::make_pair(std::pow(2,j)*i_p,std::pow(2,j)*(i_p+1)));
-                }
-
-                for (auto m : merges) {
-                    map_int_thr[m.first].insert(map_int_thr[m.second].begin(),map_int_thr[m.second].end());
-                    map_int_thr[m.second] = gtl::flat_hash_map<sym_t,i_sym_t>();
-                }
+            for (pos_t i=0; i<n-1; i++) {
+                map_int_tmp.try_emplace(T<sym_t>(i),0);
             }
-        }
 
-        idx._map_int.insert(map_int_thr[0].begin(),map_int_thr[0].end());
-        map_int_thr.clear();
-        map_int_thr.shrink_to_fit();
+            idx._map_int = std::move(tsl::sparse_map<sym_t,i_sym_t>(map_int_tmp.begin(),map_int_tmp.end()));
+        }
+        
         idx.size_map_int = malloc_count_current()-alloc_before;
         idx.sigma = idx._map_int.size()+1;
-        p_ = std::min<pos_t>({p,std::max<pos_t>(1,n/1000),std::max<pos_t>(6,(n/idx.sigma)-1)});
+        p_ = mode == _suffix_array_space ? 1 : std::min<pos_t>({p,std::max<pos_t>(1,n/1000),std::max<pos_t>(1,(n/idx.sigma)-1)});
         no_init_resize(idx._map_ext,idx.sigma);
         idx._map_ext[0] = 0;
         pos_t sym_cur = 1;
@@ -240,6 +224,161 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool in_memo
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <rlbwt_build_mode mode, typename sa_sint_t>
+void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c() {
+    if (log) {
+        time = now();
+        std::cout << "building RLBWT" << std::flush;
+    }
+
+    std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
+
+    r_p.resize(p_+1,0);
+    RLBWT.resize(p_,std::move(interleaved_vectors<uint32_t,uint32_t>({(uint8_t)std::ceil(std::log2(idx.sigma+1)/(double)8),4})));
+    C.resize(p_,std::vector<pos_t>(byte_alphabet ? 256 : idx.sigma,0));
+
+    if constexpr (mode == _bwt_file) {
+        for (uint16_t i=0; i<p; i++) {
+            BWT_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
+                prefix_tmp_files + ".bwt", std::ios::in,
+                128*1024, 8, true
+            ));
+        }
+    }
+
+    for (uint16_t i=0; i<p_; i++) {
+        n_p.emplace_back(i*(n/p_));
+    }
+
+    n_p.emplace_back(n);
+
+    #pragma omp parallel num_threads(p_)
+    {
+        // Index in [0..p_-1] of the current thread.
+        uint16_t i_p = omp_get_thread_num();
+
+        // Iteration range start position of thread i_p.
+        pos_t b = n_p[i_p];
+        // Iteration range end position of thread i_p.
+        pos_t e = n_p[i_p+1];
+
+        // Store in C[i_p][c] the number of occurrences of c in L[b..e], for each c in [0..255].
+
+        i_sym_t prev_sym; // previous symbol in L.
+        i_sym_t cur_sym; // current symbol in L.
+        pos_t i_ = b; // start position of the last seen run in L.
+
+        if constexpr (mode == _sa) {
+            prev_sym = SA[b] == 0 ? 0 : T<i_sym_t>(SA[b]-1);
+        } else if constexpr (mode == _bwt) {
+            prev_sym = char_to_uchar(L[b]);
+        } else if constexpr (mode == _bwt_file) {
+            prev_sym = BWT_file_bufs[i_p][b];
+            if (prev_sym == 2) prev_sym = 0;
+        }
+
+        // Iterate over the range L[b+1..e-1]
+        for (pos_t i=b+1; i<e; i++) {
+            if constexpr (mode == _sa) {
+                cur_sym = SA[i] == 0 ? 0 : T<i_sym_t>(SA[i]-1);
+            } else if constexpr (mode == _bwt) {
+                cur_sym = char_to_uchar(L[i]);
+            } else if constexpr (mode == _bwt_file) {
+                cur_sym = BWT_file_bufs[i_p][i];
+                if (cur_sym == 2) cur_sym = 0;
+            }
+
+            // check if there is a run starting at L[i]
+            if (cur_sym != prev_sym) {
+                add_run(i_p,prev_sym,i-i_);
+                C[i_p][prev_sym] += i-i_;
+                prev_sym = cur_sym;
+                i_ = i;
+            }
+        }
+
+        // add the run L[i'..e)
+        add_run(i_p,prev_sym,e-i_);
+        C[i_p][prev_sym] += e-i_;
+        // Store in r_p[i_p] the number of runs starting in L[b..e).
+        r_p[i_p] = RLBWT[i_p].size();
+        RLBWT[i_p].shrink_to_fit();
+    }
+
+    // for i_p \in [1,p'-2], merge the last run in thread i_p's section with the first run in thread
+    // i_p+1's section, if their characters are equal
+    for (uint16_t i_p=0; i_p<p_-1; i_p++) {
+        i_sym_t c = run_sym(i_p,r_p[i_p]-1);
+
+        if (run_sym(i_p+1,0) == c) {
+            pos_t l = run_len(i_p,r_p[i_p]-1);
+            set_run_len(i_p+1,0,run_len(i_p+1,0)+l);
+            C[i_p][c] -= l;
+            C[i_p+1][c] += l;
+            n_p[i_p+1] -= l;
+            r_p[i_p]--;
+            RLBWT[i_p].resize(r_p[i_p]);
+        }
+    }
+
+    if constexpr (mode == _bwt_file) {
+        for (uint16_t i=0; i<p; i++) {
+            BWT_file_bufs[i].close();
+        }
+
+        BWT_file_bufs.clear();
+        BWT_file_bufs.shrink_to_fit();
+        std::filesystem::remove(prefix_tmp_files + ".bwt");
+    }
+
+    if (&L == &L_tmp) {
+        L.clear();
+        L.shrink_to_fit();
+    }
+
+    if (delete_T) {
+        T_str.clear();
+        T_str.shrink_to_fit();
+        T_vec.clear();
+        T_vec.shrink_to_fit();
+    }
+
+    if (!build_locate_support && mode != _bwt) {
+        SA.clear();
+        SA.shrink_to_fit();
+    }
+
+    /* Now, r_p[i_p] stores the number of runs starting in the iteration range L[b..e] of thread
+    i_p in [0..p'-1], and r_p[p'] = 0. We want r_p[i_p] to store the number of runs starting before
+    the iteration range start position b of thread i_p in [0..p'-1]. Also, we want r_p[p'] to store
+    the number of all runs. This way, we can build I_LF[r_p[i_p]..r_p[i_p+1]-1] with thread i_p in [0..p'-1]
+    using the C-array in C[p'] while using and updating the rank-function in C[i_p] on-the-fly. */
+
+    for (uint16_t i=p_; i>0; i--) {
+        r_p[i] = r_p[i-1];
+    }
+
+    r_p[0] = 0;
+
+    for (uint16_t i=2; i<=p_; i++) {
+        r_p[i] += r_p[i-1];
+    }
+
+    /* Now, r_p[i_p] stores the number of runs starting before the iteration range start position b of
+    thread i_p in [0..p'-1] and r_p[p'] stores the number of all runs, so we are done with r_p[0..p'] */
+    
+    r = r_p[p_];
+    idx.r = r;
+
+    process_c();
+
+    if (log) {
+        if (mf_idx != NULL) *mf_idx << " time_build_rlbwt=" << time_diff_ns(time,now());
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::process_c() {
     /* Now, C[i_p][c] is the number of occurrences of c in L[b..e], where [b..e] is the range of the
     thread i_p in [0..p'-1]. Also, we have C[p'][0..255] = 0. */
@@ -249,9 +388,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::process_c() {
     the number of occurrences of all smaller characters c' < c in L[0..n-1], for c in [0..255]. */
 
     pos_t max_symbol = byte_alphabet ? 256 : idx.sigma;
-    C.emplace_back(std::vector<pos_t>(max_symbol,0));
 
     for (pos_t i=1; i<p_; i++) {
+        #pragma omp parallel for num_threads(p)
         for (pos_t j=0; j<max_symbol; j++) {
             C[i][j] += C[i-1][j];
         }
@@ -260,12 +399,10 @@ void move_r<locate_support,sym_t,pos_t>::construction::process_c() {
     /* Now, we have C[i_p][c] = rank(L,c,e), for each c in [0..255] and i_p in [0..p'-1],
     where e is the iteration range end position of thread i_p. */
 
-    for (pos_t i=p_; i>0; i--) {
-        for (pos_t j=0; j<max_symbol; j++) {
-            C[i][j] = C[i-1][j];
-        }
-    }
+    C.insert(C.begin(),std::vector<pos_t>());
+    no_init_resize(C[0],max_symbol);
     
+    #pragma omp parallel for num_threads(p)
     for (pos_t j=0; j<max_symbol; j++) {
         C[0][j] = 0;
     }
@@ -274,16 +411,14 @@ void move_r<locate_support,sym_t,pos_t>::construction::process_c() {
     where b is the iteration range start position of thread i_p, so we are done with C[0..p'-1][0..255].
     Also, we have C[p'][c] = rank(L,c,n-1), for c in [0..255]. */
 
-    for (pos_t i=max_symbol-1; i>0; i--) {
-        C[p_][i] = C[p_][i-1];
-    }
-
+    pos_t cp_im1 = C[p_][0]; // stores at the start of the i-th iteration C[p'][i-1]
     C[p_][0] = 0;
+    pos_t cp_im1_tmp;
 
-    // Now, we have C[p'][c] = rank(L,c-1,n-1), for c in [1..255], and C[p'][0] = 0.
-
-    for (pos_t i=2; i<max_symbol; i++) {
-        C[p_][i] += C[p_][i-1];
+    for (pos_t i=1; i<max_symbol; i++) {
+        cp_im1_tmp = C[p_][i];
+        C[p_][i] = cp_im1+C[p_][i-1];
+        cp_im1 = cp_im1_tmp;
     }
 
     // Now we are done with C, since C[p'] is the C-array.
@@ -320,10 +455,10 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_ilf() {
 
             /* Update the rank-function in C[i_p] to store C[i_p][c] = rank(L,c,i'-1),
             for each c in [0..255] */
-            C[i_p][run_sym(i_p,i)] += run_length(i_p,i);
+            C[i_p][run_sym(i_p,i)] += run_len(i_p,i);
 
             // Update the position of the last-seen run.
-            i_ += run_length(i_p,i);
+            i_ += run_len(i_p,i);
         }
     }
 
@@ -374,15 +509,14 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_mlf() {
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 template <bool build_sas_>
-void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas_() {
+void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas() {
     if (log) {
         time = now();
-        std::cout << "building L'" << (std::string)(build_sas_ ? " and SA_s'" : "") << std::flush;
+        std::cout << "building L'" << (std::string)(build_sas_ ? " and SA_s" : "") << std::flush;
     }
 
     if constexpr (build_sas_) {
-        no_init_resize(SA_s_,r_);
-        SA_s_[r_-1] = I_Phi[0].second;
+        no_init_resize(SA_s,r_);
     }
 
     // Simultaneously iterate over the input intervals of M_LF nad the bwt runs to build L'
@@ -407,23 +541,18 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas_() {
 
         for (pos_t i=0; i<rp_diff; i++) {
             idx._M_LF.template set_L_(j,run_sym(i_p,i));
+            if constexpr (build_sas_) SA_s[j] = I_Phi_m1[b_r+i].second;
             j++;
 
             // update l_ to the next run start position
-            l_ += run_length(i_p,i);
+            l_ += run_len(i_p,i);
 
-            // iterate over all input intervals in M_LF within the i-th bwt within thread i_p's section run that have been
+            // iterate over all input intervals in M_LF within the i-th bwt run in thread i_p's section that have been
             // created by the balancing algorithm
             while (idx._M_LF.p(j) < l_) {
-                if constexpr (build_sas_) SA_s_[j-1] = n;
+                if constexpr (build_sas_) SA_s[j] = n;
                 idx._M_LF.template set_L_(j,run_sym(i_p,i));
                 j++;
-            }
-            
-            if constexpr (build_sas_) {
-                if (b_r+i+1 != r) {
-                    SA_s_[j-1] = I_Phi[b_r+i+1].second;
-                }
             }
         }
     }
@@ -444,20 +573,20 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas_() {
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::sort_iphi() {
+void move_r<locate_support,sym_t,pos_t>::construction::sort_iphim1() {
     if (log) {
         time = now();
-        std::cout << "sorting I_Phi" << std::flush;
+        std::cout << "sorting I_Phi^{-1}" << std::flush;
     }
 
-    // Sort I_Phi by the starting positions of its output intervals.
+    // Sort I_Phi^{-1} by the starting positions of its input intervals.
     auto comp_I_Phi = [](std::pair<pos_t,pos_t> p1, std::pair<pos_t,pos_t> p2) {return p1.first < p2.first;};
 
     // Choose the correct sorting algorithm.
     if (p > 1) {
-        ips4o::parallel::sort(I_Phi.begin(),I_Phi.end(),comp_I_Phi);
+        ips4o::parallel::sort(I_Phi_m1.begin(),I_Phi_m1.end(),comp_I_Phi);
     } else {
-        ips4o::sort(I_Phi.begin(),I_Phi.end(),comp_I_Phi);
+        ips4o::sort(I_Phi_m1.begin(),I_Phi_m1.end(),comp_I_Phi);
     }
 
     if (log) {
@@ -474,20 +603,20 @@ void move_r<locate_support,sym_t,pos_t>::construction::sort_iphi() {
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_mphi() {
+void move_r<locate_support,sym_t,pos_t>::construction::build_mphim1() {
     if (log) {
         time = now();
-        std::cout << std::endl << "building M_Phi" << std::flush;
+        std::cout << std::endl << "building M_Phi^{-1}" << std::flush;
     }
 
-    idx._M_Phi = std::move(move_data_structure<pos_t>(std::move(I_Phi),n,{
+    idx._M_Phi_m1 = std::move(move_data_structure<pos_t>(std::move(I_Phi_m1),n,{
         .num_threads=p,
         .a=idx.a,
         .log=log,
         .mf=mf_mds,
     },&pi_mphi));
 
-    r__ = idx._M_Phi.num_intervals();
+    r__ = idx._M_Phi_m1.num_intervals();
     idx.r__ = r__;
 
     if (log) {
@@ -501,9 +630,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_mphi() {
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_saphi() {
+void move_r<locate_support,sym_t,pos_t>::construction::build_saphim1() {
     time = now();
-    if (log) std::cout << "building SA_Phi" << std::flush;
+    if (log) std::cout << "building SA_Phi^{-1}" << std::flush;
 
     no_init_resize(pi_,r_);
 
@@ -512,39 +641,39 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_saphi() {
         pi_[i] = i;
     }
 
-    auto comp_pi_ = [this](pos_t i, pos_t j){return SA_s_[i] < SA_s_[j];};
+    auto comp_pi_ = [this](pos_t i, pos_t j){return SA_s[i] < SA_s[j];};
     if (p > 1) {
         ips4o::parallel::sort(pi_.begin(),pi_.end(),comp_pi_);
     } else {
         ips4o::sort(pi_.begin(),pi_.end(),comp_pi_);
     }
 
-    idx.omega_idx = idx._M_Phi.width_idx();
-    idx._SA_Phi = std::move(interleaved_vectors<pos_t,pos_t>({(uint8_t)(idx.omega_idx/8)}));
-    idx._SA_Phi.resize_no_init(r_);
+    idx.omega_idx = idx._M_Phi_m1.width_idx();
+    idx._SA_Phi_m1 = std::move(interleaved_vectors<pos_t,pos_t>({(uint8_t)(idx.omega_idx/8)}));
+    idx._SA_Phi_m1.resize_no_init(r_);
 
     /* Now we will divide the range [0..n-1] up into p non-overlapping sub-ranges [s[i_p]..s[i_p+1]-1],
     for each i_p in [0..p-1], with 0 = s[0] < s[1] < ... < s[p] = n, where
     s[i_p] = min {s' in [0,n-1], s.t. x[i_p] + u[i_p] - 2 >= i_p * lfloor (r+r'')/p rfloor, where 
-                    x[i_p] = min {x' in [0,r''-1], s.t. M_Phi.q(x') >= s'} and
-                    u[i_p] = min {u' in [0,r-1], s.t. SA_s'[u'] >= s'}
+                    x[i_p] = min {x' in [0,r''-1], s.t. M_Phi^{-1}.q(x') >= s'} and
+                    u[i_p] = min {u' in [0,r-1], s.t. SA_s[u'] >= s'}
     }.
-    By doing so, we ensure that the number of the output intervals of M_Phi starting in the range
-    [s[i_p]..s[i_p+1]-1] plus the number of suffix array samples in SA_s' lying in the range
+    By doing so, we ensure that the number of the output intervals of M_Phi^{-1} starting in the range
+    [s[i_p]..s[i_p+1]-1] plus the number of suffix array samples in SA_s lying in the range
     [s[i_p]..s[i_p+1]-1] is lfloor (r+r'')/p rfloor +- 1. This property is useful, because it
     ensures that if with each thread i_p, we simultaneously iterate over those, then each thread
-    iterates over almost exactly the same number lfloor (r+r'')/p rfloor +- 1 of entries in M_Phi
-    and SA_s' combined. This way, we can acheive good load-balancing. Because we do not have to access
+    iterates over almost exactly the same number lfloor (r+r'')/p rfloor +- 1 of entries in M_Phi^{-1}
+    and SA_s combined. This way, we can acheive good load-balancing. Because we do not have to access
     s[0..p] later, we will not store those values in an array. */
 
-    /* [0..p], x[i_p] = min {x' in [0,r''-1], s.t. M_Phi.q(x') >= s'} stores the number of output
-    intervals in M_Phi starting before s[i_p]. */
+    /* [0..p], x[i_p] = min {x' in [0,r''-1], s.t. M_Phi^{-1}.q(x') >= s'} stores the number of output
+    intervals in M_Phi^{-1} starting before s[i_p]. */
     std::vector<pos_t> x(p+1);
     x[0] = 0;
     x[p] = r__;
 
-    /* [0..p], u[i_p] = min {u' in [0,r-1], s.t. SA_s'[u'] >= s'} stores the number of suffix array
-    samples in SA_s' that are smaller than s[i_p]. */
+    /* [0..p], u[i_p] = min {u' in [0,r-1], s.t. SA_s[u'] >= s'} stores the number of suffix array
+    samples in SA_s that are smaller than s[i_p]. */
     std::vector<pos_t> u(p+1);
     u[0] = 0;
     u[p] = r;
@@ -587,24 +716,24 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_saphi() {
             between l_s and r_s. */
             m_s = l_s+(r_s-l_s)/2;
 
-            // Find the minimum x' in [0,r''-1], s.t. M_Phi.q(x') >= m_s.
+            // Find the minimum x' in [0,r''-1], s.t. M_Phi^{-1}.q(x') >= m_s.
             l_x = 0;
             r_x = r__-1;
             while (l_x != r_x) {
                 m_x = l_x+(r_x-l_x)/2;
-                if (idx._M_Phi.q(pi_mphi[m_x]) < m_s) {
+                if (idx._M_Phi_m1.q(pi_mphi[m_x]) < m_s) {
                     l_x = m_x+1;
                 } else {
                     r_x = m_x;
                 }
             }
 
-            // Find the minimum u' in [0,r-1], s.t. SA_s'[pi'[u']] >= m_s.
+            // Find the minimum u' in [0,r-1], s.t. SA_s[pi'[u']] >= m_s.
             l_u = 0;
             r_u = r-1;
             while (l_u != r_u) {
                 m_u = l_u+(r_u-l_u)/2;
-                if (SA_s_[pi_[m_u]] < m_s) {
+                if (SA_s[pi_[m_u]] < m_s) {
                     l_u = m_u+1;
                 } else {
                     r_u = m_u;
@@ -631,27 +760,27 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_saphi() {
         
         #pragma omp barrier
 
-        // Iteration range start position in the output intervals of M_Phi.
+        // Iteration range start position in the output intervals of M_Phi^{-1}.
         pos_t i = x[i_p];
-        // Iteration range start position in SA_s'.
+        // Iteration range start position in SA_s.
         pos_t j = u[i_p];
-        // Iteration range end position + 1 in SA_s'.
+        // Iteration range end position + 1 in SA_s.
         pos_t j_ = u[i_p+1];
 
-        // Check if the range, over which the thread i_p has to iterate in SA_s', is empty
+        // Check if the range, over which the thread i_p has to iterate in SA_s, is empty
         if (j < j_) {
-            while (idx._M_Phi.q(pi_mphi[i]) != SA_s_[pi_[j]]) {
+            while (idx._M_Phi_m1.q(pi_mphi[i]) != SA_s[pi_[j]]) {
                 i++;
             }
 
-            /* Iterate over SA_s'[pi'[j]],SA_s'[pi'[j+1]],...,SA_s'[pi'[j'-1]] */
+            /* Iterate over SA_s[pi'[j]],SA_s[pi'[j+1]],...,SA_s[pi'[j'-1]] */
             while (j < j_) {
-                // Skip the output intervals the balancing algorithm has added to I_Phi
-                while (idx._M_Phi.q(pi_mphi[i]) != SA_s_[pi_[j]]) {
+                // Skip the output intervals the balancing algorithm has added to I_Phi^{-1}
+                while (idx._M_Phi_m1.q(pi_mphi[i]) != SA_s[pi_[j]]) {
                     i++;
                 }
                 
-                idx.set_SA_Phi(pi_[j],pi_mphi[i]);
+                idx.set_SA_Phi_m1(pi_[j],pi_mphi[i]);
 
                 i++;
                 j++;
@@ -659,13 +788,13 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_saphi() {
         }
     }
 
-    /* Since we set SA_s'[j] = n for each j-th input interval of M_LF, whiches end position is not the end position of a bwt run,
-     * where j \in [0,r'), SA_s'[pi'[r]],SA_s'[pi'[r+1]],...,SA_s'[pi'[r'-1]] = n holds, hence we set SA_Phi[pi'[i]] = r'' for
-     * i \in [r,r') to mark that we cannot recover SA_s'[M_LF[x+1]-1] = M_Phi.q[SA_Phi[x]] for each x-th input interval of
-     * M_LF, whiches end position is not the end position of a bwt run and where x \in [0,r'). */
+    /* Since we set SA_s[j] = n for each j-th input interval of M_LF, whiches starting position is not the starting position of a bwt run,
+     * where j \in [0,r'), SA_s[pi'[r]],SA_s[pi'[r+1]],...,SA_s[pi'[r'-1]] = n holds, hence we set SA_Phi^{-1}[pi'[i]] = r'' for
+     * i \in [r,r') to mark that we cannot recover SA_s[M_LF[x]] = M_Phi^{-1}.q[SA_Phi^{-1}[x]] for each x-th input interval of
+     * M_LF, whiches starting position is not the starting position of a bwt run and where x \in [0,r'). */
     #pragma omp parallel for num_threads(p)
     for (uint64_t i=r; i<r_; i++) {
-        idx.set_SA_Phi(pi_[i],r__);
+        idx.set_SA_Phi_m1(pi_[i],r__);
     }
 
     x.clear();
@@ -678,7 +807,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_saphi() {
     pi_mphi.shrink_to_fit();
 
     if (log) {
-        if (mf_idx != NULL) *mf_idx << " time_build_saphi=" << time_diff_ns(time,now());
+        if (mf_idx != NULL) *mf_idx << " time_build_saphim1=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }
@@ -693,12 +822,12 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_de() {
     
     #pragma omp parallel for num_threads(p)
     for (uint16_t i=0; i<idx.p_r-1; i++) {
-        pos_t x = bin_search_min_geq<pos_t>((i+1)*((n-1)/idx.p_r),0,r-1,[this](pos_t x){return (((int64_t)SA_s_[pi_[x]])-1)%n;});
-        idx._D_e[i] = std::make_pair(pi_[x],(pos_t)((((int64_t)SA_s_[pi_[x]])-1)%n));
+        pos_t x = bin_search_min_geq<pos_t>((i+1)*((n-1)/idx.p_r),0,r-1,[this](pos_t x){return (((int64_t)SA_s[pi_[x]])-1)%n;});
+        idx._D_e[i] = std::make_pair(pi_[x],(pos_t)((((int64_t)SA_s[pi_[x]])-1)%n));
     }
 
-    SA_s_.clear();
-    SA_s_.shrink_to_fit();
+    SA_s.clear();
+    SA_s.shrink_to_fit();
 
     pi_.clear();
     pi_.shrink_to_fit();
@@ -727,7 +856,7 @@ template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::store_mlf() {
     if (log) {
         time = now();
-        std::cout << "storing M_LF to disk" << std::flush;
+        std::cout << "storing M_LF and L' to disk" << std::flush;
     }
 
     std::ofstream file_mlf(prefix_tmp_files + ".mlf");
@@ -745,7 +874,7 @@ template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::load_mlf() {
     if (log) {
         time = now();
-        std::cout << "loading M_LF from disk" << std::flush;
+        std::cout << "loading M_LF and L' from disk" << std::flush;
     }
 
     std::ifstream file_mlf(prefix_tmp_files + ".mlf");
@@ -755,6 +884,76 @@ void move_r<locate_support,sym_t,pos_t>::construction::load_mlf() {
 
     if (log) {
         if (mf_idx != NULL) *mf_idx << " time_load_mlf=" << time_diff_ns(time,now());
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+void move_r<locate_support,sym_t,pos_t>::construction::store_sas() {
+    if (log) {
+        time = now();
+        std::cout << "storing SA_s to disk" << std::flush;
+    }
+
+    std::ofstream file_sas(prefix_tmp_files + ".sas");
+    write_to_file(file_sas,(char*)&SA_s[0],r_*sizeof(pos_t));
+    SA_s.clear();
+    SA_s.shrink_to_fit();
+    file_sas.close();
+
+    if (log) {
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+void move_r<locate_support,sym_t,pos_t>::construction::load_sas() {
+    if (log) {
+        time = now();
+        std::cout << "loading SA_s from disk" << std::flush;
+    }
+
+    std::ifstream file_sas(prefix_tmp_files + ".sas");
+    no_init_resize(SA_s,r_);
+    read_from_file(file_sas,(char*)&SA_s[0],r_*sizeof(pos_t));
+    file_sas.close();
+    std::filesystem::remove(prefix_tmp_files + ".sas");
+
+    if (log) {
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+void move_r<locate_support,sym_t,pos_t>::construction::store_rsl_() {
+    if (log) {
+        time = now();
+        std::cout << "storing RS_L' to disk" << std::flush;
+    }
+
+    std::ofstream file_rsl_(prefix_tmp_files + ".rsl_");
+    idx._RS_L_.serialize(file_rsl_);
+    file_rsl_.close();
+    idx._RS_L_ = rank_select_support<i_sym_t,pos_t>();
+
+    if (log) {
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+void move_r<locate_support,sym_t,pos_t>::construction::load_rsl_() {
+    if (log) {
+        time = now();
+        std::cout << "loading RS_L' from disk" << std::flush;
+    }
+
+    std::ifstream file_rsl_(prefix_tmp_files + ".rsl_");
+    idx._RS_L_.load(file_rsl_);
+    file_rsl_.close();
+    std::filesystem::remove(prefix_tmp_files + ".rsl_");
+
+    if (log) {
         time = log_runtime(time);
     }
 }

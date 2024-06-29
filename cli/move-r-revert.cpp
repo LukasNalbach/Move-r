@@ -77,8 +77,9 @@ void measure_revert() {
         log_runtime(t3,t4);
     } else {
         std::cout << "reverting the index using " << format_threads(p) << std::flush;
+        output_file.close();
         t2 = now();
-        index.revert(output_file,{.num_threads = p});
+        index.revert(path_outputfile,{.num_threads = p});
         t4 = now();
         log_runtime(t2,t4);
     }
@@ -94,7 +95,7 @@ void measure_revert() {
         mf << " sigma=" << std::to_string(index.alphabet_size());
         mf << " r=" << index.num_bwt_runs();
         mf << " r_=" << index.M_LF().num_intervals();
-        mf << " r__=" << index.M_Phi().num_intervals();
+        mf << " r__=" << index.M_Phi_m1().num_intervals();
         index.log_data_structure_sizes(mf);
         mf << " time_revert=" << time_revert;
         mf << std::endl;
@@ -121,11 +122,11 @@ int main(int argc, char **argv) {
     index_file.read((char*)&_locate_support,sizeof(move_r_locate_supp));
     index_file.seekg(0,std::ios::beg);
 
-    if (_locate_support == _phi) {
+    if (_locate_support == _mds) {
         if (is_64_bit) {
-            measure_revert<uint64_t,_phi>();
+            measure_revert<uint64_t,_mds>();
         } else {
-            measure_revert<uint32_t,_phi>();
+            measure_revert<uint32_t,_mds>();
         }
     } else {
         if (is_64_bit) {
