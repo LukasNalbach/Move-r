@@ -45,7 +45,7 @@ pos_t move_r<locate_support,sym_t,pos_t>::SA(pos_t i) const {
                   =     M_Phi^{-1}.p(SA_Phi^{-1}[(x+1) mod r'])
         */
         if (i == M_LF().p(x+1)-1 && SA_Phi_m1(x+1) != r__) {
-            return M_Phi_m1().p(SA_Phi_m1((x+1) % r_));
+            return M_Phi_m1().p(SA_Phi_m1((x+1) == r_ ? 0 : (x+1)));
         }
 
         // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run

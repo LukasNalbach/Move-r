@@ -6,7 +6,6 @@
 #include <libsais64.h>
 #include <sais.hxx>
 #include <move_r/move_r.hpp>
-#include <absl/container/btree_map.h>
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::read_t_from_file(std::ifstream& T_ifile) {

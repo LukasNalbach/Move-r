@@ -45,7 +45,7 @@ void help(std::string msg) {
     std::cout << "usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2>" << std::endl;
     std::cout << "   -c                 check for correctnes if possible; disables the -m option; will not print" << std::endl;
     std::cout << "                      runtime data if the runtime could be affected by checking for correctness" << std::endl;
-    std::cout << "   -m <m_file>        writes bench_indexment data to m_file" << std::endl;
+    std::cout << "   -m <m_file>        writes measurement data to m_file" << std::endl;
     std::cout << "   <input_file>       input file" << std::endl;
     std::cout << "   <patterns_file_1>  file containing patterns (pattern length ~ number of occurrences) from <input_file>" << std::endl;
     std::cout << "                      to count and locate" << std::endl;
@@ -53,9 +53,9 @@ void help(std::string msg) {
     std::cout << "                      to locate" << std::endl;
     std::cout << std::endl;
     std::cout << "usage 2: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>" << std::endl;
-    std::cout << "                      constructs move_r using <num_threads> threads and bench_indexs count- and locate" << std::endl;
+    std::cout << "                      constructs move_r using <num_threads> threads and measures count- and locate" << std::endl;
     std::cout << "                      performance of move_r for a=2, a=4, ..., a=8192." << std::endl;
-    std::cout << "   -m <m_file>        writes bench_indexment data to m_file" << std::endl;
+    std::cout << "   -m <m_file>        writes measurement data to m_file" << std::endl;
     std::cout << "   <input_file>       input file" << std::endl;
     std::cout << "   <patterns_file_1>  file containing patterns (pattern length ~ number of occurrences) from <input_file>" << std::endl;
     std::cout << "                      to count and locate" << std::endl;
@@ -89,7 +89,7 @@ void parse_args(char** argv, int argc, int &ptr) {
         if (ptr >= argc-1) help("error: missing parameter after -m option");
         path_mf = argv[ptr++];
         mf.open(path_mf,std::filesystem::exists(path_mf) ? std::ios::app : std::ios::out);
-        if (!mf.good()) help("error: cannot open or create bench_indexment file");
+        if (!mf.good()) help("error: cannot open or create measurement file");
     } else if (s == "-c") {
         if (ptr >= argc-1) help("error: missing parameter after -c option");
         check_correctness = true;
@@ -104,7 +104,7 @@ int main_bench_a(int argc, char** argv) {
 
         path_mf = argv[3];
         mf.open(path_mf,std::filesystem::exists(path_mf) ? std::ios::app : std::ios::out);
-        if (!mf.good()) help("error: cannot open or create bench_indexment file");
+        if (!mf.good()) help("error: cannot open or create measurement file");
 
         path_input_file = argv[4];
         path_patterns_file_1 = argv[5];
@@ -173,7 +173,7 @@ int main_bench_indexes(int argc, char** argv) {
     if (!input_file.good()) help("error: invalid input, could not read <input_file>");
     if (!patterns_file_1.good()) help("error: invalid input, could not read <patterns_file_1>");
     if (!patterns_file_2.good()) help("error: invalid input, could not read <patterns_file_2>");
-    if (mf.is_open() && check_correctness) help("error: cannot output bench_indexment data when checking for correctness");
+    if (mf.is_open() && check_correctness) help("error: cannot output measurement data when checking for correctness");
 
     system("chmod +x external/Big-BWT/*");
     system("chmod +x external/r-index/Big-BWT/*");

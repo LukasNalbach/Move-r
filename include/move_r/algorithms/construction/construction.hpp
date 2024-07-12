@@ -2,6 +2,7 @@
 
 #include <move_r/move_r.hpp>
 #include <gtl/phmap.hpp>
+#include <gtl/btree.hpp>
 
 enum rlbwt_build_mode {
     _sa, // the BWT is read by L[i] = T[(SA[i]-1) mod n]
@@ -109,7 +110,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     std::vector<sad_freq_t<uint32_t>> SAd_freq_32;
     /** [0..p-1] hashmaps ... (for sad_t = uint64_t; see SAd_freq_32) */
     std::vector<sad_freq_t<uint64_t>> SAd_freq_64;
-    using ts_t = absl::btree_set<std::pair<pos_t,pos_t>>; // type of T_s
+    using ts_t = gtl::btree_set<std::pair<pos_t,pos_t>>; // type of T_s
     using ts_it_t = ts_t::iterator; // type of iterator in T_s
     /** B-tree storing the selected segments from SA^d to be included in the reference (R) for the rlzdsa; stores pairs (pos,len)
      * to represent segments SA^d[pos..pos+len] in ascending order of their starting position (pos) in SA^d */
@@ -738,12 +739,10 @@ class move_r<locate_support,sym_t,pos_t>::construction {
             construct_rlzdsa<bigbwt,uint32_t,uint32_t,sa_sint_t>();
         } else if (2*n <= UINT_MAX) {
             construct_rlzdsa<bigbwt,uint32_t,uint32_t,sa_sint_t>();
+        } else if (size_R_target+seg_size <= UINT_MAX) {
+            construct_rlzdsa<bigbwt,uint64_t,uint32_t,sa_sint_t>();
         } else {
-            if (size_R_target+seg_size <= UINT_MAX) {
-                construct_rlzdsa<bigbwt,uint64_t,uint32_t,sa_sint_t>();
-            } else {
-                construct_rlzdsa<bigbwt,uint64_t,uint64_t,sa_sint_t>();
-            }
+            construct_rlzdsa<bigbwt,uint64_t,uint64_t,sa_sint_t>();
         }
     }
 

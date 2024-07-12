@@ -1,5 +1,5 @@
 # Move-r
-This [2] is an optimized (see [benchmarks](BENCHMARKS.md)) and parallelized implementation of the modified r-index described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)).
+This [2] ([drops.dagstuhl.de](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SEA.2024.1)) is an optimized (see [benchmarks](BENCHMARKS.md)) and parallelized implementation of the modified r-index described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)).
 
 ## External Dependencies
 - [OpenMP](https://www.openmp.org/)
@@ -7,13 +7,13 @@ This [2] is an optimized (see [benchmarks](BENCHMARKS.md)) and parallelized impl
 
 ## Included Dependencies
 - [libsais](https://github.com/IlyaGrebnov/libsais)
-- [abseil-cpp](https://github.com/abseil/abseil-cpp)
 - [ips4o](https://github.com/ips4o/ips4o)
 - [concurrentqueue](https://github.com/cameron314/concurrentqueue)
 - [Big-BWT](https://gitlab.com/manzai/Big-BWT)
 - [sdsl-lite](https://github.com/simongog/sdsl-lite)
 - [sais-lite-lcp](https://github.com/kurpicz/sais-lite-lcp)
 - [gtl](https://github.com/greg7mdp/gtl)
+- [sparse-map](https://github.com/Tessil/sparse-map)
 
 ## CLI Build Instructions
 This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed.
@@ -224,12 +224,12 @@ int main() {
 ### move-r-build: builds move-r.
 ```
 usage: move-r-build [options] <input_file>
-   -c <mode>          construction mode: libsais or bigbwt (default: libsais)
+   -c <mode>          construction mode: sa or bigbwt (default: sa)
    -o <base_name>     names the index file base_name.move-r (default: input_file)
    -s <op1> <op2> ... supported operations: revert, count and locate
                       (default: revert, count, locate)
    -rlzdsa            implement locate support by relative lempel-ziv encoding the
-                      differential suffix array instead of implementing Phi
+                      differential suffix array instead of implementing Phi^{-1}
    -p <integer>       number of threads to use during the construction of the index
                       (default: all threads)
    -a <integer>       balancing parameter; a must be an integer number and a >= 2 (default: 8)

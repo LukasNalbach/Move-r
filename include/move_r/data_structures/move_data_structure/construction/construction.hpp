@@ -6,7 +6,7 @@
 #include <move_r/data_structures/avl_tree.hpp>
 #include <move_r/data_structures/doubly_linked_list.hpp>
 #include <move_r/data_structures/dynamic_insert_only_no_copy.hpp>
-#include <absl/container/btree_set.h>
+#include <gtl/btree.hpp>
 
 /**
  * @brief constructs a move data structure out of a disjoint interval sequence
@@ -506,8 +506,8 @@ class move_data_structure<pos_t>::construction {
 
     // ############################# V5 SEQUENTIAL/PARALLEL #############################
 
-    using tin_t_v5 = absl::btree_set<pair_t,in_cmp_v1v5>;
-    using tout_t_v5 = absl::btree_set<pair_t,out_cmp_v1v5>;
+    using tin_t_v5 = gtl::btree_set<pair_t,in_cmp_v1v5>;
+    using tout_t_v5 = gtl::btree_set<pair_t,out_cmp_v1v5>;
 
     using tin_it_t_v5 = typename tin_t_v5::iterator;
     using tout_it_t_v5 = typename tout_t_v5::iterator;

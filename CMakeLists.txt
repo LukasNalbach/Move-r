@@ -58,10 +58,6 @@ set_target_properties(
 )
 target_include_directories(sdsl PUBLIC "${CMAKE_BINARY_DIR}/external/sdsl-lite/external/libdivsufsort/include/")
 
-# abseil
-set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/abseil-cpp/")
-
 # gtl
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/gtl/")
 
@@ -81,7 +77,7 @@ target_include_directories(sais-lite-lcp INTERFACE "${CMAKE_SOURCE_DIR}/external
 add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
 target_link_libraries(move_r INTERFACE
-  OpenMP::OpenMP_CXX sdsl libsais ips4o absl::btree gtl sparse_map
+  OpenMP::OpenMP_CXX sdsl libsais ips4o gtl sparse_map
   malloc_count concurrentqueue sais-lite-lcp sais-lite-lcp
 )
 

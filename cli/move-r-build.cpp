@@ -27,7 +27,7 @@ void help(std::string msg) {
     std::cout << "   -s <op1> <op2> ... supported operations: revert, count and locate" << std::endl;
     std::cout << "                      (default: revert, count, locate)" << std::endl;
     std::cout << "   -rlzdsa            implement locate support by relative lempel-ziv encoding the" << std::endl;
-    std::cout << "                      differential suffix array instead of implementing Phi" << std::endl;
+    std::cout << "                      differential suffix array instead of implementing Phi^{-1}" << std::endl;
     std::cout << "   -p <integer>       number of threads to use during the construction of the index" << std::endl;
     std::cout << "                      (default: all threads)" << std::endl;
     std::cout << "   -a <integer>       balancing parameter; a must be an integer number and a >= 2 (default: 8)" << std::endl;
