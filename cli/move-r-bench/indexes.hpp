@@ -29,40 +29,40 @@ using online_rlbwt = itmmti::OnlineRlbwtIndex<DynRleT, DynSuccT>;
 
 template <>
 void build_index<move_r<_mds,char,uint32_t>>(move_r<_mds,char,uint32_t>& index, uint16_t num_threads) {
-    index = std::move(move_r<_mds,char,uint32_t>(input,{.mode=_bigbwt,.num_threads=num_threads}));
+    index = move_r<_mds,char,uint32_t>(input,{.mode=_bigbwt,.num_threads=num_threads});
 }
 
 template <>
 void build_index<move_r<_mds,char,uint64_t>>(move_r<_mds,char,uint64_t>& index, uint16_t num_threads) {
-    index = std::move(move_r<_mds,char,uint64_t>(input,{.mode=_bigbwt,.num_threads=num_threads}));
+    index = move_r<_mds,char,uint64_t>(input,{.mode=_bigbwt,.num_threads=num_threads});
 }
 
 template <>
 uint64_t build_index_sa_and_bwt<int32_t,move_r<_mds,char,uint32_t>>(move_r<_mds,char,uint32_t>& index, uint16_t num_threads) {
-    index = std::move(move_r<_mds,char,uint32_t>(get_sa<int32_t>(),BWT,{.num_threads=num_threads}));
+    index = move_r<_mds,char,uint32_t>(get_sa<int32_t>(),BWT,{.num_threads=num_threads});
     return 0;
 }
 
 template <>
 uint64_t build_index_sa_and_bwt<int64_t,move_r<_mds,char,uint32_t>>(move_r<_mds,char,uint32_t>& index, uint16_t num_threads) {
-    index = std::move(move_r<_mds,char,uint32_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads}));
+    index = move_r<_mds,char,uint32_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads});
     return 0;
 }
 
 template <>
 uint64_t build_index_sa_and_bwt<int64_t,move_r<_mds,char,uint64_t>>(move_r<_mds,char,uint64_t>& index, uint16_t num_threads) {
-    index = std::move(move_r<_mds,char,uint64_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads}));
+    index = move_r<_mds,char,uint64_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads});
     return 0;
 }
 
 template <>
 void destroy_index<move_r<_mds,char,uint32_t>>(move_r<_mds,char,uint32_t>& index) {
-    index = std::move(move_r<_mds,char,uint32_t>());
+    index = move_r<_mds,char,uint32_t>();
 }
 
 template <>
 void destroy_index<move_r<_mds,char,uint64_t>>(move_r<_mds,char,uint64_t>& index) {
-    index = std::move(move_r<_mds,char,uint64_t>());
+    index = move_r<_mds,char,uint64_t>();
 }
 
 template <>
@@ -143,7 +143,7 @@ void build_index<r_index>(r_index& index, uint16_t num_threads) {
 
 template <>
 void destroy_index<r_index>(r_index& index) {
-    index = std::move(r_index());
+    index = r_index();
 }
 
 template <>
@@ -251,7 +251,7 @@ void build_index<r_index_f<>>(r_index_f<>& index, uint16_t) {
     system(("external/Big-BWT/newscanNT.x " + name_text_file + " >nul 2>nul").c_str());
     system(("build/external/pfp-thresholds/pfp-thresholds " + name_text_file +
             " -r > " + name_text_file + ".log 2>" + name_text_file + ".log").c_str());
-    index = std::move(r_index_f<>(name_text_file));
+    index = r_index_f<>(name_text_file);
     std::ifstream log_file(name_text_file + ".log");
     update_peak_memory_usage(log_file);
     log_file.close();
@@ -262,7 +262,7 @@ void build_index<r_index_f<>>(r_index_f<>& index, uint16_t) {
 
 template <>
 void destroy_index<r_index_f<>>(r_index_f<>& index) {
-    index = std::move(r_index_f<>());
+    index = r_index_f<>();
 }
 
 template <>

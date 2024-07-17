@@ -85,7 +85,7 @@ class sd_array {
      * @param bit_vector a bit vector
      */
     sd_array(const sdsl::bit_vector& bit_vector) {
-        sd_vector = std::move(sdsl::sd_vector<>(bit_vector));
+        sd_vector = sdsl::sd_vector<>(bit_vector);
         setup();
     }
 

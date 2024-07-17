@@ -6,6 +6,7 @@
 #include <libsais64.h>
 #include <sais.hxx>
 #include <move_r/move_r.hpp>
+#include <gtl/btree.hpp>
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::read_t_from_file(std::ifstream& T_ifile) {
@@ -82,7 +83,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_sa() {
         }
 
         if (log) time = log_runtime(time);
-        if (mode == _suffix_array_space) store_mapintext();
+        store_mapintext();
         if (log) std::cout << "building SA" << std::flush;
         no_init_resize(SA,n);
         saisxx((i_sym_t*)&T_vec[0],&SA[0],(sa_sint_t)n,(sa_sint_t)idx.sigma);
@@ -93,7 +94,6 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_sa() {
         }
         
         if (log) time = log_runtime(time);
-        if (mode == _suffix_array_space) store_mapintext();
         no_init_resize(SA,n+fs);
         run_libsais<sa_sint_t,sa_sint_t>((sa_sint_t*)&T_vec[0],&SA[0],fs);
     } else {
@@ -108,7 +108,6 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_sa() {
         }
 
         if (log) time = log_runtime(time);
-        if (mode == _suffix_array_space) store_mapintext();
         no_init_resize(SA,n+fs);
         run_libsais<int64_t,sa_sint_t>((int64_t*)&T_vec_ls[0],&SA[0],fs);
     }

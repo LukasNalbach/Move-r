@@ -104,6 +104,9 @@ class move_r {
     using map_ext_t = std::vector<sym_t>; // type of map_ext
     using inp_t = std::conditional_t<str_input,std::string,std::vector<sym_t>>; // input container type
 
+    // sample rate of the copy phrases in the rlzdsa
+    static constexpr pos_t sr_scp = 4;
+
     // ############################# INDEX VARIABLES #############################
 
     pos_t n = 0; // the length of the input
@@ -152,13 +155,15 @@ class move_r {
     interleaved_vectors<uint64_t,pos_t> _R;
     // bit vector storing the phrase types of the rlzdsa, i.e, PT[i] = 1 <=> phrase i is literal
     plain_bit_vector<pos_t,true,true,true> _PT;
-    // compressed bit vector marking the starting positions in SA^d of the copy phrases of the rlzdsa
-    sd_array<pos_t> _SCP;
+    // compressed bit vector marking the sampled starting positions in SA^d of the copy phrases of the rlzdsa
+    sd_array<pos_t> _SCP_S;
+    // lengths of the copy phrases of the rlzdsa
+    std::vector<uint16_t> _CPL;
     // starting positions in R of the copy phrases of the rlzdsa
     interleaved_vectors<pos_t,pos_t> _SR;
     // literal phrases of the rlzdsa
     interleaved_vectors<pos_t,pos_t> _LP;
-
+    
     // ############################# INTERNAL METHODS #############################
 
     /**
@@ -347,7 +352,8 @@ class move_r {
                 size +=
                     _SA_s.size_in_bytes()+ // SA_s
                     _R.size_in_bytes()+ // R
-                    _SCP.size_in_bytes()+ // SCP
+                    (z_c+2)*sizeof(uint16_t)+ // CPL
+                    _SCP_S.size_in_bytes()+ // SCP_S
                     _SR.size_in_bytes()+ // SR
                     _LP.size_in_bytes()+ // LP
                     _PT.size_in_bytes(); // PT
@@ -383,7 +389,8 @@ class move_r {
             } else {
                 std::cout << "SA_s: " << format_size(_SA_s.size_in_bytes()) << std::endl;
                 std::cout << "R: " << format_size(_R.size_in_bytes()) << std::endl;
-                std::cout << "SCP: " << format_size(_SCP.size_in_bytes()) << std::endl;
+                std::cout << "CPL: " << format_size((z_c+2)*sizeof(uint16_t)) << std::endl;
+                std::cout << "SCP_S: " << format_size(_SCP_S.size_in_bytes()) << std::endl;
                 std::cout << "SR: " << format_size(_SR.size_in_bytes()) << std::endl;
                 std::cout << "LP: " << format_size(_LP.size_in_bytes()) << std::endl;
                 std::cout << "PT: " << format_size(_PT.size_in_bytes()) << std::endl;
@@ -417,7 +424,8 @@ class move_r {
             } else {
                 out << "size_sa_s: " << _SA_s.size_in_bytes();
                 out << "size_r: " << _R.size_in_bytes();
-                out << "size_scp: " << _SCP.size_in_bytes();
+                out << "size_cpl: " << (z_c+2)*sizeof(uint16_t);
+                out << "size_scp: " << _SCP_S.size_in_bytes();
                 out << "size_sr: " << _SR.size_in_bytes();
                 out << "size_lp: " << _LP.size_in_bytes();
                 out << "size_pt: " << _PT.size_in_bytes();
@@ -468,11 +476,19 @@ class move_r {
     }
 
     /**
-     * @brief returns a reference to SCP
-     * @return SCP
+     * @brief returns a reference to CPL
+     * @return CPL
      */
-    inline const sd_array<pos_t>& SCP() const {
-        return _SCP;
+    inline const std::vector<uint16_t>& CPL() const {
+        return _CPL;
+    }
+
+    /**
+     * @brief returns a reference to SCP_S
+     * @return SCP_S
+     */
+    inline const sd_array<pos_t>& SCP_S() const {
+        return _SCP_S;
     }
 
     /**
@@ -510,12 +526,21 @@ class move_r {
     }
 
     /**
-     * @brief returns SCP[x]
-     * @param x [0..n-1] index in SCP
-     * @return SCP[x]
+     * @brief returns CPL[x]
+     * @param x [0..z_c-1] index in CPL
+     * @return CPL[x]
      */
-    inline bool SCP(pos_t x) const {
-        return _SCP[x];
+    inline uint16_t CPL(pos_t x) const {
+        return _CPL[x];
+    }
+
+    /**
+     * @brief returns SCP_S[x]
+     * @param x [0..z_c/sr_scp-1] index in SCP_S
+     * @return SCP_S[x]
+     */
+    inline pos_t SCP_S(pos_t x) const {
+        return _SCP_S.select_1(x+1);
     }
 
     /**
@@ -841,9 +866,9 @@ class move_r {
     
     /**
      * @brief prepares the context to decode SA[i]; if there
-     * is a literal phrase at position i, s is not modified
+     * is a literal phrase at position i, s stores SA[i], else SA[i-1]
      * @param i [0..n-1] position in the suffix array
-     * @param s variable to (possibly) store SA[i-1] in
+     * @param s variable to (possibly) store SA[i] or SA[i-1] in
      * @param x_p phrase-index of the phrase of the rlzdsa contianing i
      * @param x_lp literal-phrase index of the current or next literal phrase of the rlzdsa
      * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzdsa
@@ -1132,7 +1157,8 @@ class move_r {
 
                 _SA_s.serialize(out);
                 _R.serialize(out);
-                _SCP.serialize(out);
+                _SCP_S.serialize(out);
+                write_to_file(out,(char*)&_CPL[0],(z_c+2)*sizeof(uint16_t));
                 _SR.serialize(out);
                 _LP.serialize(out);
                 _PT.serialize(out);
@@ -1218,7 +1244,9 @@ class move_r {
                 std::vector<std::pair<sym_t,i_sym_t>> map_int_vec;
                 no_init_resize(map_int_vec,sigma);
                 read_from_file(in,(char*)&map_int_vec[0],sizeof(std::pair<sym_t,i_sym_t>)*sigma);
+                uint64_t alloc_before = malloc_count_current();
                 _map_int.insert(map_int_vec.begin(),map_int_vec.end());
+                size_map_int = malloc_count_current()-alloc_before;
             }
         }
 
@@ -1242,7 +1270,9 @@ class move_r {
 
                 _SA_s.load(in);
                 _R.load(in);
-                _SCP.load(in);
+                _SCP_S.load(in);
+                no_init_resize(_CPL,z_c+2);
+                read_from_file(in,(char*)&_CPL[0],(z_c+2)*sizeof(uint16_t));
                 _SR.load(in);
                 _LP.load(in);
                 _PT.load(in);

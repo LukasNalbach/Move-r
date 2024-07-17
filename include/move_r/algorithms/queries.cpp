@@ -45,7 +45,7 @@ pos_t move_r<locate_support,sym_t,pos_t>::SA(pos_t i) const {
                   =     M_Phi^{-1}.p(SA_Phi^{-1}[(x+1) mod r'])
         */
         if (i == M_LF().p(x+1)-1 && SA_Phi_m1(x+1) != r__) {
-            return M_Phi_m1().p(SA_Phi_m1((x+1) == r_ ? 0 : (x+1)));
+            return M_Phi_m1().p(SA_Phi_m1((x+1) % r_));
         }
 
         // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
@@ -278,30 +278,56 @@ void move_r<locate_support,sym_t,pos_t>::init_rlzdsa(
     pos_t& i,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np
 ) const {
-    // copy-phrase index of the last copy-phrase
-    pos_t x_cp_lcp = SCP().rank_1(i+1);
-    // phrase-index of the last copy-phrase (possibly -1, if there is none before or at i)
-    int64_t x_p_lcp = x_cp_lcp == 0 ? int64_t{-1} : PT().select_0(x_cp_lcp);
-    // number of literal phrases between the current and the next copy-phrase
-    pos_t n_lp = PT().select_0(x_cp_lcp+1)-x_p_lcp-1;
-    // starting position of the next copy-phrase
-    pos_t s_ncp = SCP().select_1(x_cp_lcp+1);
+    // index in SCP_S of the last sampled copy phrase starting before or at i
+    pos_t x_scps = SCP_S().rank_1(i+1);
 
-    if (i >= s_ncp-n_lp) {
-        // there is a literal phrase at position i
+    if (x_scps == 0) {
+        // i lies before the first copy phrase
         s_np = i+1;
-        x_cp = x_cp_lcp;
-        x_r = SR(x_cp);
-        x_p = x_p_lcp+1+(i-(s_ncp-n_lp));
+        x_p = i;
+        x_lp = i;
+        x_cp = 0;
+        x_r = SR(0);
     } else {
-        // i lies within a copy-phrase
-        x_cp = x_cp_lcp-1;
-        x_p = x_p_lcp;
-        x_r = SR(x_cp)+(i-SCP().select_1(x_cp_lcp));
-        s_np = s_ncp-n_lp;
-    }
+        // copy-phrase index of the last copy-phrase starting before or at i
+        pos_t x_cp_lcp = x_scps == 1 ? 0 : (x_scps-1)*sr_scp;
+        // starting position of the last copy-phrase starting before or at i
+        pos_t s_lcp = SCP_S().select_1(x_scps);
+        // phrase index of the last copy-phrase starting before or at i
+        pos_t x_p_lcp = PT().select_0(x_cp_lcp+1);
+        // phrase index of the x_cp_lcp+1-th copy phrase
+        pos_t x_p_ncp = PT().select_0(x_cp_lcp+2);
+        // number of literal phrases between the current and the next copy-phrase
+        pos_t n_lp = x_p_ncp-x_p_lcp-1;
+        // starting position of the next copy-phrase
+        pos_t s_ncp = s_lcp+CPL(x_cp_lcp)+n_lp;
 
-    x_lp = x_p-x_cp;
+        // find the last copy-phrase starting before or at i
+        while (s_ncp <= i) {
+            x_cp_lcp++;
+            s_lcp = s_ncp;
+            x_p_lcp = x_p_ncp;
+            x_p_ncp = PT().select_0(x_cp_lcp+2);
+            n_lp = x_p_ncp-x_p_lcp-1;
+            s_ncp += CPL(x_cp_lcp)+n_lp;
+        }
+
+        if (i >= s_ncp-n_lp) {
+            // there is a literal phrase at position i
+            s_np = i+1;
+            x_cp = x_cp_lcp+1;
+            x_r = SR(x_cp);
+            x_p = x_p_lcp+1+(i-(s_ncp-n_lp));
+        } else {
+            // i lies within a copy-phrase
+            x_cp = x_cp_lcp;
+            x_p = x_p_lcp;
+            x_r = SR(x_cp)+(i-s_lcp);
+            s_np = s_ncp-n_lp;
+        }
+
+        x_lp = x_p-x_cp;
+    }
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
@@ -309,65 +335,31 @@ void move_r<locate_support,sym_t,pos_t>::init_rlzdsa(
     pos_t& i, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np
 ) const {
-    // copy-phrase index of the last copy-phrase
-    pos_t x_cp_lcp = SCP().rank_1(i+1);
-    // phrase-index of the last copy-phrase (possibly -1, if there is none before or at i)
-    int64_t x_p_lcp = x_cp_lcp == 0 ? int64_t{-1} : PT().select_0(x_cp_lcp);
-    // number of literal phrases between the current and the next copy-phrase
-    pos_t n_lp = PT().select_0(x_cp_lcp+1)-x_p_lcp-1;
-    // starting position of the next copy-phrase
-    pos_t s_ncp = SCP().select_1(x_cp_lcp+1);
+    // index of the input interval in M_LF containing i.
+    pos_t x = bin_search_max_leq<pos_t>(i,0,r_-1,[this](pos_t x_){return M_LF().p(x_);});
 
-    if (i >= s_ncp-n_lp) {
-        // there is a literal phrase at i
-        s_np = i+1;
-        x_cp = x_cp_lcp;
-        x_r = SR(x_cp);
-        x_p = x_p_lcp+1+(i-(s_ncp-n_lp));
-        x_lp = x_p-x_cp;
-    } else {
-        // i lies within a copy-phrase, so find the last literal phrase before the copy-phrase contianing i
+    s = SA_s(x);
+    pos_t j = M_LF().p(x);
 
-        // literal phrase-index of the last copy-phrase before i
-        pos_t x_lp_llp = PT().rank_1(x_p_lcp)-1;
+    if (j == i) {
+        init_rlzdsa(i,x_p,x_lp,x_cp,x_r,s_np);
 
-        // phrase-index of the last literal phrase before i
-        pos_t x_p_llp = PT().select_1(x_lp_llp+1);
+        if (!PT(x_p)) {
+            pos_t sad_i = R(x_r);
 
-        // copy-phrase-index of the first copy-phrase after the last literal phrase before i
-        pos_t x_cp_fcpallp = PT().rank_0(x_p_llp);
-
-        // start iterating at the last literal phrase before i
-        pos_t j = SCP().select_1(x_cp_fcpallp+1)-1;
-        x_cp = x_cp_fcpallp;
-        x_r = SR(x_cp);
-        x_p = x_p_llp;
-        s_np = j+1;
-        x_lp = x_p-x_cp;
-
-        // get the suffix array value at j
-        s = LP(x_lp);
-
-        // prepare to decode the first copy-phrase after the last literal phrase before i
-        j++;
-        x_p++;
-        x_lp++;
-        s_np = SCP().select_1(x_cp+2)-(PT().select_0(x_cp+2)-x_p)+1;
-
-        // decode all copy-phrases after the last literal phrase before i and up to the copy-phrase containing i
-        while (j < i) {
-            s += R(x_r);
-            s -= n;
-            j++;
-            x_r++;
-
-            // there is a new copy-phrase starting at j
-            if (s_np <= j) {
-                x_p++;
-                x_cp++;
-                x_r = SR(x_cp);
-                s_np = SCP().select_1(x_cp+2)-(PT().select_0(x_cp+2)-x_p)+1;
+            // set s <- SA[i-1] = SA[i]-SA^d[i]
+            if (sad_i < n) {
+                s += n-sad_i;
+            } else {
+                s -= sad_i-n;
             }
+        }
+    } else {
+        j++;
+        init_rlzdsa(j,x_p,x_lp,x_cp,x_r,s_np);
+
+        while (j < i) {
+            next_rlzdsa(j,s,x_p,x_lp,x_cp,x_r,s_np);
         }
     }
 }
@@ -377,7 +369,7 @@ void move_r<locate_support,sym_t,pos_t>::next_rlzdsa(
     pos_t& i, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np
 ) const {
-    if (PT(x_p) == 1) {
+    if (PT(x_p)) {
         // literal phrase
         s = LP(x_lp);
         i++;
@@ -385,12 +377,12 @@ void move_r<locate_support,sym_t,pos_t>::next_rlzdsa(
         x_lp++;
 
         if (i < n) {
-            if (PT(x_p) == 1) {
+            if (PT(x_p)) {
                 // the next phrase is a literal phrase
                 s_np++;
             } else {
                 // the next phrase is a copy-phrase
-                s_np = SCP().select_1(x_cp+2)-(PT().select_0(x_cp+2)-x_p)+1;
+                s_np += CPL(x_cp);
             }
         }
     } else {
@@ -406,12 +398,12 @@ void move_r<locate_support,sym_t,pos_t>::next_rlzdsa(
             x_cp++;
             x_r = SR(x_cp);
 
-            if (PT(x_p) == 1) {
+            if (PT(x_p)) {
                 // the next phrase is a literal phrase
                 s_np++;
             } else {
                 // the next phrase is a copy-phrase
-                s_np = SCP().select_1(x_cp+2)-(PT().select_0(x_cp+2)-x_p)+1;
+                s_np += CPL(x_cp);
             }
         }
     }
@@ -424,9 +416,9 @@ void move_r<locate_support,sym_t,pos_t>::locate_rlzdsa(
     std::vector<pos_t>& Occ
 ) const {
     while (true) {
-        // decode all copy phrases before the next literal phrase
+        // decode all copy-phrases before the next literal phrase
         while (!PT(x_p)) {
-            // decode the x_cp-th copy phrase
+            // decode the x_cp-th copy-phrase
             while (i < s_np) {
                 s += R(x_r);
                 s -= n;
@@ -439,10 +431,10 @@ void move_r<locate_support,sym_t,pos_t>::locate_rlzdsa(
             x_p++;
             x_cp++;
             x_r = SR(x_cp);
-            s_np = SCP().select_1(x_cp+2)-(PT().select_0(x_cp+2)-x_p)+1;
+            s_np += PT(x_p) ? 1 : CPL(x_cp);
         }
 
-        // decode all literal phrases before the next copy phrase
+        // decode all literal phrases before the next copy-phrase
         while (PT(x_p)) {
             // decode the x_lp-th literal phrase
             s = LP(x_lp);
@@ -451,17 +443,18 @@ void move_r<locate_support,sym_t,pos_t>::locate_rlzdsa(
             i++;
             x_p++;
             x_lp++;
+            s_np++;
         }
 
         // set s_np to the starting position of the next (the x_lp-th)
-        // literal phrase after the current (the x_cp-th) copy phrase
-        s_np = SCP().select_1(x_cp+2)-(PT().select_0(x_cp+2)-x_p)+1;
+        // literal phrase after the current (the x_cp-th) copy-phrase
+        s_np += CPL(x_cp)-1;
     }
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 pos_t move_r<locate_support,sym_t,pos_t>::count(const inp_t& P) const {
-    pos_t l,b,e,b_,e_,hat_b_ap_y;
+    pos_t b,e,b_,e_,hat_b_ap_y;
     int64_t y;
 
     init_backward_search(b,e,b_,e_,hat_b_ap_y,y);
@@ -477,7 +470,7 @@ pos_t move_r<locate_support,sym_t,pos_t>::count(const inp_t& P) const {
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::locate(const inp_t& P, std::vector<pos_t>& Occ) const {
-    pos_t l,b,e,b_,e_,hat_b_ap_y;
+    pos_t b,e,b_,e_,hat_b_ap_y;
     int64_t y;
 
     init_backward_search(b,e,b_,e_,hat_b_ap_y,y);

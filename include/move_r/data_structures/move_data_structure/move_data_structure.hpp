@@ -138,18 +138,18 @@ class move_data_structure {
         this->omega_l_ = omega_l_;
 
         if (omega_l_ > 0) {
-            data = std::move(interleaved_vectors<pos_t,pos_t>({
+            data = interleaved_vectors<pos_t,pos_t>({
                 (uint8_t)(omega_p/8),
                 (uint8_t)(omega_idx/8),
                 (uint8_t)(omega_offs/8),
                 (uint8_t)(omega_l_/8)
-            }));
+            });
         } else {
-            data = std::move(interleaved_vectors<pos_t,pos_t>({
+            data = interleaved_vectors<pos_t,pos_t>({
                 (uint8_t)(omega_p/8),
                 (uint8_t)(omega_idx/8),
                 (uint8_t)(omega_offs/8)
-            }));
+            });
         }
 
         data.resize_no_init(k_+1);

@@ -43,9 +43,9 @@ class hybrid_bit_vector {
      */
     hybrid_bit_vector(const sdsl::bit_vector& plain_bit_vec) {
         if (should_be_compressed(plain_bit_vec)) {
-            sd_arr = std::move(sd_array<pos_t>(plain_bit_vec));
+            sd_arr = sd_array<pos_t>(plain_bit_vec);
         } else {
-            this->plain_bit_vec = std::move(plain_bv_t(plain_bit_vec));
+            this->plain_bit_vec = plain_bv_t(plain_bit_vec);
         }
     }
 
@@ -55,9 +55,9 @@ class hybrid_bit_vector {
      */
     hybrid_bit_vector(sdsl::bit_vector&& plain_bit_vec) {
         if (should_be_compressed(plain_bit_vec)) {
-            sd_arr = std::move(sd_array<pos_t>(plain_bit_vec));
+            sd_arr = sd_array<pos_t>(plain_bit_vec);
         } else {
-            this->plain_bit_vec = std::move(plain_bv_t(std::move(plain_bit_vec)));
+            this->plain_bit_vec = plain_bv_t(std::move(plain_bit_vec));
         }
     }
 
@@ -66,7 +66,7 @@ class hybrid_bit_vector {
      * @param sd_vec an sd_vector
      */
     hybrid_bit_vector(const sdsl::sd_vector<>& sd_vec) {
-        sd_arr = std::move(sd_array<pos_t>(sd_vec));
+        sd_arr = sd_array<pos_t>(sd_vec);
     }
 
     /**
@@ -74,7 +74,7 @@ class hybrid_bit_vector {
      * @param sd_vec an sd_vector
      */
     hybrid_bit_vector(sdsl::sd_vector<>&& sd_vec) {
-        sd_arr = std::move(sd_array<pos_t>(std::move(sd_vec)));
+        sd_arr = sd_array<pos_t>(std::move(sd_vec));
     }
 
     inline bool is_initialized() const {
@@ -298,10 +298,10 @@ class hybrid_bit_vector {
         in.read((char*)&compressed,1);
 
         if (compressed) {
-            sd_arr = std::move(sd_array<pos_t>());
+            sd_arr = sd_array<pos_t>();
             sd_arr.value().load(in);
         } else {
-            plain_bit_vec = std::move(plain_bv_t());
+            plain_bit_vec = plain_bv_t();
             plain_bit_vec.value().load(in);
         }
     }

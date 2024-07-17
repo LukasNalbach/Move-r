@@ -7,7 +7,7 @@ uint16_t max_num_threads = omp_get_max_threads();
 
 std::lognormal_distribution<double> avg_input_rep_length_distrib(4.0,2.0);
 std::uniform_real_distribution<double> prob_distrib(0.0,1.0);
-std::uniform_int_distribution<uint8_t> alphabet_size_distrib(1,254);
+std::uniform_int_distribution<uint8_t> alphabet_size_distrib(1,255);
 std::uniform_int_distribution<uint8_t> uchar_distrib(0,255);
 std::uniform_int_distribution<uint32_t> input_size_distrib(1,200000);
 std::uniform_int_distribution<uint16_t> num_threads_distrib(1,max_num_threads);

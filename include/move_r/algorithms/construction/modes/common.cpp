@@ -170,18 +170,12 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool in_memo
         idx.symbols_remapped = true;
         uint64_t alloc_before = malloc_count_current();
 
-        {
-            gtl::flat_hash_map<sym_t,i_sym_t> map_int_tmp;
-
-            for (pos_t i=0; i<n-1; i++) {
-                map_int_tmp.try_emplace(T<sym_t>(i),0);
-            }
-
-            idx._map_int = std::move(tsl::sparse_map<sym_t,i_sym_t>(map_int_tmp.begin(),map_int_tmp.end()));
+        for (pos_t i=0; i<n-1; i++) {
+            idx._map_int.try_emplace(T<sym_t>(i),0);
         }
-        
-        idx.size_map_int = malloc_count_current()-alloc_before;
+
         idx.sigma = idx._map_int.size()+1;
+        idx.size_map_int = malloc_count_current()-alloc_before;
         p_ = mode == _suffix_array_space ? 1 : std::min<pos_t>({p,std::max<pos_t>(1,n/1000),std::max<pos_t>(1,(n/idx.sigma)-1)});
         no_init_resize(idx._map_ext,idx.sigma);
         idx._map_ext[0] = 0;
@@ -234,7 +228,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c() {
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
 
     r_p.resize(p_+1,0);
-    RLBWT.resize(p_,std::move(interleaved_vectors<uint32_t,uint32_t>({(uint8_t)std::ceil(std::log2(idx.sigma+1)/(double)8),4})));
+    RLBWT.resize(p_,interleaved_vectors<uint32_t,uint32_t>({(uint8_t)std::ceil(std::log2(idx.sigma+1)/(double)8),4}));
     C.resize(p_,std::vector<pos_t>(byte_alphabet ? 256 : idx.sigma,0));
 
     if constexpr (mode == _bwt_file) {
@@ -485,14 +479,14 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_mlf() {
         std::cout << std::endl << "building M_LF" << std::flush;
     }
 
-    idx._M_LF = std::move(move_data_structure_l_<pos_t,i_sym_t>(std::move(I_LF),n,{
+    idx._M_LF = move_data_structure_l_<pos_t,i_sym_t>(std::move(I_LF),n,{
             .num_threads=p,
             .a=idx.a,
             .log=log,
             .mf=mf_mds,
         },
         byte_alphabet ? 8 : (uint8_t)(std::ceil(std::log2(idx.sigma+1)/(double)8)*8)
-    ));
+    );
 
     r_ = idx._M_LF.num_intervals();
     idx.r_ = r_;
@@ -609,12 +603,12 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_mphim1() {
         std::cout << std::endl << "building M_Phi^{-1}" << std::flush;
     }
 
-    idx._M_Phi_m1 = std::move(move_data_structure<pos_t>(std::move(I_Phi_m1),n,{
+    idx._M_Phi_m1 = move_data_structure<pos_t>(std::move(I_Phi_m1),n,{
         .num_threads=p,
         .a=idx.a,
         .log=log,
         .mf=mf_mds,
-    },&pi_mphi));
+    },&pi_mphi);
 
     r__ = idx._M_Phi_m1.num_intervals();
     idx.r__ = r__;
@@ -649,7 +643,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_saphim1() {
     }
 
     idx.omega_idx = idx._M_Phi_m1.width_idx();
-    idx._SA_Phi_m1 = std::move(interleaved_vectors<pos_t,pos_t>({(uint8_t)(idx.omega_idx/8)}));
+    idx._SA_Phi_m1 = interleaved_vectors<pos_t,pos_t>({(uint8_t)(idx.omega_idx/8)});
     idx._SA_Phi_m1.resize_no_init(r_);
 
     /* Now we will divide the range [0..n-1] up into p non-overlapping sub-ranges [s[i_p]..s[i_p+1]-1],
@@ -841,9 +835,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rsl_() {
     }
     
     if constexpr (byte_alphabet) {
-        idx._RS_L_ = std::move(rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},0,r_-1,p));
+        idx._RS_L_ = rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},0,r_-1,p);
     } else {
-        idx._RS_L_ = std::move(rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},idx.sigma,0,r_-1));
+        idx._RS_L_ = rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},idx.sigma,0,r_-1,p);
     }
 
     if (log) {
@@ -861,7 +855,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::store_mlf() {
 
     std::ofstream file_mlf(prefix_tmp_files + ".mlf");
     idx._M_LF.serialize(file_mlf);
-    idx._M_LF = std::move(move_data_structure_l_<pos_t,i_sym_t>());
+    idx._M_LF = move_data_structure_l_<pos_t,i_sym_t>();
     file_mlf.close();
 
     if (log) {

@@ -64,6 +64,10 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/external/gtl/")
 # sparse-map
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/sparse-map/")
 
+# emhash
+add_library(emhash INTERFACE)
+target_include_directories(emhash INTERFACE "${CMAKE_SOURCE_DIR}/external/emhash/")
+
 # Big-BWT
 execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/Big-BWT/")
 
@@ -78,7 +82,7 @@ add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
 target_link_libraries(move_r INTERFACE
   OpenMP::OpenMP_CXX sdsl libsais ips4o gtl sparse_map
-  malloc_count concurrentqueue sais-lite-lcp sais-lite-lcp
+  malloc_count concurrentqueue sais-lite-lcp emhash
 )
 
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)

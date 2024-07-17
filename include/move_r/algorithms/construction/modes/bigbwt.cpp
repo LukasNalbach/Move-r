@@ -7,7 +7,6 @@ template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::preprocess_and_store_t_in_file() {
     preprocess_t(true);
     
-    prefix_tmp_files = "move-r_" + random_alphanumeric_string(10);
     std::ofstream T_ofile(prefix_tmp_files);
     write_to_file(T_ofile,T_str.c_str(),n-1);
     T_ofile.close();

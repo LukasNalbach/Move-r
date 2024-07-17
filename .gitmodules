@@ -51,3 +51,6 @@
 [submodule "external/sparse-map"]
 	path = external/sparse-map
 	url = git@github.com:Tessil/sparse-map.git
+[submodule "external/emhash"]
+	path = external/emhash
+	url = git@github.com:ktprime/emhash.git

@@ -1,8 +1,8 @@
 #pragma once
 
 #include <move_r/move_r.hpp>
-#include <gtl/phmap.hpp>
 #include <gtl/btree.hpp>
+#include <hash_table5.hpp>
 
 enum rlbwt_build_mode {
     _sa, // the BWT is read by L[i] = T[(SA[i]-1) mod n]
@@ -103,14 +103,17 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     /** [0..p-1] file buffers (of each thread) for reading the suffix array file output by bigbwt */
     std::vector<sdsl::int_vector_buffer<>> SA_file_bufs;
     /** type of hash map for storing the frequencies of values in SA^d */
-    template <typename sad_t> using sad_freq_t = gtl::flat_hash_map<sad_t,pos_t>;
+    template <typename sad_t> using sad_freq_t = emhash5::HashMap<sad_t,pos_t,std::identity>;
     /** [0..p-1] hashmaps (for sad_t = uint32_t) mapping each value in SA^d (+n) to its frequency in SA^d; initially
      * stores at index i_p the hashmap that thread i_p uses to count the frequencies of all values in its section
      * SA^d[n_p[i_p]..n_p[i_p+1]-1]; then the hashmaps are merged into the hashmap at index 0 */
     std::vector<sad_freq_t<uint32_t>> SAd_freq_32;
     /** [0..p-1] hashmaps ... (for sad_t = uint64_t; see SAd_freq_32) */
     std::vector<sad_freq_t<uint64_t>> SAd_freq_64;
-    using ts_t = gtl::btree_set<std::pair<pos_t,pos_t>>; // type of T_s
+    struct segment {pos_t beg; pos_t end;}; // segment
+    /** comparator for segment in T_s */
+    struct cmp_ts {bool operator()(const segment &s1, const segment &s2) const {return s1.beg < s2.beg;}};
+    using ts_t = gtl::btree_set<segment,cmp_ts>; // type of T_s
     using ts_it_t = ts_t::iterator; // type of iterator in T_s
     /** B-tree storing the selected segments from SA^d to be included in the reference (R) for the rlzdsa; stores pairs (pos,len)
      * to represent segments SA^d[pos..pos+len] in ascending order of their starting position (pos) in SA^d */
@@ -127,28 +130,26 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     idx_revr_t<uint64_t,uint32_t> idx_revR_64_32;
     /** index for finding maximum length copy phrases in the rlzdsa factorization (for sad_t = uint64_t and irr_pos_t = uint64_t) */
     idx_revr_t<uint64_t,uint64_t> idx_revR_64_64;
-    /** [0..p-1] stores at position i_p in ascending order the starting positions (in SA^d) of rlzdsa
+    /** [0..p-1] stores at position i_p in ascending order the lengths of rlzdsa
      * copy phrases in SA^d[n_p[i_p]..n_p[i_p+1]-1] */
-    std::vector<interleaved_vectors<pos_t,pos_t>> SCP;
+    std::vector<std::vector<uint16_t>> _CPL;
     /** [0..p-1] stores at position i_p in ascending order the starting positions (in R) of rlzdsa
      * copy phrases in SA^d[n_p[i_p]..n_p[i_p+1]-1] */
-    std::vector<interleaved_vectors<pos_t,pos_t>> SR;
+    std::vector<interleaved_vectors<pos_t,pos_t>> _SR;
     /** [0..p-1] stores at position i_p in ascending order the literal phrases of the rlzdsa
      * in SA^d[n_p[i_p]..n_p[i_p+1]-1] */
-    std::vector<interleaved_vectors<pos_t,pos_t>> LP;
+    std::vector<interleaved_vectors<pos_t,pos_t>> _LP;
     /** [0..p-1] stores at position i_p in ascending order the types of phrases of the rlzdsa in SA^d[n_p[i_p]..n_p[i_p+1]-1];
      * i.e, PT[i_p][i] = 0 <=> the i-th phrase in SA^d[n_p[i_p]..n_p[i_p+1]-1] is literal */
-    std::vector<sdsl::bit_vector> PT;
-    /** [0..p-1] stores at position i_p a file buffer with the same content as SCP[i_p]*/
-    std::vector<sdsl::int_vector_buffer<>> SCP_file_bufs;
+    std::vector<sdsl::bit_vector> _PT;
+    /** [0..p-1] stores at position i_p a file buffer with the same content as CPL[i_p]*/
+    std::vector<sdsl::int_vector_buffer<>> CPL_file_bufs;
     /** [0..p-1] stores at position i_p a file buffer with the same content as SR[i_p]*/
     std::vector<sdsl::int_vector_buffer<>> SR_file_bufs;
     /** [0..p-1] stores at position i_p a file buffer with the same content as LP[i_p]*/
     std::vector<sdsl::int_vector_buffer<>> LP_file_bufs;
     /** [0..p-1] stores at position i_p a file buffer with the same content as PT[i_p]*/
     std::vector<sdsl::int_vector_buffer<>> PT_file_bufs;
-    /** sd_vector builder to build idx._SCP from SCP[0..p-1] */
-    sdsl::sd_vector_builder SCP_b;
     /** [0..p] z_p[0] < z_p[1] < ... < z_p[p] = z; z_p[i_p] = number of phrases in the rlzdsa starting before n_p[i_p] in SA^d */
     std::vector<pos_t> z_p;
     /** [0..p] zl_p[0] < zl_p[1] < ... < zl_p[p] = z; zl_p[i_p] = number of literal phrases in the rlzdsa starting before n_p[i_p] in SA^d */
@@ -300,8 +301,10 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     template <bool bigbwt, typename sa_sint_t>
     inline uint64_t SAd(uint16_t i_p, pos_t i){
         if constexpr (bigbwt) {
-            if (i == 0) return n_u64-1;
-            if (i == 1) return SA_file_bufs[i_p][0]+1;
+            if (i <= 1) {
+                if (i == 0) return n_u64-1;
+                return SA_file_bufs[i_p][0]+1;
+            }
             return (SA_file_bufs[i_p][i-1]+n_u64)-SA_file_bufs[i_p][i-2];
         } else {
             return i == 0 ? n_u64-1 : ((get_sa<sa_sint_t>()[i]+n)-get_sa<sa_sint_t>()[i-1]);
@@ -354,6 +357,70 @@ class move_r<locate_support,sym_t,pos_t>::construction {
         }
     }
 
+    /**
+     * @brief returns CPL[i_p][i]
+     * @tparam space controls, whether to read CPL from a file
+     * @param i_p [0..p-1] thread index
+     * @param i [zc_p[i_p]..zc_p[i_p+1]-1] index in CPL[i_p]
+     * @return CPL[i_p][i]
+     */
+    template <bool space>
+    inline uint16_t CPL(uint16_t i_p, pos_t i) {
+        if constexpr (space) {
+            return CPL_file_bufs[i_p][i];
+        } else {
+            return _CPL[i_p][i];
+        }
+    }
+
+    /**
+     * @brief returns SR[i_p][i]
+     * @tparam space controls, whether to read SR from a file
+     * @param i_p [0..p-1] thread index
+     * @param i [zc_p[i_p]..zc_p[i_p+1]-1] index in SR[i_p]
+     * @return SR[i_p][i]
+     */
+    template <bool space>
+    inline pos_t SR(uint16_t i_p, pos_t i) {
+        if constexpr (space) {
+            return SR_file_bufs[i_p][i];
+        } else {
+            return _SR[i_p][i];
+        }
+    }
+
+    /**
+     * @brief returns LP[i_p][i]
+     * @tparam space controls, whether to read LP from a file
+     * @param i_p [0..p-1] thread index
+     * @param i [zl_p[i_p]..zl_p[i_p+1]-1] index in LP[i_p]
+     * @return LP[i_p][i]
+     */
+    template <bool space>
+    inline pos_t LP(uint16_t i_p, pos_t i) {
+        if constexpr (space) {
+            return LP_file_bufs[i_p][i];
+        } else {
+            return _LP[i_p][i];
+        }
+    }
+
+    /**
+     * @brief returns PT[i_p][i]
+     * @tparam space controls, whether to read PT from a file
+     * @param i_p [0..p-1] thread index
+     * @param i [z_p[i_p]..z_p[i_p+1]-1] index in PT[i_p]
+     * @return PT[i_p][i]
+     */
+    template <bool space>
+    inline bool PT(uint16_t i_p, pos_t i) {
+        if constexpr (space) {
+            return PT_file_bufs[i_p][i];
+        } else {
+            return _PT[i_p][i];
+        }
+    }
+
     // ############################# COMMON MISC METHODS #############################
 
     /**
@@ -363,6 +430,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
         time = now();
         time_start = time;
         omp_set_num_threads(p);
+        prefix_tmp_files = "move-r_" + random_alphanumeric_string(10);
 
         baseline_mem_usage = malloc_count_current();
         if (log) malloc_count_reset_peak();
@@ -729,11 +797,8 @@ class move_r<locate_support,sym_t,pos_t>::construction {
      */
     template <bool bigbwt, typename sa_sint_t>
     void construct_rlzdsa() {
-        size_R_target = std::min(std::max<pos_t>(1,n/3),5*r_);
+        size_R_target = std::min(std::max<pos_t>(1,n/3),5*r);
         seg_size = std::min<pos_t>(3072,size_R_target);
-
-        // TODO: somehow detect if choosing seg_size >> 3072 increases the compression rate (optimum is between 2000 and 12000)
-        // generally, the optimum is approx. 2000-4000, but sometimes it can be approx. 12000 (Horspool)
 
         if constexpr (std::is_same_v<pos_t,uint32_t>) {
             construct_rlzdsa<bigbwt,uint32_t,uint32_t,sa_sint_t>();
