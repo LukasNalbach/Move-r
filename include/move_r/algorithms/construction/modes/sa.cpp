@@ -70,7 +70,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_sa() {
     } else if constexpr (sizeof(sym_t) == 2) {
         #pragma omp parallel for num_threads(p)
         for (uint64_t i=0; i<n-1; i++) {
-            T<uint16_t>(i) = idx._map_int[T<sym_t>(i)];
+            T<uint16_t>(i) = (*idx._map_int.find(T<sym_t>(i))).second;
         }
 
         if (mode == _suffix_array_space) store_mapintext();
@@ -79,7 +79,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_sa() {
     } else if (mode == _suffix_array_space) {
         #pragma omp parallel for num_threads(p)
         for (uint64_t i=0; i<n-1; i++) {
-            T<i_sym_t>(i) = idx._map_int[T<sym_t>(i)];
+            T<i_sym_t>(i) = (*idx._map_int.find(T<sym_t>(i))).second;
         }
 
         if (log) time = log_runtime(time);
@@ -90,7 +90,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_sa() {
     } else if constexpr (sizeof(sym_t) == sizeof(sa_sint_t)) {
         #pragma omp parallel for num_threads(p)
         for (uint64_t i=0; i<n-1; i++) {
-            T<sa_sint_t>(i) = (sa_sint_t)idx._map_int[T<sym_t>(i)];
+            T<sa_sint_t>(i) = (sa_sint_t)(*idx._map_int.find(T<sym_t>(i))).second;
         }
         
         if (log) time = log_runtime(time);
@@ -103,7 +103,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_sa() {
 
         #pragma omp parallel for num_threads(p)
         for (uint64_t i=0; i<n-1; i++) {
-            T<i_sym_t>(i) = idx._map_int[T<sym_t>(i)];
+            T<i_sym_t>(i) = (*idx._map_int.find(T<sym_t>(i))).second;
             T_vec_ls[i] = (int64_t)T<i_sym_t>(i);
         }
 

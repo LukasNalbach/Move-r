@@ -166,7 +166,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
                 if (end > beg) {
                     for (pos_t i=beg; i<end; i++) {
                         sad_t val = SAd<bigbwt,sa_sint_t>(i_p,i);
-                        pos_t freq = SAd_freq[0][val];
+                        pos_t freq = (*SAd_freq[0].find(val)).second;
 
                         if (freq != 0 && PV_thr[i_p].emplace(val).second) {
                             score += std::sqrt(freq);
