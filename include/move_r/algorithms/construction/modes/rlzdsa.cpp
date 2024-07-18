@@ -113,7 +113,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
         if constexpr (bigbwt) SA_file_bufs[i_p].buffersize(8*seg_size);
     }
 
-    pos_t size_R_pre_target = 0.9*size_R_target;
+    pos_t size_R_pre_target = 0.95*size_R_target;
 
     while (size_R < size_R_pre_target) {
         pos_t beg_best = 0;
@@ -283,34 +283,32 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
         auto ts_right = ts_left;
         ++ts_right;
 
-        if (size_R+((*ts_right).beg-(*ts_left).end) > size_R_target) {
-            break;
-        }
-        
-        if (ts_left != T_s.begin()) {
-            auto ts_prev = ts_left;
-            --ts_prev;
-            float old_score = ((*ts_left).end-(*ts_prev).beg)/(float)((*ts_left).beg-(*ts_prev).end);
-            float new_score = ((*ts_right).end-(*ts_prev).beg)/(float)((*ts_left).beg-(*ts_prev).end);
+        if (size_R+((*ts_right).beg-(*ts_left).end) <= size_R_target) {
+            if (ts_left != T_s.begin()) {
+                auto ts_prev = ts_left;
+                --ts_prev;
+                float old_score = ((*ts_left).end-(*ts_prev).beg)/(float)((*ts_left).beg-(*ts_prev).end);
+                float new_score = ((*ts_right).end-(*ts_prev).beg)/(float)((*ts_left).beg-(*ts_prev).end);
 
-            T_g.erase(gap{(*ts_prev).beg,old_score});
-            T_g.emplace(gap{(*ts_prev).beg,new_score});
-        }
-        
-        auto ts_next = ts_right;
-        ++ts_next;
-        
-        if (ts_next != T_s.end()) {
-            float old_score = ((*ts_next).end-(*ts_right).beg)/(float)((*ts_next).beg-(*ts_right).end);
-            float new_score = ((*ts_next).end-(*ts_left).beg)/(float)((*ts_next).beg-(*ts_right).end);
+                T_g.erase(gap{(*ts_prev).beg,old_score});
+                T_g.emplace(gap{(*ts_prev).beg,new_score});
+            }
+            
+            auto ts_next = ts_right;
+            ++ts_next;
+            
+            if (ts_next != T_s.end()) {
+                float old_score = ((*ts_next).end-(*ts_right).beg)/(float)((*ts_next).beg-(*ts_right).end);
+                float new_score = ((*ts_next).end-(*ts_left).beg)/(float)((*ts_next).beg-(*ts_right).end);
 
-            T_g.erase(gap{(*ts_right).beg,old_score});
-            T_g.emplace(gap{(*ts_left).beg,new_score});
-        }
+                T_g.erase(gap{(*ts_right).beg,old_score});
+                T_g.emplace(gap{(*ts_left).beg,new_score});
+            }
 
-        size_R += (*ts_right).beg-(*ts_left).end;
-        (*ts_left).end = (*ts_right).end;
-        T_s.erase(ts_right);
+            size_R += (*ts_right).beg-(*ts_left).end;
+            (*ts_left).end = (*ts_right).end;
+            T_s.erase(ts_right);
+        }
     }
 
     if (log) {
@@ -372,7 +370,7 @@ template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 template <typename sad_t, typename irr_pos_t>
 void move_r<locate_support,sym_t,pos_t>::construction::build_idx_rev_r() {
     if (log) {
-        std::cout << "building move-r of rev(R)" << std::flush;
+        std::cout << "building move-r of rev(R):" << std::endl << std::endl;
     }
 
     std::vector<sad_t>& revR = get_revR<sad_t>();
@@ -385,7 +383,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_idx_rev_r() {
     });
 
     if (log) {
-        std::cout << " (size: " << format_size(idx_revR.size_in_bytes()) << ")";
+        std::cout << std::endl;
         time = log_runtime(time);
         log_peak_mem_usage();
     }

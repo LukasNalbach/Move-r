@@ -298,6 +298,23 @@ pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, std::function<pos
 }
 
 template <typename pos_t>
+pos_t bin_search_max_lt(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at) {
+    pos_t middle;
+
+    while (left != right) {
+        middle = left+(right-left)/2+1;
+
+        if (value_at(middle) < value) {
+            left = middle;
+        } else {
+            right = middle-1;
+        }
+    }
+
+    return left;
+}
+
+template <typename pos_t>
 pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at) {
     pos_t middle;
 

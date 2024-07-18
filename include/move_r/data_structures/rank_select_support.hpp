@@ -3,7 +3,10 @@
 #include <vector>
 #include <iostream>
 #include <filesystem>
+#include <omp.h>
 #include <sdsl/wt_gmr.hpp>
+
+#include <move_r/misc/utils.hpp>
 #include <move_r/data_structures/hybrid_bit_vector.hpp>
 #include <move_r/data_structures/interleaved_vectors.hpp>
 
@@ -31,30 +34,17 @@ class rank_select_support {
     static constexpr bool int_alphabet = !byte_alphabet; // true <=> use gmr
 
     using i_sym_t = std::conditional_t<str_input,uint8_t,sym_t>; // internal (unsigned) symbol type
-    using hybrid_bv_t = hybrid_bit_vector<pos_t,true,false,false>; // hybrid bit vector type
-
-    // ############################# COMMON VARIABLES #############################
-
-    /**
-     * @brief [0..sigma-1] stores at position c the sum of the frequencies of all c' < c that occur in the input
-     */
-    interleaved_vectors<pos_t,pos_t> c_array;
-    
-    /**
-     * @brief [0..input_size-1] stores at position i the position of the j-th occurrence of c
-     *        in the input, where c_array[c] <= i < c_array[c+1] and j = i - c_array[c] + 1
-     */
-    interleaved_vectors<pos_t,pos_t> occs;
+    using hybrid_bv_t = hybrid_bit_vector<pos_t,true,false,true>; // hybrid bit vector type
 
     // ############################# VARIABLES FOR byte_alphabet = true #############################
 
     pos_t input_size = 0; // the size of the input
     std::vector<i_sym_t> alphabet; // the symbols occurring in the input sorted descendingly by their frequency
-    std::vector<pos_t> freq; // stores at position c the frequency of c in the input
+    std::vector<pos_t> freq; // stores at position v the frequency of v in the input
 
     /**
-     * @brief hyb_bit_vecs[c] contains a hybrid bit vector [0..size-1] that marks (with ones) the occurrences of c
-     *        in the input, for each value c occurring in the input
+     * @brief hyb_bit_vecs[v] contains a hybrid bit vector [0..size-1] that marks (with ones) the occurrences of v
+     *        in the input, for each value v occurring in the input
      */
     std::vector<hybrid_bv_t> hyb_bit_vecs;
 
@@ -66,6 +56,17 @@ class rank_select_support {
      * @brief rank-select data structure for integer alphabets
      */
     sdsl::wt_gmr_rs<> gmr;
+
+    /**
+     * @brief [0..sigma-1] stores at position v the sum of the frequencies of all v' < v that occur in the input
+     */
+    interleaved_vectors<pos_t,pos_t> c_arr;
+    
+    /**
+     * @brief [0..input_size-1] stores at position i the position of the j-th occurrence of v
+     *        in the input, where c_arr[v] <= i < c_arr[v+1] and j = i - c_arr[v] + 1
+     */
+    interleaved_vectors<pos_t,pos_t> occs;
 
     // ######################################################################################
 
@@ -168,9 +169,9 @@ class rank_select_support {
         freq.resize(alphabet_size,0);
 
         for (uint64_t i=l; i<=r; i++) {
-            sym_t c = read(i);
-            vector_buffer[i-l] = c;
-            freq[c]++;
+            sym_t v = read(i);
+            vector_buffer[i-l] = v;
+            freq[v]++;
         }
 
         gmr = sdsl::wt_gmr_rs<>(vector_buffer,r-l+1);
@@ -186,40 +187,63 @@ class rank_select_support {
      * @param r right range limit (l <= r)
      */
     void build_select(const std::function<sym_t(pos_t)>& read, pos_t l, pos_t r, uint16_t num_threads) {
-        uint8_t bytes_occs = (uint8_t)std::ceil(std::log2(r-l+1)/(double)8);
-        uint8_t bytes_c_arr = byte_alphabet ? sizeof(pos_t) : bytes_occs;
-        pos_t size_c_arr = (byte_alphabet ? 256 : sigma)+1;
-        c_array = interleaved_vectors<pos_t,pos_t>({bytes_c_arr});
-        c_array.resize_no_init(size_c_arr);
-        c_array.template set<0,pos_t>(0,0);
+        uint8_t bytes_per_entry = (uint8_t)std::ceil(std::log2(r-l+1)/(double)8);
+        c_arr = interleaved_vectors<pos_t,pos_t>({bytes_per_entry});
+        c_arr.resize_no_init(sigma+1);
+        c_arr.template set<0,pos_t>(0,0);
 
-        for (pos_t c=1; c<size_c_arr; c++) {
-            c_array.template set<0,pos_t>(c,c_array[c-1]+freq[c-1]);
-        }
-        
-        if constexpr (int_alphabet) {
-            freq.clear();
-            freq.shrink_to_fit();
+        for (pos_t v=1; v<=sigma; v++) {
+            c_arr.template set<0,pos_t>(v,c_arr[v-1]+freq[v-1]);
         }
 
+        freq.clear();
+        freq.shrink_to_fit();
         std::vector<pos_t> occ_idx;
-        no_init_resize(occ_idx,size_c_arr-1);
+        no_init_resize(occ_idx,sigma);
 
         #pragma omp parallel for num_threads(num_threads)
-        for (uint64_t c=0; c<size_c_arr-1; c++) {
-            occ_idx[c] = c_array[c];
+        for (uint64_t v=0; v<sigma; v++) {
+            occ_idx[v] = c_arr[v];
         }
 
-        occs = interleaved_vectors<pos_t,pos_t>({bytes_occs});
+        occs = interleaved_vectors<pos_t,pos_t>({bytes_per_entry});
         occs.resize_no_init(r-l+1);
 
         for (pos_t i=l; i<=r; i++) {
-            pos_t c = symbol_idx(read(i));
-            occs.template set<0,pos_t>(occ_idx[c],i-l);
-            occ_idx[c]++;
+            pos_t v = symbol_idx(read(i));
+            occs.template set<0,pos_t>(occ_idx[v],i-l);
+            occ_idx[v]++;
+        }
+    }
+
+    /**
+     * @brief returns the number of occurrences of v before index i
+     * @param v [0..alphabet_size-1] value that occurs in the input
+     * @param i [1..input size] position in the input
+     * @param v_s [0..input size-1] starting position of the v-interval
+     * @param v_e [1..input size] end position of the v-interval
+     * @return number of occurrences of v before index i
+     */
+    inline pos_t rank_v_interval(
+        sym_t v, pos_t i,
+        pos_t v_s,
+        pos_t v_e
+    ) const requires(int_alphabet) {
+        pos_t pos;
+
+        if (v_e-v_s <= 256) {
+            pos = v_s;
+
+            while (pos < v_e && occs[pos+1] < i) {
+                pos++;
+            }
+        } else {
+            pos = bin_search_max_lt<pos_t>(i,v_s,v_e-1,[this](pos_t x){return occs[x];});
         }
 
+        return pos-v_s+1;
     }
+
     public:
     rank_select_support() = default;
 
@@ -243,7 +267,6 @@ class rank_select_support {
         
         r = std::min<pos_t>(r,string.size()-1);
         build_bvs([&string](uint i){return string[i];},l,r,num_threads);
-        build_select([&string](uint i){return string[i];},l,r,num_threads);
     }
     
     /**
@@ -260,7 +283,6 @@ class rank_select_support {
         uint16_t num_threads = omp_get_max_threads()
     ) requires(byte_alphabet) {
         build_bvs(read,l,r,num_threads);
-        build_select(read,l,r,num_threads);
     }
 
     /**
@@ -312,9 +334,9 @@ class rank_select_support {
      */
     inline sym_t operator[](pos_t i) const {
         if constexpr (byte_alphabet) {
-            for (i_sym_t c : alphabet) {
-                if (hyb_bit_vecs[c][i] == 1) {
-                    return c;
+            for (i_sym_t v : alphabet) {
+                if (hyb_bit_vecs[v][i] == 1) {
+                    return v;
                 }
             }
 
@@ -351,8 +373,6 @@ class rank_select_support {
     uint64_t size_in_bytes() const {
         if constexpr (byte_alphabet) {
             uint64_t size = sizeof(pos_t)+alphabet.size()+sizeof(pos_t)*alphabet.size();
-            size += c_array.size_in_bytes();
-            size += occs.size_in_bytes();
 
             for (uint16_t i=0; i<hyb_bit_vecs.size(); i++) {
                 size += hyb_bit_vecs[i].size_in_bytes();
@@ -361,7 +381,7 @@ class rank_select_support {
             return size;
         } else {
             return sdsl::size_in_bytes(gmr)+
-                c_array.size_in_bytes()+
+                c_arr.size_in_bytes()+
                 occs.size_in_bytes();
         }
     }
@@ -391,35 +411,85 @@ class rank_select_support {
         if constexpr (byte_alphabet) {
             return freq[symbol_idx(v)];
         } else {
-            return c_array[v+1]-c_array[v];
+            return c_arr[v+1]-c_arr[v];
         }
     }
 
     /**
-     * @brief returns the number of occurrences of c before index i
-     * @param v a value that occurs in the input
-     * @param i [0..string size]
-     * @return number of occurrences of c before index i
+     * @brief returns the number of occurrences of v before index i
+     * @tparam use_gmr true <=> use the gmr data structure
+     * @param v [0..alphabet_size-1] value that occurs in the input
+     * @param i [1..input size] position in the input
+     * @return number of occurrences of v before index i
+     */
+    template <bool use_gmr>
+    inline pos_t rank(sym_t v, pos_t i) const requires(int_alphabet) {
+        if constexpr (use_gmr) {
+            return gmr.rank(i,v);
+        } else {
+            pos_t v_s = c_arr[v];
+            pos_t v_e = c_arr[v+1]-1;
+
+            if (occs[v_s] >= i) {
+                return 0;
+            }
+
+            return rank_v_interval(v,i,v_s,v_e);
+        }
+    }
+
+    /**
+     * @brief returns the number of occurrences of v before index i
+     * @param v [0..alphabet_size-1] value that occurs in the input
+     * @param i [1..input size] position in the input
+     * @return number of occurrences of v before index i
      */
     inline pos_t rank(sym_t v, pos_t i) const {
         if constexpr (byte_alphabet) {
             return hyb_bit_vecs[symbol_idx(v)].rank_1(i);
         } else {
-            return gmr.rank(i,v);
+            pos_t v_s = c_arr[v];
+            pos_t v_e = c_arr[v+1]-1;
+
+            if (occs[v_s] >= i) {
+                return 0;
+            }
+
+            if (v_e-v_s > 4096) {
+                return gmr.rank(i,v);
+            } else {
+                return rank_v_interval(v,i,v_s,v_e);
+            }
         }
     }
     
     /**
-     * @brief returns the index of the i-th occurrence of c
+     * @brief returns the index of the i-th occurrence of v
+     * @tparam use_gmr true <=> use the gmr data structure
      * @param v a value that occurs in the input
-     * @param i [1..number of occurrences of c in the input]
-     * @return index of the i-th occurrence of c
+     * @param i [1..number of occurrences of v in the input]
+     * @return index of the i-th occurrence of v
+     */
+    template <bool use_gmr>
+    inline pos_t select(sym_t v, pos_t i) const requires(int_alphabet) {
+        if constexpr (use_gmr) {
+            return gmr.select(i,v);
+        } else {
+            return occs[c_arr[v]+i-1];
+        }
+    }
+    
+    /**
+     * @brief returns the index of the i-th occurrence of v
+     * @param v a value that occurs in the input
+     * @param i [1..number of occurrences of v in the input]
+     * @return index of the i-th occurrence of v
      */
     inline pos_t select(sym_t v, pos_t i) const {
         if constexpr (byte_alphabet) {
-            return occs[c_array.template get_unsafe<0,pos_t>(v)+i-1];
+            return hyb_bit_vecs[symbol_idx(v)].select_1(i);
         } else {
-            return occs[c_array[v]+i-1];
+            return select<false>(v,i);
         }
     }
 
@@ -449,11 +519,10 @@ class rank_select_support {
             
             if (vector_size > 0) {
                 gmr.serialize(out);
+                c_arr.serialize(out);
+                occs.serialize(out);
             }
         }
-
-        c_array.serialize(out);
-        occs.serialize(out);
     }
 
     /**
@@ -487,11 +556,10 @@ class rank_select_support {
 
             if (vector_size > 0) {
                 gmr.load(in);
+                c_arr.load(in);
+                occs.load(in);
             }
         }
-
-        c_array.load(in);
-        occs.load(in);
     }
 
     std::ostream& operator>>(std::ostream& os) const {

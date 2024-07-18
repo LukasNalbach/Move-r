@@ -75,6 +75,10 @@ execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/Big
 add_library(sais-lite-lcp INTERFACE)
 target_include_directories(sais-lite-lcp INTERFACE "${CMAKE_SOURCE_DIR}/external/sais-lite-lcp/")
 
+# sux
+add_library(sux INTERFACE)
+target_include_directories(sux INTERFACE "${CMAKE_SOURCE_DIR}/external/sux/")
+
 ############################# move-r #############################
 
 # move-r
@@ -82,13 +86,14 @@ add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
 target_link_libraries(move_r INTERFACE
   OpenMP::OpenMP_CXX sdsl libsais ips4o gtl sparse_map
-  malloc_count concurrentqueue sais-lite-lcp emhash
+  malloc_count concurrentqueue sais-lite-lcp emhash sux
 )
 
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)
 option(MOVE_R_BUILD_BENCH_CLI "Build the benchmark cli program" ON)
 option(MOVE_R_BUILD_EXAMPLES "Build the example programs" ON)
 option(MOVE_R_BUILD_TESTS "Build tests" ON)
+option(MOVE_R_BUILD_BENCH "Build program for benchmarking internal data structures" ON)
 
 ############################# move-r cli #############################
 
@@ -221,6 +226,15 @@ if(MOVE_R_BUILD_BENCH_CLI)
   add_executable(move-r-bench cli/move-r-bench/move-r-bench.cpp)
   target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index OnlineRlbwt)
   set_target_properties(move-r-bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
+endif()
+
+############################# move-r internal bench #############################
+
+if(MOVE_R_BUILD_BENCH)
+  add_executable(move-r-bench-int-rank-select bench/move_r_bench_int_rank_select.cpp)
+  target_link_libraries(move-r-bench-int-rank-select PRIVATE move_r)
+  set_target_properties(move-r-bench-int-rank-select PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
 ############################# move-r tests #############################

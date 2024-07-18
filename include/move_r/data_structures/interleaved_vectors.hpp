@@ -5,6 +5,8 @@
 #include <iostream>
 #include <cstring>
 
+#include <move_r/misc/utils.hpp>
+
 /**
  * @brief variable-width interleaved vectors (widths are fixed to whole bytes)
  * @tparam pos_t unsigned integer type

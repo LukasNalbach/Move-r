@@ -3,6 +3,8 @@
 #include <vector>
 #include <iostream>
 #include <sdsl/bit_vectors.hpp>
+#include <sux/bits/SimpleSelect.hpp>
+#include <sux/bits/SimpleSelectZero.hpp>
 
 /**
  * @brief wrapper class for the bit_vector from sdsl
@@ -15,8 +17,8 @@ class plain_bit_vector {
     protected:
     sdsl::bit_vector vec; // the bit_vector
     sdsl::bit_vector::rank_1_type rank_1_support; // rank_1 support for vec
-    sdsl::bit_vector::select_1_type select_1_support; // select_1 support for vec
-    sdsl::bit_vector::select_0_type select_0_support; // select_1 support for vec
+    sux::bits::SimpleSelectZero<> select_0_support; // select_0 support for vec
+    sux::bits::SimpleSelect<> select_1_support; // select_1 support for vec
 
     pos_t zeros = 0;
     pos_t ones = 0;
@@ -32,8 +34,8 @@ class plain_bit_vector {
         select_1_support = other.select_1_support;
 
         rank_1_support.set_vector(&vec);
-        select_0_support.set_vector(&vec);
-        select_1_support.set_vector(&vec);
+        select_0_support.set_vector(vec.data());
+        select_1_support.set_vector(vec.data());
     }
 
     /**
@@ -47,8 +49,8 @@ class plain_bit_vector {
         select_1_support = std::move(other.select_1_support);
 
         rank_1_support.set_vector(&vec);
-        select_0_support.set_vector(&vec);
-        select_1_support.set_vector(&vec);
+        select_0_support.set_vector(vec.data());
+        select_1_support.set_vector(vec.data());
 
         ones = other.ones;
         zeros = other.zeros;
@@ -61,8 +63,8 @@ class plain_bit_vector {
      */
     void setup() {
         if constexpr (build_rank_support) rank_1_support = sdsl::bit_vector::rank_1_type(&vec);
-        if constexpr (build_select_0_support) select_0_support = sdsl::bit_vector::select_0_type(&vec);
-        if constexpr (build_select_1_support) select_1_support = sdsl::bit_vector::select_1_type(&vec);
+        if constexpr (build_select_0_support) select_0_support = sux::bits::SimpleSelectZero<>(vec.data(),vec.size(),3);
+        if constexpr (build_select_1_support) select_1_support = sux::bits::SimpleSelect<>(vec.data(),vec.size(),3);
 
         if (size() > 0) {
             if constexpr (build_rank_support) {
@@ -163,7 +165,7 @@ class plain_bit_vector {
      * @return the index of the i-th one 
      */
     inline pos_t select_1(pos_t i) const {
-        return select_1_support.select(i);
+        return select_1_support.select(i-1);
     }
 
     /**
@@ -181,7 +183,7 @@ class plain_bit_vector {
      * @return the index of the i-th zero 
      */
     inline pos_t select_0(pos_t i) const {
-        return select_0_support.select(i);
+        return select_0_support.selectZero(i-1);
     }
 
     /**
@@ -236,8 +238,8 @@ class plain_bit_vector {
     uint64_t size_in_bytes() const {
         return sdsl::size_in_bytes(vec)+
                sdsl::size_in_bytes(rank_1_support)+
-               sdsl::size_in_bytes(select_0_support)+
-               sdsl::size_in_bytes(select_1_support);
+               select_0_support.size_in_bytes()+
+               select_1_support.size_in_bytes();
     }
 
     /**
@@ -270,8 +272,8 @@ class plain_bit_vector {
         select_1_support.load(in);
         
         rank_1_support.set_vector(&vec);
-        select_0_support.set_vector(&vec);
-        select_1_support.set_vector(&vec);
+        select_0_support.set_vector(vec.data());
+        select_1_support.set_vector(vec.data());
     }
 
     std::ostream& operator>>(std::ostream& os) const {

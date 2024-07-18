@@ -54,3 +54,6 @@
 [submodule "external/emhash"]
 	path = external/emhash
 	url = git@github.com:ktprime/emhash.git
+[submodule "external/sux"]
+	path = external/sux
+	url = git@github.com:vigna/sux.git

@@ -797,7 +797,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
      */
     template <bool bigbwt, typename sa_sint_t>
     void construct_rlzdsa() {
-        size_R_target = std::min(std::max<pos_t>(1,n/3),5*r);
+        size_R_target = std::min<pos_t>(std::max<pos_t>(1,n/3),5.2*r);
         seg_size = std::min<pos_t>(3072,size_R_target);
 
         if constexpr (std::is_same_v<pos_t,uint32_t>) {
