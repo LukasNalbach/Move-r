@@ -33,17 +33,17 @@ void bench_rank(
 
     for (uint32_t query=0; query<num_queries; query++) {
         if constexpr (rm == gmr) {
-            dummy_var = rank_select.rank<true>(
+            dummy_var += rank_select.rank<true>(
                 rank_queries[query].sym,
                 rank_queries[query].pos
             );
         } else if constexpr (rm == naive) {
-            dummy_var = rank_select.rank<false>(
+            dummy_var += rank_select.rank<false>(
                 rank_queries[query].sym,
                 rank_queries[query].pos
             );
         } else if constexpr (rm == hybrid) {
-            dummy_var = rank_select.rank(
+            dummy_var += rank_select.rank(
                 rank_queries[query].sym,
                 rank_queries[query].pos
             );
@@ -73,7 +73,7 @@ void bench_select(
     auto time_start = now();
 
     for (uint32_t query=0; query<num_queries; query++) {
-        dummy_var = rank_select.select<use_gmr>(
+        dummy_var += rank_select.select<use_gmr>(
             select_queries[query].sym,
             select_queries[query].rank
         );
