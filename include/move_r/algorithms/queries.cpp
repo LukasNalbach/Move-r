@@ -338,6 +338,10 @@ void move_r<locate_support,sym_t,pos_t>::init_rlzdsa(
     // index of the input interval in M_LF containing i.
     pos_t x = bin_search_max_leq<pos_t>(i,0,r_-1,[this](pos_t x_){return M_LF().p(x_);});
 
+    while (SA_s(x) == n) {
+        x--;
+    }
+
     s = SA_s(x);
     pos_t j = M_LF().p(x);
 

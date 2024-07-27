@@ -1,5 +1,5 @@
 # Move-r
-This [2] ([drops.dagstuhl.de](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SEA.2024.1)) is an optimized (see [benchmarks](BENCHMARKS.md)) and parallelized implementation of the modified r-index described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)).
+This [2] ([drops.dagstuhl.de](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SEA.2024.1), slides: [short](slides/slides_short.pdf), [long](slides/slides_long.pdf)) is an optimized (see [benchmarks](BENCHMARKS.md)) and parallelized implementation of the modified r-index described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)).
 
 ## External Dependencies
 - [OpenMP](https://www.openmp.org/)
@@ -14,6 +14,8 @@ This [2] ([drops.dagstuhl.de](https://drops.dagstuhl.de/entities/document/10.423
 - [sais-lite-lcp](https://github.com/kurpicz/sais-lite-lcp)
 - [gtl](https://github.com/greg7mdp/gtl)
 - [sparse-map](https://github.com/Tessil/sparse-map)
+- [emhash](https://github.com/ktprime/emhash/tree)
+- [sux](https://github.com/vigna/sux/tree)
 
 ## CLI Build Instructions
 This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed.
@@ -43,6 +45,7 @@ set(MOVE_R_BUILD_CLI OFF)
 set(MOVE_R_BUILD_BENCH_CLI OFF)
 set(MOVE_R_BUILD_EXAMPLES OFF)
 set(MOVE_R_BUILD_TESTS OFF)
+set(MOVE_R_BUILD_BENCH OFF)
 ```
 
 ### C++
@@ -102,7 +105,7 @@ int main() {
    // compute the longest suffix of [0,7,2] that occurs in the input vector
    std::vector<int32_t> pattern = {0,7,2};
    auto query_2 = index_3.query();
-   int suffix = pattern.size();
+   uint32_t suffix = pattern.size();
    while (suffix > 0 && query_2.prepend(pattern[suffix-1])) suffix--;
    std::cout << std::endl << suffix << std::flush;
 }

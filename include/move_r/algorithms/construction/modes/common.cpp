@@ -502,6 +502,77 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_mlf() {
 }
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <bool bigbwt, typename sa_sint_t>
+void move_r<locate_support,sym_t,pos_t>::construction::build_iphim1_sa() {
+    if (log) {
+        time = now();
+        std::cout << "building I_Phi^{-1}" << std::flush;
+    }
+    
+    if constexpr (bigbwt) {
+        for (uint16_t i=0; i<p; i++) {
+            SA_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
+                prefix_tmp_files + ".sa", std::ios::in,
+                128*1024, 40, true
+            ));
+        }
+    }
+
+    no_init_resize(I_Phi_m1,r);
+
+    I_Phi_m1[0] = std::make_pair(
+        SA<bigbwt,sa_sint_t>(0,n-1),
+        SA<bigbwt,sa_sint_t>(0,0)
+    );
+
+    #pragma omp parallel num_threads(p_)
+    {
+        uint16_t i_p = omp_get_thread_num();
+
+        // Iteration range start position of thread i_p.
+        pos_t b_r = r_p[i_p];
+
+        // Number of BWT runs within thread i_p's section.
+        pos_t rp_diff = r_p[i_p+1]-r_p[i_p];
+
+        // start position of the current BWT run.
+        pos_t j = n_p[i_p];
+
+        if (rp_diff > 0) {
+            if (r_p[i_p] != 0) {
+                I_Phi_m1[b_r] = std::make_pair(
+                    SA<bigbwt,sa_sint_t>(i_p,j-1),
+                    SA<bigbwt,sa_sint_t>(i_p,j)
+                );
+            }
+
+            j += run_len(i_p,0);
+
+            for (pos_t i=1; i<rp_diff; i++) {
+                I_Phi_m1[b_r+i] = std::make_pair(
+                    SA<bigbwt,sa_sint_t>(i_p,j-1),
+                    SA<bigbwt,sa_sint_t>(i_p,j)
+                );
+
+                j += run_len(i_p,i);
+            }
+        }
+    }
+
+    if (!build_sa_and_l && locate_support != _rlzdsa) {
+        std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
+
+        SA.clear();
+        SA.shrink_to_fit();
+    }
+
+    if (log) {
+        if (mf_idx != NULL) *mf_idx << " time_build_iphi=" << time_diff_ns(time,now());
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 template <bool build_sas_>
 void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas() {
     if (log) {
@@ -510,7 +581,11 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas() {
     }
 
     if constexpr (build_sas_) {
-        no_init_resize(SA_s,r_);
+        if constexpr (locate_support == _mds) {
+            no_init_resize(SA_s,r_);
+        } else {
+            idx._SA_s.resize_no_init(r_);
+        }
     }
 
     // Simultaneously iterate over the input intervals of M_LF nad the bwt runs to build L'
@@ -535,7 +610,14 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas() {
 
         for (pos_t i=0; i<rp_diff; i++) {
             idx._M_LF.template set_L_(j,run_sym(i_p,i));
-            if constexpr (build_sas_) SA_s[j] = I_Phi_m1[b_r+i].second;
+            if constexpr (build_sas_) {
+                if constexpr (locate_support == _mds ) {
+                    SA_s[j] = I_Phi_m1[b_r+i].second;
+                } else {
+                    idx._SA_s.template set<0,pos_t>(j,I_Phi_m1[b_r+i].second);
+                }
+            }
+
             j++;
 
             // update l_ to the next run start position
@@ -544,7 +626,14 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas() {
             // iterate over all input intervals in M_LF within the i-th bwt run in thread i_p's section that have been
             // created by the balancing algorithm
             while (idx._M_LF.p(j) < l_) {
-                if constexpr (build_sas_) SA_s[j] = n;
+                if constexpr (build_sas_) {
+                    if constexpr (locate_support == _mds) {
+                        SA_s[j] = n;
+                    } else {
+                        idx._SA_s.template set<0,pos_t>(j,n);
+                    }
+                }
+
                 idx._M_LF.template set_L_(j,run_sym(i_p,i));
                 j++;
             }
@@ -835,13 +924,59 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rsl_() {
     }
     
     if constexpr (byte_alphabet) {
-        idx._RS_L_ = rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},0,r_-1,p);
+        idx._RS_L_ = rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},0,r_-1);
     } else {
-        idx._RS_L_ = rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},idx.sigma,0,r_-1,p);
+        idx._RS_L_ = rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},idx.sigma,0,r_-1);
     }
 
     if (log) {
         if (mf_idx != NULL) *mf_idx << " time_build_rsl_=" << time_diff_ns(time,now());
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+void move_r<locate_support,sym_t,pos_t>::construction::store_rlbwt() {
+    if (log) {
+        time = now();
+        std::cout << "storing RLBWT to disk" << std::flush;
+    }
+
+    std::ofstream file_rlbwt(prefix_tmp_files + ".rlbwt");
+
+    for (uint16_t i=0; i<p_; i++) {
+        RLBWT[i].serialize(file_rlbwt);
+    }
+    
+    RLBWT.clear();
+    RLBWT.shrink_to_fit();
+    file_rlbwt.close();
+
+    if (log) {
+        if (mf_idx != NULL) *mf_idx << " time_store_rlbwt=" << time_diff_ns(time,now());
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+void move_r<locate_support,sym_t,pos_t>::construction::load_rlbwt() {
+    if (log) {
+        time = now();
+        std::cout << "loading RLBWT from disk" << std::flush;
+    }
+
+    std::ifstream file_rlbwt(prefix_tmp_files + ".rlbwt");
+    RLBWT.resize(p_);
+    
+    for (uint16_t i=0; i<p_; i++) {
+        RLBWT[i].load(file_rlbwt);
+    }
+
+    file_rlbwt.close();
+    std::filesystem::remove(prefix_tmp_files + ".rlbwt");
+
+    if (log) {
+        if (mf_idx != NULL) *mf_idx << " time_load_rlbwt=" << time_diff_ns(time,now());
         time = log_runtime(time);
     }
 }
@@ -910,6 +1045,41 @@ void move_r<locate_support,sym_t,pos_t>::construction::load_sas() {
     std::ifstream file_sas(prefix_tmp_files + ".sas");
     no_init_resize(SA_s,r_);
     read_from_file(file_sas,(char*)&SA_s[0],r_*sizeof(pos_t));
+    file_sas.close();
+    std::filesystem::remove(prefix_tmp_files + ".sas");
+
+    if (log) {
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+void move_r<locate_support,sym_t,pos_t>::construction::store_sas_idx() {
+    if (log) {
+        time = now();
+        std::cout << "storing SA_s to disk" << std::flush;
+    }
+
+    std::ofstream file_sas(prefix_tmp_files + ".sas");
+    idx._SA_s.serialize(file_sas);
+    idx._SA_s.clear();
+    idx._SA_s.shrink_to_fit();
+    file_sas.close();
+
+    if (log) {
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+void move_r<locate_support,sym_t,pos_t>::construction::load_sas_idx() {
+    if (log) {
+        time = now();
+        std::cout << "loading SA_s from disk" << std::flush;
+    }
+
+    std::ifstream file_sas(prefix_tmp_files + ".sas");
+    idx._SA_s.load(file_sas);
     file_sas.close();
     std::filesystem::remove(prefix_tmp_files + ".sas");
 

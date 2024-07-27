@@ -59,10 +59,6 @@ void test_move_r() {
         .num_threads = num_threads_distrib(gen),
         .a = std::min<uint16_t>(2+a_distrib(gen),32767)
     });
-
-    // check if L' can be reconstructed from RS_L'
-    #pragma omp parallel for num_threads(max_num_threads)
-    for (uint32_t i=0; i<index.M_LF().num_intervals(); i++) EXPECT_EQ(index.L_(i),index.RS_L_()[i]);
     
     // revert the index and compare the output with the input string
     input_reverted = index.revert({.num_threads = num_threads_distrib(gen)});

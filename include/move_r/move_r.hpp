@@ -572,8 +572,8 @@ class move_r {
 
     /**
      * @brief returns SA_s[x]
-     * @param x [0..r'-1] for (locate_support == _mds), the starting position
-     * of the x-th input interval in M_LF must be a starting position of a bwt run
+     * @param x [0..r'-1] the starting position of the x-th input
+     * interval in M_LF must be a starting position of a bwt run
      * @return SA_s[x]
      */
     inline pos_t SA_s(pos_t x) const {

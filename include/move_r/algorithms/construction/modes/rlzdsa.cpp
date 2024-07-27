@@ -13,16 +13,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_freq_sad() {
         std::cout << "computing frequencies of values in SA^d" << std::flush;
     }
 
-    if constexpr (bigbwt) {
-        for (uint16_t i=0; i<p; i++) {
-            SA_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
-                prefix_tmp_files + ".sa", std::ios::in,
-                128*1024, 40, true
-            ));
-        }
-    }
-
-    std::vector<sad_freq_t<sad_t>>& SAd_freq = get_SAd_freq<sad_t>();
+    sad_freq_t<sad_t>& SAd_freq = get_SAd_freq<sad_t>();
     n_u64 = n;
     
     for (uint16_t i=0; i<p; i++) {
@@ -30,60 +21,20 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_freq_sad() {
     }
 
     n_p.emplace_back(n);
-
-    SAd_freq.resize(p);
     sad_t n_sad = n;
-
-    #pragma omp parallel num_threads(p)
-    {
-        uint16_t i_p = omp_get_thread_num();
-
-        pos_t b = n_p[i_p];
-        pos_t e = n_p[i_p+1];
-        pos_t eb_diff = e-b;
-        sad_t cur_sa,last_sa,cur_sad;
-
-        if (i_p == 0) {
-            last_sa = n;
-        } else {
-            last_sa = SA<bigbwt,sa_sint_t>(i_p,b-1);
-        }
-
-        SAd_freq[i_p].reserve(std::min<pos_t>(r,n/p));
-
-        for (pos_t i=0; i<eb_diff; i++) {
-            cur_sa = SA<bigbwt,sa_sint_t>(i_p,b+i);
-            cur_sad = (cur_sa+n_sad)-last_sa;
-            last_sa = cur_sa;
-
-            auto it = SAd_freq[i_p].find(cur_sad);
-
-            if (it == SAd_freq[i_p].end()) {
-                SAd_freq[i_p].insert_unique(cur_sad,1);
-            } else {
-                (*it).second++;
-            }
-        }
-    }
+    SAd_freq.reserve(r);
     
-    for (uint16_t i_p=1; i_p<p; i_p++) {
-        for (auto p : SAd_freq[i_p]) {
-            auto it = SAd_freq[0].find(p.first);
+    for (pos_t i=0; i<r; i++) {
+        sad_t sad = (sad_t{I_Phi_m1[i].second}+n_sad)-sad_t{I_Phi_m1[i].first};
+        pos_t count = (i == r-1 ? n : I_Phi_m1[i+1].first)-I_Phi_m1[i].first;
+        auto it = SAd_freq.find(sad);
 
-            if (it == SAd_freq[0].end()) {
-                SAd_freq[0].insert_unique(p.first,p.second);
-            } else {
-                (*it).second += p.second;
-            }
+        if (it == SAd_freq.end()) {
+            SAd_freq.insert_unique(sad,count);
+        } else {
+            (*it).second += count;
         }
-
-        SAd_freq[i_p].clear();
     }
-
-    SAd_freq.resize(1);
-    SAd_freq.shrink_to_fit();
-    SAd_freq[0].shrink_to_fit();
-    sigma_SAd = SAd_freq[0].size();
 
     if (log) {
         time = log_runtime(time);
@@ -97,10 +48,10 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
         std::cout << "choosing segments for R" << std::flush;
     }
 
-    std::vector<sad_freq_t<sad_t>>& SAd_freq = get_SAd_freq<sad_t>();
+    sad_freq_t<sad_t>& SAd_freq = get_SAd_freq<sad_t>();
     idx._R = interleaved_vectors<uint64_t,pos_t>({(uint8_t)std::ceil(std::log2(2*n+1)/(double)8)});
     std::mt19937 mt(std::random_device{}());
-    num_cand_segs = 4.5*powf(n/(float)r,0.6);
+    num_cand_segs = 5*std::pow(n/(float)r,0.45);
     pos_t num_cand_segs_thr = num_cand_segs/p+1; // number of considered candidate segments per thread
     std::vector<gtl::flat_hash_set<sad_t,std::identity>> PV_thr(p);
     std::vector<std::uniform_int_distribution<pos_t>*> pos_distrib;
@@ -136,52 +87,55 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
             ts_it_t it = T_s.end();
 
             for (pos_t seg=0; seg<num_cand_segs_thr; seg++) {
-                beg = (*pos_distrib[i_p])(mt);
-                end = beg+seg_size;
-                score = 0;
-                it = T_s.lower_bound(segment{beg,0});
+                uint8_t tries = 0;
 
-                if (it != T_s.end()) {
-                    pos_t start_next = (*it).beg;
+                do {
+                    tries++;
+                    beg = (*pos_distrib[i_p])(mt);
+                    end = beg+seg_size;
+                    score = 0;
+                    it = T_s.lower_bound(segment{beg,0});
 
-                    if (start_next < end) {
-                        end = start_next;
-                    }
-                }
+                    if (it != T_s.end()) {
+                        pos_t start_next = (*it).beg;
 
-                if (it != T_s.begin()) {
-                    auto it_prev = it;
-                    --it_prev;
-                    pos_t end_last = (*it_prev).end;
-
-                    if (beg < end_last) {
-                        if (end < end_last) {
-                            end = beg;
-                        } else {
-                            beg = end_last;
-                        }
-                    }
-                }
-
-                if (end > beg) {
-                    for (pos_t i=beg; i<end; i++) {
-                        sad_t val = SAd<bigbwt,sa_sint_t>(i_p,i);
-                        pos_t freq = (*SAd_freq[0].find(val)).second;
-
-                        if (freq != 0 && PV_thr[i_p].emplace(val).second) {
-                            score += std::sqrt(freq);
+                        if (start_next < end) {
+                            end = start_next;
                         }
                     }
 
-                    score /= end-beg;
-                    PV_thr[i_p].clear();
+                    if (it != T_s.begin()) {
+                        auto it_prev = it;
+                        --it_prev;
+                        pos_t end_last = (*it_prev).end;
 
-                    if (score > score_best_thr) {
-                        beg_best_thr = beg;
-                        end_best_thr = end;
-                        score_best_thr = score;
-                        it_best_thr = it;
+                        if (beg < end_last) {
+                            if (end < end_last) {
+                                end = beg;
+                            } else {
+                                beg = end_last;
+                            }
+                        }
                     }
+                } while (tries < 8 && end == beg);
+
+                for (pos_t i=beg; i<end; i++) {
+                    sad_t val = SAd<bigbwt,sa_sint_t>(i_p,i);
+                    pos_t freq = (*SAd_freq.find(val)).second;
+
+                    if (freq != 0 && PV_thr[i_p].emplace(val).second) {
+                        score += std::sqrt(freq);
+                    }
+                }
+
+                score /= end-beg;
+                PV_thr[i_p].clear();
+
+                if (score > score_best_thr) {
+                    beg_best_thr = beg;
+                    end_best_thr = end;
+                    score_best_thr = score;
+                    it_best_thr = it;
                 }
             }
 
@@ -234,7 +188,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
         }
 
         for (pos_t i=beg_best; i<end_best; i++) {
-            SAd_freq[0][SAd<bigbwt,sa_sint_t>(ip_best,i)] = 0;
+            SAd_freq[SAd<bigbwt,sa_sint_t>(ip_best,i)] = 0;
         }
 
         size_R += end_best-beg_best;
@@ -619,11 +573,17 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa_factorizatio
         idx._SCP_S = sd_array<pos_t>(sdsl::sd_vector<>(SCP_S_b));
     }
 
+    if constexpr (bigbwt) {
+        SA_file_bufs.clear();
+        SA_file_bufs.shrink_to_fit();
+        std::filesystem::remove(prefix_tmp_files + ".sa");
+    }
+
     if (log) {
         time = log_runtime(time);
         std::cout << "z: " << idx.z << std::endl;
         std::cout << "z_l/z: " << idx.z_l/(double)idx.z << std::endl;
-        std::cout << "z/r': " << idx.z/(double)r_ << std::endl;
+        std::cout << "z/r: " << idx.z/(double)r << std::endl;
     }
 }
 
@@ -637,38 +597,6 @@ void move_r<locate_support,sym_t,pos_t>::construction::load_r() {
     idx._R.load(tmp_file);
     tmp_file.close();
     std::filesystem::remove(prefix_tmp_files + "_R");
-
-    if (log) {
-        time = log_runtime(time);
-    }
-}
-
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-template <bool bigbwt, typename sa_sint_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_sas_rlzdsa() {
-    if (log) {
-        std::cout << "building SA_s" << std::flush;
-    }
-
-    idx._SA_s = interleaved_vectors<pos_t,pos_t>({(uint8_t)std::ceil(std::log2(n+1)/(double)8)});
-    idx._SA_s.resize_no_init(idx.r_);
-
-    if constexpr (bigbwt) {
-        for (uint16_t i_p=0; i_p<p; i_p++) {
-            SA_file_bufs[i_p].buffersize(10);
-        }
-    }
-
-    #pragma omp parallel for num_threads(p)
-    for (uint64_t i=0; i<r_; i++) {
-        idx._SA_s.template set<0,pos_t>(i,SA<bigbwt,sa_sint_t>(omp_get_thread_num(),idx.M_LF().p(i)));
-    }
-
-    if constexpr (bigbwt) {
-        SA_file_bufs.clear();
-        SA_file_bufs.shrink_to_fit();
-        std::filesystem::remove(prefix_tmp_files + ".sa");
-    }
 
     if (log) {
         time = log_runtime(time);

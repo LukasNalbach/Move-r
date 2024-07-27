@@ -51,7 +51,7 @@ int main() {
     // compute the longest suffix of [0,7,2] that occurs in the input vector
     std::vector<int32_t> pattern = {0,7,2};
     auto query_2 = index_3.query();
-    int suffix = pattern.size();
+    uint32_t suffix = pattern.size();
     while (suffix > 0 && query_2.prepend(pattern[suffix-1])) suffix--;
     std::cout << std::endl << suffix << std::flush;
 }
