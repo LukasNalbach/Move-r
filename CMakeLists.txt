@@ -172,6 +172,18 @@ if(MOVE_R_BUILD_BENCH_CLI)
   target_link_libraries(r-index INTERFACE sdsl divsufsort divsufsort64)
   execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/r-index/Big-BWT/")
 
+  # unordered_dense
+  add_subdirectory("${CMAKE_SOURCE_DIR}/external/r-index-rlzsa/external/unordered_dense")
+
+  # r-index-rlzsa
+  add_library(r-index-rlzsa INTERFACE)
+  target_include_directories(r-index-rlzsa INTERFACE
+    "${CMAKE_SOURCE_DIR}/external/r-index-rlzsa/internal/"
+  )
+  target_link_libraries(r-index-rlzsa INTERFACE
+    sdsl unordered_dense malloc_count sais-lite-lcp ips4o
+  )
+
   # OnlineRlbwt
   add_library(OnlineRlbwt INTERFACE)
   target_include_directories(OnlineRlbwt INTERFACE
@@ -224,7 +236,7 @@ if(MOVE_R_BUILD_BENCH_CLI)
   ############################# move-r #############################
 
   add_executable(move-r-bench cli/move-r-bench/move-r-bench.cpp)
-  target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index OnlineRlbwt)
+  target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index OnlineRlbwt r-index-rlzsa)
   set_target_properties(move-r-bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
 endif()
 

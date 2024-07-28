@@ -77,6 +77,7 @@ void bench_indexes() {
     cleanup_grlbwt(bd);
 
     bench_index<pos_t,r_index,true,true>("r-index","r_index");
+    bench_index<pos_t,r_index_rlzsa,true,true>("r-index-rlzsa","r_index_rlzsa");
     bench_index<pos_t,r_index_f<>,true,false>("r-index-f","r_index_f");
     bench_index<pos_t,rcomp_glfig,true,true>("rcomp-glfig","rcomp_glfig");
     bench_index<pos_t,online_rlbwt,true,true>("online-rlbwt","online_rlbwt");

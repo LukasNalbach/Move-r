@@ -1,6 +1,7 @@
 #pragma once
 
 #include <r_index.hpp> // r-index
+#include "../../external/r-index-rlzsa/internal/r_index.hpp" // r-index-rlzsa
 #include <r_index_f.hpp> // r-index-f
 #include <rindex_types.hpp> // rcomp-glfig
 #include <OnlineRindex.hpp> // online-rlbwt
@@ -10,6 +11,9 @@
 
 // r-index
 using r_index = ri::r_index<>;
+
+// r-index-rlzsa
+using r_index_rlzsa = ri_rlzsa::r_index<>;
 
 // rcomp-glfig
 using rcomp_glfig = rcomp::rindex_types::glfig_serialized<16>::type;
@@ -225,6 +229,40 @@ void locate_pattern<uint32_t,r_index>(r_index& index, std::string& pattern, std:
 
 template <>
 void locate_pattern<uint64_t,r_index>(r_index& index, std::string& pattern, std::vector<uint64_t>& occurrences) {
+    index.locate_all<uint64_t>(pattern,occurrences);
+}
+
+// ############################# r-index-rlzsa #############################
+
+template <>
+void build_index<r_index_rlzsa>(r_index_rlzsa& index, uint16_t num_threads) {
+    index = r_index_rlzsa(input);
+}
+
+template <>
+void destroy_index<r_index_rlzsa>(r_index_rlzsa& index) {
+    index = r_index_rlzsa();
+}
+
+template <>
+uint32_t count_pattern<uint32_t,r_index_rlzsa>(r_index_rlzsa& index, std::string& pattern) {
+    auto range = index.count(pattern);
+    return range.second - range.first + 1;
+}
+
+template <>
+uint64_t count_pattern<uint64_t,r_index_rlzsa>(r_index_rlzsa& index, std::string& pattern) {
+    auto range = index.count(pattern);
+    return range.second - range.first + 1;
+}
+
+template <>
+void locate_pattern<uint32_t,r_index_rlzsa>(r_index_rlzsa& index, std::string& pattern, std::vector<uint32_t>& occurrences) {
+    index.locate_all<uint32_t>(pattern,occurrences);
+}
+
+template <>
+void locate_pattern<uint64_t,r_index_rlzsa>(r_index_rlzsa& index, std::string& pattern, std::vector<uint64_t>& occurrences) {
     index.locate_all<uint64_t>(pattern,occurrences);
 }
 

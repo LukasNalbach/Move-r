@@ -57,3 +57,6 @@
 [submodule "external/sux"]
 	path = external/sux
 	url = git@github.com:vigna/sux.git
+[submodule "external/r-index-rlzsa"]
+	path = external/r-index-rlzsa
+	url = git@github.com:LukasNalbach/r-index-rlzsa.git

@@ -56,8 +56,6 @@ class rank_select_support {
     pos_t max_occ_lookup_select = 0;
 #endif
 
-    // ############################# VARIABLES FOR byte_alphabet = true #############################
-
     pos_t input_size = 0; // the size of the input
     pos_t sigma = 0; // the number of distinct symbols in the input
     pos_t num_vectors = 0; // the number of initialized vectors in hyb_bit_vecs
@@ -85,8 +83,6 @@ class rank_select_support {
      *        in the input, where c_arr[v] <= i < c_arr[v+1] and j = i - c_arr[v] + 1
      */
     interleaved_vectors<pos_t,pos_t> occs;
-
-    // ######################################################################################
 
     pos_t vector_idx(pos_t v) const {
         if constexpr (int_alphabet) {
