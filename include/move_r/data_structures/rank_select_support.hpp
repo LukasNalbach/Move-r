@@ -14,12 +14,15 @@
  * @brief a rank-select data structure using hybrid bit vectors (either sd_array or plain bit vector), or the rs data structure
  * @tparam sym_t symbol type
  * @tparam pos_t position type
+ * @tparam build_rank_support
+ * @tparam build_select_support
  */
-template <typename sym_t, typename pos_t = uint32_t>
+template <typename sym_t, typename pos_t = uint32_t, bool build_rank_support = true, bool build_select_support = true>
 class rank_select_support {
     protected:
 
     static_assert(std::is_same_v<pos_t,uint32_t> || std::is_same_v<pos_t,uint64_t>);
+    static_assert(build_rank_support || build_select_support);
     
     static_assert(
         std::is_same_v<sym_t,char> ||
@@ -35,7 +38,7 @@ class rank_select_support {
 
     using i_sym_t = std::conditional_t<str_input,uint8_t,sym_t>; // internal (unsigned) symbol type
     using inp_t = std::conditional_t<str_input,std::string,std::vector<sym_t>>; // input container type
-    using hybrid_bv_t = hybrid_bit_vector<pos_t,true,false,true>; // hybrid bit vector type
+    using hybrid_bv_t = hybrid_bit_vector<pos_t,build_rank_support,false,build_select_support>; // hybrid bit vector type
 
     /* maximum number of occurrences to use scanning instead of binary search over the occurrences for answering rank */
     static constexpr pos_t max_occ_scan_rank = 16;
@@ -59,6 +62,23 @@ class rank_select_support {
     pos_t input_size = 0; // the size of the input
     pos_t sigma = 0; // the number of distinct symbols in the input
     pos_t num_vectors = 0; // the number of initialized vectors in hyb_bit_vecs
+
+    // ############################# DATA STRUCTURES #############################
+
+    /**
+     * @brief hyb_bit_vecs[i] contains a hybrid bit vector [0..size-1] that marks (with ones) the occurrences of v in the
+     *        input, for each value v occurring in the input(, where i = vec_idx[v], for int_alphabet = true and i = v, else)
+     */
+    std::vector<hybrid_bv_t> hyb_bit_vecs;
+
+    // ############################# DATA STRUCTURES FOR byte_alphabet = true #############################
+
+    /**
+     * @brief [0..sigma-1] contains at position sym the frequency of sym in the input
+     */
+    std::vector<pos_t> freq;
+    
+    // ############################# DATA STRUCTURES FOR int_alphabet = true #############################
     
     /**
      * @brief [0..sigma-1] vec_idx[v] stores the position in hyb_bit_vecs of the the bit vector marking
@@ -67,14 +87,7 @@ class rank_select_support {
     interleaved_vectors<pos_t,pos_t> vec_idx;
 
     /**
-     * @brief hyb_bit_vecs[i] contains a hybrid bit vector [0..size-1] that marks (with ones) the occurrences of v
-     *        in the input, for each value v occurring in the input, where i = vec_idx[v]
-     */
-    std::vector<hybrid_bv_t> hyb_bit_vecs;
-
-    /**
-     * @brief [0..sigma-1] stores at position v the sum of the frequencies of all v' < v
-     *        that occur at least min_occ_vec times in the input
+     * @brief [0..sigma-1] stores at position v the sum of the frequencies of all v' < v with freq(v') > min_occ_vec
      */
     interleaved_vectors<pos_t,pos_t> c_arr;
     
@@ -83,14 +96,8 @@ class rank_select_support {
      *        in the input, where c_arr[v] <= i < c_arr[v+1] and j = i - c_arr[v] + 1
      */
     interleaved_vectors<pos_t,pos_t> occs;
-
-    pos_t vector_idx(pos_t v) const {
-        if constexpr (int_alphabet) {
-            return vec_idx[v];
-        } else {
-            return v;
-        }
-    };
+    
+    // ##########################################################
 
     pos_t symbol_idx(sym_t sym) const {
         if constexpr (str_input) {
@@ -109,101 +116,129 @@ class rank_select_support {
      */
     void build(const std::function<sym_t(pos_t)>& read, pos_t l, pos_t r) {
         input_size = r-l+1;
+        uint8_t bytes_per_entry = 0;
         pos_t alphabet_range = byte_alphabet ? 256 : sigma;
-        std::vector<pos_t> freq(alphabet_range,0);
+        freq.resize(alphabet_range,0);
 
         for (pos_t i=l; i<=r; i++) {
             freq[symbol_idx(read(i))]++;
         }
 
-        uint8_t bytes_per_entry = (uint8_t)std::ceil(std::log2(input_size+1)/(double)8);
-        c_arr = interleaved_vectors<pos_t,pos_t>({bytes_per_entry});
-        c_arr.resize_no_init(alphabet_range+1);
-        c_arr.template set<0,pos_t>(0,0);
-        sigma = 0;
-        
+        if constexpr (int_alphabet) {
+            bytes_per_entry = (uint8_t)std::ceil(std::log2(input_size+1)/(double)8);
+            c_arr = interleaved_vectors<pos_t,pos_t>({bytes_per_entry});
+            c_arr.resize_no_init(alphabet_range+1);
+            c_arr.template set<0,pos_t>(0,0);
+        }
+
 #ifndef BENCH_RANK_SELECT
-        pos_t max_occ_plain = input_size * thrsh_plain_select;
+        pos_t max_occ_plain = build_select_support ? input_size * thrsh_plain_select : min_occ_vec;
 #else
         pos_t max_occ_plain = std::numeric_limits<pos_t>::max();
         max_occ_lookup_select = input_size * thrsh_plain_select;
 #endif
 
-        for (pos_t v=1; v<=alphabet_range; v++) {
-            if (freq[v-1] != 0) {
-                sigma++;
+        if constexpr (byte_alphabet) {
+            for (pos_t v=0; v<256; v++) {
+                if (freq[v] != 0) {
+                    sigma++;
+                }
             }
-
-            if (freq[v-1] <= max_occ_plain) {
-                c_arr.template set<0,pos_t>(v,c_arr[v-1]+freq[v-1]);
-            } else {
-                c_arr.template set<0,pos_t>(v,c_arr[v-1]);
+        } else {
+            for (pos_t v=0; v<alphabet_range; v++) {
+                if (freq[v] <= max_occ_plain) {
+                    c_arr.template set<0,pos_t>(v+1,c_arr[v]+freq[v]);
+                } else {
+                    c_arr.template set<0,pos_t>(v+1,c_arr[v]);
+                }
             }
         }
-
+        
         std::vector<pos_t> occ_idx;
-        no_init_resize(occ_idx,alphabet_range);
         std::vector<sdsl::sd_vector_builder> sdv_builders;
         std::vector<sdsl::bit_vector> plain_bvs;
         pos_t max_occ_sd_array = input_size * thrsh_sd_array;
         num_vectors = byte_alphabet ? 256 : 0;
-        pos_t min_occ_vec_tmp = std::min<pos_t>(min_occ_vec,max_occ_plain);
-        
+        pos_t min_occ_vec_tmp = 0;
+
         if constexpr (int_alphabet) {
+            min_occ_vec_tmp = std::min<pos_t>(min_occ_vec,max_occ_plain);
             vec_idx = interleaved_vectors<pos_t,pos_t>({
                 (uint8_t)std::ceil(std::log2(sigma+1)/(double)8)});
             vec_idx.resize_no_init(sigma);
+            no_init_resize(occ_idx,alphabet_range);
+        } else {
+            sdv_builders.resize(256);
+            plain_bvs.resize(256);
         }
 
         for (pos_t v=0; v<alphabet_range; v++) {
-            occ_idx[v] = c_arr[v];
-            
-            if (freq[v] > min_occ_vec_tmp) {
-                if constexpr (int_alphabet) {
+            if constexpr (int_alphabet) {
+                occ_idx[v] = c_arr[v];
+
+                if (freq[v] > min_occ_vec_tmp) {
+                    if (freq[v] <= max_occ_sd_array) {
+                        sdv_builders.emplace_back(sdsl::sd_vector_builder(input_size,freq[v]));
+                        plain_bvs.emplace_back(sdsl::bit_vector());
+                    } else {
+                        sdv_builders.emplace_back(sdsl::sd_vector_builder());
+                        plain_bvs.emplace_back(sdsl::bit_vector(input_size));
+                    }
+
                     vec_idx.template set<0,pos_t>(v,num_vectors);
                     num_vectors++;
-                }
-
-                if (freq[v] <= max_occ_sd_array) {
-                    sdv_builders.emplace_back(sdsl::sd_vector_builder(input_size,freq[v]));
-                    plain_bvs.emplace_back(sdsl::bit_vector());
-                } else {
-                    sdv_builders.emplace_back(sdsl::sd_vector_builder());
-                    plain_bvs.emplace_back(sdsl::bit_vector(input_size));
-                }
-            } else {
-                if constexpr (byte_alphabet) {
-                    sdv_builders.emplace_back(sdsl::sd_vector_builder());
-                    plain_bvs.emplace_back(sdsl::bit_vector());
                 } else {
                     vec_idx.template set<0,pos_t>(v,sigma);
+                }
+            } else {
+                if (freq[v] != 0) {
+                    if (freq[v] <= max_occ_sd_array) {
+                        sdv_builders[v] = sdsl::sd_vector_builder(input_size,freq[v]);
+                    } else {
+                        plain_bvs[v] = sdsl::bit_vector(input_size);
+                    }
                 }
             }
         }
 
-        occs = interleaved_vectors<pos_t,pos_t>({bytes_per_entry});
-        occs.resize_no_init(c_arr[alphabet_range]);
+        if constexpr (int_alphabet) {
+            occs = interleaved_vectors<pos_t,pos_t>({bytes_per_entry});
+            occs.resize_no_init(c_arr[alphabet_range]);
+        }
 
         for (pos_t i=l; i<=r; i++) {
             pos_t v = symbol_idx(read(i));
 
-            if (freq[v] <= max_occ_plain) {
-                occs.template set<0,pos_t>(occ_idx[v],i-l);
-                occ_idx[v]++;
-            }
-            
-            if (freq[v] > min_occ_vec_tmp) {
+            if constexpr (int_alphabet) {
+                if (freq[v] <= max_occ_plain) {
+                    occs.template set<0,pos_t>(occ_idx[v],i-l);
+                    occ_idx[v]++;
+                }
+
+                if (freq[v] > min_occ_vec_tmp) {
+                    if (freq[v] <= max_occ_sd_array) {
+                        sdv_builders[vec_idx[v]].set(i-l);
+                    } else {
+                        plain_bvs[vec_idx[v]][i-l] = 1;
+                    }
+                }
+            } else {
                 if (freq[v] <= max_occ_sd_array) {
-                    sdv_builders[vector_idx(v)].set(i-l);
+                    sdv_builders[v].set(i-l);
                 } else {
-                    plain_bvs[vector_idx(v)][i-l] = 1;
+                    plain_bvs[v][i-l] = 1;
                 }
             }
         }
 
+        if constexpr (int_alphabet) {
+            freq.clear();
+            freq.shrink_to_fit();
+        }
+
         occ_idx.clear();
         occ_idx.shrink_to_fit();
-        hyb_bit_vecs.resize(byte_alphabet ? 256 : num_vectors);
+        hyb_bit_vecs.resize(num_vectors);
 
         for (pos_t i=0; i<num_vectors; i++) {
             if (plain_bvs[i].size() != 0) {
@@ -328,8 +363,7 @@ class rank_select_support {
      */
     inline bool contains(sym_t v) const {
         if constexpr (byte_alphabet) {
-            pos_t sym_idx = symbol_idx(v);
-            return c_arr[sym_idx+1] != c_arr[sym_idx] || hyb_bit_vecs[sym_idx].is_initialized();
+            return frequency(v) != 0;
         } else {
             return v < sigma;
         }
@@ -341,12 +375,16 @@ class rank_select_support {
      * @return the number of occurrences of v in the input
      */
     inline pos_t frequency(sym_t v) const {
-        pos_t diff = c_arr[v+1]-c_arr[v];
-
-        if (diff != 0) {
-            return diff;
+        if constexpr (byte_alphabet) {
+            return freq[symbol_idx(v)];
         } else {
-            return hyb_bit_vecs[vector_idx(symbol_idx(v))].num_ones();
+            pos_t diff = c_arr[v+1]-c_arr[v];
+
+            if (diff != 0) {
+                return diff;
+            } else {
+                return hyb_bit_vecs[vec_idx[v]].num_ones();
+            }
         }
     }
     
@@ -357,8 +395,9 @@ class rank_select_support {
      * @param i [1..input size] position in the input
      * @return number of occurrences of v before index i
      */
-    inline pos_t rank_vec(sym_t v, pos_t i) const {
-        return hyb_bit_vecs[vector_idx(symbol_idx(v))].rank_1(i);
+    inline pos_t rank_vec(sym_t v, pos_t i) const requires(int_alphabet) {
+        static_assert(build_rank_support);
+        return hyb_bit_vecs[vec_idx[v]].rank_1(i);
     }
 
     /**
@@ -367,7 +406,9 @@ class rank_select_support {
      * @param i [1..input size] position in the input
      * @return number of occurrences of v before index i
      */
-    inline pos_t rank_scan(sym_t v, pos_t i) const {
+    inline pos_t rank_scan(sym_t v, pos_t i) const requires(int_alphabet) {
+        static_assert(build_rank_support);
+        
         pos_t v_s = c_arr[v];
         pos_t v_e = c_arr[v+1];
         pos_t pos = v_s;
@@ -392,7 +433,8 @@ class rank_select_support {
      * @param i [1..input size] position in the input
      * @return number of occurrences of v before index i
      */
-    inline pos_t rank_bin_search(sym_t v, pos_t i) const {
+    inline pos_t rank_bin_search(sym_t v, pos_t i) const requires(int_alphabet) {
+        static_assert(build_rank_support);
         pos_t v_s = c_arr[v];
         pos_t v_e = c_arr[v+1];
         pos_t pos = bin_search_max_lt<pos_t>(i,v_s,v_e-1,[this](pos_t x){return occs[x];});
@@ -407,30 +449,36 @@ class rank_select_support {
      * @return number of occurrences of v before index i
      */
     inline pos_t rank(sym_t v, pos_t i) const {
-        pos_t v_s = c_arr[v];
-        pos_t v_e = c_arr[v+1];
+        static_assert(build_rank_support);
 
-        if (v_e == v_s || v_e-v_s > min_occ_vec_rank) {
-            return hyb_bit_vecs[vector_idx(symbol_idx(v))].rank_1(i);
+        if constexpr (byte_alphabet) {
+            return hyb_bit_vecs[symbol_idx(v)].rank_1(i);
         } else {
-            pos_t pos;
+            pos_t v_s = c_arr[v];
+            pos_t v_e = c_arr[v+1];
 
-            if (v_e-v_s <= max_occ_scan_rank) {
-                if (occs[v_s] >= i) {
-                    return 0;
-                }
-
-                pos = v_s;
-                v_e--;
-
-                while (pos < v_e && occs[pos+1] < i) {
-                    pos++;
-                }
-
-                return pos-v_s+1;
+            if (v_e == v_s || v_e-v_s > min_occ_vec_rank) {
+                return hyb_bit_vecs[vec_idx[v]].rank_1(i);
             } else {
-                pos = bin_search_max_lt<pos_t>(i,v_s,v_e-1,[this](pos_t x){return occs[x];});
-                return occs[pos] >= i ? 0 : pos-v_s+1;
+                pos_t pos;
+
+                if (v_e-v_s <= max_occ_scan_rank) {
+                    if (occs[v_s] >= i) {
+                        return 0;
+                    }
+
+                    pos = v_s;
+                    v_e--;
+
+                    while (pos < v_e && occs[pos+1] < i) {
+                        pos++;
+                    }
+
+                    return pos-v_s+1;
+                } else {
+                    pos = bin_search_max_lt<pos_t>(i,v_s,v_e-1,[this](pos_t x){return occs[x];});
+                    return occs[pos] >= i ? 0 : pos-v_s+1;
+                }
             }
         }
     }
@@ -442,7 +490,8 @@ class rank_select_support {
      * @param i [1..number of occurrences of v in the input]
      * @return index of the i-th occurrence of v
      */
-    inline pos_t select_lookup(sym_t v, pos_t i) const {
+    inline pos_t select_lookup(sym_t v, pos_t i) const requires(int_alphabet) {
+        static_assert(build_select_support);
         return occs[c_arr[v]+i-1];
     }
 
@@ -452,8 +501,9 @@ class rank_select_support {
      * @param i [1..number of occurrences of v in the input]
      * @return index of the i-th occurrence of v
      */
-    inline pos_t select_vec(sym_t v, pos_t i) const {
-        return hyb_bit_vecs[vector_idx(symbol_idx(v))].select_1(i);
+    inline pos_t select_vec(sym_t v, pos_t i) const requires(int_alphabet) {
+        static_assert(build_select_support);
+        return hyb_bit_vecs[vec_idx[v]].select_1(i);
     }
 #endif
 
@@ -464,17 +514,23 @@ class rank_select_support {
      * @return index of the i-th occurrence of v
      */
     inline pos_t select(sym_t v, pos_t i) const {
-        pos_t v_s = c_arr[v];
-        pos_t v_e = c_arr[v+1];
-        
-#ifndef BENCH_RANK_SELECT
-        if (v_e != v_s) {
-#else
-        if (v_e-v_s <= max_occ_lookup_select) {
-#endif
-            return occs[v_s+i-1];
+        static_assert(build_select_support);
+
+        if constexpr (byte_alphabet) {
+            return hyb_bit_vecs[symbol_idx(v)].select_1(i);
         } else {
-            return hyb_bit_vecs[vector_idx(symbol_idx(v))].select_1(i);
+            pos_t v_s = c_arr[v];
+            pos_t v_e = c_arr[v+1];
+            
+#ifndef BENCH_RANK_SELECT
+            if (v_e != v_s) {
+#else
+            if (v_e-v_s <= max_occ_lookup_select) {
+#endif
+                return occs[v_s+i-1];
+            } else {
+                return hyb_bit_vecs[vec_idx[v]].select_1(i);
+            }
         }
     }
 
@@ -491,6 +547,10 @@ class rank_select_support {
             vec_idx.serialize(out);
             c_arr.serialize(out);
             occs.serialize(out);
+
+            if constexpr (byte_alphabet) {
+                out.write((char*)&freq[0],256*sizeof(pos_t));
+            }
 
             for (pos_t i=0; i<num_vectors; i++) {
                 hyb_bit_vecs[i].serialize(out);
@@ -512,6 +572,11 @@ class rank_select_support {
             c_arr.load(in);
             occs.load(in);
             hyb_bit_vecs.resize(num_vectors);
+
+            if constexpr (byte_alphabet) {
+                no_init_resize(freq,256);
+                in.read((char*)&freq[0],256*sizeof(pos_t));
+            }
 
             for (pos_t i=0; i<num_vectors; i++) {
                 hyb_bit_vecs[i].load(in);

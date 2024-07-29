@@ -385,7 +385,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::process_c() {
 
     for (pos_t i=1; i<p_; i++) {
         #pragma omp parallel for num_threads(p)
-        for (pos_t j=0; j<max_symbol; j++) {
+        for (uint64_t j=0; j<max_symbol; j++) {
             C[i][j] += C[i-1][j];
         }
     }
@@ -397,7 +397,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::process_c() {
     no_init_resize(C[0],max_symbol);
     
     #pragma omp parallel for num_threads(p)
-    for (pos_t j=0; j<max_symbol; j++) {
+    for (uint64_t j=0; j<max_symbol; j++) {
         C[0][j] = 0;
     }
 
@@ -924,9 +924,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rsl_() {
     }
     
     if constexpr (byte_alphabet) {
-        idx._RS_L_ = rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},0,r_-1);
+        idx._RS_L_ = rsl_t([this](pos_t i){return idx.L_(i);},0,r_-1);
     } else {
-        idx._RS_L_ = rank_select_support<i_sym_t,pos_t>([this](pos_t i){return idx.L_(i);},idx.sigma,0,r_-1);
+        idx._RS_L_ = rsl_t([this](pos_t i){return idx.L_(i);},idx.sigma,0,r_-1);
     }
 
     if (log) {
@@ -1098,7 +1098,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::store_rsl_() {
     std::ofstream file_rsl_(prefix_tmp_files + ".rsl_");
     idx._RS_L_.serialize(file_rsl_);
     file_rsl_.close();
-    idx._RS_L_ = rank_select_support<i_sym_t,pos_t>();
+    idx._RS_L_ = rsl_t();
 
     if (log) {
         time = log_runtime(time);

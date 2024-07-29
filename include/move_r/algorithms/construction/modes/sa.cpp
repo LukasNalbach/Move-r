@@ -1,8 +1,6 @@
 #pragma once
 
 #include <libsais.h>
-#include <libsais16.h>
-#include <libsais16x64.h>
 #include <libsais64.h>
 #include <sais.hxx>
 #include <move_r/move_r.hpp>

@@ -4,7 +4,6 @@
 #include <type_traits>
 #include <omp.h>
 #include <move_r/misc/utils.hpp>
-#include <move_r/data_structures/hybrid_bit_vector.hpp>
 #include <move_r/data_structures/rank_select_support.hpp>
 #include <move_r/data_structures/interleaved_vectors.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
@@ -103,6 +102,7 @@ class move_r {
     using map_int_t = std::conditional_t<byte_alphabet,std::vector<uint8_t>,tsl::sparse_map<sym_t,i_sym_t>>; // type of map_int
     using map_ext_t = std::vector<sym_t>; // type of map_ext
     using inp_t = std::conditional_t<str_input,std::string,std::vector<sym_t>>; // input container type
+    using rsl_t = rank_select_support<i_sym_t,pos_t,true,true>; // type of RS_L'
 
     // sample rate of the copy phrases in the rlzdsa
     static constexpr pos_t sr_scp = 4;
@@ -138,7 +138,7 @@ class move_r {
     position i with M_LF.L_(i). */
     move_data_structure_l_<pos_t,i_sym_t> _M_LF;
     // rank-select data structure for L'
-    rank_select_support<i_sym_t,pos_t> _RS_L_;
+    rsl_t _RS_L_;
 
     // The Move Data Structure for Phi^{-1}.
     move_data_structure<pos_t> _M_Phi_m1;
@@ -455,7 +455,7 @@ class move_r {
      * @brief returns a reference to RS_L'
      * @return RS_L'
      */
-    inline const rank_select_support<i_sym_t,pos_t>& RS_L_() const {
+    inline const rsl_t& RS_L_() const {
         return _RS_L_;
     }
 

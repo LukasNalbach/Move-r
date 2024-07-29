@@ -39,7 +39,7 @@ TEST(test_move_data_structure,fuzzy_test) {
         }
 
         // permute the input intervals randomly into the output intervals
-        interval_permutation.resize(num_intervals);
+        no_init_resize(interval_permutation,num_intervals);
         #pragma omp parallel for num_threads(max_num_threads)
         for (uint32_t i=0; i<num_intervals; i++) {
             interval_permutation[i] = i;

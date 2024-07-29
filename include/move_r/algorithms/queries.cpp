@@ -139,7 +139,7 @@ pos_t move_r<locate_support,sym_t,pos_t>::query_context::next_occ() {
 
 template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
 void move_r<locate_support,sym_t,pos_t>::query_context::locate(std::vector<pos_t>& Occ) {
-    Occ.reserve(num_occ_rem()-Occ.size());
+    Occ.reserve(Occ.size()+num_occ_rem());
 
     if constexpr (locate_support == _rlzdsa) {
         if (i == b) {
@@ -156,7 +156,7 @@ void move_r<locate_support,sym_t,pos_t>::query_context::locate(std::vector<pos_t
 
         // compute the remaining occurrences SA(b,e]
         if (i <= e) {
-            locate_rlzdsa(i,e,s,x_p,x_lp,x_cp,x_r,s_np,Occ);
+            idx->locate_rlzdsa(i,e,s,x_p,x_lp,x_cp,x_r,s_np,Occ);
         }
     } else {
         // compute the suffix array value at b
@@ -168,7 +168,7 @@ void move_r<locate_support,sym_t,pos_t>::query_context::locate(std::vector<pos_t
         
         // compute the remaining occurrences SA(b,e]
         while (i <= e) {
-            M_Phi_m1().move(s,s_);
+            idx->M_Phi_m1().move(s,s_);
             Occ.emplace_back(s);
             i++;
         }
@@ -186,7 +186,11 @@ bool move_r<locate_support,sym_t,pos_t>::backward_search_step(
     i_sym_t i_sym = map_symbol(sym);
 
     // If sym does not occur in L', then P[i..m] does not occur in T
-    if (i_sym == 0 || !RS_L_().contains(i_sym)) return false;
+    if constexpr (byte_alphabet) {
+        if (!RS_L_().contains(i_sym)) return false;
+    } else {
+        if (i_sym == 0) return false;
+    }
 
     // Find the lexicographically smallest suffix in the current suffix array interval that is prefixed by P[i]
     if (i_sym != L_(b_)) {

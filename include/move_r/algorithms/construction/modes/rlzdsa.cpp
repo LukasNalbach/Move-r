@@ -203,15 +203,6 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
         std::cout << "closing gaps between segments" << std::flush;
     }
 
-    struct gap {
-        pos_t beg_prev;
-        float score;
-    };
-
-    struct cmp_tg {bool operator()(const gap &g1, const gap &g2) const {return g1.score > g2.score;}};
-
-    gtl::btree_set<gap,cmp_tg> T_g;
-
     {
         auto it = T_s.begin();
 
@@ -331,7 +322,6 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_idx_rev_r() {
     idx_revr_t<sad_t,irr_pos_t>& idx_revR = get_idx_revR<sad_t,irr_pos_t>();
 
     idx_revR = idx_revr_t<sad_t,irr_pos_t>(std::move(revR),{
-        .mode = (mode == _bigbwt || mode == _suffix_array_space) ? _suffix_array_space : _suffix_array,
         .num_threads = p,
         .log = log
     });

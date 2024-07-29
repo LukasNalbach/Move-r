@@ -30,8 +30,8 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     uint16_t p = 1; // the number of threads to use
     move_r_constr_mode mode = _suffix_array;
     /* the number of threads to use during the construction of the L,C and I_LF,I_Phi^{-1},L' and SA_s; when building move-r for an
-     * integer alphabet, this needs (p+1)*sigma = O(p*n) words of space, so we limit the number of threads to p' to O(n/sigma)
-     * in this case, so we choose p_ maximal, s.t. (p'+1)*sigma < n; this then ensures that we use O(n) words of space; */
+     * integer alphabet, this needs (p+1)*sigma = O(p*n) words of space, so we limit the number of threads to p' to 1 to ensure
+     * that we use O(sigma) = O(n) words of space; */
     uint16_t p_ = 1;
     bool build_sa_and_l = false; // controls whether the index should be built from the suffix array and the bwt
     bool delete_T = false; // controls whether T should be deleted when not needed anymore
@@ -113,8 +113,15 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     using ts_t = gtl::btree_set<segment,cmp_ts>; // type of T_s
     using ts_it_t = ts_t::iterator; // type of iterator in T_s
     /** B-tree storing the selected segments from SA^d to be included in the reference (R) for the rlzdsa; stores pairs (pos,len)
-     * to represent segments SA^d[pos..pos+len] in ascending order of their starting position (pos) in SA^d */
+     * to represent segments SA^d[pos..pos+len) in ascending order of their starting position (pos) in SA^d */
     ts_t T_s;
+    struct gap {pos_t beg_prev; float score;}; // gap between two consecutive segments
+    /** comparator for gaps in T_g */
+    struct cmp_tg {bool operator()(const gap &g1, const gap &g2) const {return g1.score > g2.score;}};
+    /** B-tree storing the gaps between the selected segments; stores pairs (beg_prev,score), where beg_prev is the starting
+     * position of the segment preceding the gap, and score is the length of the connected segment resulting from closing the
+     * gap divided by the length of the gap; the gaps ordered descendingly by their score */
+    gtl::btree_set<gap,cmp_tg> T_g;
     /** [0..size_R-1] rev(R) (for sad_t = uint32_t) */
     std::vector<uint32_t> revR_32;
     /** [0..size_R-1] rev(R) (for sad_t = uint64_t) */
@@ -149,9 +156,9 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     std::vector<sdsl::int_vector_buffer<>> PT_file_bufs;
     /** [0..p] z_p[0] < z_p[1] < ... < z_p[p] = z; z_p[i_p] = number of phrases in the rlzdsa starting before n_p[i_p] in SA^d */
     std::vector<pos_t> z_p;
-    /** [0..p] zl_p[0] < zl_p[1] < ... < zl_p[p] = z; zl_p[i_p] = number of literal phrases in the rlzdsa starting before n_p[i_p] in SA^d */
+    /** [0..p] zl_p[0] < zl_p[1] < ... < zl_p[p] = z_l; zl_p[i_p] = number of literal phrases in the rlzdsa starting before n_p[i_p] in SA^d */
     std::vector<pos_t> zl_p;
-    /** [0..p] zc_p[0] < zc_p[1] < ... < zc_p[p] = z; zc_p[i_p] = number of copy phrases in the rlzdsa starting before n_p[i_p] in SA^d */
+    /** [0..p] zc_p[0] < zc_p[1] < ... < zc_p[p] = z_c; zc_p[i_p] = number of copy phrases in the rlzdsa starting before n_p[i_p] in SA^d */
     std::vector<pos_t> zc_p;
 
     // ############################# COMMON MISC METHODS #############################
@@ -683,7 +690,9 @@ class move_r<locate_support,sym_t,pos_t>::construction {
      * @brief constructs the index in memory (uses libsais)
      */
     void construct_from_sa() {
-        if (n <= INT_MAX && (sizeof(sym_t) < 8 || mode == _suffix_array_space)) {
+        if constexpr (std::is_same_v<pos_t,uint64_t>) {
+            construct_from_sa<int64_t>();
+        } else if (n <= INT_MAX) {
             construct_from_sa<int32_t>();
         } else {
             construct_from_sa<int64_t>();
@@ -723,7 +732,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
                 build_de();
             } else {
                 construct_rlzdsa<false,sa_sint_t>();
-                if (_space) load_sas();
+                if (_space) load_sas_idx();
             }
 
             if (_space) load_mlf();
@@ -767,7 +776,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
             } else {
                 build_iphim1_sa<true,int32_t>();
                 build_l__sas<true>();
-                store_sas();
+                store_sas_idx();
                 build_rsl_();
                 store_rsl_();
                 store_mlf();
@@ -775,7 +784,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
                 construct_rlzdsa<true,int32_t>();
                 load_mlf();
                 load_rsl_();
-                load_sas();
+                load_sas_idx();
             }
         } else {
             build_l__sas<false>();
