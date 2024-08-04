@@ -23,7 +23,7 @@ std::vector<uint32_t> suffix_array_retrieved;
 uint32_t max_pattern_length;
 uint32_t num_queries;
 
-template <move_r_locate_supp locate_support>
+template <move_r_support support>
 void test_move_r_int() {
     // choose a random input length
     input_size = input_size_distrib(gen);
@@ -50,7 +50,7 @@ void test_move_r_int() {
 
     // build move-r and choose a random number of threads and balancing parameter, but always use libsais,
     // because there are bugs in Big-BWT that come through during fuzzing but not really in practice
-    move_r<locate_support,int32_t,uint32_t> index(input,{
+    move_r<support,int32_t,uint32_t> index(input,{
         .mode = _suffix_array,
         .num_threads = num_threads_distrib(gen),
         .a = std::min<uint16_t>(2+a_distrib(gen),32767)
@@ -148,9 +148,9 @@ TEST(test_move_r,fuzzy_test) {
 
     while (time_diff_min(start_time,now()) < 60) {
         if (prob_distrib(gen) < 0.5) {
-            test_move_r_int<_mds>();
+            test_move_r_int<_locate_move>();
         } else {
-            test_move_r_int<_rlzdsa>();
+            test_move_r_int<_locate_rlzdsa>();
         }
     }
 }

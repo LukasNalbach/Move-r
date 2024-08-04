@@ -6,8 +6,8 @@
 #include <move_r/move_r.hpp>
 #include <gtl/btree.hpp>
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::read_t_from_file(std::ifstream& T_ifile) {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::read_t_from_file(std::ifstream& T_ifile) {
     time = now();
     if (log) std::cout << "reading T" << std::flush;
 
@@ -22,9 +22,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::read_t_from_file(std::ifs
     if (log) time = log_runtime(time);
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t>
 template <typename sa_sint_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_sa() {
+void move_r<support,sym_t,pos_t>::construction::build_sa() {
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
 
     // Choose the correct suffix array construction algorithm.
@@ -41,18 +41,21 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_sa() {
 
         no_init_resize(SA,n);
     } else {
-        if (log) {
-            time = now();
-            std::cout << "mapping T to its effective alphabet" << std::flush;
-        }
+        if (idx.symbols_remapped) {
+            if (log) {
+                time = now();
+                std::cout << "mapping T to its effective alphabet" << std::flush;
+            }
 
-        #pragma omp parallel for num_threads(p)
-        for (uint64_t i=0; i<n-1; i++) {
-            T<i_sym_t>(i) = (*idx._map_int.find(T<sym_t>(i))).second;
-        }
+            #pragma omp parallel for num_threads(p)
+            for (uint64_t i=0; i<n-1; i++) {
+                T<i_sym_t>(i) = (*idx._map_int.find(T<sym_t>(i))).second;
+            }
 
-        if (log) time = log_runtime(time);
-        if (mode == _suffix_array_space) store_mapintext();
+            if (log) time = log_runtime(time);
+            if (mode == _suffix_array_space) store_mapintext();
+        }
+        
         if (log) std::cout << "building SA" << std::flush;
 
         no_init_resize(SA,n);
@@ -65,44 +68,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_sa() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::store_iphim1() {
-    if (log) {
-        time = now();
-        std::cout << "storing I_Phi^{-1} to disk" << std::flush;
-    }
-
-    std::ofstream file_iphim1(prefix_tmp_files + ".iphim1");
-    write_to_file(file_iphim1,(char*)&I_Phi_m1[0].first,r*2*sizeof(pos_t));
-    I_Phi_m1.clear();
-    I_Phi_m1.shrink_to_fit();
-    file_iphim1.close();
-
-    if (log) {
-        time = log_runtime(time);
-    }
-}
-
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::load_iphim1() {
-    if (log) {
-        time = now();
-        std::cout << "loading I_Phi^{-1} from disk" << std::flush;
-    }
-
-    std::ifstream file_iphim1(prefix_tmp_files + ".iphim1");
-    no_init_resize(I_Phi_m1,r);
-    read_from_file(file_iphim1,(char*)&I_Phi_m1[0].first,r*2*sizeof(pos_t));
-    file_iphim1.close();
-    std::filesystem::remove(prefix_tmp_files + ".iphim1");
-
-    if (log) {
-        time = log_runtime(time);
-    }
-}
-
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::store_mapintext() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::store_mapintext() {
     if (log) {
         time = now();
         std::cout << "storing map_int and map_ext to disk" << std::flush;
@@ -125,8 +92,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::store_mapintext() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::load_mapintext() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::load_mapintext() {
     if (log) {
         time = now();
         std::cout << "loading map_int and map_ext from disk" << std::flush;
@@ -150,8 +117,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::load_mapintext() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::unmap_t() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::unmap_t() {
     if constexpr (str_input) {
         #pragma omp parallel for num_threads(p)
         for (uint64_t i=0; i<n-1; i++) {

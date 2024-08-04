@@ -5,12 +5,11 @@ int main() {
     move_r<> index("This is a test string");
 
     // build a 64-bit index (intended for large input strings > UINT_MAX
-    // bytes ~ 4GB) with only count support, use Big-BWT
+    // bytes ~ 4GB) with only count support, use the Big-BWT
     // construction algorithm, use at most 8 threads and set the 
     // balancing parameter a to 4
-    move_r<_mds,char,uint64_t> index_2("a large string",{
-        .support = {_count}, .mode = _bigbwt,
-        .num_threads = 8, .a = 4
+    move_r<_count,char,uint64_t> index_2("a large string",{
+        .mode = _bigbwt, .num_threads = 8, .a = 4
     });
 
     // print the number of bwt runs in the input string
@@ -29,7 +28,7 @@ int main() {
 
     // build an index for an integer vector using a relative
     // lempel-ziv encoded differential suffix array (rlzdsa)
-    move_r<_rlzdsa,int32_t> index_3({2,-1,5,-1,7,2,-1});
+    move_r<_locate_rlzdsa,int32_t> index_3({2,-1,5,-1,7,2,-1});
 
     // incrementally search the pattern [2,-1] in the input vector (from
     // right to left) and print the number of occurrences after each step

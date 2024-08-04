@@ -376,7 +376,7 @@ void bench_a() {
 
     std::cout << std::endl << std::endl;
 
-    move_r<_mds,char,pos_t> index;
+    move_r<_locate_move,char,pos_t> index;
     uint64_t m1,m2,size_index;
     std::chrono::steady_clock::time_point t1,t2;
     query_result result_count,result_locate_1,result_locate_2;
@@ -387,11 +387,11 @@ void bench_a() {
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
         std::cout << std::endl << "building move_r using " << format_threads(max_num_threads) << std::flush;
-        index = move_r<_mds,char,pos_t>();
+        index = move_r<_locate_move,char,pos_t>();
         malloc_count_reset_peak();
         m1 = malloc_count_current();
         t1 = now();
-        index = move_r<_mds,char,pos_t>(get_sa<sa_sint_t>(),BWT,{.num_threads=max_num_threads,.a=a});
+        index = move_r<_locate_move,char,pos_t>(get_sa<sa_sint_t>(),BWT,{.num_threads=max_num_threads,.a=a});
         t2 = now();
         m2 = malloc_count_current();
         size_index = m2-m1;
@@ -411,14 +411,14 @@ void bench_a() {
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
         std::cout << "locating the first set of patterns" << std::flush;
-        result_locate_1 = locate_patterns<pos_t,move_r<_mds,char,pos_t>>(index,patterns_file_1);
+        result_locate_1 = locate_patterns<pos_t,move_r<_locate_move,char,pos_t>>(index,patterns_file_1);
         std::cout << ": " << format_query_throughput(result_locate_1.num_queries,result_locate_1.time_query);
         std::cout << std::endl << "total number of occurrences: " << result_locate_1.num_occurrences << std::endl;
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
         
         std::cout << "locating the second set of patterns" << std::flush;
-        result_locate_2 = locate_patterns<pos_t,move_r<_mds,char,pos_t>>(index,patterns_file_2);
+        result_locate_2 = locate_patterns<pos_t,move_r<_locate_move,char,pos_t>>(index,patterns_file_2);
         std::cout << ": " << format_query_throughput(result_locate_2.num_queries,result_locate_2.time_query);
         std::cout << std::endl << "total number of occurrences: " << result_locate_2.num_occurrences << std::endl;
 

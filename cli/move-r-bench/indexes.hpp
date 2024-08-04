@@ -32,120 +32,120 @@ using online_rlbwt = itmmti::OnlineRlbwtIndex<DynRleT, DynSuccT>;
 // ############################# move-r #############################
 
 template <>
-void build_index<move_r<_mds,char,uint32_t>>(move_r<_mds,char,uint32_t>& index, uint16_t num_threads) {
-    index = move_r<_mds,char,uint32_t>(input,{.mode=_bigbwt,.num_threads=num_threads});
+void build_index<move_r<_locate_move,char,uint32_t>>(move_r<_locate_move,char,uint32_t>& index, uint16_t num_threads) {
+    index = move_r<_locate_move,char,uint32_t>(input,{.mode=_bigbwt,.num_threads=num_threads});
 }
 
 template <>
-void build_index<move_r<_mds,char,uint64_t>>(move_r<_mds,char,uint64_t>& index, uint16_t num_threads) {
-    index = move_r<_mds,char,uint64_t>(input,{.mode=_bigbwt,.num_threads=num_threads});
+void build_index<move_r<_locate_move,char,uint64_t>>(move_r<_locate_move,char,uint64_t>& index, uint16_t num_threads) {
+    index = move_r<_locate_move,char,uint64_t>(input,{.mode=_bigbwt,.num_threads=num_threads});
 }
 
 template <>
-uint64_t build_index_sa_and_bwt<int32_t,move_r<_mds,char,uint32_t>>(move_r<_mds,char,uint32_t>& index, uint16_t num_threads) {
-    index = move_r<_mds,char,uint32_t>(get_sa<int32_t>(),BWT,{.num_threads=num_threads});
+uint64_t build_index_sa_and_bwt<int32_t,move_r<_locate_move,char,uint32_t>>(move_r<_locate_move,char,uint32_t>& index, uint16_t num_threads) {
+    index = move_r<_locate_move,char,uint32_t>(get_sa<int32_t>(),BWT,{.num_threads=num_threads});
     return 0;
 }
 
 template <>
-uint64_t build_index_sa_and_bwt<int64_t,move_r<_mds,char,uint32_t>>(move_r<_mds,char,uint32_t>& index, uint16_t num_threads) {
-    index = move_r<_mds,char,uint32_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads});
+uint64_t build_index_sa_and_bwt<int64_t,move_r<_locate_move,char,uint32_t>>(move_r<_locate_move,char,uint32_t>& index, uint16_t num_threads) {
+    index = move_r<_locate_move,char,uint32_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads});
     return 0;
 }
 
 template <>
-uint64_t build_index_sa_and_bwt<int64_t,move_r<_mds,char,uint64_t>>(move_r<_mds,char,uint64_t>& index, uint16_t num_threads) {
-    index = move_r<_mds,char,uint64_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads});
+uint64_t build_index_sa_and_bwt<int64_t,move_r<_locate_move,char,uint64_t>>(move_r<_locate_move,char,uint64_t>& index, uint16_t num_threads) {
+    index = move_r<_locate_move,char,uint64_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads});
     return 0;
 }
 
 template <>
-void destroy_index<move_r<_mds,char,uint32_t>>(move_r<_mds,char,uint32_t>& index) {
-    index = move_r<_mds,char,uint32_t>();
+void destroy_index<move_r<_locate_move,char,uint32_t>>(move_r<_locate_move,char,uint32_t>& index) {
+    index = move_r<_locate_move,char,uint32_t>();
 }
 
 template <>
-void destroy_index<move_r<_mds,char,uint64_t>>(move_r<_mds,char,uint64_t>& index) {
-    index = move_r<_mds,char,uint64_t>();
+void destroy_index<move_r<_locate_move,char,uint64_t>>(move_r<_locate_move,char,uint64_t>& index) {
+    index = move_r<_locate_move,char,uint64_t>();
 }
 
 template <>
-uint32_t count_pattern<uint32_t,move_r<_mds,char,uint32_t>>(move_r<_mds,char,uint32_t>& index, std::string& pattern) {
+uint32_t count_pattern<uint32_t,move_r<_locate_move,char,uint32_t>>(move_r<_locate_move,char,uint32_t>& index, std::string& pattern) {
     return index.count(pattern);
 }
 
 template <>
-uint64_t count_pattern<uint64_t,move_r<_mds,char,uint64_t>>(move_r<_mds,char,uint64_t>& index, std::string& pattern) {
+uint64_t count_pattern<uint64_t,move_r<_locate_move,char,uint64_t>>(move_r<_locate_move,char,uint64_t>& index, std::string& pattern) {
     return index.count(pattern);
 }
 
 template <>
-void locate_pattern<uint32_t,move_r<_mds,char,uint32_t>>(move_r<_mds,char,uint32_t>& index, std::string& pattern, std::vector<uint32_t>& occurrences) {
+void locate_pattern<uint32_t,move_r<_locate_move,char,uint32_t>>(move_r<_locate_move,char,uint32_t>& index, std::string& pattern, std::vector<uint32_t>& occurrences) {
     index.locate(pattern,occurrences);
 }
 
 template <>
-void locate_pattern<uint64_t,move_r<_mds,char,uint64_t>>(move_r<_mds,char,uint64_t>& index, std::string& pattern, std::vector<uint64_t>& occurrences) {
+void locate_pattern<uint64_t,move_r<_locate_move,char,uint64_t>>(move_r<_locate_move,char,uint64_t>& index, std::string& pattern, std::vector<uint64_t>& occurrences) {
     index.locate(pattern,occurrences);
 }
 
 // ############################# move-rlzdsa #############################
 
 template <>
-void build_index<move_r<_rlzdsa,char,uint32_t>>(move_r<_rlzdsa,char,uint32_t>& index, uint16_t num_threads) {
-    index = move_r<_rlzdsa,char,uint32_t>(input,{.mode=_bigbwt,.num_threads=num_threads});
+void build_index<move_r<_locate_rlzdsa,char,uint32_t>>(move_r<_locate_rlzdsa,char,uint32_t>& index, uint16_t num_threads) {
+    index = move_r<_locate_rlzdsa,char,uint32_t>(input,{.mode=_bigbwt,.num_threads=num_threads});
 }
 
 template <>
-void build_index<move_r<_rlzdsa,char,uint64_t>>(move_r<_rlzdsa,char,uint64_t>& index, uint16_t num_threads) {
-    index = move_r<_rlzdsa,char,uint64_t>(input,{.mode=_bigbwt,.num_threads=num_threads});
+void build_index<move_r<_locate_rlzdsa,char,uint64_t>>(move_r<_locate_rlzdsa,char,uint64_t>& index, uint16_t num_threads) {
+    index = move_r<_locate_rlzdsa,char,uint64_t>(input,{.mode=_bigbwt,.num_threads=num_threads});
 }
 
 template <>
-uint64_t build_index_sa_and_bwt<int32_t,move_r<_rlzdsa,char,uint32_t>>(move_r<_rlzdsa,char,uint32_t>& index, uint16_t num_threads) {
-    index = move_r<_rlzdsa,char,uint32_t>(get_sa<int32_t>(),BWT,{.num_threads=num_threads});
+uint64_t build_index_sa_and_bwt<int32_t,move_r<_locate_rlzdsa,char,uint32_t>>(move_r<_locate_rlzdsa,char,uint32_t>& index, uint16_t num_threads) {
+    index = move_r<_locate_rlzdsa,char,uint32_t>(get_sa<int32_t>(),BWT,{.num_threads=num_threads});
     return 0;
 }
 
 template <>
-uint64_t build_index_sa_and_bwt<int64_t,move_r<_rlzdsa,char,uint32_t>>(move_r<_rlzdsa,char,uint32_t>& index, uint16_t num_threads) {
-    index = move_r<_rlzdsa,char,uint32_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads});
+uint64_t build_index_sa_and_bwt<int64_t,move_r<_locate_rlzdsa,char,uint32_t>>(move_r<_locate_rlzdsa,char,uint32_t>& index, uint16_t num_threads) {
+    index = move_r<_locate_rlzdsa,char,uint32_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads});
     return 0;
 }
 
 template <>
-uint64_t build_index_sa_and_bwt<int64_t,move_r<_rlzdsa,char,uint64_t>>(move_r<_rlzdsa,char,uint64_t>& index, uint16_t num_threads) {
-    index = move_r<_rlzdsa,char,uint64_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads});
+uint64_t build_index_sa_and_bwt<int64_t,move_r<_locate_rlzdsa,char,uint64_t>>(move_r<_locate_rlzdsa,char,uint64_t>& index, uint16_t num_threads) {
+    index = move_r<_locate_rlzdsa,char,uint64_t>(get_sa<int64_t>(),BWT,{.num_threads=num_threads});
     return 0;
 }
 
 template <>
-void destroy_index<move_r<_rlzdsa,char,uint32_t>>(move_r<_rlzdsa,char,uint32_t>& index) {
-    index = move_r<_rlzdsa,char,uint32_t>();
+void destroy_index<move_r<_locate_rlzdsa,char,uint32_t>>(move_r<_locate_rlzdsa,char,uint32_t>& index) {
+    index = move_r<_locate_rlzdsa,char,uint32_t>();
 }
 
 template <>
-void destroy_index<move_r<_rlzdsa,char,uint64_t>>(move_r<_rlzdsa,char,uint64_t>& index) {
-    index = move_r<_rlzdsa,char,uint64_t>();
+void destroy_index<move_r<_locate_rlzdsa,char,uint64_t>>(move_r<_locate_rlzdsa,char,uint64_t>& index) {
+    index = move_r<_locate_rlzdsa,char,uint64_t>();
 }
 
 template <>
-uint32_t count_pattern<uint32_t,move_r<_rlzdsa,char,uint32_t>>(move_r<_rlzdsa,char,uint32_t>& index, std::string& pattern) {
+uint32_t count_pattern<uint32_t,move_r<_locate_rlzdsa,char,uint32_t>>(move_r<_locate_rlzdsa,char,uint32_t>& index, std::string& pattern) {
     return index.count(pattern);
 }
 
 template <>
-uint64_t count_pattern<uint64_t,move_r<_rlzdsa,char,uint64_t>>(move_r<_rlzdsa,char,uint64_t>& index, std::string& pattern) {
+uint64_t count_pattern<uint64_t,move_r<_locate_rlzdsa,char,uint64_t>>(move_r<_locate_rlzdsa,char,uint64_t>& index, std::string& pattern) {
     return index.count(pattern);
 }
 
 template <>
-void locate_pattern<uint32_t,move_r<_rlzdsa,char,uint32_t>>(move_r<_rlzdsa,char,uint32_t>& index, std::string& pattern, std::vector<uint32_t>& occurrences) {
+void locate_pattern<uint32_t,move_r<_locate_rlzdsa,char,uint32_t>>(move_r<_locate_rlzdsa,char,uint32_t>& index, std::string& pattern, std::vector<uint32_t>& occurrences) {
     index.locate(pattern,occurrences);
 }
 
 template <>
-void locate_pattern<uint64_t,move_r<_rlzdsa,char,uint64_t>>(move_r<_rlzdsa,char,uint64_t>& index, std::string& pattern, std::vector<uint64_t>& occurrences) {
+void locate_pattern<uint64_t,move_r<_locate_rlzdsa,char,uint64_t>>(move_r<_locate_rlzdsa,char,uint64_t>& index, std::string& pattern, std::vector<uint64_t>& occurrences) {
     index.locate(pattern,occurrences);
 }
 

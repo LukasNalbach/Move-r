@@ -13,8 +13,6 @@ class move_data_structure_l_ : public move_data_structure<pos_t> {
     using pair_t = typename move_data_structure<pos_t>::pair_t; // pair type
     using pair_arr_t = typename move_data_structure<pos_t>::pair_arr_t; // pair array type
 
-    static constexpr bool str_L_ = std::is_same_v<l_t,char>; // true <=> L' is a string
-
     /**
      * @brief Constructs a new move data structure from a disjoint interval sequence
      * @param I a disjoint interval sequence
@@ -66,7 +64,7 @@ class move_data_structure_l_ : public move_data_structure<pos_t> {
      * @return the value in L_ at position x
      */
     inline l_t L_(pos_t x) const {
-        if constexpr (str_L_) {
+        if constexpr (sizeof(l_t) == 1) {
             return move_data_structure<pos_t>::data.template get_unsafe<3,l_t>(x);
         } else {
             return move_data_structure<pos_t>::data.template get<3,l_t>(x);
@@ -79,7 +77,7 @@ class move_data_structure_l_ : public move_data_structure<pos_t> {
      * @param v a value
      */
     inline void set_L_(pos_t x, l_t v) {
-        if constexpr (str_L_) {
+        if constexpr (sizeof(l_t) == 1) {
             move_data_structure<pos_t>::data.template set_unsafe<3,l_t>(x,v);
         } else {
             move_data_structure<pos_t>::data.template set<3,l_t>(x,v);

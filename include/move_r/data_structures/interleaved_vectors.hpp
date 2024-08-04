@@ -30,7 +30,7 @@ class interleaved_vectors {
     uint64_t capacity_vectors = 0; // capacity of each stored vector
     uint64_t width_entry = 0; // sum of the widths of all vectors
 
-    // [0..(capacity_vectors+1)*num_vectors-1] vector storing the interleaved vectors
+    // [0..(capacity_vectors+1)*width_entry-1] vector storing the interleaved vectors
     std::vector<char> data_vectors;
 
     // [0..num_vectors-1] or shorter; widths of the stored vectors; widths[i] = width of vector i
@@ -210,15 +210,15 @@ class interleaved_vectors {
     void reserve(uint64_t capacity, uint16_t num_threads = 1) {
         if (capacity_vectors < capacity) {
             std::vector<char> new_data_vectors;
-            no_init_resize(new_data_vectors,(capacity+1)*width_entry);
+            no_init_resize(new_data_vectors,capacity*width_entry+16);
 
             #pragma omp parallel for num_threads(num_threads)
             for (uint64_t i=0; i<size_vectors*width_entry; i++) {
                 new_data_vectors[i] = data_vectors[i];
             }
 
-            std::memset(&new_data_vectors[size_vectors*width_entry],0,width_entry);
-            std::memset(&new_data_vectors[capacity*width_entry],0,width_entry);
+            std::memset(&new_data_vectors[size_vectors*width_entry],0,16);
+            std::memset(&new_data_vectors[capacity*width_entry],0,16);
             std::swap(data_vectors,new_data_vectors);
             set_bases(&data_vectors[0]);
             capacity_vectors = capacity;
@@ -461,6 +461,7 @@ class interleaved_vectors {
 
         if (old_size > 0) {
             resize_no_init(old_size);
+            set_bases(&data_vectors[0]);
             read_from_file(in,(char*)&data_vectors[0],size_vectors*width_entry);
         }
     }

@@ -14,8 +14,8 @@ This [2] ([drops.dagstuhl.de](https://drops.dagstuhl.de/entities/document/10.423
 - [sais-lite-lcp](https://github.com/kurpicz/sais-lite-lcp)
 - [gtl](https://github.com/greg7mdp/gtl)
 - [sparse-map](https://github.com/Tessil/sparse-map)
-- [emhash](https://github.com/ktprime/emhash/tree)
-- [sux](https://github.com/vigna/sux/tree)
+- [emhash](https://github.com/ktprime/emhash)
+- [sux](https://github.com/vigna/sux)
 
 ## CLI Build Instructions
 This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed.
@@ -59,12 +59,11 @@ int main() {
    move_r<> index("This is a test string");
 
    // build a 64-bit index (intended for large input strings > UINT_MAX
-   // bytes ~ 4GB) with only count support, use Big-BWT
+   // bytes ~ 4GB) with only count support, use the Big-BWT
    // construction algorithm, use at most 8 threads and set the 
    // balancing parameter a to 4
-   move_r<_mds,char,uint64_t> index_2("a large string",{
-      .support = {_count}, .mode = _bigbwt,
-      .num_threads = 8, .a = 4
+   move_r<_count,char,uint64_t> index_2("a large string",{
+      .mode = _bigbwt, .num_threads = 8, .a = 4
    });
 
    // print the number of bwt runs in the input string
@@ -83,7 +82,7 @@ int main() {
 
    // build an index for an integer vector using a relative
    // lempel-ziv encoded differential suffix array (rlzdsa)
-   move_r<_rlzdsa,int32_t> index_3({2,-1,5,-1,7,2,-1});
+   move_r<_locate_rlzdsa,int32_t> index_3({2,-1,5,-1,7,2,-1});
 
    // incrementally search the pattern [2,-1] in the input vector (from
    // right to left) and print the number of occurrences after each step
@@ -169,13 +168,6 @@ int main() {
    move_r<> reloaded_index;
    reloaded_index << index_ifile;
    index_ifile.close();
-
-   // load the same index into another move_r-object
-   // but only with revert support
-   index_ifile.open("test_idx.move-r");
-   move_r<> reloaded_index_2;
-   reloaded_index_2.load(index_ifile,{_revert});
-   index_ifile.close();
 }
 ```
 
@@ -229,10 +221,8 @@ int main() {
 usage: move-r-build [options] <input_file>
    -c <mode>          construction mode: sa or bigbwt (default: sa)
    -o <base_name>     names the index file base_name.move-r (default: input_file)
-   -s <op1> <op2> ... supported operations: revert, count and locate
-                      (default: revert, count, locate)
-   -rlzdsa            implement locate support by relative lempel-ziv encoding the
-                      differential suffix array instead of implementing Phi^{-1}
+   -s <support>       support: count, locate_move or locate_rlzdsa
+                      (default: locate_move)
    -p <integer>       number of threads to use during the construction of the index
                       (default: all threads)
    -a <integer>       balancing parameter; a must be an integer number and a >= 2 (default: 8)

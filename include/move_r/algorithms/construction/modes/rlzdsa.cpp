@@ -3,9 +3,9 @@
 #include <move_r/move_r.hpp>
 #include <gtl/phmap.hpp>
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t>
 template <bool bigbwt, typename sad_t, typename sa_sint_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_freq_sad() {
+void move_r<support,sym_t,pos_t>::construction::build_freq_sad() {
     if (log) {
         time = now();
         std::cout << std::endl;
@@ -36,14 +36,17 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_freq_sad() {
         }
     }
 
+    I_Phi_m1.clear();
+    I_Phi_m1.shrink_to_fit();
+
     if (log) {
         time = log_runtime(time);
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t>
 template <bool bigbwt, typename sad_t, typename sa_sint_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
+void move_r<support,sym_t,pos_t>::construction::build_r() {
     if (log) {
         std::cout << "choosing segments for R" << std::flush;
     }
@@ -188,7 +191,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
         }
 
         for (pos_t i=beg_best; i<end_best; i++) {
-            SAd_freq[SAd<bigbwt,sa_sint_t>(ip_best,i)] = 0;
+            SAd_freq.find(SAd<bigbwt,sa_sint_t>(ip_best,i))->second = 0;
         }
 
         size_R += end_best-beg_best;
@@ -227,30 +230,37 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
 
         auto ts_right = ts_left;
         ++ts_right;
+        pos_t len_gap = (*ts_right).beg-(*ts_left).end;
 
-        if (size_R+((*ts_right).beg-(*ts_left).end) <= size_R_target) {
+        if (size_R+len_gap <= size_R_target) {
+            size_R += len_gap;
+
             if (ts_left != T_s.begin()) {
                 auto ts_prev = ts_left;
                 --ts_prev;
-                float old_score = ((*ts_left).end-(*ts_prev).beg)/(float)((*ts_left).beg-(*ts_prev).end);
-                float new_score = ((*ts_right).end-(*ts_prev).beg)/(float)((*ts_left).beg-(*ts_prev).end);
 
-                T_g.erase(gap{(*ts_prev).beg,old_score});
-                T_g.emplace(gap{(*ts_prev).beg,new_score});
+                pos_t len_prev_gap = (*ts_left).beg-(*ts_prev).end;
+                float old_score = ((*ts_left).end-(*ts_prev).beg)/(float)len_prev_gap;
+
+                if (T_g.erase(gap{(*ts_prev).beg,old_score}) && size_R+len_prev_gap <= size_R_target) {
+                    float new_score = ((*ts_right).end-(*ts_prev).beg)/(float)len_prev_gap;
+                    T_g.emplace(gap{(*ts_prev).beg,new_score});
+                }
             }
             
             auto ts_next = ts_right;
             ++ts_next;
             
             if (ts_next != T_s.end()) {
-                float old_score = ((*ts_next).end-(*ts_right).beg)/(float)((*ts_next).beg-(*ts_right).end);
-                float new_score = ((*ts_next).end-(*ts_left).beg)/(float)((*ts_next).beg-(*ts_right).end);
+                pos_t len_next_gap = (*ts_next).beg-(*ts_right).end;
+                float old_score = ((*ts_next).end-(*ts_right).beg)/(float)len_next_gap;
 
-                T_g.erase(gap{(*ts_right).beg,old_score});
-                T_g.emplace(gap{(*ts_left).beg,new_score});
+                if (T_g.erase(gap{(*ts_right).beg,old_score}) && size_R+len_next_gap <= size_R_target) {
+                    float new_score = ((*ts_next).end-(*ts_left).beg)/(float)len_next_gap;
+                    T_g.emplace(gap{(*ts_left).beg,new_score});
+                }
             }
 
-            size_R += (*ts_right).beg-(*ts_left).end;
             (*ts_left).end = (*ts_right).end;
             T_s.erase(ts_right);
         }
@@ -294,8 +304,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_r_revR() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::store_r() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::store_r() {
     if (log) {
         std::cout << "storing R to disk" << std::flush;
     }
@@ -311,9 +321,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::store_r() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t>
 template <typename sad_t, typename irr_pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_idx_rev_r() {
+void move_r<support,sym_t,pos_t>::construction::build_idx_rev_r() {
     if (log) {
         std::cout << "building move-r of rev(R):" << std::endl << std::endl;
     }
@@ -322,6 +332,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_idx_rev_r() {
     idx_revr_t<sad_t,irr_pos_t>& idx_revR = get_idx_revR<sad_t,irr_pos_t>();
 
     idx_revR = idx_revr_t<sad_t,irr_pos_t>(std::move(revR),{
+        .mode = mode == _suffix_array ? _suffix_array : _suffix_array_space,
         .num_threads = p,
         .log = log
     });
@@ -333,9 +344,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_idx_rev_r() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t>
 template <bool bigbwt, bool space, typename sad_t, typename irr_pos_t, typename sa_sint_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa_factorization() {
+void move_r<support,sym_t,pos_t>::construction::build_rlzdsa_factorization() {
     if (log) {
         std::cout << "computing rlzdsa factorization" << std::flush;
     }
@@ -348,7 +359,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa_factorizatio
     if constexpr (space) {
         for (uint16_t i=0; i<p; i++) {
             CPL_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
-                prefix_tmp_files + ".scp_" + std::to_string(i),
+                prefix_tmp_files + ".cpl_" + std::to_string(i),
                 std::ios::out, 128*1024, 16, false
             ));
 
@@ -399,7 +410,12 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa_factorizatio
         for (pos_t i=b+1; i<e;) {
             query.reset();
             pos_t max_query_len = std::min<pos_t>(e-i,65535);
-            while (query.prepend(SAd<bigbwt,sa_sint_t>(i_p,i+query.length())) && query.length() < max_query_len);
+
+            while (
+                query.prepend(SAd<bigbwt,sa_sint_t>(i_p,i+query.length())) &&
+                query.length() < max_query_len &&
+                (query.length() <= 1 || query.num_occ() > 1)
+            );
 
             if (query.length() <= 1) {
                 if constexpr (space) {
@@ -412,17 +428,31 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa_factorizatio
 
                 i++;
             } else {
-                if constexpr (space) {
-                    PT_file_bufs[i_p].push_back(0);
-                    CPL_file_bufs[i_p].push_back(query.length());
-                    SR_file_bufs[i_p].push_back(size_R-query.next_occ()-query.length());
-                } else {
-                    _PT[i_p][j] = 0;
-                    _CPL[i_p].emplace_back(query.length());
-                    _SR[i_p].emplace_back(size_R-query.next_occ()-query.length());
+                pos_t occ = size_R-query.one_occ()-query.length();
+                pos_t len = query.length();
+                
+                if (query.num_occ() == 1) {
+                    max_query_len = std::min<pos_t>(max_query_len,size_R-occ);
+
+                    while (
+                        len < max_query_len &&
+                        idx._R[occ+len] == SAd<bigbwt,sa_sint_t>(i_p,i+len)
+                    ) {
+                        len++;
+                    }
                 }
 
-                i += query.length();
+                if constexpr (space) {
+                    PT_file_bufs[i_p].push_back(0);
+                    CPL_file_bufs[i_p].push_back(len);
+                    SR_file_bufs[i_p].push_back(occ);
+                } else {
+                    _PT[i_p][j] = 0;
+                    _CPL[i_p].emplace_back(len);
+                    _SR[i_p].emplace_back(occ);
+                }
+
+                i += len;
             }
             
             if constexpr (!space) {
@@ -577,8 +607,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlzdsa_factorizatio
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::load_r() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::load_r() {
     if (log) {
         std::cout << "reading R from disk" << std::flush;
     }

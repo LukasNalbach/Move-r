@@ -7,9 +7,8 @@ uint64_t n;
 uint16_t a = 8;
 uint16_t p = 1;
 std::string path_prefix_index_file;
-move_r_constr_mode mode = _suffix_array;
-std::vector<move_r_supp> support = _full_support;
-move_r_locate_supp locate_support = _mds;
+move_r_construction_mode mode = _suffix_array;
+move_r_support support = _locate_move;
 std::ofstream mf_idx;
 std::ofstream mf_mds;
 std::ifstream input_file;
@@ -24,10 +23,8 @@ void help(std::string msg) {
     std::cout << "usage: move-r-build [options] <input_file>" << std::endl;
     std::cout << "   -c <mode>          construction mode: sa or bigbwt (default: sa)" << std::endl;
     std::cout << "   -o <base_name>     names the index file base_name.move-r (default: input_file)" << std::endl;
-    std::cout << "   -s <op1> <op2> ... supported operations: revert, count and locate" << std::endl;
-    std::cout << "                      (default: revert, count, locate)" << std::endl;
-    std::cout << "   -rlzdsa            implement locate support by relative lempel-ziv encoding the" << std::endl;
-    std::cout << "                      differential suffix array instead of implementing Phi^{-1}" << std::endl;
+    std::cout << "   -s <support>       support: count, locate_move or locate_rlzdsa" << std::endl;
+    std::cout << "                      (default: locate_move)" << std::endl;
     std::cout << "   -p <integer>       number of threads to use during the construction of the index" << std::endl;
     std::cout << "                      (default: all threads)" << std::endl;
     std::cout << "   -a <integer>       balancing parameter; a must be an integer number and a >= 2 (default: 8)" << std::endl;
@@ -58,25 +55,16 @@ void parse_args(char** argv, int argc, int &ptr) {
         else help("error: invalid option for -c");
     } else if (s == "-s") {
         if (ptr >= argc-1) help("error: missing parameter after -s option");
-        support.clear();
-        bool parsed_first_op = false;
-
-        while (true) {
-            std::string support_str = argv[ptr];
-            if (support_str == "revert") {ptr++;support.emplace_back(_revert);}
-            else if (support_str == "count") {ptr++;support.emplace_back(_count);}
-            else if (support_str == "locate") {ptr++;support.emplace_back(_locate);}
-            else if (!parsed_first_op) help("error: unknown mode provided with -s option");
-            else break;
-            parsed_first_op = true;
-        }
+        std::string support_str = argv[ptr++];
+        if (support_str == "count") {support = _count;}
+        else if (support_str == "locate_one") {support = _locate_one;}
+        else if (support_str == "locate_move") {support = _locate_move;}
+        else if (support_str == "locate_rlzdsa") {support = _locate_rlzdsa;}
+        else help("error: unknown mode provided with -s option");
     } else if (s == "-a") {
         if (ptr >= argc-1) help("error: missing parameter after -a option");
         a = atoi(argv[ptr++]);
         if (a < 2) help("error: a < 2");
-    } else if (s == "-rlzdsa") {
-        if (ptr >= argc-1) help("error: missing parameter after -rlzdsa option");
-        locate_support = _rlzdsa;
     } else if (s == "-m_idx") {
         if (ptr >= argc-1) help("error: missing parameter after -m_idx option");
         std::string path_mf_idx = argv[ptr++];
@@ -92,10 +80,9 @@ void parse_args(char** argv, int argc, int &ptr) {
     }
 }
 
-template <typename pos_t, move_r_locate_supp locate_support>
+template <typename pos_t, move_r_support support>
 void build() {
-    move_r<locate_support,char,pos_t> index(input_file,{
-        .support=support,
+    move_r<support,char,pos_t> index(input_file,{
         .mode=mode,
         .num_threads=p,
         .a=a,
@@ -139,7 +126,7 @@ int main(int argc, char** argv) {
         p = std::max<uint16_t>(1,n/1000);
         std::cout << "n = " << n << ", warning: p > n/1000, setting p to n/1000 ~ "<< std::to_string(p) << std::endl;
     } else {
-        p = std::max<uint16_t>(1,std::min<uint16_t>({omp_get_max_threads(),n/1000,p}));
+        p = std::max<uint16_t>(1,std::min<uint64_t>({omp_get_max_threads(),n/1000,p}));
     }
 
     if (mf_idx.is_open()) {
@@ -150,17 +137,23 @@ int main(int argc, char** argv) {
             << " a=" << a;
     }
 
-    if (locate_support == _mds) {
+    if (support == _count) {
         if (n < UINT_MAX) {
-            build<uint32_t,_mds>();
+            build<uint32_t,_count>();
         } else {
-            build<uint64_t,_mds>();
+            build<uint64_t,_count>();
+        }
+    } else if (support == _locate_move) {
+        if (n < UINT_MAX) {
+            build<uint32_t,_locate_move>();
+        } else {
+            build<uint64_t,_locate_move>();
         }
     } else {
         if (n < UINT_MAX) {
-            build<uint32_t,_rlzdsa>();
+            build<uint32_t,_locate_rlzdsa>();
         } else {
-            build<uint64_t,_rlzdsa>();
+            build<uint64_t,_locate_rlzdsa>();
         }
     }
 

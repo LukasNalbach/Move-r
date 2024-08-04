@@ -4,8 +4,8 @@
 #include <ips4o.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool in_memory, std::ifstream* T_ifile) {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::preprocess_t(bool in_memory, bool bigbwt, std::ifstream* T_ifile) {
     if (log) std::cout << "preprocessing T" << std::flush;
 
     if constexpr (byte_alphabet) {
@@ -83,7 +83,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool in_memo
         }
 
         // If the input contains too many distinct characters, we have to remap the characters in T[0..n-2].
-        if (contains_invalid_char) {
+        if (bigbwt || contains_invalid_char) {
             if (idx.sigma > 256-min_valid_char) {
                 /* If T[0..n-2] contains more than 256 - min_valid_char distinct characters, we cannot remap them into the 
                 range [0..255] without using a character less than min_valid_char, hence we cannot build an index for T. */
@@ -106,21 +106,28 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool in_memo
             uint16_t next_uchar_to_remap_to = min_valid_char;
             max_remapped_uchar = 0;
 
-            for (uint16_t cur_uchar=0; cur_uchar<next_uchar_to_remap_to; cur_uchar++) {
+            for (uint16_t cur_uchar=0; cur_uchar < (bigbwt ? 256 : next_uchar_to_remap_to); cur_uchar++) {
                 if (contains_uchar[cur_uchar] == 1) {
                     idx._map_int[cur_uchar] = next_uchar_to_remap_to;
                     idx._map_ext[next_uchar_to_remap_to] = cur_uchar;
                     max_remapped_uchar = cur_uchar;
                     next_uchar_to_remap_to++;
+
+                    if (bigbwt && next_uchar_to_remap_to == 10) {
+                        // make sure the input does not contain '\n' = 10
+                        next_uchar_to_remap_to++;
+                    }
                 }
             }
 
             max_remapped_to_uchar = next_uchar_to_remap_to - 1;
-
-            for (uint16_t cur_uchar=max_remapped_to_uchar+1; cur_uchar<256; cur_uchar++) {
-                if (contains_uchar[cur_uchar] == 1) {
-                    idx._map_int[cur_uchar] = cur_uchar;
-                    idx._map_ext[cur_uchar] = cur_uchar;
+            
+            if (!bigbwt) {
+                for (uint16_t cur_uchar=max_remapped_to_uchar+1; cur_uchar<256; cur_uchar++) {
+                    if (contains_uchar[cur_uchar] == 1) {
+                        idx._map_int[cur_uchar] = cur_uchar;
+                        idx._map_ext[cur_uchar] = cur_uchar;
+                    }
                 }
             }
 
@@ -166,7 +173,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool in_memo
         }
 
         p_ = p;
-    } else {
+    } else if (idx.sigma == 0) {
         idx.symbols_remapped = true;
         uint64_t alloc_before = malloc_count_current();
 
@@ -176,7 +183,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool in_memo
 
         idx.sigma = idx._map_int.size()+1;
         idx.size_map_int = malloc_count_current()-alloc_before;
-        p_ = mode == _suffix_array_space ? 1 : std::min<pos_t>({p,std::max<pos_t>(1,n/1000),std::max<pos_t>(1,(n/idx.sigma)-1)});
+        p_ = 1;
         no_init_resize(idx._map_ext,idx.sigma);
         idx._map_ext[0] = 0;
         pos_t sym_cur = 1;
@@ -217,9 +224,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::preprocess_t(bool in_memo
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t>
 template <rlbwt_build_mode mode, typename sa_sint_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c() {
+void move_r<support,sym_t,pos_t>::construction::build_rlbwt_c() {
     if (log) {
         time = now();
         std::cout << "building RLBWT" << std::flush;
@@ -228,8 +235,12 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c() {
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
 
     r_p.resize(p_+1,0);
-    RLBWT.resize(p_,interleaved_vectors<uint32_t,uint32_t>({(uint8_t)std::ceil(std::log2(idx.sigma+1)/(double)8),4}));
-    C.resize(p_,std::vector<pos_t>(byte_alphabet ? 256 : idx.sigma,0));
+    uint8_t width_bwt = byte_alphabet ? 1 : (uint8_t)std::ceil(std::log2(idx.sigma+1)/(double)8);
+    RLBWT.resize(p_,interleaved_vectors<uint32_t,uint32_t>({width_bwt,4}));
+
+    if constexpr (byte_alphabet) {
+        C.resize(p_,std::vector<pos_t>(byte_alphabet ? 256 : idx.sigma,0));
+    }
 
     if constexpr (mode == _bwt_file) {
         for (uint16_t i=0; i<p; i++) {
@@ -285,7 +296,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c() {
             // check if there is a run starting at L[i]
             if (cur_sym != prev_sym) {
                 add_run(i_p,prev_sym,i-i_);
-                C[i_p][prev_sym] += i-i_;
+                if constexpr (byte_alphabet) C[i_p][prev_sym] += i-i_;
                 prev_sym = cur_sym;
                 i_ = i;
             }
@@ -293,7 +304,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c() {
 
         // add the run L[i'..e)
         add_run(i_p,prev_sym,e-i_);
-        C[i_p][prev_sym] += e-i_;
+        if constexpr (byte_alphabet) C[i_p][prev_sym] += e-i_;
         // Store in r_p[i_p] the number of runs starting in L[b..e).
         r_p[i_p] = RLBWT[i_p].size();
         RLBWT[i_p].shrink_to_fit();
@@ -307,8 +318,12 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c() {
         if (run_sym(i_p+1,0) == c) {
             pos_t l = run_len(i_p,r_p[i_p]-1);
             set_run_len(i_p+1,0,run_len(i_p+1,0)+l);
-            C[i_p][c] -= l;
-            C[i_p+1][c] += l;
+
+            if constexpr (byte_alphabet) {
+                C[i_p][c] -= l;
+                C[i_p+1][c] += l;
+            }
+
             n_p[i_p+1] -= l;
             r_p[i_p]--;
             RLBWT[i_p].resize(r_p[i_p]);
@@ -336,8 +351,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c() {
         T_vec.clear();
         T_vec.shrink_to_fit();
     }
-
-    if (!build_locate_support && mode != _bwt) {
+    
+    if (support == _count && mode != _bwt) {
         SA.clear();
         SA.shrink_to_fit();
     }
@@ -364,6 +379,14 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c() {
     r = r_p[p_];
     idx.r = r;
 
+    if constexpr (int_alphabet) {
+        C.emplace_back(std::vector<pos_t>(idx.sigma,0));
+
+        for (pos_t i=0; i<r; i++) {
+            C[0][run_sym(0,i)] += run_len(0,i);
+        }
+    }
+
     process_c();
 
     if (log) {
@@ -372,8 +395,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rlbwt_c() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::process_c() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::process_c() {
     /* Now, C[i_p][c] is the number of occurrences of c in L[b..e], where [b..e] is the range of the
     thread i_p in [0..p'-1]. Also, we have C[p'][0..255] = 0. */
 
@@ -418,8 +441,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::process_c() {
     // Now we are done with C, since C[p'] is the C-array.
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_ilf() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::build_ilf() {
     if (log) {
         time = now();
         std::cout << "building I_LF" << std::flush;
@@ -465,8 +488,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_ilf() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_mlf() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::build_mlf() {
     if (log) {
         if (mf_mds != NULL) {
             *mf_mds << "RESULT"
@@ -501,9 +524,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_mlf() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t>
 template <bool bigbwt, typename sa_sint_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_iphim1_sa() {
+void move_r<support,sym_t,pos_t>::construction::build_iphim1_sa() {
     if (log) {
         time = now();
         std::cout << "building I_Phi^{-1}" << std::flush;
@@ -559,7 +582,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_iphim1_sa() {
         }
     }
 
-    if (!build_sa_and_l && locate_support != _rlzdsa) {
+    if (!build_sa_and_l && support != _locate_rlzdsa) {
         std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
 
         SA.clear();
@@ -572,16 +595,16 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_iphim1_sa() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t>
 template <bool build_sas_>
-void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas() {
+void move_r<support,sym_t,pos_t>::construction::build_l__sas() {
     if (log) {
         time = now();
         std::cout << "building L'" << (std::string)(build_sas_ ? " and SA_s" : "") << std::flush;
     }
 
     if constexpr (build_sas_) {
-        if constexpr (locate_support == _mds) {
+        if constexpr (support == _locate_move) {
             no_init_resize(SA_s,r_);
         } else {
             idx._SA_s.resize_no_init(r_);
@@ -611,7 +634,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas() {
         for (pos_t i=0; i<rp_diff; i++) {
             idx._M_LF.template set_L_(j,run_sym(i_p,i));
             if constexpr (build_sas_) {
-                if constexpr (locate_support == _mds ) {
+                if constexpr (support == _locate_move ) {
                     SA_s[j] = I_Phi_m1[b_r+i].second;
                 } else {
                     idx._SA_s.template set<0,pos_t>(j,I_Phi_m1[b_r+i].second);
@@ -627,7 +650,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas() {
             // created by the balancing algorithm
             while (idx._M_LF.p(j) < l_) {
                 if constexpr (build_sas_) {
-                    if constexpr (locate_support == _mds) {
+                    if constexpr (support == _locate_move) {
                         SA_s[j] = n;
                     } else {
                         idx._SA_s.template set<0,pos_t>(j,n);
@@ -655,8 +678,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_l__sas() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::sort_iphim1() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::sort_iphim1() {
     if (log) {
         time = now();
         std::cout << "sorting I_Phi^{-1}" << std::flush;
@@ -685,8 +708,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::sort_iphim1() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_mphim1() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::build_mphim1() {
     if (log) {
         time = now();
         std::cout << std::endl << "building M_Phi^{-1}" << std::flush;
@@ -712,8 +735,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_mphim1() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_saphim1() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::build_saphim1() {
     time = now();
     if (log) std::cout << "building SA_Phi^{-1}" << std::flush;
 
@@ -895,9 +918,9 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_saphim1() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_de() {
-    if (build_locate_support) {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::build_de() {
+    if constexpr (supports_locate) {
         idx.p_r = std::min<pos_t>(256,std::max<pos_t>(1,r/100));
     }
     
@@ -916,8 +939,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_de() {
     pi_.shrink_to_fit();
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::build_rsl_() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::build_rsl_() {
     if (log) {
         time = now();
         std::cout << "building RS_L'" << std::flush;
@@ -935,8 +958,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::build_rsl_() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::store_rlbwt() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::store_rlbwt() {
     if (log) {
         time = now();
         std::cout << "storing RLBWT to disk" << std::flush;
@@ -958,8 +981,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::store_rlbwt() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::load_rlbwt() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::load_rlbwt() {
     if (log) {
         time = now();
         std::cout << "loading RLBWT from disk" << std::flush;
@@ -981,8 +1004,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::load_rlbwt() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::store_mlf() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::store_mlf() {
     if (log) {
         time = now();
         std::cout << "storing M_LF and L' to disk" << std::flush;
@@ -999,8 +1022,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::store_mlf() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::load_mlf() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::load_mlf() {
     if (log) {
         time = now();
         std::cout << "loading M_LF and L' from disk" << std::flush;
@@ -1017,8 +1040,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::load_mlf() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::store_sas() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::store_sas() {
     if (log) {
         time = now();
         std::cout << "storing SA_s to disk" << std::flush;
@@ -1035,8 +1058,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::store_sas() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::load_sas() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::load_sas() {
     if (log) {
         time = now();
         std::cout << "loading SA_s from disk" << std::flush;
@@ -1053,8 +1076,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::load_sas() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::store_sas_idx() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::store_sas_idx() {
     if (log) {
         time = now();
         std::cout << "storing SA_s to disk" << std::flush;
@@ -1071,8 +1094,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::store_sas_idx() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::load_sas_idx() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::load_sas_idx() {
     if (log) {
         time = now();
         std::cout << "loading SA_s from disk" << std::flush;
@@ -1088,8 +1111,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::load_sas_idx() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::store_rsl_() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::store_rsl_() {
     if (log) {
         time = now();
         std::cout << "storing RS_L' to disk" << std::flush;
@@ -1105,8 +1128,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::store_rsl_() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::load_rsl_() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::load_rsl_() {
     if (log) {
         time = now();
         std::cout << "loading RS_L' from disk" << std::flush;

@@ -3,17 +3,17 @@
 #include <filesystem>
 #include <move_r/move_r.hpp>
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::preprocess_and_store_t_in_file() {
-    preprocess_t(true);
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::preprocess_and_store_t_in_file() {
+    preprocess_t(true,true);
     
     std::ofstream T_ofile(prefix_tmp_files);
     write_to_file(T_ofile,T_str.c_str(),n-1);
     T_ofile.close();
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::bigbwt() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::bigbwt() {
     if (log) {
         time = now();
         std::cout << "running Big-BWT" << std::endl << std::endl;
@@ -21,7 +21,7 @@ void move_r<locate_support,sym_t,pos_t>::construction::bigbwt() {
 
     system((
         "external/Big-BWT/bigbwt " +
-        (std::string)(build_locate_support ? (locate_support == _rlzdsa ? "-S " : "-s -e ") : "") +
+        (std::string)((supports_locate) ? (support == _locate_rlzdsa ? "-S " : "-s -e ") : "") +
         (std::string)(p > 1 ? ("-t " + std::to_string(p) + " ") : "") +
         prefix_tmp_files +
         (std::string)(log ? "" : " >log_1 >log_2")
@@ -51,8 +51,8 @@ void move_r<locate_support,sym_t,pos_t>::construction::bigbwt() {
     }
 }
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-void move_r<locate_support,sym_t,pos_t>::construction::read_iphim1_bigbwt() {
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::construction::read_iphim1_bigbwt() {
     if (log) {
         time = now();
         std::cout << "reading I_Phi^{-1}" << std::flush;

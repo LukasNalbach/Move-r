@@ -42,9 +42,6 @@
 [submodule "external/r-index"]
 	path = external/r-index
 	url = git@github.com:alshai/r-index.git
-[submodule "external/sais-lite-lcp"]
-	path = external/sais-lite-lcp
-	url = git@github.com:kurpicz/sais-lite-lcp.git
 [submodule "external/gtl"]
 	path = external/gtl
 	url = git@github.com:greg7mdp/gtl.git
@@ -60,3 +57,6 @@
 [submodule "external/r-index-rlzsa"]
 	path = external/r-index-rlzsa
 	url = git@github.com:LukasNalbach/r-index-rlzsa.git
+[submodule "external/sais-lite-lcp"]
+	path = external/sais-lite-lcp
+	url = https://github.com/kurpicz/sais-lite-lcp

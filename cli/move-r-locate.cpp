@@ -54,13 +54,13 @@ void parse_args(char **argv, int argc, int &ptr) {
     }
 }
 
-template <typename pos_t, move_r_locate_supp locate_support>
+template <typename pos_t, move_r_support support>
 void measure_locate() {
     std::cout << std::setprecision(4);
     std::cout << "loading the index" << std::flush;
     auto t1 = now();
-    move_r<locate_support,char,pos_t> index;
-    index.load(index_file,{_locate});
+    move_r<support,char,pos_t> index;
+    index.load(index_file);
     log_runtime(t1);
     index_file.close();
     std::cout << std::endl;
@@ -166,7 +166,15 @@ void measure_locate() {
         mf << " sigma=" << std::to_string(index.alphabet_size());
         mf << " r=" << index.num_bwt_runs();
         mf << " r_=" << index.M_LF().num_intervals();
-        mf << " r__=" << index.M_Phi_m1().num_intervals();
+
+        if constexpr (support == _locate_move) {
+            mf << " r__=" << index.M_Phi_m1().num_intervals();
+        } else if constexpr (support == _locate_rlzdsa) {
+            mf << " z__=" << index.num_phrases_rlzdsa();
+            mf << " z_l_=" << index.num_literal_phrases_rlzdsa();
+            mf << " z_c_=" << index.num_copy_phrases_rlzdsa();
+        }
+
         mf << " pattern_length=" << pattern_length;
         index.log_data_structure_sizes(mf);
         mf << " num_patterns=" << num_patterns;
@@ -202,21 +210,24 @@ int main(int argc, char **argv) {
 
     bool is_64_bit;
     index_file.read((char*)&is_64_bit,1);
-    move_r_locate_supp _locate_support;
-    index_file.read((char*)&_locate_support,sizeof(move_r_locate_supp));
+    move_r_support _support;
+    index_file.read((char*)&_support,sizeof(move_r_support));
     index_file.seekg(0,std::ios::beg);
 
-    if (_locate_support == _mds) {
+    if (_support == _count || _support == _locate_one) {
+        std::cout << "error: this index does not support locate" << std::endl;
+        exit(0);
+    } else if (_support == _locate_move) {
         if (is_64_bit) {
-            measure_locate<uint64_t,_mds>();
+            measure_locate<uint64_t,_locate_move>();
         } else {
-            measure_locate<uint32_t,_mds>();
+            measure_locate<uint32_t,_locate_move>();
         }
     } else {
         if (is_64_bit) {
-            measure_locate<uint64_t,_rlzdsa>();
+            measure_locate<uint64_t,_locate_rlzdsa>();
         } else {
-            measure_locate<uint32_t,_rlzdsa>();
+            measure_locate<uint32_t,_locate_rlzdsa>();
         }
     }
 

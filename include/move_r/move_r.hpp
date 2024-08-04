@@ -11,47 +11,35 @@
 #include <tsl/sparse_map.h>
 
 /**
- * @brief an operation that can be supported by a move_r object
- */
-enum move_r_supp {
-    /* support for retrieving (a range of) the input from the index (reverting
-    the index); this also includes support for accessing or retrieving (a range in)
-    the bwt (reverting in parallel requires the index to be built with locate support) */
-    _revert = 0,
-    _count = 1, // support for counting the occurrences of a pattern in the input
-    _locate = 2 // support for calculating the positions of occurrences of a pattern in the inputstring
-};
-
-/**
- * @brief a vector containing all operations supported by move_r
- */
-static std::vector<move_r_supp> _full_support = {_revert, _count, _locate};
-
-/**
  * @brief type of locate support
  */
-enum move_r_locate_supp {
-    _mds = 0, // locate support is implemented using a move data structure to answer Phi^{-1}-queries
-    _rlzdsa = 1 // locate support is implemented by relative lepel-ziv encoding the differential suffix array
+enum move_r_support {
+    _count, // only count support (no locate support)
+    _locate_one, // support for computing exaclty one occurrence per pattern
+    _locate_move, // locate support is implemented using a move data structure to answer Phi^{-1}-queries
+    _locate_rlzdsa // locate support is implemented by relative lepel-ziv encoding the differential suffix array
 };
 
 /**
  * @brief move-r construction mode
  */
-enum move_r_constr_mode {
-    _bigbwt = 0, // builds the bwt with Big-BWT and stores many data structures on disk to reduce peak memory usage
-    _suffix_array = 1, // builds the suffix array in-memory and stores no data structures on disk
-    _suffix_array_space = 2 // builds the suffix array and stores some data structures on disk
+enum move_r_construction_mode {
+    _bigbwt, // builds the bwt with Big-BWT and stores many data structures on disk to reduce peak memory usage
+    _suffix_array, // builds the suffix array in-memory and stores no data structures on disk
+    _suffix_array_space // builds the suffix array and stores some data structures on disk
 };
 
 /**
  * @brief move-r construction parameters
  */
 struct move_r_params {
-    std::vector<move_r_supp> support = _full_support; // a vector containing move_r operations to build support for
-    move_r_constr_mode mode = _suffix_array; // cosntruction mode to use (default: sa)
+    move_r_construction_mode mode = _suffix_array; // cosntruction mode to use (default: sa)
     uint16_t num_threads = omp_get_max_threads(); // maximum number of threads to use during the construction
     uint16_t a = 8; // balancing parameter, 2 <= a
+    /* alphabet size of the input (only for int_alphabet = true); if set to 0, a hash map is used to map the symbols
+       in the input to its effective alphabet; else (alphabet_size != 0), the input must already be mapped to its
+       effective alphabet, and no hashmap is used */
+    uint64_t alphabet_size = 0;
     bool log = false; // controls, whether to print log messages
     std::ostream* mf_idx = NULL; // measurement file for the index construciton
     std::ostream* mf_mds = NULL; // measurement file for the move data structure construction
@@ -60,11 +48,11 @@ struct move_r_params {
 
 /**
  * @brief move-r index, size O(r*(a/(a-1)))
- * @tparam locate_support type of locate support (_mds or _rlzdsa)
+ * @tparam support type of locate support (_locate_move or _locate_rlzdsa)
  * @tparam sym_t value type (default: char for strings)
  * @tparam pos_t index integer type (use uint32_t if input size < UINT_MAX, else uint64_t)
  */
-template <move_r_locate_supp locate_support = _mds, typename sym_t = char, typename pos_t = uint32_t>
+template <move_r_support support = _locate_move, typename sym_t = char, typename pos_t = uint32_t>
 class move_r {
     protected:
 
@@ -95,9 +83,13 @@ class move_r {
      /* constexpr_case<sizeof(sym_t) == 8, */ uint64_t
     >;
     
+    static constexpr bool supports_locate = support != _count; // true <=> the index supports locate
+    // true <=> the index supports locating multiple occurrences
+    static constexpr bool supports_multiple_locate = supports_locate && support != _locate_one;
     static constexpr bool str_input = std::is_same_v<sym_t,char>; // true <=> the input is a string
     static constexpr bool int_input = !str_input; // true <=> the input is an iteger vector
     static constexpr bool byte_alphabet = sizeof(sym_t) == 1; // true <=> the input uses a byte alphabet
+    static constexpr bool int_alphabet = !byte_alphabet; // true <=> the input uses an integer alphabet
 
     using map_int_t = std::conditional_t<byte_alphabet,std::vector<uint8_t>,tsl::sparse_map<sym_t,i_sym_t>>; // type of map_int
     using map_ext_t = std::vector<sym_t>; // type of map_ext
@@ -106,6 +98,9 @@ class move_r {
 
     // sample rate of the copy phrases in the rlzdsa
     static constexpr pos_t sr_scp = 4;
+
+    // maximum distance to scan over L' to find the first and last occurrences of sym in L'[\hat{b},\hat{e}]
+    static constexpr pos_t max_scan_l_ = 128;
 
     // ############################# INDEX VARIABLES #############################
 
@@ -121,7 +116,6 @@ class move_r {
     uint16_t p_r = 1; // maximum possible number of threads to use while reverting the index
     uint8_t omega_idx = 0; // word width of SA_Phi^{-1}
 
-    std::vector<move_r_supp> _support; // contains all supported operations
     /* true <=> the characters of the input have been remapped internally, because sym_t != char or
        the input invalid characters */
     bool symbols_remapped = false;
@@ -174,24 +168,7 @@ class move_r {
     inline void set_SA_Phi_m1(pos_t x, pos_t idx) {
         _SA_Phi_m1.template set<0,pos_t>(x,idx);
     }
-
-    /**
-     * @brief adds implicitly supported move_r operations to the vector support and sorts it afterwards
-     * @param support a vector containing move_r operations
-     */
-    static void adjust_supports(std::vector<move_r_supp>& support) {
-        if (contains(support,_locate) && !(contains(support,_count))) {
-            support.emplace_back(_count);
-        }
-        
-        if (contains(support,_count) && !(contains(support,_revert))) {
-            support.emplace_back(_revert);
-        }
-        
-        ips4o::sort(support.begin(),support.end());
-        support.erase(std::unique(support.begin(),support.end()),support.end());
-    }
-
+    
     class construction;
 
     // ############################# CONSTRUCTORS #############################
@@ -268,7 +245,7 @@ class move_r {
      * @brief returns the number of phrases in the rlzdsa
      * @return number of phrases in the rlzdsa
      */
-    inline pos_t num_phrases_rlzdsa() const {
+    inline pos_t num_phrases_rlzdsa() const requires(support == _locate_rlzdsa) {
         return z;
     }
 
@@ -276,7 +253,7 @@ class move_r {
      * @brief returns the number of literal phrases in the rlzdsa
      * @return number of literal phrases in the rlzdsa
      */
-    inline pos_t num_literal_phrases_rlzdsa() const {
+    inline pos_t num_literal_phrases_rlzdsa() const requires(support == _locate_rlzdsa) {
         return z_l;
     }
 
@@ -284,7 +261,7 @@ class move_r {
      * @brief returns the number of copy phrases in the rlzdsa
      * @return number of copy phrases in the rlzdsa
      */
-    inline pos_t num_copy_phrases_rlzdsa() const {
+    inline pos_t num_copy_phrases_rlzdsa() const requires(support == _locate_rlzdsa) {
         return z_c;
     }
 
@@ -300,7 +277,7 @@ class move_r {
      * @brief returns the number omega_idx of bits used by one entry in SA_Phi^{-1} (word width of SA_Phi^{-1})
      * @return omega_idx
      */
-    inline uint8_t width_saphi() const {
+    inline uint8_t width_saphi() const requires(support == _locate_move) {
         return omega_idx;
     }
 
@@ -313,51 +290,33 @@ class move_r {
     }
 
     /**
-     * @brief returns a vector containing the supported operations of this index
-     * @return vector containing the operations
-     */
-    inline std::vector<move_r_supp> supported_operations() const {
-        return _support;
-    }
-
-    /**
-     * @brief returns whether the provided operation is supported by this index
-     * @param operation a move_r operation
-     * @return whether operation is supported by this index
-     */
-    inline bool does_support(move_r_supp operation) const {
-        return contains(_support,operation);
-    }
-
-    /**
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
      */
     uint64_t size_in_bytes() const {
         uint64_t size =
-            _support.size()*sizeof(move_r_supp)+ // variables
-            4*sizeof(pos_t)+3+2*sizeof(uint16_t)+ // ...
+            4*sizeof(pos_t)+3+2*sizeof(uint16_t)+ // variables
             p_r*sizeof(pos_t)+ // D_e
             _M_LF.size_in_bytes()+ // M_LF and L'
             size_map_int+ // map_int
             sizeof(sym_t)*sigma+ // map_ext
             _RS_L_.size_in_bytes(); // RS_L'
 
-        if (contains(_support,_locate)) {
-            if constexpr (locate_support == _mds) {
-                size +=
-                    _M_Phi_m1.size_in_bytes()+ // M_Phi^{-1}
-                    _SA_Phi_m1.size_in_bytes(); // SA_Phi^{-1}
-            } else {
-                size +=
-                    _SA_s.size_in_bytes()+ // SA_s
-                    _R.size_in_bytes()+ // R
-                    (z_c+2)*sizeof(uint16_t)+ // CPL
-                    _SCP_S.size_in_bytes()+ // SCP_S
-                    _SR.size_in_bytes()+ // SR
-                    _LP.size_in_bytes()+ // LP
-                    _PT.size_in_bytes(); // PT
-            }
+        if constexpr (support == _locate_one) {
+            size += _SA_s.size_in_bytes(); // SA_s
+        } else if constexpr (support == _locate_move) {
+            size +=
+                _M_Phi_m1.size_in_bytes()+ // M_Phi^{-1}
+                _SA_Phi_m1.size_in_bytes(); // SA_Phi^{-1}
+        } else if constexpr (support == _locate_rlzdsa) {
+            size +=
+                _SA_s.size_in_bytes()+ // SA_s
+                _R.size_in_bytes()+ // R
+                (z_c+2)*sizeof(uint16_t)+ // CPL
+                _SCP_S.size_in_bytes()+ // SCP_S
+                _SR.size_in_bytes()+ // SR
+                _LP.size_in_bytes()+ // LP
+                _PT.size_in_bytes(); // PT
         }
 
         return size;
@@ -372,29 +331,26 @@ class move_r {
         uint64_t size_l_ = (_M_LF.width_l_()/8)*(r_+1);
         std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes()-size_l_) << std::endl;
         std::cout << "L': " << format_size(size_l_) << std::endl;
+        std::cout << "RS_L': " << format_size(_RS_L_.size_in_bytes()) << std::endl;
 
-        if constexpr (int_input) {
+        if (int_alphabet && symbols_remapped) {
             std::cout << "map_int: " << format_size(size_map_int) << std::endl;
             std::cout << "map_ext: " << format_size(sizeof(sym_t)*sigma) << std::endl;
         }
 
-        if (does_support(_count)) {
-            std::cout << "RS_L': " << format_size(_RS_L_.size_in_bytes()) << std::endl;
-        }
-
-        if (does_support(_locate)) {
-            if constexpr (locate_support == _mds) {
-                std::cout << "M_Phi^{-1}: " << format_size(_M_Phi_m1.size_in_bytes()) << std::endl;
-                std::cout << "SA_Phi^{-1}: " << format_size(_SA_Phi_m1.size_in_bytes()) << std::endl;
-            } else {
-                std::cout << "SA_s: " << format_size(_SA_s.size_in_bytes()) << std::endl;
-                std::cout << "R: " << format_size(_R.size_in_bytes()) << std::endl;
-                std::cout << "CPL: " << format_size((z_c+2)*sizeof(uint16_t)) << std::endl;
-                std::cout << "SCP_S: " << format_size(_SCP_S.size_in_bytes()) << std::endl;
-                std::cout << "SR: " << format_size(_SR.size_in_bytes()) << std::endl;
-                std::cout << "LP: " << format_size(_LP.size_in_bytes()) << std::endl;
-                std::cout << "PT: " << format_size(_PT.size_in_bytes()) << std::endl;
-            }
+        if constexpr (support == _locate_one) {
+            std::cout << "SA_s: " << format_size(_SA_s.size_in_bytes()) << std::endl;
+        } else if constexpr (support == _locate_move) {
+            std::cout << "M_Phi^{-1}: " << format_size(_M_Phi_m1.size_in_bytes()) << std::endl;
+            std::cout << "SA_Phi^{-1}: " << format_size(_SA_Phi_m1.size_in_bytes()) << std::endl;
+        } else if constexpr (support == _locate_rlzdsa) {
+            std::cout << "SA_s: " << format_size(_SA_s.size_in_bytes()) << std::endl;
+            std::cout << "R: " << format_size(_R.size_in_bytes()) << std::endl;
+            std::cout << "CPL: " << format_size((z_c+2)*sizeof(uint16_t)) << std::endl;
+            std::cout << "SCP_S: " << format_size(_SCP_S.size_in_bytes()) << std::endl;
+            std::cout << "SR: " << format_size(_SR.size_in_bytes()) << std::endl;
+            std::cout << "LP: " << format_size(_LP.size_in_bytes()) << std::endl;
+            std::cout << "PT: " << format_size(_PT.size_in_bytes()) << std::endl;
         }
     }
 
@@ -407,29 +363,26 @@ class move_r {
         uint64_t size_l_ = (_M_LF.width_l_()/8)*(r_+1);
         out << " size_m_lf=" << _M_LF.size_in_bytes()-size_l_;
         out << " size_l_=" << size_l_;
+        out << " size_rs_l_=" << _RS_L_.size_in_bytes();
 
-        if constexpr (int_input) {
+        if (int_alphabet && symbols_remapped) {
             out << " size_map_int=" << size_map_int;
             out << " size_map_ext=" << sizeof(sym_t)*sigma;
         }
-        
-        if (does_support(_count)) {
-            out << " size_rs_l_=" << _RS_L_.size_in_bytes();
-        }
 
-        if (does_support(_locate)) {
-            if constexpr (locate_support == _mds) {
-                out << " size_m_phim1=" << _M_Phi_m1.size_in_bytes();
-                out << " size_sa_phim1=" << _SA_Phi_m1.size_in_bytes();
-            } else {
-                out << "size_sa_s: " << _SA_s.size_in_bytes();
-                out << "size_r: " << _R.size_in_bytes();
-                out << "size_cpl: " << (z_c+2)*sizeof(uint16_t);
-                out << "size_scp: " << _SCP_S.size_in_bytes();
-                out << "size_sr: " << _SR.size_in_bytes();
-                out << "size_lp: " << _LP.size_in_bytes();
-                out << "size_pt: " << _PT.size_in_bytes();
-            }
+        if constexpr (support == _locate_one) {
+            out << "size_sa_s: " << _SA_s.size_in_bytes();
+        } else if constexpr (support == _locate_move) {
+            out << " size_m_phim1=" << _M_Phi_m1.size_in_bytes();
+            out << " size_sa_phim1=" << _SA_Phi_m1.size_in_bytes();
+        } else if constexpr (support == _locate_rlzdsa) {
+            out << "size_sa_s: " << _SA_s.size_in_bytes();
+            out << "size_r: " << _R.size_in_bytes();
+            out << "size_cpl: " << (z_c+2)*sizeof(uint16_t);
+            out << "size_scp: " << _SCP_S.size_in_bytes();
+            out << "size_sr: " << _SR.size_in_bytes();
+            out << "size_lp: " << _LP.size_in_bytes();
+            out << "size_pt: " << _PT.size_in_bytes();
         }
     }
 
@@ -447,7 +400,7 @@ class move_r {
      * @brief returns a reference to M_Phi^{-1}
      * @return M_Phi^{-1}
      */
-    inline const move_data_structure<pos_t>& M_Phi_m1() const {
+    inline const move_data_structure<pos_t>& M_Phi_m1() const requires(support == _locate_move) {
         return _M_Phi_m1;
     }
 
@@ -463,7 +416,7 @@ class move_r {
      * @brief returns a reference to R
      * @return R
      */
-    inline const interleaved_vectors<uint64_t,pos_t>& R() const {
+    inline const interleaved_vectors<uint64_t,pos_t>& R() const requires(support == _locate_rlzdsa) {
         return _R;
     }
 
@@ -471,7 +424,7 @@ class move_r {
      * @brief returns a reference to PT
      * @return PT
      */
-    inline const plain_bit_vector<pos_t,true,true,true>& PT() const {
+    inline const plain_bit_vector<pos_t,true,true,true>& PT() const requires(support == _locate_rlzdsa) {
         return _PT;
     }
 
@@ -479,7 +432,7 @@ class move_r {
      * @brief returns a reference to CPL
      * @return CPL
      */
-    inline const std::vector<uint16_t>& CPL() const {
+    inline const std::vector<uint16_t>& CPL() const requires(support == _locate_rlzdsa) {
         return _CPL;
     }
 
@@ -487,7 +440,7 @@ class move_r {
      * @brief returns a reference to SCP_S
      * @return SCP_S
      */
-    inline const sd_array<pos_t>& SCP_S() const {
+    inline const sd_array<pos_t>& SCP_S() const requires(support == _locate_rlzdsa) {
         return _SCP_S;
     }
 
@@ -495,7 +448,7 @@ class move_r {
      * @brief returns a reference to SR
      * @return SR
      */
-    inline const interleaved_vectors<pos_t,pos_t>& SR() const {
+    inline const interleaved_vectors<pos_t,pos_t>& SR() const requires(support == _locate_rlzdsa) {
         return _SR;
     }
 
@@ -503,7 +456,7 @@ class move_r {
      * @brief returns a reference to LP
      * @return LP
      */
-    inline const interleaved_vectors<pos_t,pos_t>& LP() const {
+    inline const interleaved_vectors<pos_t,pos_t>& LP() const requires(support == _locate_rlzdsa) {
         return _LP;
     }
 
@@ -512,7 +465,7 @@ class move_r {
      * @param x [0..|R|-1] index in R
      * @return R[x]
      */
-    inline uint64_t R(pos_t x) const {
+    inline uint64_t R(pos_t x) const requires(support == _locate_rlzdsa) {
         return _R[x];
     }
 
@@ -521,7 +474,7 @@ class move_r {
      * @param x [0..z-1] index in PT
      * @return PT[x]
      */
-    inline bool PT(pos_t x) const {
+    inline bool PT(pos_t x) const requires(support == _locate_rlzdsa) {
         return _PT[x];
     }
 
@@ -530,7 +483,7 @@ class move_r {
      * @param x [0..z_c-1] index in CPL
      * @return CPL[x]
      */
-    inline uint16_t CPL(pos_t x) const {
+    inline uint16_t CPL(pos_t x) const requires(support == _locate_rlzdsa) {
         return _CPL[x];
     }
 
@@ -539,7 +492,7 @@ class move_r {
      * @param x [0..z_c/sr_scp-1] index in SCP_S
      * @return SCP_S[x]
      */
-    inline pos_t SCP_S(pos_t x) const {
+    inline pos_t SCP_S(pos_t x) const requires(support == _locate_rlzdsa) {
         return _SCP_S.select_1(x+1);
     }
 
@@ -548,7 +501,7 @@ class move_r {
      * @param x [0..z_r-1] index in SR
      * @return SR[x]
      */
-    inline pos_t SR(pos_t x) const {
+    inline pos_t SR(pos_t x) const requires(support == _locate_rlzdsa) {
         return _SR[x];
     }
 
@@ -557,7 +510,7 @@ class move_r {
      * @param x [0..z_l-1] index in LP
      * @return LP[x]
      */
-    inline pos_t LP(pos_t x) const {
+    inline pos_t LP(pos_t x) const requires(support == _locate_rlzdsa) {
         return _LP[x];
     }
 
@@ -566,7 +519,7 @@ class move_r {
      * @param x [0..r''-1]
      * @return SA_Phi^{-1}[x]
      */
-    inline pos_t SA_Phi_m1(pos_t x) const {
+    inline pos_t SA_Phi_m1(pos_t x) const requires(support == _locate_move) {
         return _SA_Phi_m1[x];
     }
 
@@ -576,9 +529,9 @@ class move_r {
      * interval in M_LF must be a starting position of a bwt run
      * @return SA_s[x]
      */
-    inline pos_t SA_s(pos_t x) const {
-        if constexpr (locate_support == _mds) {
-            return _M_Phi_m1.q(_SA_Phi_m1[x]);
+    inline pos_t SA_s(pos_t x) const requires(supports_locate) {
+        if constexpr (support == _locate_move) {
+            return M_Phi_m1().q(SA_Phi_m1(x));
         } else {
             return _SA_s[x];
         }
@@ -594,30 +547,12 @@ class move_r {
     }
 
     /**
-     * @brief reinterprets an int8_t as a uint8_t
+     * @brief reinterprets a symbol of the input symbol type as a symbol of the internal symbol type
      * @param sym symbol
-     * @return sym reinterpreted as uint8_t
+     * @return sym reinterpreted as i_sym_t
      */
-    uint8_t symbol_idx(uint8_t sym) {
-        return sym;
-    }
-
-    /**
-     * @brief reinterprets an int8_t as a uint8_t
-     * @param sym symbol
-     * @return sym reinterpreted as uint8_t
-     */
-    uint8_t symbol_idx(int8_t sym) {
-        return *reinterpret_cast<uint8_t*>(&sym);
-    }
-
-    /**
-     * @brief reinterprets an char as a uint8_t
-     * @param sym symbol
-     * @return sym reinterpreted as uint8_t
-     */
-    uint8_t symbol_idx(char sym) const {
-        return *reinterpret_cast<uint8_t*>(&sym);
+    i_sym_t symbol_idx(sym_t sym) const {
+        return *reinterpret_cast<i_sym_t*>(&sym);
     }
 
     /**
@@ -629,12 +564,16 @@ class move_r {
         if constexpr (byte_alphabet) {
             return symbols_remapped ? _map_int[symbol_idx(sym)] : symbol_idx(sym);
         } else {
-            auto res = _map_int.find(sym);
+            if (symbols_remapped) {
+                auto res = _map_int.find(sym);
 
-            if (res == _map_int.end()) {
-                return 0;
+                if (res == _map_int.end()) {
+                    return 0;
+                } else {
+                    return (*res).second;
+                }
             } else {
-                return (*res).second;
+                return symbol_idx(sym);
             }
         }
     }
@@ -646,11 +585,7 @@ class move_r {
      * @return its corresponding symbol in the input
      */
     inline sym_t unmap_symbol(i_sym_t sym) const {
-        if constexpr (byte_alphabet) {
-            return symbols_remapped ? _map_ext[sym] : sym;
-        } else {
-            return _map_ext[sym];
-        }
+        return symbols_remapped ? _map_ext[sym] : sym;
     }
 
     /**
@@ -676,7 +611,7 @@ class move_r {
      * @param x [0..input size]
      * @return SA[i]
      */
-    pos_t SA(pos_t i) const;
+    pos_t SA(pos_t i) const requires(supports_multiple_locate);
 
     /**
      * @brief stores the variables needed to perform count- and locate-queries
@@ -685,21 +620,21 @@ class move_r {
         protected:
 
         pos_t l;  // length of the currently matched pattern
-        pos_t b,e,b_,e_,hat_b_ap_y; // variables for backward search
-        int64_t y; // variable for backward search
+        pos_t b,e,b_,e_,hat_b_ap_y,hat_e_ap_z; // variables for backward search
+        int64_t y,z; // variables for backward search
         pos_t i; // current position in the suffix array interval
         pos_t s; // current suffix s = SA[i] in the suffix array interval
         pos_t s_; // index of the input inteval of M_Phi^{-1} containing s
         pos_t x_p,x_lp,x_cp,x_r,s_np; // variables for decoding the rlzdsa
 
-        const move_r<locate_support,sym_t,pos_t>* idx; // index to query
+        const move_r<support,sym_t,pos_t>* idx; // index to query
 
         public:
         /**
          * @brief constructs a new query context for the index idx
          * @param idx an index
          */
-        query_context(const move_r<locate_support,sym_t,pos_t>& idx) {
+        query_context(const move_r<support,sym_t,pos_t>& idx) {
             this->idx = &idx;
             reset();
         }
@@ -708,7 +643,7 @@ class move_r {
          * @brief resets the query context to an empty pattern
          */
         inline void reset() {
-            idx->init_backward_search(b,e,b_,e_,hat_b_ap_y,y);
+            idx->init_backward_search(b,e,b_,e_,hat_b_ap_y,y,hat_e_ap_z,z);
             l = 0;
             i = b;
         }
@@ -733,7 +668,7 @@ class move_r {
          * @brief returns the number of remaining (not yet reported) occurrences of the currently matched pattern
          * @return number of remaining occurrences
          */
-        inline pos_t num_occ_rem() const {
+        inline pos_t num_occ_rem() const requires(supports_multiple_locate) {
             return e >= i ? e-i+1 : 0;
         }
 
@@ -758,19 +693,25 @@ class move_r {
          * @brief reports the next occurrence of the currently matched pattern
          * @return next occurrence
          */
-        inline pos_t next_occ();
+        inline pos_t next_occ() requires(supports_multiple_locate);
+
+        /**
+         * @brief reports one occurrence of the currently matched pattern
+         * @return an occurrence
+         */
+        inline pos_t one_occ() const requires(supports_locate);
 
         /**
          * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
          * @param Occ vector to append the occurrences to
          */
-        inline void locate(std::vector<pos_t>& Occ);
+        inline void locate(std::vector<pos_t>& Occ) requires(supports_multiple_locate);
 
         /**
          * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
          * @return vector containing the occurrences
          */
-        std::vector<pos_t> locate() {
+        std::vector<pos_t> locate() requires(supports_multiple_locate) {
             std::vector<pos_t> Occ;
             locate(Occ);
             return Occ;
@@ -794,11 +735,14 @@ class move_r {
      * @param e_ index of the input interval in M_LF containing e.
      * @param hat_b_ap_y \hat{b}'_y
      * @param y y
+     * @param hat_e_ap_z \hat{e}'_z
+     * @param z z
      */
     inline void init_backward_search(
         pos_t& b, pos_t& e,
         pos_t& b_, pos_t& e_,
-        pos_t& hat_b_ap_y, int64_t& y
+        pos_t& hat_b_ap_y, int64_t& y,
+        pos_t& hat_e_ap_z, int64_t& z
     ) const {
         b = 0;
         e = n-1;
@@ -806,6 +750,8 @@ class move_r {
         e_ = r_-1;
         hat_b_ap_y = 0;
         y = -1;
+        hat_e_ap_z = r_-1;
+        z = -1;
     }
     
     /**
@@ -818,22 +764,25 @@ class move_r {
      * @param e_ index of the input interval in M_LF containing e.
      * @param hat_b_ap_y \hat{b}'_y
      * @param y y
+     * @param hat_e_ap_z \hat{e}'_z
+     * @param z z
      * @return whether symP occurs in the input
      */
     bool backward_search_step(
         sym_t sym,
         pos_t& b, pos_t& e,
         pos_t& b_, pos_t& e_,
-        pos_t& hat_b_ap_y, int64_t& y
+        pos_t& hat_b_ap_y, int64_t& y,
+        pos_t& hat_e_ap_z, int64_t& z
     ) const;
 
     /**
-     * @brief Sets the up a Phi-move-pair for the suffix array sample at the end position of the x-th input interval in M_LF
-     * @param x an input interval in M_LF (the end position of the x-th input interval in M_LF must be an end position of a BWT run)
-     * @param s variable to store the suffix array sample at position l'_{x+1}-1
+     * @brief Sets the up a Phi^{-1}-move-pair for the suffix array sample at the starting position of the x-th input interval in M_LF
+     * @param x an input interval in M_LF (the end position of the x-th input interval in M_LF must be a starting position of a BWT run)
+     * @param s variable to store the suffix array sample at position M_LF.p[x]
      * @param s_ variable to store the index of the input interval in M_Phi^{-1} containing s
      */
-    inline void setup_phi_move_pair(pos_t& x, pos_t& s, pos_t& s_) const;
+    inline void setup_phi_m1_move_pair(pos_t& x, pos_t& s, pos_t& s_) const requires(support == _locate_move);
 
     /**
      * @brief prepares the variables to decode SA[b]
@@ -844,11 +793,11 @@ class move_r {
      * @param hat_b_ap_y \hat{b}'_y
      * @param y y
      */
-    inline void init_phi(
+    inline void init_phi_m1(
         pos_t& b, pos_t& e,
         pos_t& s, pos_t& s_,
         pos_t& hat_b_ap_y, int64_t& y
-    ) const;
+    ) const requires(support == _locate_move);
     
     /**
      * @brief prepares the variables to decode SA[i]
@@ -862,7 +811,7 @@ class move_r {
     inline void init_rlzdsa(
         pos_t& i,
         pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np
-    ) const;
+    ) const requires(support == _locate_rlzdsa);
     
     /**
      * @brief prepares the context to decode SA[i]; if there
@@ -878,7 +827,7 @@ class move_r {
     inline void init_rlzdsa(
         pos_t& i, pos_t& s,
         pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np
-    ) const;
+    ) const requires(support == _locate_rlzdsa);
 
     /**
      * @brief decodes and stores SA[i] in s and prepares the context to decode
@@ -894,7 +843,7 @@ class move_r {
     inline void next_rlzdsa(
         pos_t& i, pos_t& s,
         pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np
-    ) const;
+    ) const requires(support == _locate_rlzdsa);
 
     /**
      * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
@@ -907,11 +856,11 @@ class move_r {
      * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzdsa
      * @param s_np starting position in the rlzdsa of the next phrase of the rlzdsa
      */
-    inline void locate_rlzdsa(
+    inline void locate_rlzdsa_right(
         pos_t& i, pos_t& e, pos_t& s,
         pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
         std::vector<pos_t>& Occ
-    ) const;
+    ) const requires(support == _locate_rlzdsa);
 
     public:
     /**
@@ -926,7 +875,7 @@ class move_r {
      * @param P the pattern to locate in the input
      * @return a vector containing the occurrences of P in the input
      */
-    inline std::vector<pos_t> locate(const inp_t& P) const {
+    inline std::vector<pos_t> locate(const inp_t& P) const requires(supports_multiple_locate) {
         std::vector<pos_t> Occ;
         locate(P,Occ);
         return Occ;
@@ -937,7 +886,7 @@ class move_r {
      * @param P the pattern to locate in the input
      * @param Occ vector to append the occurrences of P in the input to
      */
-    void locate(const inp_t& P, std::vector<pos_t>& Occ) const;
+    void locate(const inp_t& P, std::vector<pos_t>& Occ) const requires(supports_multiple_locate);
 
     // ############################# RETRIEVE-RANGE METHODS #############################
 
@@ -975,7 +924,7 @@ class move_r {
      */
     template <typename output_t, bool output_reversed>
     void retrieve_range(
-        void(move_r<locate_support,sym_t,pos_t>::*retrieve_method)(const std::function<void(pos_t,output_t)>&,retrieve_params)const,
+        void(move_r<support,sym_t,pos_t>::*retrieve_method)(const std::function<void(pos_t,output_t)>&,retrieve_params)const,
         std::string file_name, retrieve_params params
     ) const;
 
@@ -1012,7 +961,7 @@ class move_r {
      */
     void BWT(std::string file_name, retrieve_params params = {}) const {
         adjust_retrieve_params(params,n-1);
-        retrieve_range<sym_t,false>(&move_r<locate_support,sym_t,pos_t>::BWT,file_name,params);
+        retrieve_range<sym_t,false>(&move_r<support,sym_t,pos_t>::BWT,file_name,params);
     }
 
     /**
@@ -1046,7 +995,7 @@ class move_r {
      */
     void revert(std::string file_name, retrieve_params params = {}) const {
         adjust_retrieve_params(params,n-2);
-        retrieve_range<sym_t,true>(&move_r<locate_support,sym_t,pos_t>::revert,file_name,params);
+        retrieve_range<sym_t,true>(&move_r<support,sym_t,pos_t>::revert,file_name,params);
     }
     
     /**
@@ -1055,7 +1004,7 @@ class move_r {
      * @param params parameters
      * @return the suffix array range [l,r]
      */
-    std::vector<pos_t> SA(retrieve_params params = {}) const {
+    std::vector<pos_t> SA(retrieve_params params = {}) const requires(supports_multiple_locate) {
         adjust_retrieve_params(params,n-1);
         std::vector<pos_t> SA_range;
         no_init_resize(SA_range,params.r-params.l+1);
@@ -1070,7 +1019,7 @@ class move_r {
      * @param report function that is called with every tuple (i,s) as a parameter, where i in [l,r] and s = SA[i]
      * @param params parameters
      */
-    void SA(const std::function<void(pos_t,pos_t)>& report, retrieve_params params = {}) const;
+    void SA(const std::function<void(pos_t,pos_t)>& report, retrieve_params params = {}) const requires(supports_multiple_locate);
 
     /**
      * @brief writes the values in the suffix array of the input in the range [l,r] blockwise to the file out (0 <= l <= r <= input size),
@@ -1078,9 +1027,9 @@ class move_r {
      * @param file_name name of the file to write the suffix array to
      * @param params parameters
      */
-    void SA(std::string file_name, retrieve_params params = {}) const {
+    void SA(std::string file_name, retrieve_params params = {}) const requires(supports_multiple_locate) {
         adjust_retrieve_params(params,n-1);
-        retrieve_range<pos_t,false>(&move_r<locate_support,sym_t,pos_t>::SA,file_name,params);
+        retrieve_range<pos_t,false>(&move_r<support,sym_t,pos_t>::SA,file_name,params);
     }
 
     // ############################# SERIALIZATION METHODS #############################
@@ -1088,31 +1037,15 @@ class move_r {
     /**
      * @brief stores the index to an output stream
      * @param out output stream to store the index to
-     * @param support supported operations to store data structures for
      */
-    void serialize(std::ostream& out, std::vector<move_r_supp> support = {}) const {
-        adjust_supports(support);
-
-        if (!is_subset_of(support,this->_support)) {
-            std::cout << "error: cannot store an index with support it has not been built with" << std::flush;
-            return;
-        }
-
-        if (support.empty()) {
-            support = this->_support;
-        }
-
+    void serialize(std::ostream& out) const {
         bool is_64_bit = std::is_same_v<pos_t,uint64_t>;
         out.write((char*)&is_64_bit,1);
-        move_r_locate_supp _locate_support = locate_support;
-        out.write((char*)&_locate_support,sizeof(move_r_locate_supp));
+        move_r_support _support = support;
+        out.write((char*)&_support,sizeof(move_r_support));
 
         std::streampos pos_data_structure_offsets = out.tellp();
         out.seekp(pos_data_structure_offsets+(std::streamoff)sizeof(std::streamoff),std::ios::beg);
-
-        uint8_t num_supports = support.size();
-        out.write((char*)&num_supports,1);
-        out.write((char*)&support[0],num_supports*sizeof(move_r_supp));
 
         out.write((char*)&n,sizeof(pos_t));
         out.write((char*)&sigma,sizeof(uint32_t));
@@ -1138,31 +1071,28 @@ class move_r {
         }
 
         _M_LF.serialize(out);
+        _RS_L_.serialize(out);
 
-        if (contains(support,_count)) {
-            _RS_L_.serialize(out);
-        }
+        if constexpr (support == _locate_one) {
+            _SA_s.serialize(out);
+        } else if constexpr (support == _locate_move) {
+            out.write((char*)&r__,sizeof(pos_t));
+            _M_Phi_m1.serialize(out);
 
-        if (contains(support,_locate)) {
-            if constexpr (locate_support == _mds) {
-                out.write((char*)&r__,sizeof(pos_t));
-                _M_Phi_m1.serialize(out);
+            out.write((char*)&omega_idx,1);
+            _SA_Phi_m1.serialize(out);
+        } else if constexpr (support == _locate_rlzdsa) {
+            out.write((char*)&z,sizeof(pos_t));
+            out.write((char*)&z_l,sizeof(pos_t));
+            out.write((char*)&z_c,sizeof(pos_t));
 
-                out.write((char*)&omega_idx,1);
-                _SA_Phi_m1.serialize(out);
-            } else {
-                out.write((char*)&z,sizeof(pos_t));
-                out.write((char*)&z_l,sizeof(pos_t));
-                out.write((char*)&z_c,sizeof(pos_t));
-
-                _SA_s.serialize(out);
-                _R.serialize(out);
-                _SCP_S.serialize(out);
-                write_to_file(out,(char*)&_CPL[0],(z_c+2)*sizeof(uint16_t));
-                _SR.serialize(out);
-                _LP.serialize(out);
-                _PT.serialize(out);
-            }
+            _SA_s.serialize(out);
+            _R.serialize(out);
+            _SCP_S.serialize(out);
+            write_to_file(out,(char*)&_CPL[0],(z_c+2)*sizeof(uint16_t));
+            _SR.serialize(out);
+            _LP.serialize(out);
+            _PT.serialize(out);
         }
 
         std::streamoff offs_end = out.tellp()-pos_data_structure_offsets;
@@ -1174,11 +1104,8 @@ class move_r {
     /**
      * @brief reads a serialized index from an input stream
      * @param in an input stream storing a serialized index
-     * @param support supported operations to load data structures for
      */
-    void load(std::istream& in, std::vector<move_r_supp> support = {}) {
-        adjust_supports(support);
-
+    void load(std::istream& in) {
         bool is_64_bit;
         in.read((char*)&is_64_bit,1);
 
@@ -1188,34 +1115,12 @@ class move_r {
             return;
         }
 
-        move_r_locate_supp _locate_support;
-        in.read((char*)&_locate_support,sizeof(move_r_locate_supp));
-
-        if (_locate_support != locate_support) {
-            std::cout << "error: cannot load an index with " << (_locate_support ? "phi" : "rlzdsa") << "-locate "
-            <<  "support into an index object with " << (locate_support ? "phi" : "rlzdsa") << "-locate support" << std::flush;
-            return;
-        }
+        move_r_support _support;
+        in.read((char*)&_support,sizeof(move_r_support));
 
         std::streampos pos_data_structure_offsets = in.tellg();
         std::streamoff offs_end;
         in.read((char*)&offs_end,sizeof(std::streamoff));
-
-        uint8_t num_supports;
-        in.read((char*)&num_supports,1);
-        this->_support.resize(num_supports);
-        in.read((char*)&this->_support[0],num_supports*sizeof(move_r_supp));
-
-        if (!is_subset_of(support,this->_support)) {
-            std::cout << "error: cannot load an index with support it has not been built with" << std::flush;
-            return;
-        }
-
-        if (support.empty()) {
-            support = this->_support;
-        }
-
-        this->_support = support;
 
         in.read((char*)&n,sizeof(pos_t));
         in.read((char*)&sigma,sizeof(uint32_t));
@@ -1251,32 +1156,29 @@ class move_r {
         }
 
         _M_LF.load(in);
+        _RS_L_.load(in);
 
-        if (contains(support,_count)) {
-            _RS_L_.load(in);
-        }
+        if constexpr (support == _locate_one) {
+            _SA_s.load(in);
+        } else if constexpr (support == _locate_move) {
+            in.read((char*)&r__,sizeof(pos_t));
+            _M_Phi_m1.load(in);
 
-        if (contains(support,_locate)) {
-            if constexpr (locate_support == _mds) {
-                in.read((char*)&r__,sizeof(pos_t));
-                _M_Phi_m1.load(in);
+            in.read((char*)&omega_idx,1);
+            _SA_Phi_m1.load(in);
+        } else if constexpr (support == _locate_rlzdsa) {
+            in.read((char*)&z,sizeof(pos_t));
+            in.read((char*)&z_l,sizeof(pos_t));
+            in.read((char*)&z_c,sizeof(pos_t));
 
-                in.read((char*)&omega_idx,1);
-                _SA_Phi_m1.load(in);
-            } else {
-                in.read((char*)&z,sizeof(pos_t));
-                in.read((char*)&z_l,sizeof(pos_t));
-                in.read((char*)&z_c,sizeof(pos_t));
-
-                _SA_s.load(in);
-                _R.load(in);
-                _SCP_S.load(in);
-                no_init_resize(_CPL,z_c+2);
-                read_from_file(in,(char*)&_CPL[0],(z_c+2)*sizeof(uint16_t));
-                _SR.load(in);
-                _LP.load(in);
-                _PT.load(in);
-            }
+            _SA_s.load(in);
+            _R.load(in);
+            _SCP_S.load(in);
+            no_init_resize(_CPL,z_c+2);
+            read_from_file(in,(char*)&_CPL[0],(z_c+2)*sizeof(uint16_t));
+            _SR.load(in);
+            _LP.load(in);
+            _PT.load(in);
         }
 
         in.seekg(pos_data_structure_offsets+offs_end,std::ios::beg);

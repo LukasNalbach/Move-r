@@ -10,8 +10,8 @@ enum rlbwt_build_mode {
     _bwt_file // the BWT is read from files output by Big-BWT
 };
 
-template <move_r_locate_supp locate_support, typename sym_t, typename pos_t>
-class move_r<locate_support,sym_t,pos_t>::construction {
+template <move_r_support support, typename sym_t, typename pos_t>
+class move_r<support,sym_t,pos_t>::construction {
     public:
     construction() = delete;
     construction(construction&&) = delete;
@@ -28,7 +28,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     std::vector<int32_t> SA_32_tmp;
     std::vector<int64_t> SA_64_tmp;
     uint16_t p = 1; // the number of threads to use
-    move_r_constr_mode mode = _suffix_array;
+    move_r_construction_mode mode = _suffix_array;
     /* the number of threads to use during the construction of the L,C and I_LF,I_Phi^{-1},L' and SA_s; when building move-r for an
      * integer alphabet, this needs (p+1)*sigma = O(p*n) words of space, so we limit the number of threads to p' to 1 to ensure
      * that we use O(sigma) = O(n) words of space; */
@@ -44,9 +44,6 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     std::chrono::steady_clock::time_point time_start; // time of the start of the whole build phase
     uint64_t baseline_mem_usage = 0; // memory allocation at the start of the construction
     uint64_t bigbwt_peak_mem_usage = 0; // peak memory usage during the execution of Big-BWT
-    bool build_count_support = false; // = true <=> build support for count (RS_L')
-    // = true <=> build support for locate (either SA_Phi^{-1} and M_Phi^{-1}, or SA_s,R,PT,SP,SR and LP); and buildparallel revert support (D_e)
-    bool build_locate_support = false;
     uint8_t min_valid_char = 0; // the minimum valid character that is allowed to occur in T
     uint8_t max_remapped_uchar = 0; // the maximum character in T that has been remapped
     uint8_t max_remapped_to_uchar = 0; // the maximum character in the effective alphabet of T that a character has been remapped to
@@ -70,7 +67,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     /** the vector containing T */
     std::vector<sym_t>& T_vec;
     /** The move-r index to construct */
-    move_r<locate_support,sym_t,pos_t>& idx;
+    move_r<support,sym_t,pos_t>& idx;
     /** [0..n-1] The suffix array (32-bit) */
     std::vector<int32_t>& SA_32;
     /** [0..n-1] The suffix array (64-bit) */
@@ -92,7 +89,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     std::vector<std::pair<pos_t,pos_t>> I_LF;
     /** The disjoint interval sequence for Phi^{-1} */
     std::vector<std::pair<pos_t,pos_t>> I_Phi_m1;
-    /** [0..r'-1] SA_s[x] = SA[M_LF.p[x]]; if locate_support = _mds, and the starting position of the
+    /** [0..r'-1] SA_s[x] = SA[M_LF.p[x]]; if the starting position of the
      * x-th input interval of M_LF is not starting position of a BWT run, then SA_s[x] = n */
     std::vector<pos_t> SA_s;
     /** [0..r'-1] Permutation storing the order of the values in SA_s */
@@ -117,7 +114,10 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     ts_t T_s;
     struct gap {pos_t beg_prev; float score;}; // gap between two consecutive segments
     /** comparator for gaps in T_g */
-    struct cmp_tg {bool operator()(const gap &g1, const gap &g2) const {return g1.score > g2.score;}};
+    struct cmp_tg {bool operator()(const gap &g1, const gap &g2) const {
+        return g1.score > g2.score ||
+            (g1.score == g2.score && g1.beg_prev < g2.beg_prev);
+    }};
     /** B-tree storing the gaps between the selected segments; stores pairs (beg_prev,score), where beg_prev is the starting
      * position of the segment preceding the gap, and score is the length of the connected segment resulting from closing the
      * gap divided by the length of the gap; the gaps ordered descendingly by their score */
@@ -127,7 +127,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     /** [0..size_R-1] rev(R) (for sad_t = uint64_t) */
     std::vector<uint64_t> revR_64;
     /** type of move-r index for finding copy phrases in the rlzdsa factorization */
-    template <typename sad_t, typename irr_pos_t> using idx_revr_t = move_r<_mds,sad_t,irr_pos_t>;
+    template <typename sad_t, typename irr_pos_t> using idx_revr_t = move_r<_locate_one,sad_t,irr_pos_t>;
     /** index for finding maximum length copy phrases in the rlzdsa factorization (for sad_t = uint32_t and irr_pos_t = uint32_t) */
     idx_revr_t<uint32_t,uint32_t> idx_revR_32_32;
     /** index for finding maximum length copy phrases in the rlzdsa factorization (for sad_t = uint64_t and irr_pos_t = uint32_t) */
@@ -162,31 +162,6 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     std::vector<pos_t> zc_p;
 
     // ############################# COMMON MISC METHODS #############################
-
-    /**
-     * @brief reports the operations supported by this index
-     */
-    void report_supports() {
-        std::cout << "building an index with the following support:" << std::endl;
-
-        static auto report_support = [](move_r_supp sup){
-            if (sup == _revert) {
-                std::cout << "revert";
-            } else if (sup == _count) {
-                std::cout << "count";
-            } else if (sup == _locate) {
-                std::cout << "locate";
-            }
-        };
-
-        for (uint8_t i=0; i<idx._support.size()-1; i++) {
-            report_support(idx._support[i]);
-            std::cout << ", ";
-        }
-
-        report_support(idx._support.back());
-        std::cout << std::endl;
-    }
 
     /**
      * @brief returns T at index i interpreted as type
@@ -438,22 +413,6 @@ class move_r<locate_support,sym_t,pos_t>::construction {
 
         baseline_mem_usage = malloc_count_current();
         if (log) malloc_count_reset_peak();
-
-        adjust_supports(idx._support);
-
-        if (!contains(idx._support,_revert)) {
-            std::cout << "error: cannot build an index without revert support";
-            return;
-        }
-
-        build_count_support = contains(idx._support,_count);
-        build_locate_support = contains(idx._support,_locate);
-
-        // print the operations to build support for
-        if (log) {
-            report_supports();
-            std::cout << std::endl;
-        }
     }
 
     /**
@@ -521,7 +480,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     // ############################# CONSTRUCTORS #############################
 
     void read_parameters(move_r_params& params) {
-        idx._support = params.support;
+        idx.sigma = params.alphabet_size;
         this->p = params.num_threads;
         this->mode = params.mode;
         idx.a = params.a;
@@ -538,7 +497,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
      * @param delete_T controls whether T should be deleted once it is not needed anymore
      * @param params construction parameters
      */
-    construction(move_r<locate_support,sym_t,pos_t>& index, std::string& T, bool delete_T, move_r_params params)
+    construction(move_r<support,sym_t,pos_t>& index, std::string& T, bool delete_T, move_r_params params)
     requires(str_input) : T_str(T), T_vec(T_vec_tmp), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
         this->delete_T = delete_T;
         read_parameters(params);
@@ -549,7 +508,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
             T.push_back(uchar_to_char((uint8_t)0));
             n = T.size();
             idx.n = n;
-            preprocess_t(true);
+            preprocess_t(true,false);
             construct_from_sa();
 
             if (!delete_T) {
@@ -575,7 +534,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
      * @param delete_T controls whether T should be deleted once it is not needed anymore
      * @param params construction parameters
      */
-    construction(move_r<locate_support,sym_t,pos_t>& index, std::vector<sym_t>& T, bool delete_T, move_r_params params)
+    construction(move_r<support,sym_t,pos_t>& index, std::vector<sym_t>& T, bool delete_T, move_r_params params)
     requires(int_input) : T_str(T_str_tmp), T_vec(T), L(L_tmp), SA_32(SA_32_tmp), SA_64(SA_64_tmp), idx(index) {
         this->delete_T = delete_T;
         read_parameters(params);
@@ -583,7 +542,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
         T.push_back(0);
         n = T.size();
         idx.n = n;
-        preprocess_t(true);
+        preprocess_t(true,false);
         construct_from_sa();
 
         if (!delete_T) {
@@ -600,7 +559,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
      * @param T_ifile file containing T
      * @param params construction parameters
      */
-    construction(move_r<locate_support,sym_t,pos_t>& index, std::ifstream& T_ifile, move_r_params params)
+    construction(move_r<support,sym_t,pos_t>& index, std::ifstream& T_ifile, move_r_params params)
     requires(str_input) : T_str(T_str_tmp), T_vec(T_vec_tmp), idx(index), SA_32(SA_32_tmp), SA_64(SA_64_tmp), L(L_tmp) {
         read_parameters(params);
         prepare_phase_1();
@@ -608,11 +567,11 @@ class move_r<locate_support,sym_t,pos_t>::construction {
         if (mode == _suffix_array || mode == _suffix_array_space) {
             min_valid_char = 1;
             read_t_from_file(T_ifile);
-            preprocess_t(true);
+            preprocess_t(true,false);
             construct_from_sa();
         } else {
             min_valid_char = 3;
-            preprocess_t(false,&T_ifile);
+            preprocess_t(false,true,&T_ifile);
             construct_from_bigbwt();
         }
 
@@ -626,7 +585,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
      * @param bwt string containing the bwt of the input
      * @param params construction parameters
      */
-    construction(move_r<locate_support,sym_t,pos_t>& index, std::vector<int32_t>& suffix_array, std::string& bwt, move_r_params params)
+    construction(move_r<support,sym_t,pos_t>& index, std::vector<int32_t>& suffix_array, std::string& bwt, move_r_params params)
     requires(str_input) : T_str(T_str_tmp), T_vec(T_vec_tmp), L(bwt), SA_32(suffix_array), SA_64(SA_64_tmp), idx(index) {
         read_parameters(params);        
         construct_from_sa_and_l<int32_t>();
@@ -639,7 +598,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
      * @param bwt string containing the bwt of the input
      * @param params construction parameters
      */
-    construction(move_r<locate_support,sym_t,pos_t>& index, std::vector<int64_t>& suffix_array, std::string& bwt, move_r_params params)
+    construction(move_r<support,sym_t,pos_t>& index, std::vector<int64_t>& suffix_array, std::string& bwt, move_r_params params)
     requires(str_input) : T_str(T_str_tmp), T_vec(T_vec_tmp), L(bwt), SA_32(SA_32_tmp), SA_64(suffix_array), idx(index) {
         read_parameters(params);
         construct_from_sa_and_l<int64_t>();
@@ -664,25 +623,25 @@ class move_r<locate_support,sym_t,pos_t>::construction {
         build_ilf();
         build_mlf();
 
-        if (build_locate_support) {
+        if constexpr (supports_locate) {
             build_iphim1_sa<false,sa_sint_t>();
             build_l__sas<true>();
         } else {
             build_l__sas<false>();
         }
 
-        if (build_locate_support) {
-            if constexpr (locate_support == _mds) {
+        if constexpr (supports_multiple_locate) {
+            if constexpr (support == _locate_move) {
                 sort_iphim1();
                 build_mphim1();
                 build_saphim1();
                 build_de();
-            } else {
+            } else if constexpr (support == _locate_rlzdsa) {
                 construct_rlzdsa<false,sa_sint_t>();
             }
         }
 
-        if (build_count_support) build_rsl_();
+        build_rsl_();
         if (log) log_finished();
     }
 
@@ -716,33 +675,49 @@ class move_r<locate_support,sym_t,pos_t>::construction {
         build_mlf();
         if (_space) load_rlbwt();
 
-        if (build_locate_support) {
+        if constexpr (supports_locate) {
             build_iphim1_sa<false,sa_sint_t>();
             build_l__sas<true>();
-            if (_space) store_sas();
-            build_rsl_();
-            if (_space) store_rsl_();
-            if (_space) store_mlf();
-            sort_iphim1();
 
-            if constexpr (locate_support == _mds) {
-                build_mphim1();
-                if (_space) load_sas();
-                build_saphim1();
-                build_de();
+            if constexpr (supports_multiple_locate) {
+                if constexpr (support == _locate_move) {
+                    if (_space) store_sas();
+                    build_rsl_();
+                    if (_space) store_rsl_();
+                    if (_space) store_mlf();
+                    sort_iphim1();
+                    build_mphim1();
+                    if (_space) load_sas();
+                    build_saphim1();
+                    build_de();
+                    if (_space) load_mlf();
+                    if (_space) load_rsl_();
+                } else if constexpr (support == _locate_rlzdsa) {
+                    if (_space) store_sas_idx();
+                    build_rsl_();
+                    if (_space) store_rsl_();
+                    if (_space) store_mlf();
+                    sort_iphim1();
+                    construct_rlzdsa<false,sa_sint_t>();
+                    if (_space) load_sas_idx();
+                    if (_space) load_mlf();
+                    if (_space) load_rsl_();
+                }
             } else {
-                construct_rlzdsa<false,sa_sint_t>();
+                if (_space) store_sas_idx();
+                build_rsl_();
                 if (_space) load_sas_idx();
             }
-
-            if (_space) load_mlf();
-            if (_space) load_rsl_();
         } else {
             build_l__sas<false>();
-            if (build_count_support) build_rsl_();
+            build_rsl_();
         }
 
-        if constexpr (!byte_alphabet) if (mode == _suffix_array_space) load_mapintext();
+        if constexpr (int_alphabet) {
+            if (idx.symbols_remapped &&
+                mode == _suffix_array_space
+            ) load_mapintext();
+        }
     }
 
     /**
@@ -758,37 +733,45 @@ class move_r<locate_support,sym_t,pos_t>::construction {
         build_mlf();
         load_rlbwt();
 
-        if (build_locate_support) {
-            if constexpr (locate_support == _mds) {
-                read_iphim1_bigbwt();
-                build_l__sas<true>();
-                store_sas();
-                build_rsl_();
-                store_mlf();
-                store_rsl_();
-                sort_iphim1();
-                build_mphim1();
-                load_sas();
-                build_saphim1();
-                build_de();
-                load_mlf();
-                load_rsl_();
+        if constexpr (supports_locate) {
+            if constexpr (supports_multiple_locate) {
+                if constexpr (support == _locate_move) {
+                    read_iphim1_bigbwt();
+                    build_l__sas<true>();
+                    store_sas();
+                    build_rsl_();
+                    store_mlf();
+                    store_rsl_();
+                    sort_iphim1();
+                    build_mphim1();
+                    load_sas();
+                    build_saphim1();
+                    build_de();
+                    load_mlf();
+                    load_rsl_();
+                } else if constexpr (support == _locate_rlzdsa) {
+                    build_iphim1_sa<true,int32_t>();
+                    build_l__sas<true>();
+                    store_sas_idx();
+                    build_rsl_();
+                    store_rsl_();
+                    store_mlf();
+                    sort_iphim1();
+                    construct_rlzdsa<true,int32_t>();
+                    load_mlf();
+                    load_rsl_();
+                    load_sas_idx();
+                }
             } else {
-                build_iphim1_sa<true,int32_t>();
+                read_iphim1_bigbwt();
                 build_l__sas<true>();
                 store_sas_idx();
                 build_rsl_();
-                store_rsl_();
-                store_mlf();
-                sort_iphim1();
-                construct_rlzdsa<true,int32_t>();
-                load_mlf();
-                load_rsl_();
                 load_sas_idx();
             }
         } else {
             build_l__sas<false>();
-            if (build_count_support) build_rsl_();
+            build_rsl_();
         }
     };
 
@@ -824,13 +807,13 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     void construct_rlzdsa() {
         bool _space = bigbwt || mode == _suffix_array_space;
         build_freq_sad<bigbwt,sad_t,sa_sint_t>();
-        build_r_revR<bigbwt,sad_t,sa_sint_t>();
+        build_r<bigbwt,sad_t,sa_sint_t>();
         if (_space) store_r();
         build_idx_rev_r<sad_t,irr_pos_t>();
 
         if (_space) {
-            build_rlzdsa_factorization<bigbwt,true,sad_t,irr_pos_t,sa_sint_t>();
             load_r();
+            build_rlzdsa_factorization<bigbwt,true,sad_t,irr_pos_t,sa_sint_t>();
         } else {
             build_rlzdsa_factorization<bigbwt,false,sad_t,irr_pos_t,sa_sint_t>();
         }
@@ -841,9 +824,10 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     /**
      * @brief reads the input T and possibly remaps it to an internal alphabet, if it contains an invalid character
      * @param in_memory controls, whether the input should be processed in memory or read buffered from a file
+     * @param bigbwt true <=> remap to a dense alphabet and make sure '\n' does not occur in the input
      * @param t_file file containing T (for in_memory = false)
      */
-    void preprocess_t(bool in_memory, std::ifstream* T_ifile = NULL);
+    void preprocess_t(bool in_memory, bool bigbwt, std::ifstream* T_ifile = NULL);
 
     /**
      * @brief builds the RLBWT and C
@@ -979,16 +963,6 @@ class move_r<locate_support,sym_t,pos_t>::construction {
     void unmap_t();
 
     /**
-     * @brief stores I_Phi^{-1} to disk
-     */
-    void store_iphim1();
-
-    /**
-     * @brief loads I_Phi^{-1} from disk
-     */
-    void load_iphim1();
-
-    /**
      * @brief stores map_int and map_ext to disk
      */
     void store_mapintext();
@@ -1033,7 +1007,7 @@ class move_r<locate_support,sym_t,pos_t>::construction {
      * @tparam sa_sint_t signed integer type to use for the suffix array entries
      */
     template <bool bigbwt, typename sad_t, typename sa_sint_t>
-    void build_r_revR();
+    void build_r();
 
     /**
      * @brief builds the move-r index of rev(R)
