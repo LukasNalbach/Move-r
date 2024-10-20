@@ -169,7 +169,9 @@ void move_r<support,sym_t,pos_t>::query_context::locate(std::vector<pos_t>& Occ)
 
         // compute the remaining occurrences SA(b,e]
         if (i <= e) {
-            idx->locate_rlzdsa_right(i,e,s,x_p,x_lp,x_cp,x_r,s_np,Occ);
+            pos_t o = Occ.size();
+            no_init_resize(Occ,o+num_occ_rem());
+            idx->write_rlzdsa_right(i,e,s,x_p,x_lp,x_cp,x_r,s_np,Occ,o);
         }
     } else {
         // compute the suffix array value at b
@@ -462,10 +464,10 @@ void move_r<support,sym_t,pos_t>::next_rlzdsa(
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support,sym_t,pos_t>::locate_rlzdsa_right(
+void move_r<support,sym_t,pos_t>::write_rlzdsa_right(
     pos_t& i, pos_t& e, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
-    std::vector<pos_t>& Occ
+    std::vector<pos_t>& vec, pos_t o
 ) const requires(support == _locate_rlzdsa) {
     while (true) {
         // decode all copy-phrases before the next literal phrase
@@ -474,7 +476,52 @@ void move_r<support,sym_t,pos_t>::locate_rlzdsa_right(
             while (i < s_np) {
                 s += R(x_r);
                 s -= n;
-                Occ.emplace_back(s);
+                vec[o] = s;
+                if (i == e) return;
+                o++;
+                i++;
+                x_r++;
+            }
+
+            x_p++;
+            x_cp++;
+            x_r = SR(x_cp);
+            s_np += PT(x_p) ? 1 : CPL(x_cp);
+        }
+
+        // decode all literal phrases before the next copy-phrase
+        while (PT(x_p)) {
+            // decode the x_lp-th literal phrase
+            s = LP(x_lp);
+            vec[o] = s;
+            if (i == e) return;
+            o++;
+            i++;
+            x_p++;
+            x_lp++;
+            s_np++;
+        }
+
+        // set s_np to the starting position of the next (the x_lp-th)
+        // literal phrase after the current (the x_cp-th) copy-phrase
+        s_np += CPL(x_cp)-1;
+    }
+}
+
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::report_rlzdsa_right(
+    pos_t& i, pos_t& e, pos_t& s,
+    pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
+    const std::function<void(pos_t,pos_t)>& report
+) const requires(support == _locate_rlzdsa) {
+    while (true) {
+        // decode all copy-phrases before the next literal phrase
+        while (!PT(x_p)) {
+            // decode the x_cp-th copy-phrase
+            while (i < s_np) {
+                s += R(x_r);
+                s -= n;
+                report(i,s);
                 if (i == e) return;
                 i++;
                 x_r++;
@@ -490,7 +537,7 @@ void move_r<support,sym_t,pos_t>::locate_rlzdsa_right(
         while (PT(x_p)) {
             // decode the x_lp-th literal phrase
             s = LP(x_lp);
-            Occ.emplace_back(s);
+            report(i,s);
             if (i == e) return;
             i++;
             x_p++;
@@ -532,19 +579,19 @@ void move_r<support,sym_t,pos_t>::locate(const inp_t& P, std::vector<pos_t>& Occ
             return;
         }
     }
-
-    Occ.reserve(Occ.size()+e-b+1);
     
     if constexpr (support == _locate_rlzdsa) {
+        pos_t o = Occ.size();
+        no_init_resize(Occ,o+e-b+1);
         pos_t s = SA_s(hat_b_ap_y)-(y+1);
-        Occ.emplace_back(s);
+        Occ[o] = s;
 
         if (b < e) {
             pos_t i = b+1;
             pos_t x_p,x_lp,x_cp,x_r,s_np;
 
             init_rlzdsa(i,x_p,x_lp,x_cp,x_r,s_np);
-            locate_rlzdsa_right(i,e,s,x_p,x_lp,x_cp,x_r,s_np,Occ);
+            write_rlzdsa_right(i,e,s,x_p,x_lp,x_cp,x_r,s_np,Occ,o+1);
         }
     } else {
         pos_t s,s_;
@@ -692,7 +739,7 @@ void move_r<support,sym_t,pos_t>::BWT(const std::function<void(pos_t,sym_t)>& re
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support,sym_t,pos_t>::SA(const std::function<void(pos_t,pos_t)>& report, retrieve_params params) const requires(supports_multiple_locate) {
+void move_r<support,sym_t,pos_t>::SA(const std::function<void(pos_t,pos_t)>& report, retrieve_params params) const requires(support == _locate_move) {
     adjust_retrieve_params(params,n-1);
 
     pos_t l = params.l;
@@ -707,79 +754,134 @@ void move_r<support,sym_t,pos_t>::SA(const std::function<void(pos_t,pos_t)>& rep
         })
     );
 
-    if constexpr (support == _locate_rlzdsa) {
-        #pragma omp parallel num_threads(p)
-        {
-            // Index in [0..p-1] of the current thread.
-            uint16_t i_p = omp_get_thread_num();
+    #pragma omp parallel num_threads(p)
+    {
+        // Index in [0..p-1] of the current thread.
+        uint16_t i_p = omp_get_thread_num();
 
-            // iteration range start position
-            pos_t b = l+i_p*((r-l+1)/p);
-            // iteration range end position
-            pos_t e = i_p == p-1 ? r : l+(i_p+1)*((r-l+1)/p)-1;
+        // iteration range start position
+        pos_t b = l+i_p*((r-l+1)/p);
+        // iteration range end position
+        pos_t e = i_p == p-1 ? r : l+(i_p+1)*((r-l+1)/p)-1;
 
-            pos_t x_p,x_lp,x_cp,x_r,s_np;
+        // the input interval of M_LF containing i
+        pos_t x = bin_search_max_leq<pos_t>(b,0,r_-1,[this](pos_t x_){return M_LF().p(x_);});
 
-            // current position in the suffix array
-            pos_t i = b;
-            // current suffix array value
-            pos_t s;
-
-            // initialize the rlzdsa context to position i = b
-            init_rlzdsa(i,s,x_p,x_lp,x_cp,x_r,s_np);
-
-            // decode and report SA[b..e]
-            while (i <= e) {
-                next_rlzdsa(i,s,x_p,x_lp,x_cp,x_r,s_np);
-                report(i-1,s);
-            }
+        // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
+        while (SA_Phi_m1(x) == r__) {
+            x--;
         }
-    } else {
-        #pragma omp parallel num_threads(p)
-        {
-            // Index in [0..p-1] of the current thread.
-            uint16_t i_p = omp_get_thread_num();
 
-            // iteration range start position
-            pos_t b = l+i_p*((r-l+1)/p);
-            // iteration range end position
-            pos_t e = i_p == p-1 ? r : l+(i_p+1)*((r-l+1)/p)-1;
+        // current position in the suffix array, initially the starting position of the x-th interval of M_LF
+        pos_t i = M_LF().p(x);
 
-            // the input interval of M_LF containing i
-            pos_t x = bin_search_max_leq<pos_t>(b,0,r_-1,[this](pos_t x_){return M_LF().p(x_);});
+        // index of the input interval in M_Phi^{-1} containing s
+        pos_t s_;
+        /* the current suffix array value (SA[i]), initially the suffix array sample of the x-th run,
+        initially the suffix array value at b */
+        pos_t s;
 
-            // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
-            while (SA_Phi_m1(x) == r__) {
-                x--;
-            }
+        setup_phi_m1_move_pair(x,s,s_);
 
-            // current position in the suffix array, initially the starting position of the x-th interval of M_LF
-            pos_t i = M_LF().p(x);
+        // iterate up to the iteration range starting position
+        while (i < b) {
+            M_Phi_m1().move(s,s_);
+            i++;
+        }
 
-            // index of the input interval in M_Phi^{-1} containing s
-            pos_t s_;
-            /* the current suffix array value (SA[i]), initially the suffix array sample of the x-th run,
-            initially the suffix array value at b */
-            pos_t s;
+        // report SA[b]
+        report(i,s);
 
-            setup_phi_m1_move_pair(x,s,s_);
-
-            // iterate up to the iteration range starting position
-            while (i < b) {
-                M_Phi_m1().move(s,s_);
-                i++;
-            }
-
-            // report SA[b]
+        // report the SA-values SA[b+1,e] from left to right
+        while (i < e) {
+            M_Phi_m1().move(s,s_);
+            i++;
             report(i,s);
-
-            // report the SA-values SA[b+1,e] from left to right
-            while (i < e) {
-                M_Phi_m1().move(s,s_);
-                i++;
-                report(i,s);
-            }
         }
+    }
+}
+
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::SA(std::vector<pos_t>& SA_range, retrieve_params params) const requires(support == _locate_move) {
+    SA_range.reserve(SA_range.size() + (params.r - params.l) + 1);
+    SA([&](pos_t i, pos_t s){SA_range[i] = s;}, params);
+}
+
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::SA(const std::function<void(pos_t,pos_t)>& report, retrieve_params params) const requires(support == _locate_rlzdsa) {
+    adjust_retrieve_params(params,n-1);
+
+    pos_t l = params.l;
+    pos_t r = params.r;
+
+    uint16_t p = std::max(
+        (uint16_t)1,                                           // use at least one thread
+        std::min({
+            (uint16_t)omp_get_max_threads(),                   // use at most all threads
+            params.num_threads,                                // use at most the specified number of threads
+            (uint16_t)(((r-l+1)*(double)r__)/(10.0*(double)n)) // use at most (r-l+1)*(r/n)*(1/10) threads
+        })
+    );
+
+    #pragma omp parallel num_threads(p)
+    {
+        // Index in [0..p-1] of the current thread.
+        uint16_t i_p = omp_get_thread_num();
+
+        // iteration range start position
+        pos_t b = l+i_p*((r-l+1)/p);
+        // iteration range end position
+        pos_t e = i_p == p-1 ? r : l+(i_p+1)*((r-l+1)/p)-1;
+
+        pos_t x_p,x_lp,x_cp,x_r,s_np;
+
+        // current suffix array value
+        pos_t s;
+
+        // initialize the rlzdsa context to position b
+        init_rlzdsa(b,s,x_p,x_lp,x_cp,x_r,s_np);
+
+        // decode and report SA(b..e]
+        report_rlzdsa_right(b,e,s,x_p,x_lp,x_cp,x_r,s_np,report);
+    }
+}
+
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support,sym_t,pos_t>::SA(std::vector<pos_t>& SA_range, retrieve_params params) const requires(support == _locate_rlzdsa) {
+    adjust_retrieve_params(params,n-1);
+
+    pos_t l = params.l;
+    pos_t r = params.r;
+
+    uint16_t p = std::max(
+        (uint16_t)1,                                           // use at least one thread
+        std::min({
+            (uint16_t)omp_get_max_threads(),                   // use at most all threads
+            params.num_threads,                                // use at most the specified number of threads
+            (uint16_t)(((r-l+1)*(double)r__)/(10.0*(double)n)) // use at most (r-l+1)*(r/n)*(1/10) threads
+        })
+    );
+
+    #pragma omp parallel num_threads(p)
+    {
+        // Index in [0..p-1] of the current thread.
+        uint16_t i_p = omp_get_thread_num();
+
+        // iteration range start position
+        pos_t b = l+i_p*((r-l+1)/p);
+        // iteration range end position
+        pos_t e = i_p == p-1 ? r : l+(i_p+1)*((r-l+1)/p)-1;
+
+        pos_t x_p,x_lp,x_cp,x_r,s_np;
+
+        // current suffix array value
+        pos_t s;
+
+        // initialize the rlzdsa context to position b
+        init_rlzdsa(b,s,x_p,x_lp,x_cp,x_r,s_np);
+
+        // decode and append SA[b..e] to SA_range
+        write_rlzdsa_right(b,e,s,x_p,x_lp,x_cp,x_r,s_np,SA_range,b-l);
     }
 }
 

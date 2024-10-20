@@ -855,11 +855,31 @@ class move_r {
      * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzdsa
      * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzdsa
      * @param s_np starting position in the rlzdsa of the next phrase of the rlzdsa
+     * @param vec vector to append the occurrences to
+     * @param o offset in vec to write SA[i,e] to (vec[o,o+e-i+1] = SA[i,e])
      */
-    inline void locate_rlzdsa_right(
+    inline void write_rlzdsa_right(
         pos_t& i, pos_t& e, pos_t& s,
         pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
-        std::vector<pos_t>& Occ
+        std::vector<pos_t>& vec, pos_t o
+    ) const requires(support == _locate_rlzdsa);
+
+    /**
+     * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
+     * @param i current position in the suffix array
+     * @param e right interval limit of the suffix array interval
+     * @param s current suffix array value
+     * @param x_p phrase-index of the phrase of the rlzdsa contianing i
+     * @param x_lp literal-phrase index of the current or next literal phrase of the rlzdsa
+     * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzdsa
+     * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzdsa
+     * @param s_np starting position in the rlzdsa of the next phrase of the rlzdsa
+     * @param report function that is called with every tuple (j,SA[j]) as a parameter, where j in [i,e]; the values are reported from left to right
+     */
+    inline void report_rlzdsa_right(
+        pos_t& i, pos_t& e, pos_t& s,
+        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
+        const std::function<void(pos_t,pos_t)>& report
     ) const requires(support == _locate_rlzdsa);
 
     public:
@@ -1008,9 +1028,27 @@ class move_r {
         adjust_retrieve_params(params,n-1);
         std::vector<pos_t> SA_range;
         no_init_resize(SA_range,params.r-params.l+1);
-        SA([&SA_range,&params](pos_t i, pos_t s){SA_range[i-params.l] = s;},params);
+        SA(SA_range,params);
         return SA_range;
     }
+
+    /**
+     * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
+     * whole suffix array is reported (default); if num_threads = 1, then the values are reported from left to right,
+     * if num_threads > 1, the order may vary
+     * @param SA_range vector to append SA[l,r] to
+     * @param params parameters
+     */
+    void SA(std::vector<pos_t>& SA_range, retrieve_params params = {}) const requires(support == _locate_move);
+
+    /**
+     * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
+     * whole suffix array is reported (default); if num_threads = 1, then the values are reported from left to right,
+     * if num_threads > 1, the order may vary
+     * @param SA_range vector to append SA[l,r] to
+     * @param params parameters
+     */
+    void SA(std::vector<pos_t>& SA_range, retrieve_params params = {}) const requires(support == _locate_rlzdsa);
 
     /**
      * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
@@ -1019,7 +1057,16 @@ class move_r {
      * @param report function that is called with every tuple (i,s) as a parameter, where i in [l,r] and s = SA[i]
      * @param params parameters
      */
-    void SA(const std::function<void(pos_t,pos_t)>& report, retrieve_params params = {}) const requires(supports_multiple_locate);
+    void SA(const std::function<void(pos_t,pos_t)>& report, retrieve_params params = {}) const requires(support == _locate_move);
+
+    /**
+     * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
+     * whole suffix array is reported (default); if num_threads = 1, then the values are reported from left to right,
+     * if num_threads > 1, the order may vary
+     * @param report function that is called with every tuple (i,s) as a parameter, where i in [l,r] and s = SA[i]
+     * @param params parameters
+     */
+    void SA(const std::function<void(pos_t,pos_t)>& report, retrieve_params params = {}) const requires(support == _locate_rlzdsa);
 
     /**
      * @brief writes the values in the suffix array of the input in the range [l,r] blockwise to the file out (0 <= l <= r <= input size),
