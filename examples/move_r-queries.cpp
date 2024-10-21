@@ -1,16 +1,16 @@
 #include <move_r/move_r.hpp>
 
-int main() {
+int main()
+{
     // build an index
     move_r<> index("This is a test string");
 
     // build a 64-bit index (intended for large input strings > UINT_MAX
     // bytes ~ 4GB) with only count support, use the Big-BWT
-    // construction algorithm, use at most 8 threads and set the 
+    // construction algorithm, use at most 8 threads and set the
     // balancing parameter a to 4
-    move_r<_count,char,uint64_t> index_2("a large string",{
-        .mode = _bigbwt, .num_threads = 8, .a = 4
-    });
+    move_r<_count, char, uint64_t> index_2("a large string",
+        { .mode = _bigbwt, .num_threads = 8, .a = 4 });
 
     // print the number of bwt runs in the input string
     std::cout << index.num_bwt_runs() << std::endl;
@@ -28,7 +28,7 @@ int main() {
 
     // build an index for an integer vector using a relative
     // lempel-ziv encoded differential suffix array (rlzdsa)
-    move_r<_locate_rlzdsa,int32_t> index_3({2,-1,5,-1,7,2,-1});
+    move_r<_locate_rlzdsa, int32_t> index_3({ 2, -1, 5, -1, 7, 2, -1 });
 
     // incrementally search the pattern [2,-1] in the input vector (from
     // right to left) and print the number of occurrences after each step
@@ -48,9 +48,9 @@ int main() {
     }
 
     // compute the longest suffix of [0,7,2] that occurs in the input vector
-    std::vector<int32_t> pattern = {0,7,2};
+    std::vector<int32_t> pattern = { 0, 7, 2 };
     auto query_2 = index_3.query();
     uint32_t suffix = pattern.size();
-    while (suffix > 0 && query_2.prepend(pattern[suffix-1])) suffix--;
+    while (suffix > 0 && query_2.prepend(pattern[suffix - 1])) suffix--;
     std::cout << std::endl << suffix << std::flush;
 }

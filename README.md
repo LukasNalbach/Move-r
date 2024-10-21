@@ -4,12 +4,12 @@ This [2] ([drops.dagstuhl.de](https://drops.dagstuhl.de/entities/document/10.423
 ## External Dependencies
 - [OpenMP](https://www.openmp.org/)
 - [intel TBB](https://www.intel.com/content/www/us/en/developer/tools/oneapi/onetbb.html)
+- [Big-BWT](https://gitlab.com/manzai/Big-BWT)
 
 ## Included Dependencies
 - [libsais](https://github.com/IlyaGrebnov/libsais)
 - [ips4o](https://github.com/ips4o/ips4o)
 - [concurrentqueue](https://github.com/cameron314/concurrentqueue)
-- [Big-BWT](https://gitlab.com/manzai/Big-BWT)
 - [sdsl-lite](https://github.com/simongog/sdsl-lite)
 - [sais-lite-lcp](https://github.com/kurpicz/sais-lite-lcp)
 - [gtl](https://github.com/greg7mdp/gtl)
@@ -18,7 +18,7 @@ This [2] ([drops.dagstuhl.de](https://drops.dagstuhl.de/entities/document/10.423
 - [sux](https://github.com/vigna/sux)
 
 ## CLI Build Instructions
-This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed.
+This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed. [Big-BWT](https://gitlab.com/manzai/Big-BWT) has to be built and installed manually.
 ```shell
 clone https://github.com/LukasNalbach/Move-r.git
 mkdir build
@@ -54,17 +54,17 @@ set(MOVE_R_BUILD_BENCH OFF)
 ```c++
 #include <move_r/move_r.hpp>
 
-int main() {
+int main()
+{
    // build an index
    move_r<> index("This is a test string");
 
    // build a 64-bit index (intended for large input strings > UINT_MAX
    // bytes ~ 4GB) with only count support, use the Big-BWT
-   // construction algorithm, use at most 8 threads and set the 
+   // construction algorithm, use at most 8 threads and set the
    // balancing parameter a to 4
-   move_r<_count,char,uint64_t> index_2("a large string",{
-      .mode = _bigbwt, .num_threads = 8, .a = 4
-   });
+   move_r<_count, char, uint64_t> index_2("a large string",
+      { .mode = _bigbwt, .num_threads = 8, .a = 4 });
 
    // print the number of bwt runs in the input string
    std::cout << index.num_bwt_runs() << std::endl;
@@ -82,7 +82,7 @@ int main() {
 
    // build an index for an integer vector using a relative
    // lempel-ziv encoded differential suffix array (rlzdsa)
-   move_r<_locate_rlzdsa,int32_t> index_3({2,-1,5,-1,7,2,-1});
+   move_r<_locate_rlzdsa, int32_t> index_3({ 2, -1, 5, -1, 7, 2, -1 });
 
    // incrementally search the pattern [2,-1] in the input vector (from
    // right to left) and print the number of occurrences after each step
@@ -94,7 +94,7 @@ int main() {
 
    // print the suffix-array interval [b,e] of [2,-1]
    std::cout << "b = " << query.sa_interval().first
-         << ", e = " << query.sa_interval().second << std::endl;
+           << ", e = " << query.sa_interval().second << std::endl;
 
    // incrementally locate the occurrences of [2,-1] in the input vector
    while (query.num_occ_rem() > 0) {
@@ -102,27 +102,28 @@ int main() {
    }
 
    // compute the longest suffix of [0,7,2] that occurs in the input vector
-   std::vector<int32_t> pattern = {0,7,2};
+   std::vector<int32_t> pattern = { 0, 7, 2 };
    auto query_2 = index_3.query();
    uint32_t suffix = pattern.size();
-   while (suffix > 0 && query_2.prepend(pattern[suffix-1])) suffix--;
+   while (suffix > 0 && query_2.prepend(pattern[suffix - 1])) suffix--;
    std::cout << std::endl << suffix << std::flush;
 }
 ```
 
 #### Move Data Structure
 ```c++
-#include <move_r/misc/utils.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure_l_.hpp>
+#include <move_r/misc/utils.hpp>
 
-int main() {
+int main()
+{
    // Build a move data structure from the disjoint interval
    // sequence I = (0,1),(1,0) with n = 2
-   move_data_structure<> mds({{0,1},{1,0}},2);
+   move_data_structure<> mds({ { 0, 1 }, { 1, 0 } }, 2);
 
    // create a pair to perform move queries with
-   std::pair<uint32_t,uint32_t> ix{0,0};
+   std::pair<uint32_t, uint32_t> ix { 0, 0 };
 
    // perform some move queries
    std::cout << to_string<>(ix = mds.move(ix)) << std::endl;
@@ -134,19 +135,19 @@ int main() {
    // storing the characters of the bwt (sub-)runs);
 
    // use at most 4 threads and set a = 2
-   move_data_structure_l_<> mds_str({{0,4},{1,5},{2,6},{3,7},{4,0}},8,{
-      .num_threads = 4, .a = 2
-   });
+   move_data_structure_l_<> mds_str({
+      { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 }, { 4, 0 } }, 8,
+      { .num_threads = 4, .a = 2 });
 
    // this disjoint interval sequence is not 2-balanced, because the output
    // interval [0,3] contains 4 >= 2a = 4 input intervals
 
    // print the pairs of the resulting disjoint interval sequence
-   for (uint32_t i=0; i<mds_str.num_intervals(); i++) {
-      std::cout << to_string<>({mds_str.p(i),mds_str.q(i)});
+   for (uint32_t i = 0; i < mds_str.num_intervals(); i++) {
+      std::cout << to_string<>({ mds_str.p(i), mds_str.q(i) });
    }
-   
-   // the balancing algorithm has added the pair (6,2) to balance the sequence
+
+   // the balancing algorithm has added the pair (6, 2) to balance the sequence
 }
 ```
 
@@ -154,7 +155,8 @@ int main() {
 ```c++
 #include <move_r/move_r.hpp>
 
-int main() {
+int main()
+{
    // build an index
    move_r<> index("This is a test string");
 
@@ -175,28 +177,27 @@ int main() {
 ```c++
 #include <move_r/move_r.hpp>
 
-int main() {
+int main()
+{
    // build an index
    move_r<> index("This is a test string");
 
-   // retrieve the range [8,17] of the original text and store 
+   // retrieve the range [8,17] of the original text and store
    // it in a string using at most 2 threads
-   std::string reverted_range = index.revert({
-      .l = 8, .r = 17, .num_threads = 2
-   });
+   std::string reverted_range = index.revert(
+      { .l = 8, .r = 17, .num_threads = 2 });
    for (auto c : reverted_range) std::cout << c;
    std::cout << std::endl;
 
    // print the original text from right to left without storing it
    // using 1 thread
-   index.revert([](auto,auto c){std::cout << c;},{.num_threads = 1});
+   index.revert([](auto, auto c) { std::cout << c; }, { .num_threads = 1 });
    std::cout << std::endl;
 
    // retrieve the suffix array values in the range [2,6] using at
    // most 4 threads and store them in a vector
-   std::vector<uint32_t> SA_range = index.SA({
-      .l = 2, .r = 6, .num_threads = 4
-   });
+   std::vector<uint32_t> SA_range = index.SA(
+      { .l = 2, .r = 6, .num_threads = 4 });
    for (auto s : SA_range) std::cout << s << ", ";
    std::cout << std::endl;
 
@@ -205,9 +206,8 @@ int main() {
 
    // retrieve the BWT in the range [7,14] from left to right
    // using 1 thread
-   index.BWT([](auto,auto s){std::cout << s << ", ";},{
-      .l = 7, .r = 14, .num_threads = 1
-   });
+   index.BWT([](auto, auto s) { std::cout << s << ", "; },
+      { .l = 7, .r = 14, .num_threads = 1 });
    std::cout << std::endl;
 
    // print BWT[16]

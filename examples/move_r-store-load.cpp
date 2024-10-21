@@ -1,6 +1,7 @@
 #include <move_r/move_r.hpp>
 
-int main() {
+int main()
+{
     // build an index
     move_r<> index("This is a test string");
 

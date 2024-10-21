@@ -6,17 +6,18 @@
  */
 template <typename T>
 class dynamic_insert_only_no_copy {
-    protected:
+protected:
     std::vector<std::vector<T>> vectors; // vectors that store the elements
 
-    public:
+public:
     dynamic_insert_only_no_copy() = default;
 
     /**
      * @brief creates an empty data structure with a certain amount of elements reserved
      * @param size initially reserved number of elements
      */
-    dynamic_insert_only_no_copy(uint64_t size) {
+    dynamic_insert_only_no_copy(uint64_t size)
+    {
         vectors.resize(1);
         vectors.back().reserve(size);
     }
@@ -24,7 +25,8 @@ class dynamic_insert_only_no_copy {
     /**
      * @brief clears all vectors
      */
-    inline void clear() {
+    inline void clear()
+    {
         vectors.clear();
         vectors.shrink_to_fit();
     }
@@ -35,9 +37,10 @@ class dynamic_insert_only_no_copy {
      * @param v element
      * @return pointer to the element in the data structure
      */
-    inline T* emplace_back(T &&v) {
+    inline T* emplace_back(T&& v)
+    {
         if (vectors.back().size() == vectors.back().capacity()) {
-            size_t new_capacity = 2*vectors.back().capacity();
+            size_t new_capacity = 2 * vectors.back().capacity();
             vectors.emplace_back(std::vector<T>());
             vectors.back().reserve(new_capacity);
         }
@@ -52,7 +55,8 @@ class dynamic_insert_only_no_copy {
      * @param v element
      * @return pointer to the element in the data structure
      */
-    inline T* emplace_back(T &v) {
+    inline T* emplace_back(T& v)
+    {
         return emplace_back(std::move(v));
     }
 };

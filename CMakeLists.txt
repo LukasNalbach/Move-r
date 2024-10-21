@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION "3.10.2")
-set (CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 20)
+
+set(GOOGLETEST_VERSION 1.9.0)
 
 find_package(Git REQUIRED)
 
@@ -67,9 +69,6 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/external/sparse-map/")
 # emhash
 add_library(emhash INTERFACE)
 target_include_directories(emhash INTERFACE "${CMAKE_SOURCE_DIR}/external/emhash/")
-
-# Big-BWT
-execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/Big-BWT/")
 
 # sais-lite-lcp
 add_library(sais-lite-lcp INTERFACE)
@@ -170,7 +169,6 @@ if(MOVE_R_BUILD_BENCH_CLI)
     "${CMAKE_SOURCE_DIR}/external/r-index/"
   )
   target_link_libraries(r-index INTERFACE sdsl divsufsort divsufsort64)
-  execute_process(COMMAND make WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/r-index/Big-BWT/")
 
   # unordered_dense
   add_subdirectory("${CMAKE_SOURCE_DIR}/external/r-index-rlzsa/external/unordered_dense")

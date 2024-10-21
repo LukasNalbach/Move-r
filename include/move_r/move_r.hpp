@@ -1,14 +1,14 @@
 #pragma once
 
 #include <iostream>
-#include <type_traits>
-#include <omp.h>
-#include <move_r/misc/utils.hpp>
-#include <move_r/data_structures/rank_select_support.hpp>
 #include <move_r/data_structures/interleaved_vectors.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
 #include <move_r/data_structures/move_data_structure/move_data_structure_l_.hpp>
+#include <move_r/data_structures/rank_select_support.hpp>
+#include <move_r/misc/utils.hpp>
+#include <omp.h>
 #include <tsl/sparse_map.h>
+#include <type_traits>
 
 /**
  * @brief type of locate support
@@ -54,13 +54,10 @@ struct move_r_params {
  */
 template <move_r_support support = _locate_move, typename sym_t = char, typename pos_t = uint32_t>
 class move_r {
-    protected:
-
+protected:
     // check if the position type is supported
     static_assert(
-        std::is_same_v<pos_t,uint32_t> ||
-        std::is_same_v<pos_t,uint64_t>
-    );
+        std::is_same_v<pos_t, uint32_t> || std::is_same_v<pos_t, uint64_t>);
 
     // check if the type of input is supported
     static_assert(
@@ -74,27 +71,26 @@ class move_r {
         std::is_same_v<sym_t,int32_t> ||
         std::is_same_v<sym_t,int64_t>
     );
-    
+
     // internal (unsigned) symbol type
     using i_sym_t = constexpr_switch_t<
         constexpr_case<sizeof(sym_t) == 1,    uint8_t>,
         constexpr_case<sizeof(sym_t) == 2,    uint16_t>,
         constexpr_case<sizeof(sym_t) == 4,    uint32_t>,
-     /* constexpr_case<sizeof(sym_t) == 8, */ uint64_t
-    >;
-    
+     /* constexpr_case<sizeof(sym_t) == 8, */ uint64_t>;
+
     static constexpr bool supports_locate = support != _count; // true <=> the index supports locate
     // true <=> the index supports locating multiple occurrences
     static constexpr bool supports_multiple_locate = supports_locate && support != _locate_one;
-    static constexpr bool str_input = std::is_same_v<sym_t,char>; // true <=> the input is a string
+    static constexpr bool str_input = std::is_same_v<sym_t, char>; // true <=> the input is a string
     static constexpr bool int_input = !str_input; // true <=> the input is an iteger vector
     static constexpr bool byte_alphabet = sizeof(sym_t) == 1; // true <=> the input uses a byte alphabet
     static constexpr bool int_alphabet = !byte_alphabet; // true <=> the input uses an integer alphabet
 
-    using map_int_t = std::conditional_t<byte_alphabet,std::vector<uint8_t>,tsl::sparse_map<sym_t,i_sym_t>>; // type of map_int
+    using map_int_t = std::conditional_t<byte_alphabet, std::vector<uint8_t>, tsl::sparse_map<sym_t, i_sym_t>>; // type of map_int
     using map_ext_t = std::vector<sym_t>; // type of map_ext
-    using inp_t = std::conditional_t<str_input,std::string,std::vector<sym_t>>; // input container type
-    using rsl_t = rank_select_support<i_sym_t,pos_t,true,true>; // type of RS_L'
+    using inp_t = std::conditional_t<str_input, std::string, std::vector<sym_t>>; // input container type
+    using rsl_t = rank_select_support<i_sym_t, pos_t, true, true>; // type of RS_L'
 
     // sample rate of the copy phrases in the rlzdsa
     static constexpr pos_t sr_scp = 4;
@@ -127,37 +123,37 @@ class move_r {
     map_int_t _map_int;
     // mapping function from the internal effective alphabet to the alphabet of the input
     map_ext_t _map_ext;
-    
+
     /* The Move Data Structure for LF. It also stores L', which can be accessed at
     position i with M_LF.L_(i). */
-    move_data_structure_l_<pos_t,i_sym_t> _M_LF;
+    move_data_structure_l_<pos_t, i_sym_t> _M_LF;
     // rank-select data structure for L'
     rsl_t _RS_L_;
 
     // The Move Data Structure for Phi^{-1}.
     move_data_structure<pos_t> _M_Phi_m1;
     // [0..r'-1] stores at position x the index of the output interval of M_Phi^{-1} that starts with SA_s[x] = SA[M_LF.p[x]]
-    interleaved_vectors<pos_t,pos_t> _SA_Phi_m1;
+    interleaved_vectors<pos_t, pos_t> _SA_Phi_m1;
 
     /* [0..p_r-1], where D_e[i] = <x,j>, where x in [0,r'-1] and j is minimal, s.t. SA_s[x]=j > i* lfloor (n-1)/p rfloor;
     see the parallel revert algorithm to understand why this is useful. */
-    std::vector<std::pair<pos_t,pos_t>> _D_e;
+    std::vector<std::pair<pos_t, pos_t>> _D_e;
 
     // stores the suffix array values at the starting positions of the input intervals of M_LF, i.e, SA_s[i] = SA[M_LF.p[i]]
-    interleaved_vectors<pos_t,pos_t> _SA_s;
+    interleaved_vectors<pos_t, pos_t> _SA_s;
     // reference for SA^d (differential suffix array)
-    interleaved_vectors<uint64_t,pos_t> _R;
+    interleaved_vectors<uint64_t, pos_t> _R;
     // bit vector storing the phrase types of the rlzdsa, i.e, PT[i] = 1 <=> phrase i is literal
-    plain_bit_vector<pos_t,true,true,true> _PT;
+    plain_bit_vector<pos_t, true, true, true> _PT;
     // compressed bit vector marking the sampled starting positions in SA^d of the copy phrases of the rlzdsa
     sd_array<pos_t> _SCP_S;
     // lengths of the copy phrases of the rlzdsa
     std::vector<uint16_t> _CPL;
     // starting positions in R of the copy phrases of the rlzdsa
-    interleaved_vectors<pos_t,pos_t> _SR;
+    interleaved_vectors<pos_t, pos_t> _SR;
     // literal phrases of the rlzdsa
-    interleaved_vectors<pos_t,pos_t> _LP;
-    
+    interleaved_vectors<pos_t, pos_t> _LP;
+
     // ############################# INTERNAL METHODS #############################
 
     /**
@@ -165,15 +161,16 @@ class move_r {
      * @param x [0..r-1]
      * @param idx [0..r''-1]
      */
-    inline void set_SA_Phi_m1(pos_t x, pos_t idx) {
-        _SA_Phi_m1.template set<0,pos_t>(x,idx);
+    inline void set_SA_Phi_m1(pos_t x, pos_t idx)
+    {
+        _SA_Phi_m1.template set<0, pos_t>(x, idx);
     }
-    
+
     class construction;
 
     // ############################# CONSTRUCTORS #############################
 
-    public:
+public:
     move_r() = default;
 
     /**
@@ -181,8 +178,9 @@ class move_r {
      * @param input the input
      * @param params construction parameters
      */
-    move_r(inp_t& input, move_r_params params = {}) {
-        construction(*this,input,false,params);
+    move_r(inp_t& input, move_r_params params = {})
+    {
+        construction(*this, input, false, params);
     }
 
     /**
@@ -190,8 +188,9 @@ class move_r {
      * @param input the input
      * @param params construction parameters
      */
-    move_r(inp_t&& input, move_r_params params = {}) {
-        construction(*this,input,true,params);
+    move_r(inp_t&& input, move_r_params params = {})
+    {
+        construction(*this, input, true, params);
     }
 
     /**
@@ -199,8 +198,10 @@ class move_r {
      * @param input_file input file
      * @param params construction parameters
      */
-    move_r(std::ifstream& input_file, move_r_params params = {}) requires(str_input) {
-        construction(*this,input_file,params);
+    move_r(std::ifstream& input_file, move_r_params params = {})
+        requires(str_input)
+    {
+        construction(*this, input_file, params);
     }
 
     /**
@@ -211,8 +212,10 @@ class move_r {
      * @param params construction parameters
      */
     template <typename sa_sint_t>
-    move_r(std::vector<sa_sint_t>& suffix_array, std::string& bwt, move_r_params params = {}) requires(str_input) {
-        construction(*this,suffix_array,bwt,params);
+    move_r(std::vector<sa_sint_t>& suffix_array, std::string& bwt, move_r_params params = {})
+        requires(str_input)
+    {
+        construction(*this, suffix_array, bwt, params);
     }
 
     // ############################# MISC PUBLIC METHODS #############################
@@ -221,23 +224,26 @@ class move_r {
      * @brief returns the size of the input
      * @return size of the input
      */
-    inline pos_t input_size() const {
-        return n-1;
+    inline pos_t input_size() const
+    {
+        return n - 1;
     }
 
     /**
      * @brief returns the number of distinct characters in the input (alphabet size)
-     * @return alphabet_size 
+     * @return alphabet_size
      */
-    inline uint32_t alphabet_size() const {
-        return sigma-1;
+    inline uint32_t alphabet_size() const
+    {
+        return sigma - 1;
     }
 
     /**
      * @brief returns the number of runs in the bwt
-     * @return number of runs in the bwt 
+     * @return number of runs in the bwt
      */
-    inline pos_t num_bwt_runs() const {
+    inline pos_t num_bwt_runs() const
+    {
         return r;
     }
 
@@ -245,7 +251,9 @@ class move_r {
      * @brief returns the number of phrases in the rlzdsa
      * @return number of phrases in the rlzdsa
      */
-    inline pos_t num_phrases_rlzdsa() const requires(support == _locate_rlzdsa) {
+    inline pos_t num_phrases_rlzdsa() const
+        requires(support == _locate_rlzdsa)
+    {
         return z;
     }
 
@@ -253,7 +261,9 @@ class move_r {
      * @brief returns the number of literal phrases in the rlzdsa
      * @return number of literal phrases in the rlzdsa
      */
-    inline pos_t num_literal_phrases_rlzdsa() const requires(support == _locate_rlzdsa) {
+    inline pos_t num_literal_phrases_rlzdsa() const
+        requires(support == _locate_rlzdsa)
+    {
         return z_l;
     }
 
@@ -261,15 +271,18 @@ class move_r {
      * @brief returns the number of copy phrases in the rlzdsa
      * @return number of copy phrases in the rlzdsa
      */
-    inline pos_t num_copy_phrases_rlzdsa() const requires(support == _locate_rlzdsa) {
+    inline pos_t num_copy_phrases_rlzdsa() const
+        requires(support == _locate_rlzdsa)
+    {
         return z_c;
     }
 
     /**
      * @brief returns the balancing parameter the index has been built with
-     * @return balancing parameter 
+     * @return balancing parameter
      */
-    inline uint16_t balancing_parameter() const {
+    inline uint16_t balancing_parameter() const
+    {
         return a;
     }
 
@@ -277,15 +290,18 @@ class move_r {
      * @brief returns the number omega_idx of bits used by one entry in SA_Phi^{-1} (word width of SA_Phi^{-1})
      * @return omega_idx
      */
-    inline uint8_t width_saphi() const requires(support == _locate_move) {
+    inline uint8_t width_saphi() const
+        requires(support == _locate_move)
+    {
         return omega_idx;
     }
 
     /**
      * @brief returns the maximum number of threads that can be used to revert the index
-     * @return maximum number of threads that can be used to revert the index 
+     * @return maximum number of threads that can be used to revert the index
      */
-    inline uint16_t max_revert_threads() const {
+    inline uint16_t max_revert_threads() const
+    {
         return p_r;
     }
 
@@ -293,29 +309,27 @@ class move_r {
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
      */
-    uint64_t size_in_bytes() const {
-        uint64_t size =
-            4*sizeof(pos_t)+3+2*sizeof(uint16_t)+ // variables
-            p_r*sizeof(pos_t)+ // D_e
-            _M_LF.size_in_bytes()+ // M_LF and L'
-            size_map_int+ // map_int
-            sizeof(sym_t)*sigma+ // map_ext
+    uint64_t size_in_bytes() const
+    {
+        uint64_t size = 4 * sizeof(pos_t) + 3 + 2 * sizeof(uint16_t) + // variables
+            p_r * sizeof(pos_t) + // D_e
+            _M_LF.size_in_bytes() + // M_LF and L'
+            size_map_int + // map_int
+            sizeof(sym_t) * sigma + // map_ext
             _RS_L_.size_in_bytes(); // RS_L'
 
         if constexpr (support == _locate_one) {
             size += _SA_s.size_in_bytes(); // SA_s
         } else if constexpr (support == _locate_move) {
-            size +=
-                _M_Phi_m1.size_in_bytes()+ // M_Phi^{-1}
+            size += _M_Phi_m1.size_in_bytes() + // M_Phi^{-1}
                 _SA_Phi_m1.size_in_bytes(); // SA_Phi^{-1}
         } else if constexpr (support == _locate_rlzdsa) {
-            size +=
-                _SA_s.size_in_bytes()+ // SA_s
-                _R.size_in_bytes()+ // R
-                (z_c+2)*sizeof(uint16_t)+ // CPL
-                _SCP_S.size_in_bytes()+ // SCP_S
-                _SR.size_in_bytes()+ // SR
-                _LP.size_in_bytes()+ // LP
+            size += _SA_s.size_in_bytes() + // SA_s
+                _R.size_in_bytes() + // R
+                (z_c + 2) * sizeof(uint16_t) + // CPL
+                _SCP_S.size_in_bytes() + // SCP_S
+                _SR.size_in_bytes() + // SR
+                _LP.size_in_bytes() + // LP
                 _PT.size_in_bytes(); // PT
         }
 
@@ -325,17 +339,18 @@ class move_r {
     /**
      * @brief logs the index data structure sizes to cout
      */
-    void log_data_structure_sizes() const {
+    void log_data_structure_sizes() const
+    {
         std::cout << "index size: " << format_size(size_in_bytes()) << std::endl;
 
-        uint64_t size_l_ = (_M_LF.width_l_()/8)*(r_+1);
-        std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes()-size_l_) << std::endl;
+        uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
+        std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes() - size_l_) << std::endl;
         std::cout << "L': " << format_size(size_l_) << std::endl;
         std::cout << "RS_L': " << format_size(_RS_L_.size_in_bytes()) << std::endl;
 
         if (int_alphabet && symbols_remapped) {
             std::cout << "map_int: " << format_size(size_map_int) << std::endl;
-            std::cout << "map_ext: " << format_size(sizeof(sym_t)*sigma) << std::endl;
+            std::cout << "map_ext: " << format_size(sizeof(sym_t) * sigma) << std::endl;
         }
 
         if constexpr (support == _locate_one) {
@@ -346,7 +361,7 @@ class move_r {
         } else if constexpr (support == _locate_rlzdsa) {
             std::cout << "SA_s: " << format_size(_SA_s.size_in_bytes()) << std::endl;
             std::cout << "R: " << format_size(_R.size_in_bytes()) << std::endl;
-            std::cout << "CPL: " << format_size((z_c+2)*sizeof(uint16_t)) << std::endl;
+            std::cout << "CPL: " << format_size((z_c + 2) * sizeof(uint16_t)) << std::endl;
             std::cout << "SCP_S: " << format_size(_SCP_S.size_in_bytes()) << std::endl;
             std::cout << "SR: " << format_size(_SR.size_in_bytes()) << std::endl;
             std::cout << "LP: " << format_size(_LP.size_in_bytes()) << std::endl;
@@ -358,16 +373,17 @@ class move_r {
      * @brief logs the index data structure sizes to the output stream out
      * @param out an output stream
      */
-    void log_data_structure_sizes(std::ostream& out) const {
+    void log_data_structure_sizes(std::ostream& out) const
+    {
         out << " size_index=" << size_in_bytes();
-        uint64_t size_l_ = (_M_LF.width_l_()/8)*(r_+1);
-        out << " size_m_lf=" << _M_LF.size_in_bytes()-size_l_;
+        uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
+        out << " size_m_lf=" << _M_LF.size_in_bytes() - size_l_;
         out << " size_l_=" << size_l_;
         out << " size_rs_l_=" << _RS_L_.size_in_bytes();
 
         if (int_alphabet && symbols_remapped) {
             out << " size_map_int=" << size_map_int;
-            out << " size_map_ext=" << sizeof(sym_t)*sigma;
+            out << " size_map_ext=" << sizeof(sym_t) * sigma;
         }
 
         if constexpr (support == _locate_one) {
@@ -378,7 +394,7 @@ class move_r {
         } else if constexpr (support == _locate_rlzdsa) {
             out << "size_sa_s: " << _SA_s.size_in_bytes();
             out << "size_r: " << _R.size_in_bytes();
-            out << "size_cpl: " << (z_c+2)*sizeof(uint16_t);
+            out << "size_cpl: " << (z_c + 2) * sizeof(uint16_t);
             out << "size_scp: " << _SCP_S.size_in_bytes();
             out << "size_sr: " << _SR.size_in_bytes();
             out << "size_lp: " << _LP.size_in_bytes();
@@ -392,7 +408,8 @@ class move_r {
      * @brief returns a reference to M_LF
      * @return M_LF
      */
-    inline const move_data_structure_l_<pos_t,i_sym_t>& M_LF() const {
+    inline const move_data_structure_l_<pos_t, i_sym_t>& M_LF() const
+    {
         return _M_LF;
     }
 
@@ -400,7 +417,9 @@ class move_r {
      * @brief returns a reference to M_Phi^{-1}
      * @return M_Phi^{-1}
      */
-    inline const move_data_structure<pos_t>& M_Phi_m1() const requires(support == _locate_move) {
+    inline const move_data_structure<pos_t>& M_Phi_m1() const
+        requires(support == _locate_move)
+    {
         return _M_Phi_m1;
     }
 
@@ -408,7 +427,8 @@ class move_r {
      * @brief returns a reference to RS_L'
      * @return RS_L'
      */
-    inline const rsl_t& RS_L_() const {
+    inline const rsl_t& RS_L_() const
+    {
         return _RS_L_;
     }
 
@@ -416,7 +436,9 @@ class move_r {
      * @brief returns a reference to R
      * @return R
      */
-    inline const interleaved_vectors<uint64_t,pos_t>& R() const requires(support == _locate_rlzdsa) {
+    inline const interleaved_vectors<uint64_t, pos_t>& R() const
+        requires(support == _locate_rlzdsa)
+    {
         return _R;
     }
 
@@ -424,7 +446,9 @@ class move_r {
      * @brief returns a reference to PT
      * @return PT
      */
-    inline const plain_bit_vector<pos_t,true,true,true>& PT() const requires(support == _locate_rlzdsa) {
+    inline const plain_bit_vector<pos_t, true, true, true>& PT() const
+        requires(support == _locate_rlzdsa)
+    {
         return _PT;
     }
 
@@ -432,7 +456,9 @@ class move_r {
      * @brief returns a reference to CPL
      * @return CPL
      */
-    inline const std::vector<uint16_t>& CPL() const requires(support == _locate_rlzdsa) {
+    inline const std::vector<uint16_t>& CPL() const
+        requires(support == _locate_rlzdsa)
+    {
         return _CPL;
     }
 
@@ -440,7 +466,9 @@ class move_r {
      * @brief returns a reference to SCP_S
      * @return SCP_S
      */
-    inline const sd_array<pos_t>& SCP_S() const requires(support == _locate_rlzdsa) {
+    inline const sd_array<pos_t>& SCP_S() const
+        requires(support == _locate_rlzdsa)
+    {
         return _SCP_S;
     }
 
@@ -448,7 +476,9 @@ class move_r {
      * @brief returns a reference to SR
      * @return SR
      */
-    inline const interleaved_vectors<pos_t,pos_t>& SR() const requires(support == _locate_rlzdsa) {
+    inline const interleaved_vectors<pos_t, pos_t>& SR() const
+        requires(support == _locate_rlzdsa)
+    {
         return _SR;
     }
 
@@ -456,7 +486,9 @@ class move_r {
      * @brief returns a reference to LP
      * @return LP
      */
-    inline const interleaved_vectors<pos_t,pos_t>& LP() const requires(support == _locate_rlzdsa) {
+    inline const interleaved_vectors<pos_t, pos_t>& LP() const
+        requires(support == _locate_rlzdsa)
+    {
         return _LP;
     }
 
@@ -465,7 +497,9 @@ class move_r {
      * @param x [0..|R|-1] index in R
      * @return R[x]
      */
-    inline uint64_t R(pos_t x) const requires(support == _locate_rlzdsa) {
+    inline uint64_t R(pos_t x) const
+        requires(support == _locate_rlzdsa)
+    {
         return _R[x];
     }
 
@@ -474,7 +508,9 @@ class move_r {
      * @param x [0..z-1] index in PT
      * @return PT[x]
      */
-    inline bool PT(pos_t x) const requires(support == _locate_rlzdsa) {
+    inline bool PT(pos_t x) const
+        requires(support == _locate_rlzdsa)
+    {
         return _PT[x];
     }
 
@@ -483,7 +519,9 @@ class move_r {
      * @param x [0..z_c-1] index in CPL
      * @return CPL[x]
      */
-    inline uint16_t CPL(pos_t x) const requires(support == _locate_rlzdsa) {
+    inline uint16_t CPL(pos_t x) const
+        requires(support == _locate_rlzdsa)
+    {
         return _CPL[x];
     }
 
@@ -492,8 +530,10 @@ class move_r {
      * @param x [0..z_c/sr_scp-1] index in SCP_S
      * @return SCP_S[x]
      */
-    inline pos_t SCP_S(pos_t x) const requires(support == _locate_rlzdsa) {
-        return _SCP_S.select_1(x+1);
+    inline pos_t SCP_S(pos_t x) const
+        requires(support == _locate_rlzdsa)
+    {
+        return _SCP_S.select_1(x + 1);
     }
 
     /**
@@ -501,7 +541,9 @@ class move_r {
      * @param x [0..z_r-1] index in SR
      * @return SR[x]
      */
-    inline pos_t SR(pos_t x) const requires(support == _locate_rlzdsa) {
+    inline pos_t SR(pos_t x) const
+        requires(support == _locate_rlzdsa)
+    {
         return _SR[x];
     }
 
@@ -510,7 +552,9 @@ class move_r {
      * @param x [0..z_l-1] index in LP
      * @return LP[x]
      */
-    inline pos_t LP(pos_t x) const requires(support == _locate_rlzdsa) {
+    inline pos_t LP(pos_t x) const
+        requires(support == _locate_rlzdsa)
+    {
         return _LP[x];
     }
 
@@ -519,7 +563,9 @@ class move_r {
      * @param x [0..r''-1]
      * @return SA_Phi^{-1}[x]
      */
-    inline pos_t SA_Phi_m1(pos_t x) const requires(support == _locate_move) {
+    inline pos_t SA_Phi_m1(pos_t x) const
+        requires(support == _locate_move)
+    {
         return _SA_Phi_m1[x];
     }
 
@@ -529,7 +575,9 @@ class move_r {
      * interval in M_LF must be a starting position of a bwt run
      * @return SA_s[x]
      */
-    inline pos_t SA_s(pos_t x) const requires(supports_locate) {
+    inline pos_t SA_s(pos_t x) const
+        requires(supports_locate)
+    {
         if constexpr (support == _locate_move) {
             return M_Phi_m1().q(SA_Phi_m1(x));
         } else {
@@ -542,7 +590,8 @@ class move_r {
      * @param x [0..r'-1]
      * @return L'[x]
      */
-    inline i_sym_t L_(pos_t x) const {
+    inline i_sym_t L_(pos_t x) const
+    {
         return _M_LF.L_(x);
     }
 
@@ -551,7 +600,8 @@ class move_r {
      * @param sym symbol
      * @return sym reinterpreted as i_sym_t
      */
-    i_sym_t symbol_idx(sym_t sym) const {
+    i_sym_t symbol_idx(sym_t sym) const
+    {
         return *reinterpret_cast<i_sym_t*>(&sym);
     }
 
@@ -560,7 +610,8 @@ class move_r {
      * @param sym symbol
      * @return its corresponding symbol in the internal effective alphabet
      */
-    inline i_sym_t map_symbol(sym_t sym) const {
+    inline i_sym_t map_symbol(sym_t sym) const
+    {
         if constexpr (byte_alphabet) {
             return symbols_remapped ? _map_int[symbol_idx(sym)] : symbol_idx(sym);
         } else {
@@ -584,7 +635,8 @@ class move_r {
      * @param sym a symbol that occurs in the internal effective alphabet
      * @return its corresponding symbol in the input
      */
-    inline sym_t unmap_symbol(i_sym_t sym) const {
+    inline sym_t unmap_symbol(i_sym_t sym) const
+    {
         return symbols_remapped ? _map_ext[sym] : sym;
     }
 
@@ -593,7 +645,8 @@ class move_r {
      * @param i [0..max_revert_threads()-2]
      * @return D_e[i]
      */
-    inline std::pair<pos_t,pos_t> D_e(uint16_t i) const {
+    inline std::pair<pos_t, pos_t> D_e(uint16_t i) const
+    {
         return _D_e[i];
     }
 
@@ -611,30 +664,31 @@ class move_r {
      * @param x [0..input size]
      * @return SA[i]
      */
-    pos_t SA(pos_t i) const requires(supports_multiple_locate);
+    pos_t SA(pos_t i) const
+        requires(supports_multiple_locate);
 
     /**
      * @brief stores the variables needed to perform count- and locate-queries
      */
     struct query_context {
-        protected:
-
-        pos_t l;  // length of the currently matched pattern
-        pos_t b,e,b_,e_,hat_b_ap_y,hat_e_ap_z; // variables for backward search
-        int64_t y,z; // variables for backward search
+    protected:
+        pos_t l; // length of the currently matched pattern
+        pos_t b, e, b_, e_, hat_b_ap_y, hat_e_ap_z; // variables for backward search
+        int64_t y, z; // variables for backward search
         pos_t i; // current position in the suffix array interval
         pos_t s; // current suffix s = SA[i] in the suffix array interval
         pos_t s_; // index of the input inteval of M_Phi^{-1} containing s
-        pos_t x_p,x_lp,x_cp,x_r,s_np; // variables for decoding the rlzdsa
+        pos_t x_p, x_lp, x_cp, x_r, s_np; // variables for decoding the rlzdsa
 
-        const move_r<support,sym_t,pos_t>* idx; // index to query
+        const move_r<support, sym_t, pos_t>* idx; // index to query
 
-        public:
+    public:
         /**
          * @brief constructs a new query context for the index idx
          * @param idx an index
          */
-        query_context(const move_r<support,sym_t,pos_t>& idx) {
+        query_context(const move_r<support, sym_t, pos_t>& idx)
+        {
             this->idx = &idx;
             reset();
         }
@@ -642,8 +696,9 @@ class move_r {
         /**
          * @brief resets the query context to an empty pattern
          */
-        inline void reset() {
-            idx->init_backward_search(b,e,b_,e_,hat_b_ap_y,y,hat_e_ap_z,z);
+        inline void reset()
+        {
+            idx->init_backward_search(b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z);
             l = 0;
             i = b;
         }
@@ -652,7 +707,8 @@ class move_r {
          * @brief returns the length of the currently matched pattern
          * @return length of the currently matched pattern
          */
-        inline pos_t length() const {
+        inline pos_t length() const
+        {
             return l;
         }
 
@@ -660,31 +716,35 @@ class move_r {
          * @brief returns the overall number of occurrences of the currently matched pattern
          * @return overall number of occurrences
          */
-        inline pos_t num_occ() const {
-            return e >= b ? e-b+1 : 0;
+        inline pos_t num_occ() const
+        {
+            return e >= b ? e - b + 1 : 0;
         }
 
         /**
          * @brief returns the number of remaining (not yet reported) occurrences of the currently matched pattern
          * @return number of remaining occurrences
          */
-        inline pos_t num_occ_rem() const requires(supports_multiple_locate) {
-            return e >= i ? e-i+1 : 0;
+        inline pos_t num_occ_rem() const
+            requires(supports_multiple_locate)
+        {
+            return e >= i ? e - i + 1 : 0;
         }
 
         /**
          * @brief returns the suffix array interval of the currently matched pattern
          * @return suffix array interval
          */
-        inline std::pair<pos_t,pos_t> sa_interval() const {
-            return std::make_pair(b,e);
+        inline std::pair<pos_t, pos_t> sa_interval() const
+        {
+            return std::make_pair(b, e);
         }
 
         /**
          * @brief prepends sym to the currently matched pattern P; if symP occurs in the input, true is
          * returned and the query context is adjusted to store the information for the pattern symP; else,
          * false is returned and the query context is not modified
-         * @param sym 
+         * @param sym
          * @return whether symP occurs in the input
          */
         bool prepend(sym_t sym);
@@ -693,25 +753,30 @@ class move_r {
          * @brief reports the next occurrence of the currently matched pattern
          * @return next occurrence
          */
-        inline pos_t next_occ() requires(supports_multiple_locate);
+        inline pos_t next_occ()
+            requires(supports_multiple_locate);
 
         /**
          * @brief reports one occurrence of the currently matched pattern
          * @return an occurrence
          */
-        inline pos_t one_occ() const requires(supports_locate);
+        inline pos_t one_occ() const
+            requires(supports_locate);
 
         /**
          * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
          * @param Occ vector to append the occurrences to
          */
-        inline void locate(std::vector<pos_t>& Occ) requires(supports_multiple_locate);
+        inline void locate(std::vector<pos_t>& Occ)
+            requires(supports_multiple_locate);
 
         /**
          * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
          * @return vector containing the occurrences
          */
-        std::vector<pos_t> locate() requires(supports_multiple_locate) {
+        std::vector<pos_t> locate()
+            requires(supports_multiple_locate)
+        {
             std::vector<pos_t> Occ;
             locate(Occ);
             return Occ;
@@ -720,13 +785,14 @@ class move_r {
 
     /**
      * @brief returns a query context for the index
-     * @return query_context 
+     * @return query_context
      */
-    inline query_context query() const {
+    inline query_context query() const
+    {
         return query_context(*this);
     }
 
-    protected:
+protected:
     /**
      * @brief initializes the variables to start a new backward search
      * @param b Left interval limit of the suffix array interval.
@@ -742,18 +808,18 @@ class move_r {
         pos_t& b, pos_t& e,
         pos_t& b_, pos_t& e_,
         pos_t& hat_b_ap_y, int64_t& y,
-        pos_t& hat_e_ap_z, int64_t& z
-    ) const {
+        pos_t& hat_e_ap_z, int64_t& z) const
+    {
         b = 0;
-        e = n-1;
+        e = n - 1;
         b_ = 0;
-        e_ = r_-1;
+        e_ = r_ - 1;
         hat_b_ap_y = 0;
         y = -1;
-        hat_e_ap_z = r_-1;
+        hat_e_ap_z = r_ - 1;
         z = -1;
     }
-    
+
     /**
      * @brief prepends sym to the currently matched pattern P, adjusts the variables to store
      * the query context for the pattern symP and returns whether symP occurs in the input
@@ -773,8 +839,7 @@ class move_r {
         pos_t& b, pos_t& e,
         pos_t& b_, pos_t& e_,
         pos_t& hat_b_ap_y, int64_t& y,
-        pos_t& hat_e_ap_z, int64_t& z
-    ) const;
+        pos_t& hat_e_ap_z, int64_t& z) const;
 
     /**
      * @brief Sets the up a Phi^{-1}-move-pair for the suffix array sample at the starting position of the x-th input interval in M_LF
@@ -782,7 +847,8 @@ class move_r {
      * @param s variable to store the suffix array sample at position M_LF.p[x]
      * @param s_ variable to store the index of the input interval in M_Phi^{-1} containing s
      */
-    inline void setup_phi_m1_move_pair(pos_t& x, pos_t& s, pos_t& s_) const requires(support == _locate_move);
+    inline void setup_phi_m1_move_pair(pos_t& x, pos_t& s, pos_t& s_) const
+        requires(support == _locate_move);
 
     /**
      * @brief prepares the variables to decode SA[b]
@@ -796,9 +862,9 @@ class move_r {
     inline void init_phi_m1(
         pos_t& b, pos_t& e,
         pos_t& s, pos_t& s_,
-        pos_t& hat_b_ap_y, int64_t& y
-    ) const requires(support == _locate_move);
-    
+        pos_t& hat_b_ap_y, int64_t& y) const
+        requires(support == _locate_move);
+
     /**
      * @brief prepares the variables to decode SA[i]
      * @param i current position in the suffix array
@@ -810,9 +876,9 @@ class move_r {
      */
     inline void init_rlzdsa(
         pos_t& i,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np
-    ) const requires(support == _locate_rlzdsa);
-    
+        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
+        requires(support == _locate_rlzdsa);
+
     /**
      * @brief prepares the context to decode SA[i]; if there
      * is a literal phrase at position i, s stores SA[i], else SA[i-1]
@@ -826,8 +892,8 @@ class move_r {
      */
     inline void init_rlzdsa(
         pos_t& i, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np
-    ) const requires(support == _locate_rlzdsa);
+        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
+        requires(support == _locate_rlzdsa);
 
     /**
      * @brief decodes and stores SA[i] in s and prepares the context to decode
@@ -842,8 +908,8 @@ class move_r {
      */
     inline void next_rlzdsa(
         pos_t& i, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np
-    ) const requires(support == _locate_rlzdsa);
+        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
+        requires(support == _locate_rlzdsa);
 
     /**
      * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
@@ -861,8 +927,8 @@ class move_r {
     inline void write_rlzdsa_right(
         pos_t& i, pos_t& e, pos_t& s,
         pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
-        std::vector<pos_t>& vec, pos_t o
-    ) const requires(support == _locate_rlzdsa);
+        std::vector<pos_t>& vec, pos_t o) const
+        requires(support == _locate_rlzdsa);
 
     /**
      * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
@@ -879,10 +945,10 @@ class move_r {
     inline void report_rlzdsa_right(
         pos_t& i, pos_t& e, pos_t& s,
         pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
-        const std::function<void(pos_t,pos_t)>& report
-    ) const requires(support == _locate_rlzdsa);
+        const std::function<void(pos_t, pos_t)>& report) const
+        requires(support == _locate_rlzdsa);
 
-    public:
+public:
     /**
      * @brief returns the number of occurrences of P in the input
      * @param P the pattern to count in the input
@@ -895,9 +961,11 @@ class move_r {
      * @param P the pattern to locate in the input
      * @return a vector containing the occurrences of P in the input
      */
-    inline std::vector<pos_t> locate(const inp_t& P) const requires(supports_multiple_locate) {
+    inline std::vector<pos_t> locate(const inp_t& P) const
+        requires(supports_multiple_locate)
+    {
         std::vector<pos_t> Occ;
-        locate(P,Occ);
+        locate(P, Occ);
         return Occ;
     }
 
@@ -906,7 +974,8 @@ class move_r {
      * @param P the pattern to locate in the input
      * @param Occ vector to append the occurrences of P in the input to
      */
-    void locate(const inp_t& P, std::vector<pos_t>& Occ) const requires(supports_multiple_locate);
+    void locate(const inp_t& P, std::vector<pos_t>& Occ) const
+        requires(supports_multiple_locate);
 
     // ############################# RETRIEVE-RANGE METHODS #############################
 
@@ -918,19 +987,20 @@ class move_r {
         int64_t max_bytes_alloc = -1;
     };
 
-    protected:
+protected:
     /**
      * @brief adjusts retrieve parameters, ensures (0 <= l <= r <= range_max); if l > r, it sets [l,r] <- [0,range_max]
      * @param params retrieve parameters to adjust
      * @param range_max maximum value for r
      */
-    inline static void adjust_retrieve_params(retrieve_params& params, pos_t range_max) {
+    inline static void adjust_retrieve_params(retrieve_params& params, pos_t range_max)
+    {
         if (params.l > params.r) {
             params.l = 0;
             params.r = range_max;
         }
 
-        params.r = std::max(params.r,range_max);
+        params.r = std::max(params.r, range_max);
     }
 
     /**
@@ -944,11 +1014,10 @@ class move_r {
      */
     template <typename output_t, bool output_reversed>
     void retrieve_range(
-        void(move_r<support,sym_t,pos_t>::*retrieve_method)(const std::function<void(pos_t,output_t)>&,retrieve_params)const,
-        std::string file_name, retrieve_params params
-    ) const;
+        void (move_r<support, sym_t, pos_t>::*retrieve_method)(const std::function<void(pos_t, output_t)>&, retrieve_params) const,
+        std::string file_name, retrieve_params params) const;
 
-    public:
+public:
     /**
      * @brief returns the bwt in the range [l,r] (0 <= l <= r <= input size), else
      * if l > r, then the whole bwt is returned (default); $ = 0, so if the input contained 0, the output is not
@@ -956,11 +1025,12 @@ class move_r {
      * @param params parameters
      * @return the bwt range [l,r]
      */
-    inp_t BWT(retrieve_params params = {}) const {
-        adjust_retrieve_params(params,n-1);
+    inp_t BWT(retrieve_params params = {}) const
+    {
+        adjust_retrieve_params(params, n - 1);
         inp_t L;
-        no_init_resize(L,params.r-params.l+1);
-        BWT([&L,&params](pos_t i, sym_t c){L[i-params.l] = c;},params);
+        no_init_resize(L, params.r - params.l + 1);
+        BWT([&L, &params](pos_t i, sym_t c) { L[i - params.l] = c; }, params);
         return L;
     }
 
@@ -971,7 +1041,7 @@ class move_r {
      * then the values are reported from left to right, if num_threads > 1, the order may vary
      * @param params parameters
      */
-    void BWT(const std::function<void(pos_t,sym_t)>& report, retrieve_params params = {}) const;
+    void BWT(const std::function<void(pos_t, sym_t)>& report, retrieve_params params = {}) const;
 
     /**
      * @brief writes the characters in the bwt in the range [l,r] blockwise to the file out (0 <= l <= r <= input size), else if
@@ -979,9 +1049,10 @@ class move_r {
      * @param file_name name of the file to write the bwt to
      * @param params parameters
      */
-    void BWT(std::string file_name, retrieve_params params = {}) const {
-        adjust_retrieve_params(params,n-1);
-        retrieve_range<sym_t,false>(&move_r<support,sym_t,pos_t>::BWT,file_name,params);
+    void BWT(std::string file_name, retrieve_params params = {}) const
+    {
+        adjust_retrieve_params(params, n - 1);
+        retrieve_range<sym_t, false>(&move_r<support, sym_t, pos_t>::BWT, file_name, params);
     }
 
     /**
@@ -990,11 +1061,12 @@ class move_r {
      * @param params parameters
      * @return the input range [l,r]
      */
-    inp_t revert(retrieve_params params = {}) const {
-        adjust_retrieve_params(params,n-2);
+    inp_t revert(retrieve_params params = {}) const
+    {
+        adjust_retrieve_params(params, n - 2);
         inp_t input;
-        no_init_resize(input,params.r-params.l+1);
-        revert([&input,&params](pos_t i, sym_t c){input[i-params.l] = c;},params);
+        no_init_resize(input, params.r - params.l + 1);
+        revert([&input, &params](pos_t i, sym_t c) { input[i - params.l] = c; }, params);
         return input;
     }
 
@@ -1005,7 +1077,7 @@ class move_r {
      * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = input[i]
      * @param params parameters
      */
-    void revert(const std::function<void(pos_t,sym_t)>& report, retrieve_params params = {}) const;
+    void revert(const std::function<void(pos_t, sym_t)>& report, retrieve_params params = {}) const;
 
     /**
      * @brief reverts the input in the range [l,r] blockwise and writes it to the file out (0 <= l <= r < input size),
@@ -1013,22 +1085,25 @@ class move_r {
      * @param file_name name of the file to write the reverted input to
      * @param params parameters
      */
-    void revert(std::string file_name, retrieve_params params = {}) const {
-        adjust_retrieve_params(params,n-2);
-        retrieve_range<sym_t,true>(&move_r<support,sym_t,pos_t>::revert,file_name,params);
+    void revert(std::string file_name, retrieve_params params = {}) const
+    {
+        adjust_retrieve_params(params, n - 2);
+        retrieve_range<sym_t, true>(&move_r<support, sym_t, pos_t>::revert, file_name, params);
     }
-    
+
     /**
      * @brief rebuilds and returns the suffix array in the range [l,r] (0 <= l <= r <= input size),
      * else if l > r, then the whole suffix array is rebuilt (default)
      * @param params parameters
      * @return the suffix array range [l,r]
      */
-    std::vector<pos_t> SA(retrieve_params params = {}) const requires(supports_multiple_locate) {
-        adjust_retrieve_params(params,n-1);
+    std::vector<pos_t> SA(retrieve_params params = {}) const
+        requires(supports_multiple_locate)
+    {
+        adjust_retrieve_params(params, n - 1);
         std::vector<pos_t> SA_range;
-        no_init_resize(SA_range,params.r-params.l+1);
-        SA(SA_range,params);
+        no_init_resize(SA_range, params.r - params.l + 1);
+        SA(SA_range, params);
         return SA_range;
     }
 
@@ -1039,7 +1114,8 @@ class move_r {
      * @param SA_range vector to append SA[l,r] to
      * @param params parameters
      */
-    void SA(std::vector<pos_t>& SA_range, retrieve_params params = {}) const requires(support == _locate_move);
+    void SA(std::vector<pos_t>& SA_range, retrieve_params params = {}) const
+        requires(support == _locate_move);
 
     /**
      * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
@@ -1048,7 +1124,8 @@ class move_r {
      * @param SA_range vector to append SA[l,r] to
      * @param params parameters
      */
-    void SA(std::vector<pos_t>& SA_range, retrieve_params params = {}) const requires(support == _locate_rlzdsa);
+    void SA(std::vector<pos_t>& SA_range, retrieve_params params = {}) const
+        requires(support == _locate_rlzdsa);
 
     /**
      * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
@@ -1057,7 +1134,8 @@ class move_r {
      * @param report function that is called with every tuple (i,s) as a parameter, where i in [l,r] and s = SA[i]
      * @param params parameters
      */
-    void SA(const std::function<void(pos_t,pos_t)>& report, retrieve_params params = {}) const requires(support == _locate_move);
+    void SA(const std::function<void(pos_t, pos_t)>& report, retrieve_params params = {}) const
+        requires(support == _locate_move);
 
     /**
      * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
@@ -1066,7 +1144,8 @@ class move_r {
      * @param report function that is called with every tuple (i,s) as a parameter, where i in [l,r] and s = SA[i]
      * @param params parameters
      */
-    void SA(const std::function<void(pos_t,pos_t)>& report, retrieve_params params = {}) const requires(support == _locate_rlzdsa);
+    void SA(const std::function<void(pos_t, pos_t)>& report, retrieve_params params = {}) const
+        requires(support == _locate_rlzdsa);
 
     /**
      * @brief writes the values in the suffix array of the input in the range [l,r] blockwise to the file out (0 <= l <= r <= input size),
@@ -1074,9 +1153,11 @@ class move_r {
      * @param file_name name of the file to write the suffix array to
      * @param params parameters
      */
-    void SA(std::string file_name, retrieve_params params = {}) const requires(supports_multiple_locate) {
-        adjust_retrieve_params(params,n-1);
-        retrieve_range<pos_t,false>(&move_r<support,sym_t,pos_t>::SA,file_name,params);
+    void SA(std::string file_name, retrieve_params params = {}) const
+        requires(supports_multiple_locate)
+    {
+        adjust_retrieve_params(params, n - 1);
+        retrieve_range<pos_t, false>(&move_r<support, sym_t, pos_t>::SA, file_name, params);
     }
 
     // ############################# SERIALIZATION METHODS #############################
@@ -1085,35 +1166,36 @@ class move_r {
      * @brief stores the index to an output stream
      * @param out output stream to store the index to
      */
-    void serialize(std::ostream& out) const {
-        bool is_64_bit = std::is_same_v<pos_t,uint64_t>;
-        out.write((char*)&is_64_bit,1);
+    void serialize(std::ostream& out) const
+    {
+        bool is_64_bit = std::is_same_v<pos_t, uint64_t>;
+        out.write((char*)&is_64_bit, 1);
         move_r_support _support = support;
-        out.write((char*)&_support,sizeof(move_r_support));
+        out.write((char*)&_support, sizeof(move_r_support));
 
         std::streampos pos_data_structure_offsets = out.tellp();
-        out.seekp(pos_data_structure_offsets+(std::streamoff)sizeof(std::streamoff),std::ios::beg);
+        out.seekp(pos_data_structure_offsets + (std::streamoff)sizeof(std::streamoff), std::ios::beg);
 
-        out.write((char*)&n,sizeof(pos_t));
-        out.write((char*)&sigma,sizeof(uint32_t));
-        out.write((char*)&r,sizeof(pos_t));
-        out.write((char*)&r_,sizeof(pos_t));
-        out.write((char*)&a,sizeof(uint16_t));
-        out.write((char*)&p_r,sizeof(uint16_t));
+        out.write((char*)&n, sizeof(pos_t));
+        out.write((char*)&sigma, sizeof(uint32_t));
+        out.write((char*)&r, sizeof(pos_t));
+        out.write((char*)&r_, sizeof(pos_t));
+        out.write((char*)&a, sizeof(uint16_t));
+        out.write((char*)&p_r, sizeof(uint16_t));
 
         if (p_r > 0) {
-            out.write((char*)&_D_e[0],(p_r-1)*2*sizeof(pos_t));
+            out.write((char*)&_D_e[0], (p_r - 1) * 2 * sizeof(pos_t));
         }
 
-        out.write((char*)&symbols_remapped,1);
+        out.write((char*)&symbols_remapped, 1);
         if (symbols_remapped) {
             if constexpr (byte_alphabet) {
-                out.write((char*)&_map_int[0],256);
-                out.write((char*)&_map_ext[0],256);
+                out.write((char*)&_map_int[0], 256);
+                out.write((char*)&_map_ext[0], 256);
             } else {
-                write_to_file(out,(char*)&_map_ext[0],sizeof(sym_t)*sigma);
-                std::vector<std::pair<sym_t,i_sym_t>> map_int_vec(_map_int.begin(),_map_int.end());
-                write_to_file(out,(char*)&map_int_vec[0],sizeof(std::pair<sym_t,i_sym_t>)*sigma);
+                write_to_file(out, (char*)&_map_ext[0], sizeof(sym_t) * sigma);
+                std::vector<std::pair<sym_t, i_sym_t>> map_int_vec(_map_int.begin(), _map_int.end());
+                write_to_file(out, (char*)&map_int_vec[0], sizeof(std::pair<sym_t, i_sym_t>) * sigma);
             }
         }
 
@@ -1123,82 +1205,83 @@ class move_r {
         if constexpr (support == _locate_one) {
             _SA_s.serialize(out);
         } else if constexpr (support == _locate_move) {
-            out.write((char*)&r__,sizeof(pos_t));
+            out.write((char*)&r__, sizeof(pos_t));
             _M_Phi_m1.serialize(out);
 
-            out.write((char*)&omega_idx,1);
+            out.write((char*)&omega_idx, 1);
             _SA_Phi_m1.serialize(out);
         } else if constexpr (support == _locate_rlzdsa) {
-            out.write((char*)&z,sizeof(pos_t));
-            out.write((char*)&z_l,sizeof(pos_t));
-            out.write((char*)&z_c,sizeof(pos_t));
+            out.write((char*)&z, sizeof(pos_t));
+            out.write((char*)&z_l, sizeof(pos_t));
+            out.write((char*)&z_c, sizeof(pos_t));
 
             _SA_s.serialize(out);
             _R.serialize(out);
             _SCP_S.serialize(out);
-            write_to_file(out,(char*)&_CPL[0],(z_c+2)*sizeof(uint16_t));
+            write_to_file(out, (char*)&_CPL[0], (z_c + 2) * sizeof(uint16_t));
             _SR.serialize(out);
             _LP.serialize(out);
             _PT.serialize(out);
         }
 
-        std::streamoff offs_end = out.tellp()-pos_data_structure_offsets;
-        out.seekp(pos_data_structure_offsets,std::ios::beg);
-        out.write((char*)&offs_end,sizeof(std::streamoff));
-        out.seekp(pos_data_structure_offsets+offs_end,std::ios::beg);
+        std::streamoff offs_end = out.tellp() - pos_data_structure_offsets;
+        out.seekp(pos_data_structure_offsets, std::ios::beg);
+        out.write((char*)&offs_end, sizeof(std::streamoff));
+        out.seekp(pos_data_structure_offsets + offs_end, std::ios::beg);
     }
 
     /**
      * @brief reads a serialized index from an input stream
      * @param in an input stream storing a serialized index
      */
-    void load(std::istream& in) {
+    void load(std::istream& in)
+    {
         bool is_64_bit;
-        in.read((char*)&is_64_bit,1);
+        in.read((char*)&is_64_bit, 1);
 
-        if (is_64_bit != std::is_same_v<pos_t,uint64_t>) {
+        if (is_64_bit != std::is_same_v<pos_t, uint64_t>) {
             std::cout << "error: cannot load a" << (is_64_bit ? "64" : "32") << "-bit"
-            << " index into a " << (is_64_bit ? "32" : "64") << "-bit index-object" << std::flush;
+                      << " index into a " << (is_64_bit ? "32" : "64") << "-bit index-object" << std::flush;
             return;
         }
 
         move_r_support _support;
-        in.read((char*)&_support,sizeof(move_r_support));
+        in.read((char*)&_support, sizeof(move_r_support));
 
         std::streampos pos_data_structure_offsets = in.tellg();
         std::streamoff offs_end;
-        in.read((char*)&offs_end,sizeof(std::streamoff));
+        in.read((char*)&offs_end, sizeof(std::streamoff));
 
-        in.read((char*)&n,sizeof(pos_t));
-        in.read((char*)&sigma,sizeof(uint32_t));
-        in.read((char*)&r,sizeof(pos_t));
-        in.read((char*)&r_,sizeof(pos_t));
-        in.read((char*)&a,sizeof(uint16_t));
-        in.read((char*)&p_r,sizeof(uint16_t));
-        
+        in.read((char*)&n, sizeof(pos_t));
+        in.read((char*)&sigma, sizeof(uint32_t));
+        in.read((char*)&r, sizeof(pos_t));
+        in.read((char*)&r_, sizeof(pos_t));
+        in.read((char*)&a, sizeof(uint16_t));
+        in.read((char*)&p_r, sizeof(uint16_t));
+
         if (p_r > 0) {
-            _D_e.resize(p_r-1);
-            in.read((char*)&_D_e[0],(p_r-1)*2*sizeof(pos_t));
+            _D_e.resize(p_r - 1);
+            in.read((char*)&_D_e[0], (p_r - 1) * 2 * sizeof(pos_t));
         }
 
-        in.read((char*)&symbols_remapped,1);
+        in.read((char*)&symbols_remapped, 1);
         if (symbols_remapped) {
             if constexpr (byte_alphabet) {
                 _map_int.resize(256);
-                in.read((char*)&_map_int[0],256);
+                in.read((char*)&_map_int[0], 256);
 
                 _map_ext.resize(256);
-                in.read((char*)&_map_ext[0],256);
+                in.read((char*)&_map_ext[0], 256);
             } else {
-                no_init_resize(_map_ext,sigma);
-                read_from_file(in,(char*)&_map_ext[0],sizeof(sym_t)*sigma);
+                no_init_resize(_map_ext, sigma);
+                read_from_file(in, (char*)&_map_ext[0], sizeof(sym_t) * sigma);
 
-                std::vector<std::pair<sym_t,i_sym_t>> map_int_vec;
-                no_init_resize(map_int_vec,sigma);
-                read_from_file(in,(char*)&map_int_vec[0],sizeof(std::pair<sym_t,i_sym_t>)*sigma);
+                std::vector<std::pair<sym_t, i_sym_t>> map_int_vec;
+                no_init_resize(map_int_vec, sigma);
+                read_from_file(in, (char*)&map_int_vec[0], sizeof(std::pair<sym_t, i_sym_t>) * sigma);
                 uint64_t alloc_before = malloc_count_current();
-                _map_int.insert(map_int_vec.begin(),map_int_vec.end());
-                size_map_int = malloc_count_current()-alloc_before;
+                _map_int.insert(map_int_vec.begin(), map_int_vec.end());
+                size_map_int = malloc_count_current() - alloc_before;
             }
         }
 
@@ -1208,35 +1291,37 @@ class move_r {
         if constexpr (support == _locate_one) {
             _SA_s.load(in);
         } else if constexpr (support == _locate_move) {
-            in.read((char*)&r__,sizeof(pos_t));
+            in.read((char*)&r__, sizeof(pos_t));
             _M_Phi_m1.load(in);
 
-            in.read((char*)&omega_idx,1);
+            in.read((char*)&omega_idx, 1);
             _SA_Phi_m1.load(in);
         } else if constexpr (support == _locate_rlzdsa) {
-            in.read((char*)&z,sizeof(pos_t));
-            in.read((char*)&z_l,sizeof(pos_t));
-            in.read((char*)&z_c,sizeof(pos_t));
+            in.read((char*)&z, sizeof(pos_t));
+            in.read((char*)&z_l, sizeof(pos_t));
+            in.read((char*)&z_c, sizeof(pos_t));
 
             _SA_s.load(in);
             _R.load(in);
             _SCP_S.load(in);
-            no_init_resize(_CPL,z_c+2);
-            read_from_file(in,(char*)&_CPL[0],(z_c+2)*sizeof(uint16_t));
+            no_init_resize(_CPL, z_c + 2);
+            read_from_file(in, (char*)&_CPL[0], (z_c + 2) * sizeof(uint16_t));
             _SR.load(in);
             _LP.load(in);
             _PT.load(in);
         }
 
-        in.seekg(pos_data_structure_offsets+offs_end,std::ios::beg);
+        in.seekg(pos_data_structure_offsets + offs_end, std::ios::beg);
     }
 
-    std::ostream& operator>>(std::ostream& os) const {
+    std::ostream& operator>>(std::ostream& os) const
+    {
         serialize(os);
         return os;
     }
 
-    std::istream& operator<<(std::istream& is) {
+    std::istream& operator<<(std::istream& is)
+    {
         load(is);
         return is;
     }
