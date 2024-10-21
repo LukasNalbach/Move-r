@@ -353,7 +353,7 @@ void move_r<support, sym_t, pos_t>::init_rlzdsa(
     // index in SCP_S of the last sampled copy phrase starting before or at i
     pos_t x_scps = SCP_S().rank_1(i + 1);
 
-    if (x_scps == 0) {
+    if (x_scps == 0) [[unlikely]] {
         // i lies before the first copy phrase
         s_np = i + 1;
         x_p = i;
@@ -418,7 +418,7 @@ void move_r<support, sym_t, pos_t>::init_rlzdsa(
     s = SA_s(x);
     pos_t j = M_LF().p(x);
 
-    if (j == i) {
+    if (j == i) [[unlikely]] {
         init_rlzdsa(i, x_p, x_lp, x_cp, x_r, s_np);
 
         if (!PT(x_p)) {
@@ -434,9 +434,49 @@ void move_r<support, sym_t, pos_t>::init_rlzdsa(
     } else {
         j++;
         init_rlzdsa(j, x_p, x_lp, x_cp, x_r, s_np);
+        skip_rlzdsa_right(j, i, s, x_p, x_lp, x_cp, x_r, s_np);
+    }
+}
 
-        while (j < i) {
-            next_rlzdsa(j, s, x_p, x_lp, x_cp, x_r, s_np);
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support, sym_t, pos_t>::skip_rlzdsa_right(
+    pos_t& i, pos_t& e, pos_t& s,
+    pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
+    requires(support == _locate_rlzdsa)
+{
+    while (i < e) {
+        // decode all copy-phrases before the next literal phrase
+        while (i < e && !PT(x_p)) {
+            // decode the x_cp-th copy-phrase
+            while (i < s_np && i < e) {
+                s += R(x_r);
+                s -= n;
+                i++;
+                x_r++;
+            }
+
+            if (i < e || i == s_np) [[likely]] {
+                x_p++;
+                x_cp++;
+                x_r = SR(x_cp);
+                s_np += PT(x_p) ? 1 : CPL(x_cp);
+            }
+        }
+
+        // decode all literal phrases before the next copy-phrase
+        while (i < e && PT(x_p)) {
+            // decode the x_lp-th literal phrase
+            s = LP(x_lp);
+            i++;
+            x_p++;
+            x_lp++;
+            s_np++;
+        }
+
+        if (i < e || PT(x_p)) [[likely]] {
+            // set s_np to the starting position of the next (the x_lp-th)
+            // literal phrase after the current (the x_cp-th) copy-phrase
+            s_np += CPL(x_cp) - 1;
         }
     }
 }
@@ -454,7 +494,7 @@ void move_r<support, sym_t, pos_t>::next_rlzdsa(
         x_p++;
         x_lp++;
 
-        if (i < n) {
+        if (i < n) [[likely]] {
             if (PT(x_p)) {
                 // the next phrase is a literal phrase
                 s_np++;
@@ -471,7 +511,7 @@ void move_r<support, sym_t, pos_t>::next_rlzdsa(
         x_r++;
 
         // there is a new phrase starting at i
-        if (s_np <= i && i < n) {
+        if (s_np <= i && i < n) [[unlikely]] {
             x_p++;
             x_cp++;
             x_r = SR(x_cp);
@@ -503,9 +543,10 @@ void move_r<support, sym_t, pos_t>::write_rlzdsa_right(
                 s -= n;
                 vec[o] = s;
 
-                if (i == e)
+                if (i == e) [[unlikely]] {
                     return;
-
+                }
+                
                 o++;
                 i++;
                 x_r++;
@@ -523,8 +564,9 @@ void move_r<support, sym_t, pos_t>::write_rlzdsa_right(
             s = LP(x_lp);
             vec[o] = s;
 
-            if (i == e)
+            if (i == e) [[unlikely]] {
                 return;
+            }
 
             o++;
             i++;
@@ -555,8 +597,9 @@ void move_r<support, sym_t, pos_t>::report_rlzdsa_right(
                 s -= n;
                 report(i, s);
 
-                if (i == e)
+                if (i == e) [[unlikely]] {
                     return;
+                }
 
                 i++;
                 x_r++;
@@ -574,8 +617,9 @@ void move_r<support, sym_t, pos_t>::report_rlzdsa_right(
             s = LP(x_lp);
             report(i, s);
 
-            if (i == e)
+            if (i == e) [[unlikely]] {
                 return;
+            }
 
             i++;
             x_p++;

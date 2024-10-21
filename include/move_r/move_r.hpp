@@ -948,6 +948,22 @@ protected:
         const std::function<void(pos_t, pos_t)>& report) const
         requires(support == _locate_rlzdsa);
 
+    /**
+     * @brief advances the rlzdsa context to the right up to position e
+     * @param i current position in the suffix array
+     * @param e position in the suffix array to advance the context to
+     * @param s current suffix array value
+     * @param x_p phrase-index of the phrase of the rlzdsa contianing i
+     * @param x_lp literal-phrase index of the current or next literal phrase of the rlzdsa
+     * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzdsa
+     * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzdsa
+     * @param s_np starting position in the rlzdsa of the next phrase of the rlzdsa
+     */
+    inline void skip_rlzdsa_right(
+        pos_t& i, pos_t& e, pos_t& s,
+        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
+        requires(support == _locate_rlzdsa);
+
 public:
     /**
      * @brief returns the number of occurrences of P in the input
