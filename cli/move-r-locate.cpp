@@ -173,8 +173,8 @@ void measure_locate()
         std::cout << "pattern length: " << pattern_length << std::endl;
         std::cout << "total number of occurrences: " << num_occurrences << std::endl;
         std::cout << "locate time: " << format_time(time_locate) << std::endl;
-        std::cout << "            " << format_time(time_locate / num_patterns) << "/pattern" << std::endl;
-        std::cout << "            " << format_time(time_locate / num_occurrences) << "/occurrence" << std::endl;
+        std::cout << "             " << format_time(time_locate / num_patterns) << "/pattern" << std::endl;
+        std::cout << "             " << format_time(time_locate / num_occurrences) << "/occurrence" << std::endl;
     }
 
     if (mf.is_open()) {

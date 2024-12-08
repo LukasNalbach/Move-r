@@ -75,7 +75,7 @@ public:
     /** [0..n-1] The BWT */
     std::string& L;
     /** [0..p-1] file buffers (of each thread) for reading the BWT file output by bigbwt */
-    std::vector<sdsl::int_vector_buffer<>> BWT_file_bufs;
+    std::vector<sdsl::int_vector_buffer<8>> BWT_file_bufs;
     /** [0..p-1] vectors that contain the RLBWT concatenated */
     std::vector<interleaved_vectors<uint32_t, uint32_t>> RLBWT;
     /** [0..p] n_p[0] < n_p[1] < ... < n_p[p] = n; n_p[i] = start position of thread i's section in L and SA */
@@ -97,7 +97,7 @@ public:
     /** [0..r''-1] Permutation storing the order of the output interval starting positions of M_Phi^{-1} */
     std::vector<pos_t> pi_mphi;
     /** [0..p-1] file buffers (of each thread) for reading the suffix array file output by bigbwt */
-    std::vector<sdsl::int_vector_buffer<>> SA_file_bufs;
+    std::vector<sdsl::int_vector_buffer<40>> SA_file_bufs;
 
     /** type of hash map for storing the frequencies of values in SA^d */
     template <typename sad_t>

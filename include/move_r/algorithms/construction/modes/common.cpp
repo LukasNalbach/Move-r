@@ -247,7 +247,7 @@ void move_r<support, sym_t, pos_t>::construction::build_rlbwt_c()
 
     if constexpr (mode == _bwt_file) {
         for (uint16_t i = 0; i < p; i++) {
-            BWT_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
+            BWT_file_bufs.emplace_back(sdsl::int_vector_buffer<8>(
                 prefix_tmp_files + ".bwt", std::ios::in,
                 128 * 1024, 8, true));
         }
@@ -551,7 +551,7 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sa()
 
     if constexpr (bigbwt) {
         for (uint16_t i = 0; i < p; i++) {
-            SA_file_bufs.emplace_back(sdsl::int_vector_buffer<>(
+            SA_file_bufs.emplace_back(sdsl::int_vector_buffer<40>(
                 prefix_tmp_files + ".sa", std::ios::in,
                 128 * 1024, 40, true));
         }

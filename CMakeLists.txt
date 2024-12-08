@@ -52,13 +52,8 @@ target_include_directories(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/
 target_link_libraries(malloc_count INTERFACE dl)
 
 # sdsl
-set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/sdsl-lite/")
-set_target_properties(
-  uninstall-sdsl uninstall divsufsort divsufsort64
-  PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1
-)
-target_include_directories(sdsl PUBLIC "${CMAKE_BINARY_DIR}/external/sdsl-lite/external/libdivsufsort/include/")
+include_directories("~/include")
+link_directories("~/lib")
 
 # gtl
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/gtl/")

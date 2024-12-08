@@ -7,9 +7,6 @@
 [submodule "external/libsais"]
 	path = external/libsais
 	url = git@github.com:IlyaGrebnov/libsais.git
-[submodule "external/sdsl-lite"]
-	path = external/sdsl-lite
-	url = git@github.com:simongog/sdsl-lite.git
 [submodule "external/rcomp"]
 	path = external/rcomp
 	url = git@github.com:kampersanda/rcomp.git

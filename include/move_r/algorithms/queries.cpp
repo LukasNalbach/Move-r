@@ -49,10 +49,10 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
                   = Phi(M_Phi^{-1}.q(SA_Phi^{-1}[(x+1) mod r']))
                   =     M_Phi^{-1}.p(SA_Phi^{-1}[(x+1) mod r'])
         */
-        if (i == M_LF().p(x + 1) - 1) {
+        if (i == M_LF().p(x + 1) - 1) [[unlikely]] {
             pos_t xp1 = (x + 1) == r_ ? 0 : (x + 1);
 
-            if (SA_Phi_m1(xp1) != r__) {
+            if (SA_Phi_m1(xp1) != r__) [[unlikely]] {
                 return M_Phi_m1().p(SA_Phi_m1(xp1));
             }
         }
@@ -124,7 +124,7 @@ pos_t move_r<support, sym_t, pos_t>::query_context::next_occ()
     requires(supports_multiple_locate)
 {
     if constexpr (support == _locate_rlzdsa) {
-        if (i == b) {
+        if (i == b) [[unlikely]] {
             // compute the suffix array value at b
             s = idx->SA_s(hat_b_ap_y) - (y + 1);
             i++;
@@ -140,7 +140,7 @@ pos_t move_r<support, sym_t, pos_t>::query_context::next_occ()
             return s;
         }
     } else {
-        if (i == b) {
+        if (i == b) [[unlikely]] {
             // compute the suffix array value at b
             idx->init_phi_m1(b, e, s, s_, hat_b_ap_y, y);
             i++;
@@ -167,27 +167,27 @@ void move_r<support, sym_t, pos_t>::query_context::locate(std::vector<pos_t>& Oc
     Occ.reserve(Occ.size() + num_occ_rem());
 
     if constexpr (support == _locate_rlzdsa) {
-        if (i == b) {
+        if (i == b) [[unlikely]] {
             // compute the suffix array value at b
             s = idx->SA_s(hat_b_ap_y) - (y + 1);
             Occ.emplace_back(s);
             i++;
 
             // check if there is more than one occurrence
-            if (b < e) {
+            if (b < e) [[likely]] {
                 idx->init_rlzdsa(i, x_p, x_lp, x_cp, x_r, s_np);
             }
         }
 
         // compute the remaining occurrences SA(b,e]
-        if (i <= e) {
+        if (i <= e) [[likely]] {
             pos_t o = Occ.size();
             no_init_resize(Occ, o + num_occ_rem());
             idx->write_rlzdsa_right(i, e, s, x_p, x_lp, x_cp, x_r, s_np, Occ, o);
         }
     } else {
         // compute the suffix array value at b
-        if (i == b) {
+        if (i == b) [[unlikely]] {
             idx->init_phi_m1(b, e, s, s_, hat_b_ap_y, y);
             Occ.emplace_back(s);
             i++;
@@ -215,11 +215,13 @@ bool move_r<support, sym_t, pos_t>::backward_search_step(
 
     // If sym does not occur in L', then P[i..m] does not occur in T
     if constexpr (byte_alphabet) {
-        if (!RS_L_().contains(i_sym))
+        if (!RS_L_().contains(i_sym)) [[unlikely]] {
             return false;
+        }
     } else {
-        if (i_sym == 0)
+        if (i_sym == 0) [[unlikely]] {
             return false;
+        }
     }
 
     // Find the lexicographically smallest suffix in the current suffix array interval that is prefixed by P[i]
@@ -238,13 +240,15 @@ bool move_r<support, sym_t, pos_t>::backward_search_step(
         if (int_alphabet || (i_sym != L_(b_) && b_ < e_)) {
             b_ = RS_L_().rank(i_sym, b_);
 
-            if (b_ == RS_L_().frequency(i_sym))
+            if (b_ == RS_L_().frequency(i_sym)) [[unlikely]] {
                 return false;
+            }
 
             b_ = RS_L_().select(i_sym, b_ + 1);
 
-            if (b_ > e_)
+            if (b_ > e_) [[unlikely]] {
                 return false;
+            }
         }
 
         b = M_LF().p(b_);
@@ -293,8 +297,9 @@ bool move_r<support, sym_t, pos_t>::backward_search_step(
     b <= e holds. */
 
     // If the suffix array interval is empty, P does not occur in T, so return false.
-    if (b > e)
+    if (b > e) [[unlikely]] {
         return false;
+    }
 
     /* Else, set b <- LF(b) and e <- LF(e). The following two optimizations increase query throughput slightly
         if there are only few occurrences */
@@ -989,10 +994,10 @@ void move_r<support, sym_t, pos_t>::retrieve_range(
         params.max_bytes_alloc != -1 ? params.max_bytes_alloc / num_threads : ((r - l + 1) * sizeof(output_t)) / (num_threads * 500));
 
     std::filesystem::resize_file(std::filesystem::current_path() / file_name, (r - l + 1) * sizeof(output_t));
-    std::vector<sdsl::int_vector_buffer<>> file_bufs;
+    std::vector<sdsl::int_vector_buffer<sizeof(output_t) * 8>> file_bufs;
 
     for (uint16_t i = 0; i < num_threads; i++) {
-        file_bufs.emplace_back(sdsl::int_vector_buffer<>(file_name, std::ios::in, buffer_size_per_thread, sizeof(output_t) * 8, true));
+        file_bufs.emplace_back(sdsl::int_vector_buffer<sizeof(output_t) * 8>(file_name, std::ios::in, buffer_size_per_thread, sizeof(output_t) * 8, true));
     }
 
     (this->*retrieve_method)([&](pos_t pos, output_t val) {
