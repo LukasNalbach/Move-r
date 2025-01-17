@@ -2,9 +2,9 @@
 
 #include <gtl/btree.hpp>
 #include <libsais.h>
+#include <libsais16.h>
 #include <libsais64.h>
 #include <move_r/move_r.hpp>
-#include <sais.hxx>
 
 template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::construction::read_t_from_file(std::ifstream& T_ifile)
@@ -28,20 +28,19 @@ template <typename sa_sint_t>
 void move_r<support, sym_t, pos_t>::construction::build_sa()
 {
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
+    static constexpr bool use_saisxx = sizeof(i_sym_t) >= 4 && sizeof(i_sym_t) != sizeof(sa_sint_t);
+    pos_t fs = use_saisxx ? 0 : (6 * (byte_alphabet ? 256 : idx.sigma));
 
     // Choose the correct suffix array construction algorithm.
     if constexpr (byte_alphabet) {
-        pos_t fs = std::min<pos_t>(std::numeric_limits<sa_sint_t>::max() - n, 6 * 256);
+        if (log) std::cout << "building SA" << std::flush;
         no_init_resize(SA, n + fs);
-        if (log)     std::cout << "building SA" << std::flush;
 
         if constexpr (std::is_same_v<sa_sint_t, int32_t>) {
-            libsais_omp(&T<uint8_t>(0), &SA[0], n, fs, NULL, p);
+            libsais_omp(&T<uint8_t>(0), SA.data(), n, fs, NULL, p);
         } else {
-            libsais64_omp(&T<uint8_t>(0), &SA[0], n, fs, NULL, p);
+            libsais64_omp(&T<uint8_t>(0), SA.data(), n, fs, NULL, p);
         }
-
-        no_init_resize(SA, n);
     } else {
         if (idx.symbols_remapped) {
             if (log) {
@@ -54,16 +53,53 @@ void move_r<support, sym_t, pos_t>::construction::build_sa()
                 T<i_sym_t>(i) = (*idx._map_int.find(T<sym_t>(i))).second;
             }
 
-            if (log)         time = log_runtime(time);
+            if (log) time = log_runtime(time);
             if (mode == _suffix_array_space)
                 store_mapintext();
         }
 
-        if (log)     std::cout << "building SA" << std::flush;
+        if (log) std::cout << "building SA" << std::flush;
 
-        no_init_resize(SA, n);
-        saisxx((i_sym_t*)&T_vec[0], &SA[0], (sa_sint_t)n, (sa_sint_t)idx.sigma);
+        if constexpr (sizeof(i_sym_t) == 2) {
+            no_init_resize(SA, n + fs);
+
+            if constexpr (sizeof(sa_sint_t) == 4) {
+                libsais16_omp(&T<uint16_t>(0), SA.data(), n, idx.sigma, fs, p);
+            } else {
+                libsais16x64_omp(&T<uint16_t>(0), SA.data(), n, idx.sigma, fs, p);
+            }
+        } else if constexpr (sizeof(i_sym_t) == 4) {
+            no_init_resize(SA, n + fs);
+
+            if constexpr (sizeof(sa_sint_t) == 4) {
+                libsais_int_omp(&T<int32_t>(0), SA.data(), n, idx.sigma, fs, p);
+            } else {
+                std::vector<int64_t> T_tmp;
+                no_init_resize(T_tmp, n);
+            
+                #pragma omp parallel for num_threads(p)
+                for (pos_t i = 0; i < n; i++) {
+                    T_tmp[i] = T<int32_t>(i);
+                }
+
+                libsais64_long_omp(T_tmp.data(), SA.data(), n, idx.sigma, fs, p);
+            }
+        } else if constexpr (sizeof(i_sym_t) == 8) {
+            if constexpr (sizeof(sa_sint_t) == 4) {
+                no_init_resize(SA, 2 * (n + fs));
+                libsais64_long_omp(&T<int64_t>(0), (int64_t*) SA.data(), n, idx.sigma, fs, p);
+
+                for (uint64_t i = 0; i < n; i++) {
+                    SA[i] = SA[2 * i];
+                }
+            } else {
+                no_init_resize(SA, n + fs);
+                libsais64_long_omp(&T<int64_t>(0), SA.data(), n, idx.sigma, fs, p);
+            }
+        }
     }
+
+    no_init_resize(SA, n);
 
     if (log) {
         if (mf_idx != NULL)

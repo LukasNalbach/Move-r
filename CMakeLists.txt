@@ -65,10 +65,6 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/external/sparse-map/")
 add_library(emhash INTERFACE)
 target_include_directories(emhash INTERFACE "${CMAKE_SOURCE_DIR}/external/emhash/")
 
-# sais-lite-lcp
-add_library(sais-lite-lcp INTERFACE)
-target_include_directories(sais-lite-lcp INTERFACE "${CMAKE_SOURCE_DIR}/external/sais-lite-lcp/")
-
 # sux
 add_library(sux INTERFACE)
 target_include_directories(sux INTERFACE "${CMAKE_SOURCE_DIR}/external/sux/")
@@ -80,7 +76,7 @@ add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
 target_link_libraries(move_r INTERFACE
   OpenMP::OpenMP_CXX sdsl libsais ips4o gtl sparse_map
-  malloc_count concurrentqueue sais-lite-lcp emhash sux
+  malloc_count concurrentqueue emhash sux
 )
 
 option(MOVE_R_BUILD_CLI "Build the cli programs" ON)
@@ -174,7 +170,7 @@ if(MOVE_R_BUILD_BENCH_CLI)
     "${CMAKE_SOURCE_DIR}/external/r-index-rlzsa/internal/"
   )
   target_link_libraries(r-index-rlzsa INTERFACE
-    sdsl unordered_dense malloc_count sais-lite-lcp ips4o
+    sdsl unordered_dense malloc_count ips4o
   )
 
   # OnlineRlbwt

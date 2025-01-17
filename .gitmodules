@@ -51,6 +51,3 @@
 [submodule "external/r-index-rlzsa"]
 	path = external/r-index-rlzsa
 	url = git@github.com:LukasNalbach/r-index-rlzsa.git
-[submodule "external/sais-lite-lcp"]
-	path = external/sais-lite-lcp
-	url = https://github.com/kurpicz/sais-lite-lcp
