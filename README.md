@@ -10,7 +10,6 @@ This [2] ([drops.dagstuhl.de](https://drops.dagstuhl.de/entities/document/10.423
 - [libsais](https://github.com/IlyaGrebnov/libsais)
 - [ips4o](https://github.com/ips4o/ips4o)
 - [concurrentqueue](https://github.com/cameron314/concurrentqueue)
-- [sais-lite-lcp](https://github.com/kurpicz/sais-lite-lcp)
 - [gtl](https://github.com/greg7mdp/gtl)
 - [sparse-map](https://github.com/Tessil/sparse-map)
 - [emhash](https://github.com/ktprime/emhash)

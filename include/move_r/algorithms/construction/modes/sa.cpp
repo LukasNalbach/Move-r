@@ -28,12 +28,12 @@ template <typename sa_sint_t>
 void move_r<support, sym_t, pos_t>::construction::build_sa()
 {
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
-    static constexpr bool use_saisxx = sizeof(i_sym_t) >= 4 && sizeof(i_sym_t) != sizeof(sa_sint_t);
-    pos_t fs = use_saisxx ? 0 : (6 * (byte_alphabet ? 256 : idx.sigma));
 
     // Choose the correct suffix array construction algorithm.
     if constexpr (byte_alphabet) {
         if (log) std::cout << "building SA" << std::flush;
+
+        pos_t fs = 6 * 256;
         no_init_resize(SA, n + fs);
 
         if constexpr (std::is_same_v<sa_sint_t, int32_t>) {
@@ -61,18 +61,18 @@ void move_r<support, sym_t, pos_t>::construction::build_sa()
         if (log) std::cout << "building SA" << std::flush;
 
         if constexpr (sizeof(i_sym_t) == 2) {
-            no_init_resize(SA, n + fs);
+            no_init_resize(SA, n);
 
             if constexpr (sizeof(sa_sint_t) == 4) {
-                libsais16_omp(&T<uint16_t>(0), SA.data(), n, idx.sigma, fs, p);
+                libsais16_omp(&T<uint16_t>(0), SA.data(), n, idx.sigma, 0, p);
             } else {
-                libsais16x64_omp(&T<uint16_t>(0), SA.data(), n, idx.sigma, fs, p);
+                libsais16x64_omp(&T<uint16_t>(0), SA.data(), n, idx.sigma, 0, p);
             }
         } else if constexpr (sizeof(i_sym_t) == 4) {
-            no_init_resize(SA, n + fs);
+            no_init_resize(SA, n);
 
             if constexpr (sizeof(sa_sint_t) == 4) {
-                libsais_int_omp(&T<int32_t>(0), SA.data(), n, idx.sigma, fs, p);
+                libsais_int_omp(&T<int32_t>(0), SA.data(), n, idx.sigma, 0, p);
             } else {
                 std::vector<int64_t> T_tmp;
                 no_init_resize(T_tmp, n);
@@ -82,24 +82,24 @@ void move_r<support, sym_t, pos_t>::construction::build_sa()
                     T_tmp[i] = T<int32_t>(i);
                 }
 
-                libsais64_long_omp(T_tmp.data(), SA.data(), n, idx.sigma, fs, p);
+                libsais64_long_omp(T_tmp.data(), SA.data(), n, idx.sigma, 0, p);
             }
         } else if constexpr (sizeof(i_sym_t) == 8) {
             if constexpr (sizeof(sa_sint_t) == 4) {
-                no_init_resize(SA, 2 * (n + fs));
-                libsais64_long_omp(&T<int64_t>(0), (int64_t*) SA.data(), n, idx.sigma, fs, p);
+                no_init_resize(SA, 2 * n);
+                libsais64_long_omp(&T<int64_t>(0), (int64_t*) SA.data(), n, idx.sigma, 0, p);
 
                 for (uint64_t i = 0; i < n; i++) {
                     SA[i] = SA[2 * i];
                 }
             } else {
-                no_init_resize(SA, n + fs);
-                libsais64_long_omp(&T<int64_t>(0), SA.data(), n, idx.sigma, fs, p);
+                no_init_resize(SA, n);
+                libsais64_long_omp(&T<int64_t>(0), SA.data(), n, idx.sigma, 0, p);
             }
         }
     }
 
-    no_init_resize(SA, n);
+    SA.resize(n);
 
     if (log) {
         if (mf_idx != NULL)

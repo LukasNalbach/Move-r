@@ -242,16 +242,16 @@ endif()
 
 if(MOVE_R_BUILD_TESTS)
   enable_testing()
-  include(GoogleTest)
-  include(Dart)
+  find_package(GTest REQUIRED)
+  include_directories(${GTEST_INCLUDE_DIR})
 
   add_executable(test-move_r "${CMAKE_SOURCE_DIR}/tests/test_move_r.cpp")
   add_executable(test-move_r_int "${CMAKE_SOURCE_DIR}/tests/test_move_r_int.cpp")
   add_executable(test-move_data_structure "${CMAKE_SOURCE_DIR}/tests/test_move_data_structure.cpp")
 
-  target_link_libraries(test-move_r PRIVATE gtest_main move_r)
-  target_link_libraries(test-move_r_int PRIVATE gtest_main move_r)
-  target_link_libraries(test-move_data_structure PRIVATE gtest_main move_r)
+  target_link_libraries(test-move_r PRIVATE gtest gtest_main move_r)
+  target_link_libraries(test-move_r_int PRIVATE gtest gtest_main move_r)
+  target_link_libraries(test-move_data_structure PRIVATE gtest gtest_main move_r)
 
   set_target_properties(
     test-move_r test-move_r_int test-move_data_structure
