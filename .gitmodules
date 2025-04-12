@@ -48,6 +48,9 @@
 [submodule "external/sux"]
 	path = external/sux
 	url = git@github.com:vigna/sux.git
-[submodule "external/r-index-rlzsa"]
-	path = external/r-index-rlzsa
-	url = git@github.com:LukasNalbach/r-index-rlzsa.git
+[submodule "external/ordered"]
+	path = external/ordered
+	url = https://github.com/pdinklag/ordered
+[submodule "external/unordered_dense"]
+	path = external/unordered_dense
+	url = git@github.com:martinus/unordered_dense.git
