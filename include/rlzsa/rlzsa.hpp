@@ -1,0 +1,163 @@
+/**
+ * part of LukasNalbach/Move-r
+ *
+ * MIT License
+ *
+ * Copyright (c) Lukas Nalbach
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+#pragma once
+
+#include <bit>
+#include <cmath>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <numeric>
+#include <ostream>
+#include <type_traits>
+#include <vector>
+
+#include "rlzsa_encoding.hpp"
+#include <misc/build_sa_and_bwt.hpp>
+#include <data_structures/interleaved_bit_aligned_vectors.hpp>
+
+template <typename int_t = int32_t>
+class rlzsa {
+
+protected:
+    rlzsa_encoding<int_t> rlzsa_enc; // rlzsa encoding
+    int_t d = 0; // sampling parameter
+
+    // evenly-spaced SA-samples (every d-th position is sampled, if d != -1)
+    interleaved_bit_aligned_vectors<uint64_t, 1> sa_samples;
+
+public:
+    rlzsa() = default;
+
+    // call when the suffix array of the input text is not yet calculated
+    rlzsa(std::string& input, double relative_reference_size = 0.1, int_t d = -1, bool use_bigbwt = false, bool log = false) : d(d)
+    {
+        auto time_start = now();
+        auto time = time_start;
+
+        // compute SA and BWT
+        auto [sa, bwt] = build_sa_and_bwt<int_t>(input, false, use_bigbwt, log);
+        uint64_t n = sa.size();
+
+        // construct differential suffix array (DSA)
+        if (log) time = now();
+        if (log) std::cout << "building Differential Suffix Array (DSA)" << std::flush;
+        std::vector<int_t> dsa;
+        no_init_resize(dsa, n);
+        dsa[0] = sa[0];
+
+        for (uint64_t i = 1; i < n; i++) {
+            dsa[i] = sa[i] - sa[i - 1];
+        }
+
+        if (log) time = log_runtime(time);
+
+        // construct rlzsa
+        if (log) std::cout << "building rlzsa:" << std::endl;
+        int64_t reference_size = n * relative_reference_size;
+        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, d == -1, log);
+
+        if (d != -1) {
+            // construct the SA sampling
+            if (log) std::cout << "building SA-Samples" << std::flush;
+
+            uint64_t num_samples = n / d;
+            sa_samples = interleaved_bit_aligned_vectors<uint64_t, 1>({ std::bit_width(uint64_t{n}) });
+            sa_samples.resize_no_init(num_samples);
+
+            for (uint64_t i = 0; i < num_samples; i++) {
+                sa_samples.set<0>(i, sa[i * d]);
+            }
+
+            if (log) time = log_runtime(time);
+        }
+    }
+
+
+    // return a reference to the encoding
+    const rlzsa_encoding<int_t>& encoding() const
+    {
+        return rlzsa_enc;
+    }
+
+    // return the index-th suffix array sample
+    int_t sample(uint64_t index) const
+    {
+        if (d != -1) [[likely]] return sa_samples.get<0>(index);
+        return -1;
+    }
+
+    // return the suffix array value at position index
+    int_t operator[](uint64_t index) const
+    {
+        return rlzsa_enc[index];
+    }
+
+    uint64_t input_size() const
+    {
+        return rlzsa_enc.input_size();
+    }
+
+    uint64_t num_phrases() const
+    {
+        return rlzsa_enc.num_phrases();
+    }
+
+    int_t delta() const
+    {
+        return d;
+    }
+
+    // TODO: implement count
+
+    // returns multiple consecutive suffix array values
+    std::vector<int_t> sa_values(uint64_t start, uint64_t end) const
+    {
+        // TODO: implement version that uses evenly-spaced samples
+        return rlzsa_enc.template extract<int_t>(start, end);
+    }
+
+    // return the size of the whole data structure in bytes
+    size_t size_in_bytes() const
+    {
+        return sizeof(this) + rlzsa_enc.size_in_bytes() + sa_samples.size_in_bytes();
+    }
+
+    // load the rlzsa construction from a stream
+    void load(std::istream& in)
+    {
+        rlzsa_enc.load(in);
+        sa_samples.load(in);
+    }
+
+    // serialize the rlzsa construction to the output stream
+    void serialize(std::ostream& out)
+    {
+        rlzsa_enc.serialize(out);
+        sa_samples.serialize(out);
+    }
+};

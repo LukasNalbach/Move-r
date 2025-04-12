@@ -79,8 +79,8 @@ int main()
    std::cout << std::endl;
 
    // build an index for an integer vector using a relative
-   // lempel-ziv encoded differential suffix array (rlzdsa)
-   move_r<_locate_rlzdsa, int32_t> index_3({ 2, -1, 5, -1, 7, 2, -1 });
+   // lempel-ziv encoded differential suffix array (rlzsa)
+   move_r<_locate_rlzsa, int32_t> index_3({ 2, -1, 5, -1, 7, 2, -1 });
 
    // incrementally search the pattern [2,-1] in the input vector (from
    // right to left) and print the number of occurrences after each step
@@ -110,9 +110,9 @@ int main()
 
 #### Move Data Structure
 ```c++
-#include <move_r/data_structures/move_data_structure/move_data_structure.hpp>
-#include <move_r/data_structures/move_data_structure/move_data_structure_l_.hpp>
-#include <move_r/misc/utils.hpp>
+#include <move_data_structure/move_data_structure.hpp>
+#include <move_data_structure/move_data_structure_l_.hpp>
+#include <misc/utils.hpp>
 
 int main()
 {
@@ -219,7 +219,7 @@ int main()
 usage: move-r-build [options] <input_file>
    -c <mode>          construction mode: sa or bigbwt (default: sa)
    -o <base_name>     names the index file base_name.move-r (default: input_file)
-   -s <support>       support: count, locate_move or locate_rlzdsa
+   -s <support>       support: count, locate_move, locate_rlzsa or locate_lzendsa
                       (default: locate_move)
    -p <integer>       number of threads to use during the construction of the index
                       (default: all threads)

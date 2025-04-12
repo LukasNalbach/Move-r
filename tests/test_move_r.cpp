@@ -1,3 +1,29 @@
+/**
+ * part of LukasNalbach/Move-r
+ *
+ * MIT License
+ *
+ * Copyright (c) Lukas Nalbach
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #include <gtest/gtest.h>
 #include <move_r/move_r.hpp>
 
@@ -175,22 +201,37 @@ void test_move_r()
                 if (match)
                     correct_occurrences.emplace_back(i);
             }
-
+            
             EXPECT_EQ(index.count(pattern), correct_occurrences.size());
             occurrences = index.locate(pattern);
             ips4o::sort(occurrences.begin(), occurrences.end());
             EXPECT_EQ(occurrences, correct_occurrences);
             occurrences.clear();
-
+            
             auto query = index.query();
             for (int32_t i = pattern.size() - 1; i >= 0; i--)
                 query.prepend(pattern[i]);
             EXPECT_EQ(query.num_occ(), correct_occurrences.size());
 
-            query.locate(occurrences);
+            if constexpr (support == _locate_lzendsa) {
+                occurrences = query.locate();
+            } else {
+                for (int32_t i = 0; i < query.num_occ(); i++) {
+                    if (prob_distrib(gen) < 1 / (double) query.num_occ()) {
+                        std::vector<uint32_t> remaining_occurrences = query.locate();
+                        occurrences.insert(occurrences.end(),
+                            remaining_occurrences.begin(), remaining_occurrences.end());
+                        break;
+                    }
+    
+                    occurrences.emplace_back(query.next_occ());
+                }
+            }
+
             ips4o::sort(occurrences.begin(), occurrences.end());
             EXPECT_EQ(occurrences, correct_occurrences);
             correct_occurrences.clear();
+            occurrences.clear();
         }
     }
 
@@ -202,10 +243,14 @@ TEST(test_move_r, fuzzy_test)
     auto start_time = now();
 
     while (time_diff_min(start_time, now()) < 60) {
-        if (prob_distrib(gen) < 0.5) {
+        double val = prob_distrib(gen);
+
+        if (val < 1.0 / 3.0) {
             test_move_r<_locate_move>();
+        } else if (val < 2.0 / 3.0) {
+            test_move_r<_locate_rlzsa>();
         } else {
-            test_move_r<_locate_rlzdsa>();
+            test_move_r<_locate_lzendsa>();
         }
     }
 }
