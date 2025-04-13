@@ -80,7 +80,7 @@ public:
         uint64_t r = r_index.number_of_runs();
         uint64_t reference_size = std::min<uint64_t>(n / 3, 5.2 * r);
         enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, !use_rindex_samples, log);
-        if (log) std::cout << "r-index-lzendsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
+        if (log) std::cout << "r-index-rlzsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
     }
 
     // return a reference to the encoding

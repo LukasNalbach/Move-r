@@ -90,9 +90,9 @@ std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input,
         no_init_resize(sa, n);
 
         if constexpr (std::is_same_v<int_t, int32_t>) {
-            libsais_omp((uint8_t*) input.data(), sa.data(), n, 0, nullptr);
+            libsais((uint8_t*) input.data(), sa.data(), n, 0, nullptr);
         } else {
-            libsais64_omp((uint8_t*) input.data(), sa.data(), n, 0, nullptr);
+            libsais64((uint8_t*) input.data(), sa.data(), n, 0, nullptr);
         }
 
         if (log) time = log_runtime(time);
