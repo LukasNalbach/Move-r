@@ -41,7 +41,7 @@ void help()
     std::cout << "\t<text file>     path to the input file (should contain text)" << std::endl;
     std::cout << "\t-o              path to the desired output file (the extension .lzendsa will be added automatically)" << std::endl;
     std::cout << "\t-h              longest phrase length, leave blank or put -1 for unbounded phrase length" << std::endl;
-    std::cout << "\t-d              delta, if not provided the sample will be about 10% of the index size" << std::endl;
+    std::cout << "\t-d              delta, if not provided the end positions of the LZ-End phrases will be sampled" << std::endl;
     std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
     std::cout << "\t--f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
     std::cout << "\t-filename       sets the filename only for the RESULT line" << std::endl;
@@ -118,10 +118,10 @@ int main(int argc, char** argv)
 
     if (n <= INT32_MAX && !use64) {
         std::cout << "Constructing using 32-bit integers" << std::endl;
-        lzendsa_32 = lzendsa<int32_t>(input, d, h, true);
+        lzendsa_32 = lzendsa<int32_t>(input, d, h, use_bigbwt, true);
     } else {
         std::cout << "Constructing using 64-bit integers" << std::endl;
-        lzendsa_64 = lzendsa<int64_t>(input, d, h, true);
+        lzendsa_64 = lzendsa<int64_t>(input, d, h, use_bigbwt, true);
     }
 
     auto t2 = now();

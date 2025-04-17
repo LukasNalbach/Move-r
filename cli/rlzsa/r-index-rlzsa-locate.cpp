@@ -44,13 +44,23 @@ void help()
 }
 
 template <typename int_t>
-void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string& filename)
+void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string filename, std::string input_file)
 {
     size_t pre_load_memory = malloc_count_current();
     std::cout << "Loading r-index-rlzsa index" << std::flush;
     r_index_rlzsa<int_t> index;
     index.load(index_file);
     std::cout << " done." << std::endl;
+    std::string input;
+
+    if (!input_file.empty()) {
+        std::cout << "Loading <input file>" << std::flush;
+        std::ifstream input_ifile(input_file);
+        uint64_t input_size = std::filesystem::file_size(input_file);
+        no_init_resize(input, input_size);
+        read_from_file(input_ifile, input.data(), input_size);
+        std::cout << " done." << std::endl;
+    }
 
     std::cout << "Loading patterns" << std::flush;
     std::string pattern_header;
@@ -65,8 +75,17 @@ void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string& f
     auto t1 = now();
 
     for (std::string& pattern : patterns) {
-        std::vector<int_t> x = index.template locate<int_t>(pattern);
-        occ_total += x.size();
+        std::vector<int_t> occurrences = index.template locate<int_t>(pattern);
+        occ_total += occurrences.size();
+        
+        if (!input_file.empty()) {
+            for (int_t occ : occurrences) {
+                if (input.substr(occ, pattern.size()) != pattern) {
+                    std::cout << "error: wrong occurrence: " << occ << " of pattern '" << pattern << "'" << std::endl;
+                    exit(-1);
+                }
+            }
+        }
     }
 
     auto t2 = now();
@@ -81,7 +100,7 @@ void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string& f
         << " occ_total=" << occ_total
         << " file=" << filename
         << " m=" << pattern_length
-        << " z=" << index.encoding().num_phrases()
+        << " z=" << index.sa_encoding().num_phrases()
         << std::endl;
 }
 
@@ -90,6 +109,8 @@ int main(int argc, char** argv)
     std::set<std::string> allowed_value_options;
     std::set<std::string> allowed_literal_options;
     allowed_value_options.insert("-filename");
+    allowed_value_options.insert("-c");
+
     CommandLineArguments a = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 2);
 
     if (!a.success) {
@@ -99,10 +120,15 @@ int main(int argc, char** argv)
 
     std::string filename = a.last_parameter.at(0);
     filename = filename.substr(filename.find_last_of("/\\") + 1);
+    std::string input_file;
 
     for (Option value_option : a.value_options) {
         if (value_option.name == "-filename") {
             filename = value_option.value;
+        }
+
+        if (value_option.name == "-c") {
+            input_file = value_option.value;
         }
     }
 
@@ -112,8 +138,8 @@ int main(int argc, char** argv)
     index_file.read((char*) &long_integer_flag, sizeof(uint8_t));
 
     if (long_integer_flag == 0) {
-        locate<int32_t>(index_file, patterns_file, filename);
+        locate<int32_t>(index_file, patterns_file, filename, input_file);
     } else {
-        locate<int64_t>(index_file, patterns_file, filename);
+        locate<int64_t>(index_file, patterns_file, filename, input_file);
     }
 }

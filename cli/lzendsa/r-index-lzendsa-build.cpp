@@ -131,13 +131,13 @@ int main(int argc, char** argv)
     uint64_t z;
 
     if (n <= INT32_MAX && !use64) {
-        z = index_32.encoding().num_phrases();
+        z = index_32.sa_encoding().num_phrases();
         uint8_t long_integer_flag = 0;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         index_32.serialize(out);
         index_size += index_32.size_in_bytes();
     } else {
-        z = index_64.encoding().num_phrases();
+        z = index_64.sa_encoding().num_phrases();
         uint8_t long_integer_flag = 1;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         index_64.serialize(out);

@@ -157,21 +157,21 @@ public:
     }
 
     // extraction method
-    void extract(int64_t start, int64_t end, const std::function<void(int64_t, int64_t)>& report) const
+    void extract(int64_t beg, int64_t end, const std::function<void(int64_t, int64_t)>& report) const
     {
-        if (end < start) return;
+        if (end < beg) return;
         int64_t phrase_id = phrase_containing(end);
         int64_t pos_in_sa = end;
 
         struct SearchInterval {
-            int64_t start;
+            int64_t beg;
             int64_t end;
             int64_t phrase_id;
         };
 
         std::vector<SearchInterval> intervals;
         intervals.reserve(32);
-        intervals.push_back({ start, end, phrase_id });
+        intervals.push_back({ beg, end, phrase_id });
 
         // to avoid recusion, we simply store the starting- and endpositions and the corresponding phrase id in a stack
         int64_t pos, src, phrase_pos_shift;
@@ -180,7 +180,7 @@ public:
             SearchInterval current_interval = intervals.back();
             intervals.pop_back();
 
-            start = current_interval.start;
+            beg = current_interval.beg;
             end = current_interval.end;
             phrase_id = current_interval.phrase_id;
 
@@ -190,12 +190,12 @@ public:
                 pos = 0;
             }
 
-            if (start < pos) {
-                intervals.push_back({ start, pos - 1, phrase_id - 1 });
-                start = pos;
+            if (beg < pos) {
+                intervals.push_back({ beg, pos - 1, phrase_id - 1 });
+                beg = pos;
             }
 
-            while (end >= start) {
+            while (end >= beg) {
                 if (end_position(phrase_id) == end) {
                     report(pos_in_sa, extension(phrase_id));
                     --pos_in_sa;
@@ -208,7 +208,7 @@ public:
                 } else {
                     src = source(phrase_id);
                     phrase_pos_shift = - end_position(phrase_id) + end_position(src) + 1;
-                    start += phrase_pos_shift;
+                    beg += phrase_pos_shift;
                     end += phrase_pos_shift;
 
                     while (src != 0 && end_position(src - 1) >= end) {
@@ -219,10 +219,10 @@ public:
                     int64_t prev_end_pos = end_position(phrase_id - 1);
 
                     // make pos
-                    if (phrase_id > 0 && start <= prev_end_pos) {
+                    if (phrase_id > 0 && beg <= prev_end_pos) {
                         pos = prev_end_pos + 1; // first position of the current phrase
-                        intervals.push_back({ start, pos - 1, phrase_id - 1 });
-                        start = pos;
+                        intervals.push_back({ beg, pos - 1, phrase_id - 1 });
+                        beg = pos;
                     }
                 }
             }
@@ -231,11 +231,11 @@ public:
 
     // extraction method
     template <typename out_t>
-    std::vector<out_t> extract(int64_t start, int64_t end) const
+    std::vector<out_t> extract(int64_t beg, int64_t end) const
     {
         std::vector<out_t> result;
-        no_init_resize(result, end - start + 1);
-        extract(start, end, [&](int64_t pos, int64_t val){result[pos - start] = val;});
+        no_init_resize(result, end - beg + 1);
+        extract(beg, end, [&](int64_t pos, int64_t val){result[pos - beg] = val;});
         return result;
     }
 

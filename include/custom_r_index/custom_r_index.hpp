@@ -130,7 +130,7 @@ public:
         return bwt[i];
     }
 
-    uint64_t sa_sample(uint64_t i) const
+    uint64_t sample(uint64_t i) const
     {
         return samples[i];
     }
