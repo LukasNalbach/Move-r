@@ -41,7 +41,7 @@ void help()
     std::cout << "\t<text file>     path to the input file (should contain text)" << std::endl;
     std::cout << "\t-o              path to the desired output file (the extension .rlzsa will be added automatically)" << std::endl;
     std::cout << "\t-d              delta, if not provided the sample will be about 10\% of the index size" << std::endl;
-    std::cout << "\t-ref            reference size (in \% of the input size, default = 10\%)" << std::endl;
+    std::cout << "\t-ref-size       reference size (in relation to the input size, default = 0.1 (10\%))" << std::endl;
     std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
     std::cout << "\t--f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
     std::cout << "\t-filename       sets the filename only for the RESULT line" << std::endl;
@@ -54,7 +54,7 @@ int main(int argc, char** argv)
 
     allowed_value_options.insert("-o");
     allowed_value_options.insert("-d");
-    allowed_value_options.insert("-ref");
+    allowed_value_options.insert("-ref-size");
     allowed_value_options.insert("-filename");
     allowed_literal_options.insert("--f64");
     allowed_literal_options.insert("--bigbwt");
@@ -92,7 +92,7 @@ int main(int argc, char** argv)
             d = std::stol(value_option.value);
         }
 
-        if (value_option.name == "-ref") {
+        if (value_option.name == "-ref-size") {
             relative_reference_size = std::stod(value_option.value);
         }
 

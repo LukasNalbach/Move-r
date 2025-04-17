@@ -40,7 +40,7 @@ template<typename int_t = int32_t>
 class r_index_rlzsa {
 
 protected:
-    rlzsa_encoding<int_t> enc;
+    rlzsa_encoding<int_t> rlzsa_enc;
     custom_r_index::index<_run_heads> r_index;
 
 public:
@@ -78,15 +78,15 @@ public:
         // compute rlzsa
         if (log) std::cout << "building rlzsa:" << std::endl;
         uint64_t r = r_index.number_of_runs();
-        uint64_t reference_size = std::min<uint64_t>(n / 3, 5.2 * r);
-        enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, !use_rindex_samples, log);
+        uint64_t referrlzsa_ence_size = std::min<uint64_t>(n / 3, 5.2 * r);
+        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), referrlzsa_ence_size, !use_rindex_samples, log);
         if (log) std::cout << "r-index-rlzsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
     }
 
-    // return a reference to the encoding
-    const rlzsa_encoding<int_t>& encoding() const
+    // return a referrlzsa_ence to the rlzsa_encoding
+    const rlzsa_encoding<int_t>& sa_encoding() const
     {
-        return enc;
+        return rlzsa_enc;
     }
 
     template <typename out_t>
@@ -95,13 +95,13 @@ public:
         std::vector<out_t> Occ;
 
         if (r_index.has_sa_samples()) {
-            auto [beg, end, first_value] = r_index.count_and_get_occ(pattern);
+            auto [beg, end, sa_beg] = r_index.count_and_get_occ(pattern);
             if (end < beg) return {};
-            Occ = enc.template extract<out_t>(beg, end, first_value);
+            Occ = rlzsa_enc.template extract<out_t>(beg, end, sa_beg);
         } else {
             auto [beg, end] = r_index.count(pattern);
             if (end < beg) return {};
-            Occ = enc.template extract<out_t>(beg, end);
+            Occ = rlzsa_enc.template extract<out_t>(beg, end);
         }
 
         #ifndef NDEBUG
@@ -121,28 +121,38 @@ public:
 
     uint64_t input_size() const
     {
-        return enc.input_size();
+        return rlzsa_enc.input_size();
     }
 
     uint64_t num_phrases() const
     {
-        return enc.num_phrases();
+        return rlzsa_enc.num_phrases();
+    }
+
+    uint64_t num_samples() const
+    {
+        return r_index.has_sa_samples() ? r_index.num_bwt_runs() : 0;
+    }
+
+    uint64_t sample(uint64_t i) const
+    {
+        return r_index.sample(i);
     }
 
     uint64_t size_in_bytes() const
     {
-        return sizeof(this) + enc.size_in_bytes() + r_index.size_in_bytes();
+        return sizeof(this) + rlzsa_enc.size_in_bytes() + r_index.size_in_bytes();
     }
 
     void serialize(std::ostream &out) const
     {
-        enc.serialize(out);
+        rlzsa_enc.serialize(out);
         r_index.serialize(out);
     }
 
     void load(std::istream &in)
     {
-        enc.load(in);
+        rlzsa_enc.load(in);
         r_index.load(in);
     }
 };

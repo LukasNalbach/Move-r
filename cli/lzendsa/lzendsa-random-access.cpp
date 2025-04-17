@@ -57,7 +57,7 @@ void random_access(std::ifstream& index_file, std::vector<int_t>& indices, std::
     auto t1 = now();
 
     for (int_t i = 0; i < indices.size(); i++) {
-        std::vector<int_t> _x = index.sa_values(indices[i], interval_length);
+        std::vector<int_t> _x = index.template sa_values<int_t>(indices[i], interval_length);
     }
 
     auto t2 = now();
