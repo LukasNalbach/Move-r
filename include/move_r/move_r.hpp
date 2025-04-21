@@ -65,6 +65,21 @@ enum move_r_construction_mode {
     _suffix_array_space // builds the suffix array and stores some data structures on disk
 };
 
+static std::string move_r_support_suffix(move_r_support support)
+{
+    std::string support_suffix;
+        
+    switch (support) {
+        case _count: support_suffix = ""; break;
+        case _locate_move: support_suffix = "move"; break;
+        case _locate_rlzsa: support_suffix = "rlzsa"; break;
+        case _locate_lzendsa: support_suffix = "lzendsa"; break;
+        default: break;
+    }
+
+    return support_suffix;
+}
+
 /**
  * @brief move-r construction parameters
  */
@@ -464,7 +479,8 @@ public:
         }
 
         if constexpr (support == _locate_one || support == _locate_rlzsa ||
-            support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd
+            support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd ||
+            support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd
         ) {
             std::cout << "SA_s: " << format_size(_SA_s.size_in_bytes()) << std::endl;
         }
@@ -502,9 +518,14 @@ public:
             out << " size_map_ext=" << sizeof(sym_t) * sigma;
         }
 
-        if constexpr (support == _locate_one) {
-            out << "size_sa_s: " << _SA_s.size_in_bytes();
-        } else if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+        if constexpr (support == _locate_one || support == _locate_rlzsa ||
+            support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd ||
+            support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd
+        ) {
+            out << " size_sa_s=" << _SA_s.size_in_bytes();
+        }
+
+        if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
             if constexpr (support == _locate_move_bi_fwd) {
                 out << " size_m_phi=" << _M_Phi.size_in_bytes();
             }
@@ -512,17 +533,16 @@ public:
             out << " size_m_phim1=" << _M_Phi_m1.size_in_bytes();
             out << " size_sa_phim1=" << _SA_Phi_m1.size_in_bytes();
         } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
-            out << "size_sa_s: " << _SA_s.size_in_bytes();
-            out << "size_r: " << _R.size_in_bytes();
-            out << "size_cpl: " << (z_c + 2) * sizeof(uint16_t);
-            out << "size_scp: " << _SCP_S.size_in_bytes();
-            out << "size_sr: " << _SR.size_in_bytes();
-            out << "size_lp: " << _LP.size_in_bytes();
-            out << "size_pt: " << _PT.size_in_bytes();
+            out << " size_r=" << _R.size_in_bytes();
+            out << " size_cpl=" << (z_c + 2) * sizeof(uint16_t);
+            out << " size_scp=" << _SCP_S.size_in_bytes();
+            out << " size_sr=" << _SR.size_in_bytes();
+            out << " size_lp=" << _LP.size_in_bytes();
+            out << " size_pt=" << _PT.size_in_bytes();
         }
 
         if constexpr (support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd) {
-            out << "size_sa_s_: " << _SA_s_.size_in_bytes();
+            out << " size_sa_s_=" << _SA_s_.size_in_bytes();
         }
     }
 
@@ -1401,6 +1421,7 @@ public:
             support == _locate_lzendsa ||
             support == _locate_lzendsa_bi_fwd)
         {
+            _SA_s.serialize(out);
             out.write((char*) &z_end, sizeof(pos_t));
             _lzendsa.serialize(out);
         }
@@ -1516,6 +1537,7 @@ public:
             support == _locate_lzendsa ||
             support == _locate_lzendsa_bi_fwd)
         {
+            _SA_s.load(in);
             in.read((char*) &z_end, sizeof(pos_t));
             _lzendsa.load(in);
         }

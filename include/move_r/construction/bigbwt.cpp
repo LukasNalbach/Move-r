@@ -47,10 +47,10 @@ void move_r<support, sym_t, pos_t>::construction::bigbwt(bool delete_T)
 
     system(("bigbwt " +
         (std::string)((supports_locate) ? ((
-         support == _locate_rlzsa ||
-         support == _locate_rlzsa_bi_fwd ||
-         support == _locate_lzendsa ||
-         support == _locate_lzendsa_bi_fwd || p > 1) ? "-S " : "-s -e ") : "") +
+            support == _locate_rlzsa ||
+            support == _locate_rlzsa_bi_fwd ||
+            support == _locate_lzendsa ||
+            support == _locate_lzendsa_bi_fwd || p >= 1) ? "-S " : "-s -e ") : "") +
         (std::string)(p > 1 ? ("-t " + std::to_string(p) + " ") : "") +
         prefix_tmp_files + (std::string)(log ? "" : " >log_1 >log_2")).c_str());
 
@@ -100,13 +100,8 @@ void move_r<support, sym_t, pos_t>::construction::read_iphim1_bigbwt()
 
     #pragma omp parallel for num_threads(p)
     for (uint64_t i = 0; i < r - 1; i++) {
-        if constexpr (std::is_same_v<pos_t, uint32_t>) {
-            I_Phi_m1[i].second = ssa.template get_unsafe<1, uint32_t>(i);
-            I_Phi_m1[i + 1].first = esa.template get_unsafe<1, uint32_t>(i);
-        } else {
-            I_Phi_m1[i].second = ssa.template get<1>(i);
-            I_Phi_m1[i + 1].first = esa.template get<1>(i);
-        }
+        I_Phi_m1[i].second = ssa.template get<1>(i);
+        I_Phi_m1[i + 1].first = esa.template get<1>(i);
     }
 
     I_Phi_m1[r - 1].second = ssa.template get<1>(r - 1);

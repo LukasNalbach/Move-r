@@ -81,14 +81,14 @@ void locate(std::string& input, std::ifstream& index_file, std::ifstream& patter
     
     std::cout << "RESULT"
         << " algo=lzendsa_locate"
-        << " time_ns=" << time_ns
-        << " occ_total=" << occ_total
-        << " file=" << filename
+        << " time_locate=" << time_ns
+        << " num_occurrences=" << occ_total
+        << " text=" << filename
         << " m=" << m
         << " n=" << n
         << " d=" << index.delta()
         << " h=" << h
-        << " index_size=" << index.size_in_bytes()
+        << " size_index=" << index.size_in_bytes()
         << std::endl;
 }
 
@@ -111,7 +111,7 @@ int main(int argc, char** argv)
 
     std::string filename = a.last_parameter.at(0);
     filename = filename.substr(filename.find_last_of("/\\") + 1);
-    int64_t h = -1;
+    int64_t h = 8192;
     int64_t m = 0;
     uint16_t num_threads = 1;
 

@@ -40,7 +40,7 @@ void help()
     std::cout << "Usage: lzendsa-build [options] <text file>" << std::endl;
     std::cout << "\t<text file>     path to the input file (should contain text)" << std::endl;
     std::cout << "\t-o              path to the desired output file (the extension .lzendsa will be added automatically)" << std::endl;
-    std::cout << "\t-h              longest phrase length, leave blank or put -1 for unbounded phrase length" << std::endl;
+    std::cout << "\t-h              longest phrase length, leave blank or put -1 for unbounded phrase length (default: 8192)" << std::endl;
     std::cout << "\t-d              delta, if not provided the sample will be about 10% of the index size" << std::endl;
     std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
     std::cout << "\t--f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
@@ -73,7 +73,7 @@ int main(int argc, char** argv)
     bool use_bigbwt = false;
     bool use64 = false;
     int64_t d = -1;
-    int64_t h = -1;
+    int64_t h = 8192;
 
     if (parsed_args.literal_options.contains("--f64")) {
         use64 = true;
@@ -136,32 +136,32 @@ int main(int argc, char** argv)
     }
 
     std::cout << "lzendsa index successfully constructed (z=" << z << ")" << std::endl;
-    uint64_t index_size = sizeof(uint8_t);
+    uint64_t size_index = sizeof(uint8_t);
     std::ofstream out(o);
 
     if (n <= INT32_MAX && !use64) {
         uint8_t long_integer_flag = 0;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         lzendsa_32.serialize(out);
-        index_size += lzendsa_32.size_in_bytes();
+        size_index += lzendsa_32.size_in_bytes();
     } else {
         uint8_t long_integer_flag = 1;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         lzendsa_64.serialize(out);
-        index_size += lzendsa_64.size_in_bytes();
+        size_index += lzendsa_64.size_in_bytes();
     }
 
     out.close();
-    std::cout << "Wrote " << format_size(index_size) << " bytes to disk." << std::endl;
+    std::cout << "Wrote " << format_size(size_index) << " bytes to disk." << std::endl;
     uint64_t memory_peak = malloc_count_peak();
     uint64_t time_ns = time_diff_ns(t1, t2);
 
     std::cout << "RESULT"
         << " algo=lzendsa_build"
         << " time_ms=" << time_ns
-        << " memory_peak=" << memory_peak
-        << " file=" << filename
-        << " index_size=" << index_size
+        << " peak_mem_usage=" << memory_peak
+        << " text=" << filename
+        << " size_index=" << size_index
         << " n=" << n
         << " z=" << z
         << " h=" << h

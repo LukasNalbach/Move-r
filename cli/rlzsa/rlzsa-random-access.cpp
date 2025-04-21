@@ -65,13 +65,13 @@ void random_access(std::ifstream& index_file, std::vector<int_t>& indices, std::
 
     std::cout << "RESULT"
         << " algo=rlzsa_random_access"
-        << " time_ns=" << time_ns
+        << " time_access=" << time_ns
         << " iterations=" << indices.size()
-        << " file=" << filename
+        << " text=" << filename
         << " interval_length=" << interval_length
         << " d=" << index.delta()
         << " n=" << index.input_size()
-        << " index_size=" << index.size_in_bytes()
+        << " size_index=" << index.size_in_bytes()
         << std::endl;
 }
 

@@ -67,14 +67,14 @@ void random_access(std::ifstream& index_file, std::vector<int_t>& indices, std::
 
     std::cout << "RESULT"
         << " algo=lzendsa_random_access"
-        << " time_ns=" << time_ns
+        << " time_access=" << time_ns
         << " iterations=" << indices.size()
-        << " file=" << filename
+        << " text=" << filename
         << " interval_length=" << interval_length
         << " h=" << h
         << " d=" << index.delta()
         << " n=" << index.input_size()
-        << " index_size=" << index.size_in_bytes()
+        << " size_index=" << index.size_in_bytes()
         << std::endl;
 }
 
@@ -96,7 +96,7 @@ int main(int argc, char** argv)
     }
 
     int64_t l = 1;
-    int64_t h = -1;
+    int64_t h = 8192;
     uint16_t num_threads = 1;
     std::string filename = a.last_parameter.at(0);
     filename = filename.substr(filename.find_last_of("/\\") + 1);

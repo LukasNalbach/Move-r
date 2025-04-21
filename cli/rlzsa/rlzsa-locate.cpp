@@ -35,9 +35,7 @@
 
 void help()
 {
-    std::cout << "rlzsa-locate: locates all occurences in the suffix array intervals." << std::endl
-              << std::endl;
-
+    std::cout << "rlzsa-locate: locates all occurences in the suffix array intervals." << std::endl << std::endl;
     std::cout << "Usage: rlzsa-locate <rlzsa file> <text file> <pattern file>" << std::endl;
     std::cout << "\t<rlzsa file>     path to rlzsa file (should the binary representation of the rlzsa construction)" << std::endl;
     std::cout << "\t<text file>        path to text file (should contain text)" << std::endl;
@@ -80,13 +78,13 @@ void locate(std::string& input, std::ifstream& index_file, std::ifstream& patter
     
     std::cout << "RESULT"
         << " algo=rlzsa_locate"
-        << " time_ns=" << time_ns
-        << " occ_total=" << occ_total
-        << " file=" << filename
+        << " time_locate=" << time_ns
+        << " num_occurrences=" << occ_total
+        << " text=" << filename
         << " m=" << m
         << " n=" << n
         << " d=" << index.delta()
-        << " index_size=" << index.size_in_bytes()
+        << " size_index=" << index.size_in_bytes()
         << std::endl;
 }
 

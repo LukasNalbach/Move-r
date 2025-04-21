@@ -96,6 +96,7 @@ void help(std::string msg)
 template <typename pos_t>
 void bench_indexes()
 {
+    /*
     bench_index<pos_t, move_r<_locate_move, char, pos_t>, true, true>("move-r", "move_r");
     bench_index<pos_t, move_r<_locate_rlzsa, char, pos_t>, true, true>("move-rlzsa", "move_rlzsa");
 
@@ -104,12 +105,13 @@ void bench_indexes()
     measure_blockrlbwt("block_rlbwt_v", bd);
     measure_blockrlbwt("block_rlbwt_r", bd);
     cleanup_grlbwt(bd);
+    */
 
-    bench_index<pos_t, r_index, true, true>("r-index", "r_index");
+    bench_index<pos_t, r_index, false, false>("r-index", "r_index");
     // bench_index<pos_t, r_index_rlzsa, true, true>("r-index-rlzsa", "r_index_rlzsa");
-    bench_index<pos_t, r_index_f<>, true, false>("r-index-f", "r_index_f");
-    bench_index<pos_t, rcomp_glfig, true, true>("rcomp-glfig", "rcomp_glfig");
-    bench_index<pos_t, online_rlbwt, true, true>("online-rlbwt", "online_rlbwt");
+    // bench_index<pos_t, r_index_f<>, true, false>("r-index-f", "r_index_f");
+    // bench_index<pos_t, rcomp_glfig, true, true>("rcomp-glfig", "rcomp_glfig");
+    // bench_index<pos_t, online_rlbwt, true, true>("online-rlbwt", "online_rlbwt");
 }
 
 void parse_args(char** argv, int argc, int& ptr)

@@ -120,7 +120,7 @@ int main(int argc, char** argv)
     }
 
     auto t2 = now();
-    uint64_t index_size = sizeof(uint8_t);
+    uint64_t size_index = sizeof(uint8_t);
     std::ofstream out(o);
     uint64_t z;
 
@@ -129,26 +129,26 @@ int main(int argc, char** argv)
         uint8_t long_integer_flag = 0;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         index_32.serialize(out);
-        index_size += index_32.size_in_bytes();
+        size_index += index_32.size_in_bytes();
     } else {
         z = index_64.encoding().num_phrases();
         uint8_t long_integer_flag = 1;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         index_64.serialize(out);
-        index_size += index_64.size_in_bytes();
+        size_index += index_64.size_in_bytes();
     }
 
     out.close();
-    std::cout << "Wrote " << format_size(index_size) << " bytes to disk." << std::endl;
+    std::cout << "Wrote " << format_size(size_index) << " bytes to disk." << std::endl;
     uint64_t memory_peak = malloc_count_peak();
     uint64_t time_ns = time_diff_ns(t1, t2);
 
     std::cout << "RESULT"
         << " algo=r_index_rlzsa_build"
-        << " time_ns=" << time_ns
-        << " memory_peak=" << memory_peak
-        << " file=" << filename
-        << " index_size=" << index_size
+        << " time_construction=" << time_ns
+        << " peak_mem_usage=" << memory_peak
+        << " text=" << filename
+        << " size_index=" << size_index
         << " n=" << n
         << " z=" << z
         << std::endl;

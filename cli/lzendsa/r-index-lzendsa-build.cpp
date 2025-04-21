@@ -40,8 +40,8 @@ void help()
     std::cout << "Usage: r-index-lzendsa-build [options] <text file>" << std::endl;
     std::cout << "\t<text file>     path to the input file (should contain text)" << std::endl;
     std::cout << "\t-o              path to the desired output file (the extension .r-index-lzendsa will be added automatically)" << std::endl;
-    std::cout << "\t-h              longest phrase length, leave blank or put -1 for unbounded phrase length" << std::endl;
-    std::cout << "\t--bigbwt         use Big-BWT instead of libsais" << std::endl;
+    std::cout << "\t-h              longest phrase length, leave blank or put -1 for unbounded phrase length (default: 8192)" << std::endl;
+    std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
     std::cout << "\t--f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
     std::cout << "\t--lzend-samples use SA-samples at end positions of LZ-End phrases instead of the SA-samples in the r-index" << std::endl;
     std::cout << "\t-filename       sets the filename only for the RESULT line" << std::endl;
@@ -73,7 +73,7 @@ int main(int argc, char** argv)
     bool use_bigbwt = false;
     bool use64 = false;
     bool use_rindex_samples = true;
-    int64_t h = -1;
+    int64_t h = 8192;
 
     if (parsed_args.literal_options.contains("--f64")) {
         use64 = true;
@@ -97,7 +97,7 @@ int main(int argc, char** argv)
         }
 
         if (value_option.name == "-h") {
-            h = std::stoi(value_option.value);
+            h = std::stol(value_option.value);
         }
     }
 
@@ -126,7 +126,7 @@ int main(int argc, char** argv)
     }
 
     auto t2 = now();
-    uint64_t index_size = sizeof(uint8_t);
+    uint64_t size_index = sizeof(uint8_t);
     std::ofstream out(o);
     uint64_t z;
 
@@ -135,26 +135,26 @@ int main(int argc, char** argv)
         uint8_t long_integer_flag = 0;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         index_32.serialize(out);
-        index_size += index_32.size_in_bytes();
+        size_index += index_32.size_in_bytes();
     } else {
         z = index_64.encoding().num_phrases();
         uint8_t long_integer_flag = 1;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         index_64.serialize(out);
-        index_size += index_64.size_in_bytes();
+        size_index += index_64.size_in_bytes();
     }
 
     out.close();
-    std::cout << "Wrote " << format_size(index_size) << " bytes to disk." << std::endl;
+    std::cout << "Wrote " << format_size(size_index) << " bytes to disk." << std::endl;
     uint64_t memory_peak = malloc_count_peak();
     uint64_t time_ns = time_diff_ns(t1, t2);
 
     std::cout << "RESULT"
         << " algo=r_index_lzendsa_build"
-        << " time_ns=" << time_ns
-        << " memory_peak=" << memory_peak
-        << " file=" << filename
-        << " index_size=" << index_size
+        << " time_construction=" << time_ns
+        << " peak_mem_usage=" << memory_peak
+        << " text=" << filename
+        << " size_index=" << size_index
         << " n=" << n
         << " z=" << z
         << " h=" << h
