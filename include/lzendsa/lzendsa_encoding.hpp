@@ -77,11 +77,11 @@ public:
         sources_extensions_samples = interleaved_bit_aligned_vectors<uint64_t, 3>({
             std::bit_width(uint64_t{z}), // bit-width of the sources vector
             std::bit_width(uint64_t{max_ext - min_ext}), // bit-width of the extensions vector
-            sample_phrase_ends ? std::bit_width(uint64_t{n}) : 0
+            sample_phrase_ends ? std::bit_width(uint64_t{n}) : 0 // bit-width of the samples vector
         });
 
         end_positions = interleaved_byte_aligned_vectors<uint64_t, uint64_t, 1>({
-            byte_width(uint64_t{n}) // bit-width of the end_positions vector
+            byte_width(uint64_t{n})
         });
 
         sources_extensions_samples.resize_no_init(z);
@@ -196,7 +196,9 @@ public:
             }
 
             while (end >= start) {
-                if (end_position(phrase_id) == end) {
+                int64_t end_pos = end_position(phrase_id);
+
+                if (end_pos == end) {
                     report(pos_in_sa, extension(phrase_id));
                     --pos_in_sa;
 
@@ -207,7 +209,7 @@ public:
                     --end;
                 } else {
                     src = source(phrase_id);
-                    phrase_pos_shift = - end_position(phrase_id) + end_position(src) + 1;
+                    phrase_pos_shift = - end_pos + end_position(src) + 1;
                     start += phrase_pos_shift;
                     end += phrase_pos_shift;
 

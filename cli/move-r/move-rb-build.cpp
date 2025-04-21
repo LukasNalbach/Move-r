@@ -161,7 +161,7 @@ int main(int argc, char** argv)
 
     if (mf_idx.is_open()) {
         mf_idx << "RESULT"
-            << " type=build_index"
+            << " algo=build_move_r_" << move_r_support_suffix(support)
             << " text=" << name_text_file
             << " num_threads=" << p
             << " a=" << a;

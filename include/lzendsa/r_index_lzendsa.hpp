@@ -43,7 +43,7 @@ protected:
 public:
     r_index_lzendsa() = default;
 
-    r_index_lzendsa(std::string& input, int_t h = -1, bool use_bigbwt = false, bool use_rindex_samples = true, bool log = false)
+    r_index_lzendsa(std::string& input, int_t h = 8192, bool use_bigbwt = false, bool use_rindex_samples = true, bool log = false)
     {
         auto time_start = now();
         auto time = time_start;
@@ -101,11 +101,7 @@ public:
     std::vector<int_t> locate(const std::string &pattern) const
     {
         std::vector<int_t> result;
-
-        if (pattern == "goldf") {
-            int test = 3;
-        }
-
+        
         if (r_index.has_sa_samples()) {
             auto [beg, end, last_value] = r_index.count_and_get_occ(pattern);
             if (end < beg) return {};

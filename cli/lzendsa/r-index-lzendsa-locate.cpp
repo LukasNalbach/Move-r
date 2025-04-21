@@ -73,15 +73,15 @@ void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string& f
     auto t2 = now();
     uint64_t time_ns = time_diff_ns(t1, t2);
     std::cout << "Located " << patterns.size() << " patterns (with " << occ_total << " occurences) in " << format_time(time_ns) << std::endl;
-    uint64_t index_size = index.size_in_bytes();
+    uint64_t size_index = index.size_in_bytes();
 
     std::cout << "RESULT"
         << " algo=r_index_lzendsa_locate"
-        << " time_ns=" << time_ns
-        << " index_size=" << index_size
-        << " occ_total=" << occ_total
-        << " file=" << filename
-        << " m=" << pattern_length
+        << " time_locate=" << time_ns
+        << " size_index=" << size_index
+        << " num_occurrences=" << occ_total
+        << " text=" << filename
+        << " pattern_length=" << pattern_length
         << " z=" << index.encoding().num_phrases()
         << " h=" << h
         << std::endl;
@@ -102,13 +102,13 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    int32_t h = 0;
+    int64_t h = 8192;
     std::string filename = a.last_parameter.at(0);
     filename = filename.substr(filename.find_last_of("/\\") + 1);
 
     for (Option value_option : a.value_options) {
         if (value_option.name == "-h") {
-            h = std::stoi(value_option.value);
+            h = std::stol(value_option.value);
         }
 
         if (value_option.name == "-filename") {

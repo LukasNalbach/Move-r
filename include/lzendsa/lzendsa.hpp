@@ -50,11 +50,13 @@ protected:
     // evenly-spaced SA-samples (every d-th position is sampled, if d != -1)
     interleaved_bit_aligned_vectors<uint64_t, 1> sa_samples;
 
+    const std::string* input;
+
 public:
     lzendsa() = default;
 
     // call when the suffix array of the input text is not yet calculated
-    lzendsa(std::string& input, int_t d = -1, int_t h = -1, bool use_bigbwt = false, bool log = false) : d(d)
+    lzendsa(std::string& input, int_t d = -1, int_t h = 8192, bool use_bigbwt = false, bool log = false) : d(d)
     {
         auto time_start = now();
         auto time = time_start;
@@ -102,10 +104,21 @@ public:
         }
     }
 
+    void set_input(const std::string& str) const
+    {
+        input = &str;
+    }
+
     // return a reference to the encoding
     const lzendsa_encoding& encoding() const
     {
         return enc;
+    }
+
+    uint64_t num_samples() const
+    {
+        if (d == -1) return enc.num_phrases();
+        return sa_samples.size();
     }
 
     // return the index-th suffix array sample
@@ -136,10 +149,8 @@ public:
         return d;
     }
 
-    // TODO: implement count
-
     // returns multiple consecutive suffix array values
-    std::vector<int_t> sa_values(uint64_t start, uint64_t length) const
+    std::vector<int_t> sa_values(int64_t beg, int64_t end) const
     {
         // TODO
 

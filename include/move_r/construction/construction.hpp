@@ -875,7 +875,11 @@ public:
         load_rlbwt();
 
         if constexpr (supports_locate) {
-            if (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd || p > 1) {
+            if (support == _locate_rlzsa ||
+                support == _locate_rlzsa_bi_fwd ||
+                support == _locate_lzendsa ||
+                support == _locate_lzendsa_bi_fwd || p >= 1
+            ) {
                 build_iphim1_sa<true, int32_t>();
             } else {
                 read_iphim1_bigbwt();
@@ -914,8 +918,10 @@ public:
                     sort_iphim1();
                     if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
                         construct_rlzsa<true, int32_t>();
-                    } else {
+                    } else if (n <= std::numeric_limits<int32_t>::max()) {
                         construct_lzendsa<true, int32_t>();
+                    } else {
+                        construct_lzendsa<true, int64_t>();
                     }
                     load_mlf();
                     load_l_prev_next();

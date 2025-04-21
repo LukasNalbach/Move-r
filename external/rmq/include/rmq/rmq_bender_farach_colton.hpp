@@ -39,7 +39,7 @@
 
 namespace rmq {
 
-template<std::totally_ordered Value, std::unsigned_integral Index = uint32_t, bool minimum_ = true>
+template<std::totally_ordered Value, std::unsigned_integral Index = std::make_unsigned_t<Value>, bool minimum_ = true>
 class RMQBenderFarachColton {
 private:
     static constexpr bool leq(Value const& a, Value const& b) { return compare<minimum_>(a, b); }

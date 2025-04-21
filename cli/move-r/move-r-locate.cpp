@@ -194,7 +194,7 @@ void measure_locate()
 
     if (mf.is_open()) {
         mf << "RESULT";
-        mf << " type=locate";
+        mf << " algo=locate_move_r_" << move_r_support_suffix(support);
         mf << " text=" << name_text_file;
         mf << " a=" << index.balancing_parameter();
         mf << " n=" << index.input_size();

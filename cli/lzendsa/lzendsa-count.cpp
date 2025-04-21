@@ -102,15 +102,15 @@ void count(std::string& input, std::ifstream& index_file, std::ifstream& pattern
 
     std::cout << "RESULT"
         << " algo=lzendsa_count"
-        << " time_ns=" << time_ns
-        << " index_size=" << index.size_in_bytes()
-        << " occ_total=" << occ_total
-        << " file=" << filename
-        << " m=" << pattern_length
+        << " time_count=" << time_ns
+        << " size_index=" << index.size_in_bytes()
+        << " num_occurrences=" << occ_total
+        << " text=" << filename
+        << " pattern_length=" << pattern_length
         << " n=" << input.length()
         << " d=" << index.delta()
         << " h=" << h
-        << " index_size=" << index.size_in_bytes()
+        << " size_index=" << index.size_in_bytes()
         << std::endl;
 }
 
@@ -133,7 +133,7 @@ int main(int argc, char** argv)
     std::string pattern_out_file = "";
     std::string filename = a.last_parameter.at(0);
     filename = filename.substr(filename.find_last_of("/\\") + 1);
-    int32_t h = -1;
+    int32_t h;
 
     for (Option value_option : a.value_options) {
         if (value_option.name == "-o") {
@@ -145,7 +145,7 @@ int main(int argc, char** argv)
         }
 
         if (value_option.name == "-h") {
-            h = std::stoi(value_option.value);
+            h = std::stol(value_option.value);
         }
     }
 

@@ -136,32 +136,32 @@ int main(int argc, char** argv)
     }
 
     std::cout << "rlzsa index successfully constructed (z=" << z << ")" << std::endl;
-    uint64_t index_size = sizeof(uint8_t);
+    uint64_t size_index = sizeof(uint8_t);
     std::ofstream out(o);
 
     if (n <= INT32_MAX && !use64) {
         uint8_t long_integer_flag = 0;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         rlzsa_32.serialize(out);
-        index_size += rlzsa_32.size_in_bytes();
+        size_index += rlzsa_32.size_in_bytes();
     } else {
         uint8_t long_integer_flag = 1;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         rlzsa_64.serialize(out);
-        index_size += rlzsa_64.size_in_bytes();
+        size_index += rlzsa_64.size_in_bytes();
     }
 
     out.close();
-    std::cout << "Wrote " << format_size(index_size) << " bytes to disk." << std::endl;
+    std::cout << "Wrote " << format_size(size_index) << " bytes to disk." << std::endl;
     uint64_t memory_peak = malloc_count_peak();
     uint64_t time_ns = time_diff_ns(t1, t2);
 
     std::cout << "RESULT"
         << " algo=rlzsa_build"
         << " time_ms=" << time_ns
-        << " memory_peak=" << memory_peak
-        << " file=" << filename
-        << " index_size=" << index_size
+        << " peak_mem_usage=" << memory_peak
+        << " text=" << filename
+        << " size_index=" << size_index
         << " n=" << n
         << " z=" << z
         << " d=" << d

@@ -271,7 +271,7 @@ void write_measurement_data(
        << " text=" << name_text_file
        << " text_length=" << input_size
        << " num_threads=" << result_build.num_threads
-       << " time_build=" << result_build.time_build
+       << " time_construction=" << result_build.time_build
        << " peak_memory_usage=" << result_build.peak_memory_usage
        << " size_index=" << size_index
        << std::endl;

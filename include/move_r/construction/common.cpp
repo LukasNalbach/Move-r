@@ -491,7 +491,7 @@ void move_r<support, sym_t, pos_t>::construction::build_mlf()
     if (log) {
         if (mf_mds != NULL) {
             *mf_mds << "RESULT"
-                    << " type=build_mlf"
+                    << " algo=build_mlf"
                     << " text=" << name_text_file
                     << " num_threads=" << p
                     << " a=" << idx.a;
@@ -752,7 +752,7 @@ void move_r<support, sym_t, pos_t>::construction::sort_iphim1()
             *mf_idx << " time_sort_iphi=" << time_diff_ns(time, now());
         if (mf_mds != NULL) {
             *mf_mds << "RESULT"
-                    << " type=build_mphi"
+                    << " algo=build_mphi"
                     << " text=" << name_text_file
                     << " num_threads=" << p
                     << " a=" << idx.a;
@@ -784,7 +784,7 @@ void move_r<support, sym_t, pos_t>::construction::sort_iphi()
             *mf_idx << " time_sort_iphi=" << time_diff_ns(time, now());
         if (mf_mds != NULL) {
             *mf_mds << "RESULT"
-                    << " type=build_mphi"
+                    << " algo=build_mphi"
                     << " text=" << name_text_file
                     << " num_threads=" << p
                     << " a=" << idx.a;

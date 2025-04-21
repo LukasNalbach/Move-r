@@ -60,7 +60,7 @@ struct input_val_idx_pair_t { // used for constructing the transformed reverse d
 };
 
 template <typename int_t = int32_t>
-std::vector<lzend_phr_t<int_t>> construct_lzend_of_reverse(std::vector<int_t>& dsa, int_t h = -1, bool log = false)
+std::vector<lzend_phr_t<int_t>> construct_lzend_of_reverse(std::vector<int_t>& dsa, int_t h = 8192, bool log = false)
 {
     auto time = now();
     int_t n = dsa.size();
