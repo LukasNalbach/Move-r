@@ -29,9 +29,11 @@
 #include <memory>
 #include <utility>
 
+#include "lzendsa_encoding.hpp"
+
 #include <misc/build_sa_and_bwt.hpp>
 #include <custom_r_index/custom_r_index.hpp>
-#include "lzendsa_encoding.hpp"
+#include <misc/sparse_sa_algorithms.cpp>
 
 template<typename int_t = int32_t>
 class r_index_lzendsa {
@@ -92,12 +94,6 @@ public:
         if (log) std::cout << "r-index-lzendsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
     }
 
-    // return a reference to the encoding
-    const lzendsa_encoding& encoding() const
-    {
-        return lzendsa_enc;
-    }
-
     std::vector<int_t> locate(const std::string &pattern) const
     {
         std::vector<int_t> result;
@@ -115,74 +111,9 @@ public:
             auto [beg, end] = r_index.count(pattern);
             if (end < beg) return {};
             
-            int64_t length = end - beg + 1;
-            int64_t phrase = lzendsa_enc.phrase_preceding_or_ending_at(end);
-            int64_t sample_pos = lzendsa_enc.end_position(phrase);
-            
-            if (sample_pos < beg) {
-                int64_t next_sample_pos = lzendsa_enc.end_position(phrase + 1);
-
-                if (next_sample_pos <= end || next_sample_pos - end < beg - sample_pos) {
-                    phrase++;
-                    sample_pos = next_sample_pos;
-                }
-            }
-
-            if (sample_pos < beg) {
-                result = lzendsa_enc.extract<int_t>(sample_pos, end);
-                int64_t val = lzendsa_enc.sample(phrase);
-                int64_t dist = beg - sample_pos;
-
-                for (int64_t i = 1; i <= dist; i++) {
-                    val += result[i];
-                }
-
-                int64_t last_val;
-
-                for (int64_t i = 0; i < length; i++) {
-                    last_val = val;
-                    val += result[i + dist + 1];
-                    result[i] = last_val;
-                }
-
-                result.resize(length);
-            } else if (sample_pos <= end) {
-                result = lzendsa_enc.extract<int_t>(beg, end);
-                int64_t sample = lzendsa_enc.sample(phrase);
-                int64_t val = sample;
-
-                for (int64_t i = sample_pos - beg + 1; i < length; i++) {
-                    val += result[i];
-                    result[i] = val;
-                }
-
-                val = sample;
-                int64_t last_val;
-
-                for (int64_t i = sample_pos - beg; i >= 0; i--) {
-                    last_val = val;
-                    val -= result[i];
-                    result[i] = last_val;
-                }
-            } else {
-                result = lzendsa_enc.extract<int_t>(beg, sample_pos);
-                int64_t val = lzendsa_enc.sample(phrase);
-
-                for (int64_t i = result.size() - 1; i >= length; i--) {
-                    val -= result[i];
-                }
-
-                int64_t last_val;
-
-                for (int64_t i = length - 1; i >= 1; i--) {
-                    last_val = val;
-                    val -= result[i];
-                    result[i] = last_val;
-                }
-
-                result[0] = val;
-                result.resize(length);
-            }
+            return extract_range_using_samples<int_t>(beg, end, num_samples(),
+                [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
+                [&](uint64_t b, uint64_t e){return lzendsa_enc.template extract<int_t>(b, e);});
         }
 
         #ifndef NDEBUG
@@ -192,6 +123,12 @@ public:
         #endif
         
         return result;
+    }
+
+    // return a reference to the lzendsa_encoding
+    const lzendsa_encoding& sa_encoding() const
+    {
+        return lzendsa_enc;
     }
 
     std::pair<uint64_t, uint64_t> count(std::string &pattern) const
@@ -207,6 +144,21 @@ public:
     uint64_t num_phrases() const
     {
         return lzendsa_enc.num_phrases();
+    }
+
+    uint64_t num_samples() const
+    {
+        return r_index.has_sa_samples() ? r_index.num_bwt_runs() : lzendsa_enc.num_phrases();
+    }
+
+    uint64_t sample(uint64_t i) const
+    {
+        return r_index.has_sa_samples() ? r_index.sample(i) : lzendsa_enc.sample(i);
+    }
+
+    uint64_t sample_pos(uint64_t i) const
+    {
+        return r_index.has_sa_samples() ? r_index.sample_pos(i) : lzendsa_enc.end_position(i);
     }
 
     uint64_t size_in_bytes() const

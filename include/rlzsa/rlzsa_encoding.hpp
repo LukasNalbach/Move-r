@@ -410,14 +410,10 @@ public:
         return n;
     }
 
-    /*
-     * locate all occurrences of P and return them in an array
-     * (space consuming if result is big).
-     */
     template <typename out_t>
-    std::vector<out_t> extract(uint64_t l, uint64_t r, int64_t sa_l = -1) const
+    void extract(uint64_t l, uint64_t r, std::function<void(uint64_t, out_t)> report, int64_t sa_l = -1) const
     {
-        if (r < l) return {};
+        if (r < l) return;
 
         // index in PS of the last phrase starting before or at position l		
         uint64_t x_ps = bin_search_max_leq<uint64_t>(l, 0, PS.size() - 1, [&](uint64_t x) { return PS[x]; });
@@ -429,9 +425,6 @@ public:
             s_cp += std::max<uint64_t>(1,PL[x_p]);
             x_p++;
         }
-
-        std::vector<out_t> result;
-        result.reserve(r - l + 1);
 
         uint64_t i; // current position in the suffix array
         uint64_t s; // current suffix
@@ -458,8 +451,9 @@ public:
             }
         } else {
             s = sa_l;
-            result.emplace_back(s);
-            i = l + 1;
+            i = l;
+            report(i, s);
+            i++;
 
             if (i == s_cp + std::max<uint64_t>(1, PL[x_p])) {
                 x_p++;
@@ -473,7 +467,7 @@ public:
             // decode all literal phrases until the next copy phrase or until i > r
             while (PL[x_p] == 0 && i <= r) {
                 s = S[x_p];
-                result.emplace_back(s);
+                report(i, s);
                 x_p++;
                 s_cp++;
                 s_np += std::max<uint64_t>(1, PL[x_p]);
@@ -490,7 +484,7 @@ public:
             do {
                 s += R[p_r];
                 s -= n;
-                result.emplace_back(s);
+                report(i, s);
                 p_r++;
                 i++;
             } while (i < s_np && i <= r);
@@ -503,13 +497,26 @@ public:
             s_cp = s_np;
             s_np += std::max<uint64_t>(1, PL[x_p]);
         }
+    }
 
+    /*
+     * locate all occurrences of P and return them in an array
+     * (space consuming if result is big).
+     */
+    template <typename out_t>
+    std::vector<out_t> extract(uint64_t l, uint64_t r, int64_t sa_l = -1) const
+    {
+        std::vector<out_t> result;
+        no_init_resize(result, r - l + 1);
+        extract<out_t>(l, r, [&](uint64_t i, out_t v){result[i - l] = v;}, sa_l);
         return result;
     }
 
-    int_t operator[](uint64_t i)
+    uint64_t operator[](uint64_t i)
     {
-        return extract(i, i)[0];
+        uint64_t result;
+        extract<uint64_t>(i, i, [&](uint64_t, uint64_t v){result = v;});
+        return result;
     }
 
     void serialize(std::ostream& out) const

@@ -94,10 +94,6 @@ public:
         assert(run_heads_s.size() == R);
         assert(R == count_runs(input));
 
-        // std::cout << "runs in BWT(input) = " << count_runs(input) << std::endl;
-        // std::cout << "runs in rle bwt = " << R << std::endl << std::endl;
-        // now compact structures
-
         assert(runs_bv.size() == input.size());
         uint64_t t = 0;
         for (uint64_t i = 0; i < 256; ++i)

@@ -301,7 +301,7 @@ void write_measurement_data(
                << " text_length=" << input_size
                << " num_queries=" << res.num_queries
                << " pattern_length=" << res.pattern_length
-               << " num_occurrences=" << result_count.num_occurrences
+               << " num_occurrences=" << res.num_occurrences
                << " time_query=" << res.time_query
                << " size_index=" << result_build.size_index
                << std::endl;
