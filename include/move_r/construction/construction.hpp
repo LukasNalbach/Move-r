@@ -878,7 +878,7 @@ public:
             if (support == _locate_rlzsa ||
                 support == _locate_rlzsa_bi_fwd ||
                 support == _locate_lzendsa ||
-                support == _locate_lzendsa_bi_fwd || p >= 1
+                support == _locate_lzendsa_bi_fwd || p > 1
             ) {
                 build_iphim1_sa<true, int32_t>();
             } else {

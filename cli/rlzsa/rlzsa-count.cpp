@@ -63,7 +63,7 @@ void count(std::string& input, std::ifstream& index_file, std::ifstream& pattern
     std::vector<std::string> patterns_str = load_patterns(patterns_file, pattern_length, pattern_count);
     std::vector<std::vector<uint8_t>> patterns = strToUint8Vec(patterns_str);
     std::cout << " found " << pattern_count << " patterns of length " << pattern_length << "." << std::endl;
-    std::cout << "Count" << std::flush;
+    std::cout << "Count: " << std::flush;
 
     struct Interval {
         int64_t beg;
