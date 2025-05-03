@@ -212,7 +212,7 @@ public:
      */
     inline val_t operator[](uint64_t i) const
     {
-        return get<0, val_t>(i);
+        return get<0>(i);
     }
 
     /**

@@ -512,13 +512,6 @@ public:
         return result;
     }
 
-    uint64_t operator[](uint64_t i)
-    {
-        uint64_t result;
-        extract<uint64_t>(i, i, [&](uint64_t, uint64_t v){result = v;});
-        return result;
-    }
-
     void serialize(std::ostream& out) const
     {
         out.write((char*) &n, sizeof(uint64_t));

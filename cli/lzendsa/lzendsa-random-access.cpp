@@ -29,6 +29,7 @@
 #include <iostream>
 #include <set>
 #include <string>
+#include <random>
 
 #include <misc/cli.hpp>
 #include <lzendsa/lzendsa.hpp>
@@ -36,42 +37,49 @@
 void help()
 {
     std::cout << "lzendsa-random-access: measures the random access time of the lzendsa construction." << std::endl << std::endl;
-    std::cout << "Usage: lzendsa-random-access [options] <lzendsa file> <integer file>" << std::endl;
-    std::cout << "\t<lzendsa file>     path to lzendsa file (should the binary representation of the lzendsa construction)." << std::endl;
-    std::cout << "\t<integer file>     path to file which contains an integer value at each line." << std::endl;
-    std::cout << "\t-t                 number of threads used for extracting lz-end-values (default: only use one thread)" << std::endl;
-    std::cout << "\t-l                 interval length" << std::endl;
-    std::cout << "\t(-filename         sets the filename, only for the RESULT line)" << std::endl;
-    std::cout << "\t(-h                sets h, only for the RESULT line)" << std::endl;
+    std::cout << "Usage: lzendsa-random-access [options] <lzendsa file>" << std::endl;
+    std::cout << "\t<lzendsa file>   path to lzendsa file (should the binary representation of the lzendsa construction)." << std::endl;
+    std::cout << "\t-s               seed used to calculate the interval starting positions (default: 42)" << std::endl;
+    std::cout << "\t-q               number of queries (default: 300000)" << std::endl;
+    std::cout << "\t-l               interval length (default: 7)" << std::endl;
 }
 
 template <typename int_t>
-void random_access(std::ifstream& index_file, std::vector<int_t>& indices, std::string filename, int64_t h, int64_t interval_length)
+void random_access(std::ifstream& index_file, std::string file_name, uint64_t len, uint64_t num_queries, uint64_t seed)
 {
     std::cout << "Loading lzendsa" << std::flush;
     lzendsa<int_t> index;
     index.load(index_file);
-    std::cout << " done." << std::endl;
+    std::cout << ", done" << std::endl;
 
     std::cout << "Start random access" << std::flush;
-    auto t1 = now();
+    std::mt19937 gen(seed);
+    std::uniform_int_distribution<uint64_t> index_distrib(0, index.input_size() - len);
+    uint64_t time_ns = 0;
+    uint64_t checksum = 0;
 
-    for (int_t i = 0; i < indices.size(); i++) {
-        std::vector<int_t> _x = index.template sa_values<int_t>(indices[i], interval_length);
+    for (uint64_t i = 0; i < num_queries; i++) {
+        uint64_t beg = index_distrib(gen);
+        uint64_t end = beg + len - 1;
+        
+        auto t1 = now();
+        std::vector<int_t> res = index.template sa_values<int_t>(beg, end);
+        auto t2 = now();
+
+        for (int_t val : res) checksum += val;
+        time_ns += time_diff_ns(t1, t2);
     }
 
-    auto t2 = now();
-    uint64_t time_ns = time_diff_ns(t1, t2);
-    std::cout << " done." << std::endl;
-    std::cout << "Measured time random access: " << format_time(time_ns) << " (with " << indices.size() << " Iterations)" << std::endl;
+    std::cout << ", done (checksum: " << checksum << ")" << std::endl;
+    std::cout << "Measured time random access: " << format_time(time_ns) << " (with " << num_queries << " queries)" << std::endl;
 
     std::cout << "RESULT"
         << " algo=lzendsa_random_access"
+        << " seed=" << seed
         << " time_access=" << time_ns
-        << " iterations=" << indices.size()
-        << " text=" << filename
-        << " interval_length=" << interval_length
-        << " h=" << h
+        << " num_queries=" << num_queries
+        << " text=" << file_name
+        << " len=" << len
         << " d=" << index.delta()
         << " n=" << index.input_size()
         << " size_index=" << index.size_in_bytes()
@@ -84,77 +92,45 @@ int main(int argc, char** argv)
     std::set<std::string> allowed_literal_options;
 
     allowed_value_options.insert("-l");
-    allowed_value_options.insert("-h");
-    allowed_value_options.insert("-filename");
-    allowed_value_options.insert("-t");
+    allowed_value_options.insert("-q");
+    allowed_value_options.insert("-s");
 
-    CommandLineArguments a = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 2);
+    CommandLineArguments a = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 1);
 
     if (!a.success) {
         help();
         return -1;
     }
 
-    int64_t l = 1;
-    int64_t h = 8192;
-    uint16_t num_threads = 1;
-    std::string filename = a.last_parameter.at(0);
-    filename = filename.substr(filename.find_last_of("/\\") + 1);
+    uint64_t len = 7;
+    uint64_t seed = 42;
+    uint64_t num_queries = 300000;
+    std::string file_name = a.last_parameter.at(0);
+    file_name = file_name.substr(file_name.find_last_of("/\\") + 1);
 
     for (Option value_option : a.value_options) {
         if (value_option.name == "-l") {
-            l = std::stol(value_option.value);
+            len = std::stol(value_option.value);
         }
 
-        if (value_option.name == "-h") {
-            h = std::stol(value_option.value);
+        if (value_option.name == "-q") {
+            num_queries = std::stol(value_option.value);
         }
 
-        if (value_option.name == "-filename") {
-            filename = value_option.value;
-        }
-
-        if (value_option.name == "-t") {
-            int64_t t = std::stol(value_option.value);
-
-            if (t < 1 || t > std::numeric_limits<uint16_t>::max()) {
-                std::cout << "t has to be in the range of 1 to " << std::numeric_limits<uint16_t>::max()
-                    << ". Continuing with t=1" << std::endl << std::flush;
-            } else {
-                num_threads = static_cast<uint16_t>(t);
-            }
+        if (value_option.name == "-s") {
+            seed = std::stol(value_option.value);
         }
     }
 
     std::string lzendsa_file = a.last_parameter.at(0);
-    std::string arbitrary_indices_file = a.last_parameter.at(1);
-
     std::ifstream index_file(lzendsa_file);
-    std::ifstream arbitrary_indices_in(arbitrary_indices_file);
 
     uint8_t long_integer_flag;
     index_file.read((char*) &long_integer_flag, sizeof(long_integer_flag));
 
-    std::cout << "Loading Indices" << std::flush;
-    std::string last_index;
-
     if (long_integer_flag == 0) {
-        std::vector<int32_t> indices;
-
-        while (arbitrary_indices_in >> last_index) {
-            indices.push_back(std::stoi(last_index));
-        }
-
-        std::cout << " done." << std::endl << std::flush;
-        random_access<int32_t>(index_file, indices, filename, h, l);
+        random_access<int32_t>(index_file, file_name, len, num_queries, seed);
     } else {
-        std::vector<int64_t> indices;
-
-        while (arbitrary_indices_in >> last_index) {
-            indices.push_back(std::stol(last_index));
-        }
-
-        std::cout << " done." << std::endl << std::flush;
-        random_access<int64_t>(index_file, indices, filename, h, l);
+        random_access<int64_t>(index_file, file_name, len, num_queries, seed);
     }
 }

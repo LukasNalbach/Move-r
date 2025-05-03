@@ -43,12 +43,13 @@ class lzendsa_encoding {
 protected:
     uint64_t n; // the number of symbols in the uncompressed text
     uint64_t z; // the number of phrases of the lzend factorization
+    int64_t h; // maximum phrase length
     int64_t min_ext; // the minimum over all extensions in the lzend parsing
 
-    /* Stores three bit-packed vectors sources and extensions interleaved with each other.
+    /* Stores two bit-packed vectors sources and extensions interleaved with each other.
      * The vector sources stores at position i the index of the phrase the ith phrase extends.
      * The vector extensions stores at position i the extension of the ith phrase - min_ext. */
-    interleaved_bit_aligned_vectors<uint64_t, 3> sources_extensions_samples;
+    interleaved_bit_aligned_vectors<uint64_t, 2> sources_extensions;
 
     /* Stores at position i the end position of the ith phrase.
      * It essentially serves as a constant-time select operation (index of the j-th 1) and a
@@ -60,11 +61,8 @@ public:
     lzendsa_encoding() = default;
 
     template <typename int_t>
-    lzendsa_encoding(
-        const std::vector<lzend_phr_t<int_t>>& lzend_phrases,
-        const std::vector<int_t>& sa,
-        int64_t n, bool sample_phrase_ends = false
-    ) : n(n), z(lzend_phrases.size())
+    lzendsa_encoding(const std::vector<lzend_phr_t<int_t>>& lzend_phrases,int64_t n, int64_t h = 8192)
+        : n(n), h(h), z(lzend_phrases.size())
     {
         min_ext = lzend_phrases[0].ext;
         int64_t max_ext = lzend_phrases[0].ext;
@@ -74,17 +72,16 @@ public:
             if (max_ext < lzend_phrases[i].ext) max_ext = lzend_phrases[i].ext;
         }
 
-        sources_extensions_samples = interleaved_bit_aligned_vectors<uint64_t, 3>({
+        sources_extensions = interleaved_bit_aligned_vectors<uint64_t, 2>({
             std::bit_width(uint64_t{z}), // bit-width of the sources vector
-            std::bit_width(uint64_t{max_ext - min_ext}), // bit-width of the extensions vector
-            sample_phrase_ends ? std::bit_width(uint64_t{n}) : 0 // bit-width of the samples vector
+            std::bit_width(uint64_t{max_ext - min_ext}) // bit-width of the extensions vector
         });
 
         end_positions = interleaved_byte_aligned_vectors<uint64_t, uint64_t, 1>({
             byte_width(uint64_t{n})
         });
 
-        sources_extensions_samples.resize_no_init(z);
+        sources_extensions.resize_no_init(z);
         end_positions.resize_no_init(z);
 
         // current phrase end position
@@ -92,36 +89,25 @@ public:
 
         for (uint64_t i = 0; i < z; i++) {
             cur_end_pos += lzend_phrases[i].len; // update current end position
-
-            sources_extensions_samples.set<0>(i, lzend_phrases[i].lnk); // store the sources of phrases
-            sources_extensions_samples.set<1>(i, lzend_phrases[i].ext - min_ext); // store the extensions of phrases
-
-            if (sample_phrase_ends) {
-                sources_extensions_samples.set<2>(i, sa[cur_end_pos]); // store samples at phrase ends
-            }
-
+            sources_extensions.set<0>(i, lzend_phrases[i].lnk); // store the sources of phrases
+            sources_extensions.set<1>(i, lzend_phrases[i].ext - min_ext); // store the extensions of phrases
             end_positions.set<0>(i, cur_end_pos); // store the end positions of phrases
         }
     }
 
-    inline bool has_sa_samples() const
+    inline int64_t maximum_phrase_length() const
     {
-        return sources_extensions_samples.width<2>() != 0;
+        return h;
     }
 
     inline int64_t source(int64_t i) const
     {
-        return sources_extensions_samples.get<0>(i);
+        return sources_extensions.get<0>(i);
     }
 
     inline int64_t extension(int64_t i) const
     {
-        return min_ext + int64_t{sources_extensions_samples.get<1>(i)};
-    }
-
-    inline int64_t sample(int64_t i) const
-    {
-        return sources_extensions_samples.get<2>(i);
+        return min_ext + int64_t{sources_extensions.get<1>(i)};
     }
 
     inline int64_t end_position(int64_t i) const
@@ -141,7 +127,7 @@ public:
 
     uint64_t size_in_bytes() const
     {
-        return sizeof(this) + sources_extensions_samples.size_in_bytes() + end_positions.size_in_bytes();
+        return sizeof(this) + sources_extensions.size_in_bytes() + end_positions.size_in_bytes();
     }
 
     // returns the phrase that contains index
@@ -157,7 +143,7 @@ public:
     }
 
     // extraction method
-    void extract(int64_t beg, int64_t end, const std::function<void(int64_t, int64_t)>& report) const
+    void extract_deltas(int64_t beg, int64_t end, const std::function<void(int64_t, int64_t)>& report) const
     {
         if (end < beg) return;
         int64_t phrase_id = phrase_containing(end);
@@ -233,7 +219,28 @@ public:
 
     // extraction method
     template <typename out_t>
-    std::vector<out_t> extract(int64_t beg, int64_t end) const
+    std::vector<out_t> extract_deltas(int64_t beg, int64_t end) const
+    {
+        std::vector<out_t> result;
+        no_init_resize(result, end - beg + 1);
+        extract_deltas(beg, end, [&](int64_t pos, int64_t val){result[pos - beg] = val;});
+        return result;
+    }
+
+    void extract(int64_t beg, int64_t end, int64_t sa_end, const std::function<void(int64_t, int64_t)>& report) const
+    {
+        report(end, sa_end);
+        int64_t cur_val = sa_end;
+
+        extract_deltas(beg + 1, end, [&](int64_t pos, int64_t val){
+            cur_val -= val;
+            report(pos - 1, cur_val);
+        });
+    }
+
+    // extraction method
+    template <typename out_t>
+    std::vector<out_t> extract(int64_t beg, int64_t end, int64_t sa_end) const
     {
         std::vector<out_t> result;
         no_init_resize(result, end - beg + 1);
@@ -241,19 +248,13 @@ public:
         return result;
     }
 
-    int64_t operator[](int64_t i) const
-    {
-        int64_t val;
-        extract(i, i, [&](int64_t, int64_t v){val = v;});
-        return val;
-    }
-
     void load(std::istream& in)
     {
         in.read((char*) &n, sizeof(n));
         in.read((char*) &z, sizeof(z));
+        in.read((char*) &h, sizeof(h));
         in.read((char*) &min_ext, sizeof(min_ext));
-        sources_extensions_samples.load(in);
+        sources_extensions.load(in);
         end_positions.load(in);
     }
 
@@ -261,19 +262,15 @@ public:
     {
         out.write((char*) &n, sizeof(n));
         out.write((char*) &z, sizeof(z));
+        out.write((char*) &h, sizeof(h));
         out.write((char*) &min_ext, sizeof(min_ext));
-        sources_extensions_samples.serialize(out);
+        sources_extensions.serialize(out);
         end_positions.serialize(out);
     }
 
     void log_data_structure_sizes() const {
-        std::cout << "sources: " << format_size((sources_extensions_samples.width<0>() * z) / 8) << std::endl;
-        std::cout << "extensions: " << format_size((sources_extensions_samples.width<1>() * z) / 8) << std::endl;
+        std::cout << "sources: " << format_size((sources_extensions.width<0>() * z) / 8) << std::endl;
+        std::cout << "extensions: " << format_size((sources_extensions.width<1>() * z) / 8) << std::endl;
         std::cout << "end_positions: " << format_size(end_positions.size_in_bytes()) << std::endl;
-
-        if (sources_extensions_samples.width<2>() != 0) {
-            std::cout << "samples: " << format_size((sources_extensions_samples.width<2>() * z) / 8) << std::endl;
-        }
-        
     }
 };

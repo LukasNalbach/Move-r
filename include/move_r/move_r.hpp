@@ -110,7 +110,8 @@ class move_r {
 public:
     // check if the position type is supported
     static_assert(
-        std::is_same_v<pos_t, uint32_t> || std::is_same_v<pos_t, uint64_t>);
+        std::is_same_v<pos_t, uint32_t> ||
+        std::is_same_v<pos_t, uint64_t>);
 
     // check if the type of input is supported
     static_assert(

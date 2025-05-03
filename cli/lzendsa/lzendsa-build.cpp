@@ -40,11 +40,9 @@ void help()
     std::cout << "Usage: lzendsa-build [options] <text file>" << std::endl;
     std::cout << "\t<text file>     path to the input file (should contain text)" << std::endl;
     std::cout << "\t-o              path to the desired output file (the extension .lzendsa will be added automatically)" << std::endl;
+    std::cout << "\t-d              delta, if not provided the sample will be about 10\% of the index size" << std::endl;
     std::cout << "\t-h              longest phrase length, leave blank or put -1 for unbounded phrase length" << std::endl;
-    std::cout << "\t-d              delta, if not provided the end positions of the LZ-End phrases will be sampled" << std::endl;
     std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
-    std::cout << "\t--f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
-    std::cout << "\t-filename       sets the filename only for the RESULT line" << std::endl;
 }
 
 int main(int argc, char** argv)
@@ -55,8 +53,6 @@ int main(int argc, char** argv)
     allowed_value_options.insert("-o");
     allowed_value_options.insert("-d");
     allowed_value_options.insert("-h");
-    allowed_value_options.insert("-filename");
-    allowed_literal_options.insert("--f64");
     allowed_literal_options.insert("--bigbwt");
 
     CommandLineArguments parsed_args = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 1);
@@ -69,15 +65,10 @@ int main(int argc, char** argv)
     std::string o = parsed_args.last_parameter.at(0);
     o.append(".lzendsa");
     std::string filepath = parsed_args.last_parameter.at(0);
-    std::string filename = filepath.substr(filepath.find_last_of("/\\") + 1);
+    std::string file_name = filepath.substr(filepath.find_last_of("/\\") + 1);
     bool use_bigbwt = false;
-    bool use64 = false;
     int64_t d = -1;
     int64_t h = 8192;
-
-    if (parsed_args.literal_options.contains("--f64")) {
-        use64 = true;
-    }
 
     if (parsed_args.literal_options.contains("--bigbwt")) {
         use_bigbwt = true;
@@ -94,10 +85,6 @@ int main(int argc, char** argv)
 
         if (value_option.name == "-h") {
             h = std::stol(value_option.value);
-        }
-
-        if (value_option.name == "-filename") {
-            filename = value_option.value;
         }
     }
 
@@ -116,7 +103,7 @@ int main(int argc, char** argv)
     lzendsa<int32_t> lzendsa_32;
     lzendsa<int64_t> lzendsa_64;
 
-    if (n <= INT32_MAX && !use64) {
+    if (n <= std::numeric_limits<int32_t>::max()) {
         std::cout << "Constructing using 32-bit integers" << std::endl;
         lzendsa_32 = lzendsa<int32_t>(input, d, h, use_bigbwt, true);
     } else {
@@ -127,7 +114,7 @@ int main(int argc, char** argv)
     auto t2 = now();
     uint64_t z;
 
-    if (n <= INT32_MAX && !use64) {
+    if (n <= std::numeric_limits<int32_t>::max()) {
         z = lzendsa_32.num_phrases();
         lzendsa_32.size_in_bytes();
     } else {
@@ -139,7 +126,7 @@ int main(int argc, char** argv)
     uint64_t size_index = sizeof(uint8_t);
     std::ofstream out(o);
 
-    if (n <= INT32_MAX && !use64) {
+    if (n <= std::numeric_limits<int32_t>::max()) {
         uint8_t long_integer_flag = 0;
         out.write((char*) &long_integer_flag, sizeof(uint8_t));
         lzendsa_32.serialize(out);
@@ -160,7 +147,7 @@ int main(int argc, char** argv)
         << " algo=lzendsa_build"
         << " time_ms=" << time_ns
         << " peak_mem_usage=" << memory_peak
-        << " text=" << filename
+        << " text=" << file_name
         << " size_index=" << size_index
         << " n=" << n
         << " z=" << z

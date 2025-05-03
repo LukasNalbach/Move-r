@@ -37,8 +37,8 @@
 #include <vector>
 
 #include "rlzsa_encoding.hpp"
-#include <misc/build_sa_and_bwt.hpp>
-#include <misc/sparse_sa_algorithms.cpp>
+#include <algorithms/build_sa_and_bwt.hpp>
+#include <algorithms/sparse_sa_bin_search.cpp>
 #include <data_structures/interleaved_bit_aligned_vectors.hpp>
 
 template <typename int_t = int32_t>
@@ -49,7 +49,8 @@ protected:
     static constexpr double default_relative_sampling_size = 0.1;
 
     rlzsa_encoding<int_t> rlzsa_enc; // rlzsa encoding
-    int64_t d = 0; // sampling parameter
+    int64_t d; // sampling parameter
+    int_t last_sa; // last SA-value (SA[n - 1])
 
     // evenly-spaced SA-samples (every d-th position is sampled)
     interleaved_bit_aligned_vectors<uint64_t, 1> sa_samples;
@@ -69,6 +70,7 @@ public:
         // compute SA and BWT
         auto [sa, bwt] = build_sa_and_bwt<int_t>(input, false, use_bigbwt, log);
         uint64_t n = sa.size();
+        last_sa = sa[n - 1];
 
         // construct differential suffix array (DSA)
         if (log) time = now();
@@ -89,14 +91,15 @@ public:
         rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, false, log);
 
         if (d <= 0) {
-            uint64_t target_sampling_size = (size_in_bytes() * 8) * default_relative_sampling_size;
-            d = target_sampling_size / std::bit_width(uint64_t{n});
+            uint64_t target_sampling_size_in_bits = (rlzsa_enc.size_in_bytes() * 8) * default_relative_sampling_size;
+            d = n / (target_sampling_size_in_bits / std::bit_width(uint64_t{n}));
+            this->d = d;
         }
 
         // construct the SA sampling
         if (log) std::cout << "building SA-Samples, d = " << d << std::flush;
         
-        this->d = d;
+        time = now();
         uint64_t num_samples = n / d;
         sa_samples = interleaved_bit_aligned_vectors<uint64_t, 1>({ std::bit_width(uint64_t{n}) });
         sa_samples.resize_no_init(num_samples);
@@ -122,19 +125,13 @@ public:
     // return the index-th suffix array sample
     uint64_t sample(uint64_t index) const
     {
-        return sa_samples.get<0>(index);
+        return index == sa_samples.size() ? last_sa : sa_samples[index];
     }
 
     // return the position in SA of the index-th suffix array sample
     uint64_t sample_pos(uint64_t index) const
     {
-        return index * d;
-    }
-
-    // return the suffix array value at position index
-    uint64_t operator[](uint64_t index) const
-    {
-        return rlzsa_enc[index];
+        return index == sa_samples.size() ? input_size() - 1 : (index * d);
     }
 
     uint64_t input_size() const
@@ -156,8 +153,8 @@ public:
     {
         auto [beg, end, result] = binary_sa_search_and_extract<int_t>(*input, pattern, num_samples(),
             [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
-            [&](uint64_t b, uint64_t e, std::function<void(int64_t, int64_t)>&& report){rlzsa_enc.template extract<int_t>(b, e, report);},
-            false);
+            [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, std::function<void(int64_t, int64_t)>&& report){
+                rlzsa_enc.template extract<int_t>(b, e, report, sa_b);}, false);
         
         return {beg, end};
     }
@@ -167,8 +164,8 @@ public:
     {
         auto [beg, end, result] = binary_sa_search_and_extract<out_t>(*input, pattern, num_samples(),
             [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
-            [&](uint64_t b, uint64_t e, std::function<void(int64_t, int64_t)>&& report){rlzsa_enc.template extract<out_t>(b, e, report);},
-            true);
+            [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, std::function<void(int64_t, int64_t)>&& report){
+                rlzsa_enc.template extract<out_t>(b, e, report, sa_b);}, true);
         
         return result;
     }
@@ -177,24 +174,22 @@ public:
     template <typename out_t>
     std::vector<out_t> sa_values(uint64_t beg, uint64_t end) const
     {
-        if (d == -1) return rlzsa_enc.template extract<out_t>(beg, end);
-
-        uint64_t sample_index = beg / d;
-        uint64_t sample_pos = sample_index * d;
-        uint64_t sample_val = sample(sample_index);
+        uint64_t smpl_idx = beg / d;
+        uint64_t smpl_pos = smpl_idx * d;
+        uint64_t smpl = sa_samples[smpl_idx];
 
         std::vector<out_t> result;
         no_init_resize(result, end - beg + 1);
 
-        rlzsa_enc.template extract<out_t>(sample_pos, end,
-            [&](uint64_t i, uint64_t v){result[i - beg] = v;}, sample_val);
+        rlzsa_enc.template extract<out_t>(smpl_pos, end,
+            [&](uint64_t pos, uint64_t val){if (pos >= beg) result[pos - beg] = val;}, smpl);
 
         return result;
     }
 
     uint64_t num_samples() const
     {
-        return sa_samples.size();
+        return sa_samples.size() + 1;
     }
 
     // return the size of the whole data structure in bytes
@@ -206,6 +201,8 @@ public:
     // load the rlzsa construction from a stream
     void load(std::istream& in)
     {
+        in.read((char*) &d, sizeof(d));
+        in.read((char*) &last_sa, sizeof(last_sa));
         rlzsa_enc.load(in);
         sa_samples.load(in);
     }
@@ -213,6 +210,8 @@ public:
     // serialize the rlzsa construction to the output stream
     void serialize(std::ostream& out)
     {
+        out.write((char*) &d, sizeof(d));
+        out.write((char*) &last_sa, sizeof(last_sa));
         rlzsa_enc.serialize(out);
         sa_samples.serialize(out);
     }

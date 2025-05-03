@@ -46,11 +46,6 @@ protected:
 public:
     index() = default;
 
-    bool has_sa_samples() const
-    {
-        return !samples.empty();
-    }
-
     uint64_t size_in_bytes() const
     {
         return sizeof(this) +
@@ -63,7 +58,7 @@ public:
      * Build index
      */
     template <typename int_t>
-    index(const std::string& BWT, const std::vector<int_t>& SA, bool sa_samples = true)
+    index(const std::string& BWT, const std::vector<int_t>& SA)
     {
         bwt = rle_string(BWT);
         uint64_t n = BWT.size();
@@ -83,31 +78,29 @@ public:
 
         r = bwt.number_of_runs();
 
-        if (sa_samples) {
-            samples.width(std::bit_width(n));
-            samples.resize(r);
-            uint64_t run = 0;
+        samples.width(std::bit_width(n));
+        samples.resize(r);
+        uint64_t run = 0;
 
-            if constexpr (mode == _run_heads) {
-                samples[0] = SA[0];
+        if constexpr (mode == _run_heads) {
+            samples[0] = SA[0];
+            run++;
+        }
+
+        for (uint64_t i = 1; i < n; i++) {
+            if (BWT[i] != BWT[i - 1]) {
+                if constexpr (mode == _run_heads) {
+                    samples[run] = SA[i];
+                } else {
+                    samples[run] = SA[i - 1];
+                }
+
                 run++;
             }
+        }
 
-            for (uint64_t i = 1; i < n; i++) {
-                if (BWT[i] != BWT[i - 1]) {
-                    if constexpr (mode == _run_heads) {
-                        samples[run] = SA[i];
-                    } else {
-                        samples[run] = SA[i - 1];
-                    }
-
-                    run++;
-                }
-            }
-
-            if constexpr (mode == _run_ends) {
-                samples[r - 1] = SA[n - 1];
-            }
+        if constexpr (mode == _run_ends) {
+            samples[r - 1] = SA[n - 1];
         }
     }
 
@@ -340,7 +333,6 @@ public:
      */    
     std::tuple<uint64_t, uint64_t, uint64_t> count_and_get_occ(const std::string& P) const
     {
-        assert(has_sa_samples());
         std::pair<uint64_t, uint64_t> range = full_range();
 
         // k = SA[r]

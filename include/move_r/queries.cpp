@@ -62,7 +62,7 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
 
         pos_t j = M_LF().p(x);
         int64_t s = SA_s(x);
-        _lzendsa.extract(j + 1, i, [&](int64_t, int64_t d){s += d;});
+        _lzendsa.extract_deltas(j + 1, i, [&](int64_t, int64_t d){s += d;});
 
         return s;
     } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
@@ -211,7 +211,7 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::query_context::locate()
         s = idx->SA_s(hat_b_ap_y) - (y + 1);
         Occ[0] = s;
 
-        idx->_lzendsa.extract(b + 1, e,
+        idx->_lzendsa.extract_deltas(b + 1, e,
             [&](int64_t j, int64_t d){
                 Occ[j - b] = d + idx->n;
             });
@@ -739,7 +739,7 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::locate(const inp_t& P) const
         Occ[0] = s;
 
         // compute the remaining occurrences SA[b,e)
-        _lzendsa.extract(b + 1, e,
+        _lzendsa.extract_deltas(b + 1, e,
             [&](int64_t i, int64_t d){
                 Occ[i - b] = d + n;
             });
@@ -940,7 +940,7 @@ void move_r<support, sym_t, pos_t>::SA(const std::function<void(pos_t, pos_t)>& 
             report(e, s);
 
             // compute the remaining occurrences SA[b,e)
-            _lzendsa.extract(b + 1, e,
+            _lzendsa.extract_deltas(b + 1, e,
                 [&](int64_t, int64_t d){
                     s -= d;
                     i--;

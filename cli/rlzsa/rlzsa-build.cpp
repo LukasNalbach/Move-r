@@ -44,7 +44,6 @@ void help()
     std::cout << "\t-ref-size       reference size (in relation to the input size, default = 0.1 (10\%))" << std::endl;
     std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
     std::cout << "\t--f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
-    std::cout << "\t-filename       sets the filename only for the RESULT line" << std::endl;
 }
 
 int main(int argc, char** argv)
@@ -55,7 +54,6 @@ int main(int argc, char** argv)
     allowed_value_options.insert("-o");
     allowed_value_options.insert("-d");
     allowed_value_options.insert("-ref-size");
-    allowed_value_options.insert("-filename");
     allowed_literal_options.insert("--f64");
     allowed_literal_options.insert("--bigbwt");
 
@@ -69,7 +67,7 @@ int main(int argc, char** argv)
     std::string o = parsed_args.last_parameter.at(0);
     o.append(".rlzsa");
     std::string filepath = parsed_args.last_parameter.at(0);
-    std::string filename = filepath.substr(filepath.find_last_of("/\\") + 1);
+    std::string file_name = filepath.substr(filepath.find_last_of("/\\") + 1);
     bool use_bigbwt = false;
     bool use64 = false;
     int64_t d = -1;
@@ -94,10 +92,6 @@ int main(int argc, char** argv)
 
         if (value_option.name == "-ref-size") {
             relative_reference_size = std::stod(value_option.value);
-        }
-
-        if (value_option.name == "-filename") {
-            filename = value_option.value;
         }
     }
 
@@ -160,7 +154,7 @@ int main(int argc, char** argv)
         << " algo=rlzsa_build"
         << " time_ms=" << time_ns
         << " peak_mem_usage=" << memory_peak
-        << " text=" << filename
+        << " text=" << file_name
         << " size_index=" << size_index
         << " n=" << n
         << " z=" << z

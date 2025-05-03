@@ -39,77 +39,55 @@ void help()
 {
     std::cout << "lzendsa-count: count all occurences of the input patterns." << std::endl << std::endl;
     std::cout << "Usage: lzendsa-count [options] <lzendsa file> <text file> <pattern file>" << std::endl;
-    std::cout << "\t<lzendsa file>     path to lzendsa file (should the binary representation of the lzendsa construction)" << std::endl;
-    std::cout << "\t<text file>        path to text file (should contain text)" << std::endl;
-    std::cout << "\t<pattern file>     path to file containing the pattern in pizza&chili format." << std::endl;
-    std::cout << "\t-o                 file where the intervals will be written to (if no value is provided, then the results are not written onto the disk)." << std::endl;
-    std::cout << "\t(-filename         sets the filename only for the RESULT line)" << std::endl;
-    std::cout << "\t(-h                sets h only for the RESULT line)" << std::endl;
+    std::cout << "\t<lzendsa file>  path to lzendsa file (should the binary representation of the lzendsa construction)" << std::endl;
+    std::cout << "\t<text file>     path to text file (should contain text)" << std::endl;
+    std::cout << "\t<pattern file>  path to file containing the pattern in pizza&chili format." << std::endl;
 }
 
 template <typename int_t>
-void count(std::string& input, std::ifstream& index_file, std::ifstream& patterns_file, std::string output_filename, std::string filename, int32_t h)
+void count(std::string& input, std::ifstream& index_file, std::ifstream& patterns_file, std::string output_filename, std::string file_name)
 {
     std::cout << "Loading lzendsa" << std::flush;
     lzendsa<int_t> index;
     index.load(index_file);
-    std::cout << " done." << std::endl;
+    index.set_input(input);
+    std::cout << " done" << std::endl;
 
-    std::cout << "Loading patterns" << std::flush;
     std::string pattern_header;
     std::getline(patterns_file, pattern_header);
     uint64_t pattern_length = get_pattern_length(pattern_header);
     uint64_t pattern_count = get_pattern_count(pattern_header);
-    std::vector<std::string> patterns_str = load_patterns(patterns_file, pattern_length, pattern_count);
-    std::vector<std::vector<uint8_t>> patterns = strToUint8Vec(patterns_str);
-    std::cout << " found " << pattern_count << " patterns of length " << pattern_length << "." << std::endl;
+    std::cout << "Found " << pattern_count << " patterns of length " << pattern_length << "." << std::endl;
     std::cout << "Count: " << std::flush;
-
-    struct Interval {
-        int64_t beg;
-        int64_t end;
-    };
-
-    auto t1 = now();
-    std::vector<Interval> intervals;
-    intervals.reserve(pattern_count);
-
-    for (std::vector<uint8_t> pattern : patterns) {
-        Interval interval;// = index.count(input, pattern);
-        intervals.push_back(interval);
-    }
-
-    auto t2 = now();
     int64_t occ_total = 0;
+    uint64_t time_ns = 0;
+    std::string pattern;
+    no_init_resize(pattern, pattern_length);
 
-    for (Interval interval : intervals) {
-        occ_total += interval.end - interval.beg + 1;
+    for (uint64_t i = 0; i < pattern_count; i++) {
+        patterns_file.read(pattern.data(), pattern_length);
+
+        auto t1 = now();
+        auto [beg, end] = index.template count(pattern);
+        auto t2 = now();
+
+        time_ns += time_diff_ns(t1, t2);
+        occ_total += end >= beg ? end - beg + 1 : 0;
     }
-    
-    uint64_t time_ns = time_diff_ns(t1, t2);
-    std::cout << std::endl << "Found all patterns in " << format_time(time_ns)
-        << " ms (occ_total=" << occ_total << ")." << std::endl;
 
-    if (output_filename.length() > 0) {
-        std::ofstream out(output_filename);
-
-        for (Interval interval : intervals) {
-            out << interval.beg << " " << interval.end << std::endl;
-        }
-
-        out.close();
-    }
+    std::cout << "Counted " << pattern_count << " patterns (with " << occ_total
+        << " occurences) in " << format_time(time_ns) << std::endl;
 
     std::cout << "RESULT"
         << " algo=lzendsa_count"
         << " time_count=" << time_ns
         << " size_index=" << index.size_in_bytes()
         << " num_occurrences=" << occ_total
-        << " text=" << filename
+        << " text=" << file_name
         << " pattern_length=" << pattern_length
         << " n=" << input.length()
         << " d=" << index.delta()
-        << " h=" << h
+        << " h=" << index.sa_encoding().maximum_phrase_length()
         << " size_index=" << index.size_in_bytes()
         << std::endl;
 }
@@ -118,11 +96,6 @@ int main(int argc, char** argv)
 {
     std::set<std::string> allowed_value_options;
     std::set<std::string> allowed_literal_options;
-
-    allowed_value_options.insert("-o");
-    allowed_value_options.insert("-h");
-    allowed_value_options.insert("-filename");
-
     CommandLineArguments a = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 3);
 
     if (!a.success) {
@@ -131,23 +104,8 @@ int main(int argc, char** argv)
     }
 
     std::string pattern_out_file = "";
-    std::string filename = a.last_parameter.at(0);
-    filename = filename.substr(filename.find_last_of("/\\") + 1);
-    int32_t h;
-
-    for (Option value_option : a.value_options) {
-        if (value_option.name == "-o") {
-            pattern_out_file = value_option.value.append(".intervals");
-        }
-
-        if (value_option.name == "-filename") {
-            filename = value_option.value;
-        }
-
-        if (value_option.name == "-h") {
-            h = std::stol(value_option.value);
-        }
-    }
+    std::string file_name = a.last_parameter.at(0);
+    file_name = file_name.substr(file_name.find_last_of("/\\") + 1);
 
     std::string lzendsa_file = a.last_parameter.at(0);
     std::string text_file = a.last_parameter.at(1);
@@ -158,15 +116,18 @@ int main(int argc, char** argv)
     std::ifstream patterns_file(pattern_file);
 
     std::cout << "Loading text file" << std::flush;
-    std::string input = std::string(std::istreambuf_iterator<char>(text_in), {});
-    std::cout << " done (n = " << input.length() << ")." << std::endl;
+    std::string input;
+    uint64_t input_size = std::filesystem::file_size(text_file);
+    no_init_resize(input, input_size);
+    read_from_file(text_in, input.data(), input_size);
+    std::cout << " (" << format_size(input_size) << ")" << std::endl;
 
     uint8_t long_integer_flag;
     in.read((char*) &long_integer_flag, sizeof(long_integer_flag));
 
     if (long_integer_flag == 0) {
-        count<int32_t>(input, in, patterns_file, pattern_out_file, filename, h);
+        count<int32_t>(input, in, patterns_file, pattern_out_file, file_name);
     } else {
-        count<int64_t>(input, in, patterns_file, pattern_out_file, filename, h);
+        count<int64_t>(input, in, patterns_file, pattern_out_file, file_name);
     }
 }
