@@ -79,7 +79,7 @@ public:
         if (log) std::cout << "building rlzsa:" << std::endl;
         uint64_t r = r_index.number_of_runs();
         uint64_t reference_size = std::min<uint64_t>(n / 3, 5.2 * r);
-        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, log);
+        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, false, log);
         if (log) std::cout << "r-index-rlzsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
     }
 
