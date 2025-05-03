@@ -1012,7 +1012,7 @@ public:
         if (log) time = now();
 
         if (log) std::cout << "Encoding LZ-End parsing" << std::flush;
-        idx._lzendsa = lzendsa_encoding(lzend_phrases, SA_vec, n, false);
+        idx._lzendsa = lzendsa_encoding(lzend_phrases, n, 8192);
         if (log) time = log_runtime(time);
     }
 

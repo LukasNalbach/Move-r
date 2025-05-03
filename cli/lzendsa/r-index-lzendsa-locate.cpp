@@ -41,18 +41,16 @@ void help()
     std::cout << "\t<index file>    path to the computed index (file with extension .r-index-lzendsa)" << std::endl;
     std::cout << "\t<pattern>       path to the pattern file in the pizza&chili format" << std::endl;
     std::cout << "\t-c <input file> checks correctness of the results on <input file>" << std::endl;
-    std::cout << "\t(-h             sets h only for the RESULT line)" << std::endl;
-    std::cout << "\t-filename       sets the filename only for the RESULT line" << std::endl;
 }
 
 template <typename int_t>
-void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string filename, std::string input_file, int32_t h)
+void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string file_name, std::string input_file)
 {
     size_t pre_load_memory = malloc_count_current();
     std::cout << "Loading r-index-lzendsa index" << std::flush;
     r_index_lzendsa<int_t> index;
     index.load(index_file);
-    std::cout << " done." << std::endl;
+    std::cout << " done" << std::endl;
     std::string input;
 
     if (!input_file.empty()) {
@@ -61,7 +59,7 @@ void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string fi
         std::ifstream input_ifile(input_file);
         no_init_resize(input, input_size);
         read_from_file(input_ifile, input.data(), input_size);
-        std::cout << " done." << std::endl;
+        std::cout << " done" << std::endl;
     }
 
     std::cout << "Loading patterns" << std::flush;
@@ -100,11 +98,11 @@ void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string fi
         << " time_locate=" << time_ns
         << " size_index=" << size_index
         << " num_occurrences=" << occ_total
-        << " text=" << filename
+        << " text=" << file_name
         << " pattern_length=" << pattern_length
         << " num_patterns=" << patterns.size()
         << " z=" << index.sa_encoding().num_phrases()
-        << " h=" << h
+        << " h=" << index.sa_encoding().maximum_phrase_length()
         << std::endl;
 }
 
@@ -113,8 +111,6 @@ int main(int argc, char** argv)
     std::set<std::string> allowed_value_options;
     std::set<std::string> allowed_literal_options;
 
-    allowed_value_options.insert("-h");
-    allowed_value_options.insert("-filename");
     allowed_value_options.insert("-c");
 
     CommandLineArguments a = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 2);
@@ -124,20 +120,11 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    int64_t h = 8192;
-    std::string filename = a.last_parameter.at(0);
-    filename = filename.substr(filename.find_last_of("/\\") + 1);
+    std::string file_name = a.last_parameter.at(0);
+    file_name = file_name.substr(file_name.find_last_of("/\\") + 1);
     std::string input_file;
 
     for (Option value_option : a.value_options) {
-        if (value_option.name == "-h") {
-            h = std::stol(value_option.value);
-        }
-
-        if (value_option.name == "-filename") {
-            filename = value_option.value;
-        }
-
         if (value_option.name == "-c") {
             input_file = value_option.value;
         }
@@ -149,8 +136,8 @@ int main(int argc, char** argv)
     index_file.read((char*) &long_integer_flag, sizeof(uint8_t));
 
     if (long_integer_flag == 0) {
-        locate<int32_t>(index_file, patterns_file, filename, input_file, h);
+        locate<int32_t>(index_file, patterns_file, file_name, input_file);
     } else {
-        locate<int64_t>(index_file, patterns_file, filename, input_file, h);
+        locate<int64_t>(index_file, patterns_file, file_name, input_file);
     }
 }

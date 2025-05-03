@@ -31,9 +31,9 @@
 
 #include "lzendsa_encoding.hpp"
 
-#include <misc/build_sa_and_bwt.hpp>
+#include <algorithms/build_sa_and_bwt.hpp>
 #include <custom_r_index/custom_r_index.hpp>
-#include <misc/sparse_sa_algorithms.cpp>
+#include <algorithms/sparse_sa_bin_search.cpp>
 
 template<typename int_t = int32_t>
 class r_index_lzendsa {
@@ -45,7 +45,7 @@ protected:
 public:
     r_index_lzendsa() = default;
 
-    r_index_lzendsa(std::string& input, int_t h = 8192, bool use_bigbwt = false, bool use_rindex_samples = true, bool log = false)
+    r_index_lzendsa(std::string& input, int_t h = 8192, bool use_bigbwt = false, bool log = false)
     {
         auto time_start = now();
         auto time = time_start;
@@ -57,7 +57,7 @@ public:
         // build r-index
         if (log) time = now();
         if (log) std::cout << "building r-index" << std::flush;
-        r_index = custom_r_index::index<_run_ends>(bwt, sa, use_rindex_samples);
+        r_index = custom_r_index::index<_run_ends>(bwt, sa);
         bwt.clear();
         bwt.shrink_to_fit();
         if (log) time = log_runtime(time);
@@ -88,7 +88,7 @@ public:
 
         // construct lzend encoding
         if (log) std::cout << "Encoding LZ-End parsing" << std::flush;
-        lzendsa_enc = lzendsa_encoding(lzend_phrases, sa, n, !use_rindex_samples);
+        lzendsa_enc = lzendsa_encoding(lzend_phrases, n, h);
         if (log) time = log_runtime(time);
         
         if (log) std::cout << "r-index-lzendsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
@@ -96,24 +96,13 @@ public:
 
     std::vector<int_t> locate(const std::string &pattern) const
     {
-        std::vector<int_t> result;
-        
-        if (r_index.has_sa_samples()) {
-            auto [beg, end, last_value] = r_index.count_and_get_occ(pattern);
-            if (end < beg) return {};
-            result = lzendsa_enc.template extract<int_t>(beg + 1, end);
-            result.push_back(last_value);
+        auto [beg, end, last_value] = r_index.count_and_get_occ(pattern);
+        if (end < beg) return {};
+        std::vector<int_t> result = lzendsa_enc.template extract_deltas<int_t>(beg + 1, end);
+        result.push_back(last_value);
 
-            for (int_t i = result.size() - 2; i >= 0; i--) {
-                result[i] = result[i + 1] - result[i];
-            }
-        } else {
-            auto [beg, end] = r_index.count(pattern);
-            if (end < beg) return {};
-            
-            return extract_range_using_samples<int_t>(beg, end, num_samples(),
-                [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
-                [&](uint64_t b, uint64_t e){return lzendsa_enc.template extract<int_t>(b, e);});
+        for (int_t i = result.size() - 2; i >= 0; i--) {
+            result[i] = result[i + 1] - result[i];
         }
 
         #ifndef NDEBUG
@@ -148,17 +137,17 @@ public:
 
     uint64_t num_samples() const
     {
-        return r_index.has_sa_samples() ? r_index.num_bwt_runs() : lzendsa_enc.num_phrases();
+        return r_index.num_bwt_runs();
     }
 
     uint64_t sample(uint64_t i) const
     {
-        return r_index.has_sa_samples() ? r_index.sample(i) : lzendsa_enc.sample(i);
+        return r_index.sample(i);
     }
 
     uint64_t sample_pos(uint64_t i) const
     {
-        return r_index.has_sa_samples() ? r_index.sample_pos(i) : lzendsa_enc.end_position(i);
+        return r_index.sample_pos(i);
     }
 
     uint64_t size_in_bytes() const

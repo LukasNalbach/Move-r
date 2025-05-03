@@ -44,7 +44,6 @@ void help()
     std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
     std::cout << "\t--f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
     std::cout << "\t--lzend-samples use SA-samples at end positions of LZ-End phrases instead of the SA-samples in the r-index" << std::endl;
-    std::cout << "\t-filename       sets the filename only for the RESULT line" << std::endl;
 }
 
 int main(int argc, char** argv)
@@ -54,7 +53,6 @@ int main(int argc, char** argv)
 
     allowed_value_options.insert("-o");
     allowed_value_options.insert("-h");
-    allowed_value_options.insert("-filename");
     allowed_literal_options.insert("--bigbwt");
     allowed_literal_options.insert("--f64");
     allowed_literal_options.insert("--lzend-samples");
@@ -69,10 +67,9 @@ int main(int argc, char** argv)
     std::string o = parsed_args.last_parameter.at(0);
     o.append(".r-index-lzendsa");
     std::string filepath = parsed_args.last_parameter.at(0);
-    std::string filename = filepath.substr(filepath.find_last_of("/\\") + 1);
+    std::string file_name = filepath.substr(filepath.find_last_of("/\\") + 1);
     bool use_bigbwt = false;
     bool use64 = false;
-    bool use_rindex_samples = true;
     int64_t h = 8192;
 
     if (parsed_args.literal_options.contains("--f64")) {
@@ -83,17 +80,9 @@ int main(int argc, char** argv)
         use_bigbwt = true;
     }
 
-    if (parsed_args.literal_options.contains("--lzend-samples")) {
-        use_rindex_samples = false;
-    }
-
     for (Option value_option : parsed_args.value_options) {
         if (value_option.name == "-o") {
             o = value_option.value.append(".r-index-lzendsa");
-        }
-
-        if (value_option.name == "-filename") {
-            filename = value_option.value;
         }
 
         if (value_option.name == "-h") {
@@ -106,8 +95,11 @@ int main(int argc, char** argv)
     if (use_bigbwt) {
         input = filepath;
     } else {
-        std::ifstream ifs(parsed_args.last_parameter.at(0));
-        input = std::string(std::istreambuf_iterator<char>(ifs), {});
+        std::string input_file_name = parsed_args.last_parameter.at(0);
+        uint64_t input_size = std::filesystem::file_size(input_file_name);
+        std::ifstream input_file(input_file_name);
+        no_init_resize(input, input_size);
+        read_from_file(input_file, input.data(), input_size);
     }
 
     int64_t n = use_bigbwt ? std::filesystem::file_size(input) : input.length();
@@ -119,10 +111,10 @@ int main(int argc, char** argv)
 
     if (n <= INT32_MAX && !use64) {
         std::cout << "Using 32-bit-integers" << std::endl;
-        index_32 = r_index_lzendsa<int32_t>(input, h, use_bigbwt, use_rindex_samples, true);
+        index_32 = r_index_lzendsa<int32_t>(input, h, use_bigbwt, true);
     } else {
         std::cout << "Using 64-bit-integers" << std::endl;
-        index_64 = r_index_lzendsa<int64_t>(input, h, use_bigbwt, use_rindex_samples, true);
+        index_64 = r_index_lzendsa<int64_t>(input, h, use_bigbwt, true);
     }
 
     auto t2 = now();
@@ -153,7 +145,7 @@ int main(int argc, char** argv)
         << " algo=r_index_lzendsa_build"
         << " time_construction=" << time_ns
         << " peak_mem_usage=" << memory_peak
-        << " text=" << filename
+        << " text=" << file_name
         << " size_index=" << size_index
         << " n=" << n
         << " z=" << z
