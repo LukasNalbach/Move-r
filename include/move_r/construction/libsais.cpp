@@ -40,18 +40,8 @@ void move_r<support, sym_t, pos_t>::construction::read_t_from_file(std::string& 
 
     no_init_resize(T_str, n);
     T<i_sym_t>(n - 1) = 0;
-
-    #pragma omp parallel num_threads(p)
-    {
-        uint16_t i_p = omp_get_thread_num();
-
-        pos_t b = i_p * (n / p);
-        pos_t e = (i_p == p - 1) ? n - 2 : ((i_p + 1) * (n / p) - 1);
-        
-        std::ifstream ifile(T_file_name);
-        ifile.seekg(b);
-        read_from_file(ifile, &T_str[b], e - b + 1);
-    }
+    std::ifstream T_file(T_file_name);
+    read_from_file(T_file, T_str.data(), n - 1);
 
     if (log) time = log_runtime(time);
 }
