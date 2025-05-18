@@ -192,12 +192,6 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
         log_message("building T_out");
     }
 
-    /* This function returns for the value i in [0,k-1] the node in nodes_v2v3v4[0..k-1],
-    that stores the pair creating the i-th output interval. */
-    std::function<tout_node_t_v2v3v4*(pos_t)> at = [this](pos_t i) {
-        return &nodes_v2v3v4[pi[i]];
-    };
-
     // build T_out_v2v3v4[0..p-1] from nodes_v2v3v4
     #pragma omp parallel num_threads(p)
     {
@@ -211,7 +205,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
                         /* Build T_out_v2v3v4[i] out of the pairs creating the output starting
                         in the range[s[i]..s[i+1]-1]. Those are located at the positions
                         at[u[i]], at[u[i+1]], ..., at[u[i+1]-1] in nodes_v2v3v4[0..k-1]. */
-                        T_out_v2v3v4[i].insert_array(u[i], u[i + 1] - 1, at, 2);
+                        T_out_v2v3v4[i].insert_array(u[i], u[i + 1] - 1, [&](pos_t i) { return &nodes_v2v3v4[pi[i]]; }, 2);
                     }
                 }
             }
@@ -251,7 +245,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
                     ln->v.first + s[i] - ln->v.second, s[i] })));
 
             // find i_ in [0,p-1], so that s[i_] <= tn->v.first < s[i_+1]
-            uint16_t i_ = bin_search_max_leq<pos_t>(ln->v.first, 0, p - 1, [this](pos_t x) { return s[x]; });
+            uint16_t i_ = bin_search_max_leq<pos_t>(ln->v.first, 0, p - 1, [&](pos_t x) { return s[x]; });
 
             L_in_v2v3v4[i_].insert_after_node(&tn->v, ln);
             T_out_v2v3v4[i].insert_node(tn);
@@ -285,7 +279,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
                     s[i], ln->v.second + s[i] - ln->v.first })));
 
             // find i_ in [0,p-1], so that s[i_] <= tn->v.v.second < s[i_+1]
-            uint16_t i_ = bin_search_max_leq<pos_t>(tn->v.v.second, 0, p - 1, [this](pos_t x) { return s[x]; });
+            uint16_t i_ = bin_search_max_leq<pos_t>(tn->v.v.second, 0, p - 1, [&](pos_t x) { return s[x]; });
 
             T_out_v2v3v4[i_].insert_node(tn);
             L_in_v2v3v4[i].push_front_node(&tn->v);
@@ -338,7 +332,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
                 // check if [p_i, p_i + d_i) still is too long
                 if (ln_I->sc != NULL && ln_I->sc->v.first - ln_I->v.first > l_max) {
                     // find i_p' in [0,p-1], so that s[i_p'] <= q_j < s[i_p'+1]
-                    uint16_t i_p_ = bin_search_max_leq<pos_t>(ln_I->v.second, 0, p - 1, [this](pos_t x) { return s[x]; });
+                    uint16_t i_p_ = bin_search_max_leq<pos_t>(ln_I->v.second, 0, p - 1, [&](pos_t x) { return s[x]; });
 
                     /* iteratively split [p_i, p_i + d_i) from left to right into new input intervals of length <= l_max,
                        s.t. in the end all input intervals in starting in the range [p_i, p_i + d_i) have length <= l_max */

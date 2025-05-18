@@ -35,23 +35,24 @@ std::string input;
 std::ofstream mf;
 std::string path_index_file;
 std::string path_patterns_file;
-std::string path_text_file;
-std::string path_outputfile;
+std::string path_output_file;
 std::ifstream index_file;
 std::ifstream patterns_file;
 std::ifstream input_file;
 std::ofstream output_file;
 std::string name_text_file;
+std::string path_input_file;
 
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-locate: locate all occurrences of the input patterns." << std::endl << std::endl;
     std::cout << "usage: move-r-locate [options] <index_file> <patterns>" << std::endl;
-    std::cout << "   -c <input_file>            check correctness of each pattern occurrence on" << std::endl;
-    std::cout << "                              this input file (must be the indexed input file)" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
+    std::cout << "   -i <input_file>            input_file must be the file the index was built for" << std::endl;
+    std::cout << "                              (required for locate_rlzsa_bin_search and the -c option)" << std::endl;
+    std::cout << "   -c                         checks correctness of each pattern occurrence on <input_file>" << std::endl;
     std::cout << "   -o <output_file>           write pattern occurrences to this file (ASCII)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in pizza&chili format containing the patterns" << std::endl;
@@ -64,19 +65,22 @@ void parse_args(char** argv, int argc, int& ptr)
     ptr++;
 
     if (s == "-c") {
-        if (ptr >= argc - 1) help("error: missing parameter after -c option.");
         check_correctness = true;
-        path_text_file = argv[ptr++];
     } else if (s == "-m") {
         if (ptr >= argc - 1) help("error: missing parameter after -o option.");
         std::string path_m_file = argv[ptr++];
         mf.open(path_m_file, std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
-        if (!mf.good()) help("error: cannot open measurement file");
+        if (!mf.good()) help("error: cannot open nor create <m_file>");
         name_text_file = argv[ptr++];
+    } else if (s == "-i") {
+        if (ptr >= argc - 1) help("error: missing parameter after -i option.");
+        path_input_file = argv[ptr++];
+        input_file.open(path_input_file);
+        if (!input_file.good()) help("error: cannot open <input_file>");
     } else if (s == "-o") {
         if (ptr >= argc - 1) help("error: missing parameter after -o option.");
         output_occurrences = true;
-        path_outputfile = argv[ptr++];
+        path_output_file = argv[ptr++];
     } else {
         help("error: unrecognized '" + s + "' option");
     }
@@ -87,22 +91,23 @@ void measure_locate()
 {
     std::cout << std::setprecision(4);
     std::cout << "loading the index" << std::flush;
-    auto t1 = now();
-    move_r<support, char, pos_t> index;
+    auto time = now();
+    using idx_t = move_r<support, char, pos_t>;
+    idx_t index;
     index.load(index_file);
-    log_runtime(t1);
+    time = log_runtime(time);
     index_file.close();
     std::cout << std::endl;
     index.log_data_structure_sizes();
 
-    if (check_correctness) {
-        std::cout << std::endl << "reading the original input file" << std::flush;
-        input_file.seekg(0, std::ios::end);
-        uint64_t n = input_file.tellg() + (std::streamoff)1;
-        input_file.seekg(0, std::ios::beg);
-        no_init_resize(input, n - 1);
-        read_from_file(input_file, input.c_str(), n - 1);
+    if (support == _locate_rlzsa_bin_search || check_correctness) {
+        if (path_input_file == "") help("error: <input_file> not provided");
+        std::cout << std::endl << "loading input file" << std::flush;
+        no_init_resize(input, index.input_size());
+        read_from_file(input_file, input.data(), input.size());
+        if constexpr (support == _locate_rlzsa_bin_search) index.set_input(input);
         input_file.close();
+        time = log_runtime(time);
     }
 
     std::cout << std::endl << "searching patterns ... " << std::endl;
@@ -202,14 +207,16 @@ void measure_locate()
         mf << " r=" << index.num_bwt_runs();
         mf << " r_=" << index.M_LF().num_intervals();
 
-        if constexpr (support == _locate_move) {
-            mf << " r__=" << index.M_Phi_m1().num_intervals();
-        } else if constexpr (support == _locate_rlzsa) {
-            mf << " z=" << index.num_phrases_rlzsa();
-            mf << " z_l=" << index.num_literal_phrases_rlzsa();
-            mf << " z_c=" << index.num_copy_phrases_rlzsa();
-        } if constexpr (support == _locate_lzendsa) {
-            mf << " z=" << index.num_phrases_lzendsa();
+        if constexpr (idx_t::supports_multiple_locate) {
+            if constexpr (idx_t::has_locate_move) {
+                mf << " r__=" << index.M_Phi_m1().num_intervals();
+            } else if constexpr (idx_t::has_rlzsa) {
+                mf << " z=" << index.num_phrases_rlzsa();
+                mf << " z_l=" << index.num_literal_phrases_rlzsa();
+                mf << " z_c=" << index.num_copy_phrases_rlzsa();
+            } if constexpr (idx_t::has_lzendsa) {
+                mf << " z=" << index.num_phrases_lzendsa();
+            }
         }
 
         mf << " pattern_length=" << pattern_length;
@@ -237,13 +244,8 @@ int main(int argc, char** argv)
     if (!patterns_file.good()) help("error: could not read <patterns_file>");
 
     if (output_occurrences) {
-        output_file.open(path_outputfile);
+        output_file.open(path_output_file);
         if (!output_file.good()) help("error: could not create <output_file>");
-    }
-
-    if (check_correctness) {
-        input_file.open(path_text_file);
-        if (!input_file.good()) help("error: could not read <input_file>");
     }
 
     bool is_64_bit;
@@ -266,6 +268,12 @@ int main(int argc, char** argv)
             measure_locate<uint64_t, _locate_rlzsa>();
         } else {
             measure_locate<uint32_t, _locate_rlzsa>();
+        }
+    } else if (_support == _locate_rlzsa_bin_search) {
+        if (is_64_bit) {
+            measure_locate<uint64_t, _locate_rlzsa_bin_search>();
+        } else {
+            measure_locate<uint32_t, _locate_rlzsa_bin_search>();
         }
     } else if (_support == _locate_lzendsa) {
         if (is_64_bit) {

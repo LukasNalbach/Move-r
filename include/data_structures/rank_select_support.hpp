@@ -139,7 +139,8 @@ protected:
      * @param l left range limit (l <= r)
      * @param r right range limit (l <= r)
      */
-    void build(const std::function<sym_t(pos_t)>& read, pos_t l, pos_t r)
+    template <typename read_fnc_t>
+    void build(read_fnc_t read, pos_t l, pos_t r)
     {
         input_size = r - l + 1;
         uint8_t bytes_per_entry = 0;
@@ -293,7 +294,7 @@ public:
         }
 
         r = std::min<pos_t>(r, input.size() - 1);
-        build([&input](pos_t i) { return input[i]; }, l, r);
+        build([&](pos_t i) { return input[i]; }, l, r);
     }
 
     /**
@@ -303,7 +304,8 @@ public:
      * @param l left range limit (l <= r)
      * @param r right range limit (l <= r)
      */
-    rank_select_support(const std::function<sym_t(pos_t)>& read, pos_t l = 1, pos_t r = 0)
+    template <typename read_fnc_t>
+    rank_select_support(read_fnc_t read, pos_t l = 1, pos_t r = 0)
         requires(byte_alphabet)
     {
         build(read, l, r);
@@ -328,7 +330,7 @@ public:
 
         r = std::min<pos_t>(r, input.size() - 1);
         sigma = alphabet_size;
-        build([&input](pos_t i) { return input[i]; }, l, r);
+        build([&](pos_t i) { return input[i]; }, l, r);
     }
 
     /**
@@ -340,7 +342,8 @@ public:
      * @param l left range limit (l <= r)
      * @param r right range limit (l <= r)
      */
-    rank_select_support(const std::function<sym_t(pos_t)>& read, pos_t alphabet_size, pos_t l = 1, pos_t r = 0)
+    template <typename read_fnc_t>
+    rank_select_support(read_fnc_t read, pos_t alphabet_size, pos_t l = 1, pos_t r = 0)
         requires(int_alphabet)
     {
         sigma = alphabet_size;
@@ -482,7 +485,7 @@ public:
         static_assert(build_rank_support);
         pos_t v_s = c_arr[v];
         pos_t v_e = c_arr[v + 1];
-        pos_t pos = bin_search_max_lt<pos_t>(i, v_s, v_e - 1, [this](pos_t x) { return occs[x]; });
+        pos_t pos = bin_search_max_lt<pos_t>(i, v_s, v_e - 1, [&](pos_t x) { return occs[x]; });
         return occs[pos] >= i ? 0 : pos - v_s + 1;
     }
 #endif
@@ -522,7 +525,7 @@ public:
 
                     return pos - v_s + 1;
                 } else {
-                    pos = bin_search_max_lt<pos_t>(i, v_s, v_e - 1, [this](pos_t x) { return occs[x]; });
+                    pos = bin_search_max_lt<pos_t>(i, v_s, v_e - 1, [&](pos_t x) { return occs[x]; });
                     return occs[pos] >= i ? 0 : pos - v_s + 1;
                 }
             }

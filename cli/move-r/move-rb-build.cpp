@@ -47,17 +47,17 @@ void help(std::string msg)
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-rb-build: builds move-rb." << std::endl << std::endl;
     std::cout << "usage: move-rb-build [options] <input_file>" << std::endl;
-    std::cout << "   -c <mode>          construction mode: sa or bigbwt (default: sa)" << std::endl;
-    std::cout << "   -o <base_name>     names the index file base_name.move-rb (default: input_file)" << std::endl;
-    std::cout << "   -s <support>       support: count, locate_move, locate_rlzsa or locate_lzendsa" << std::endl;
-    std::cout << "                      (default: locate_move)" << std::endl;
-    std::cout << "   -p <integer>       number of threads to use during the construction of the index" << std::endl;
-    std::cout << "                      (default: all threads)" << std::endl;
-    std::cout << "   -a <integer>       balancing parameter; a must be an integer number and a >= 2 (default: 8)" << std::endl;
-    std::cout << "   -m_idx <m_file>    m_file is file to write measurement data of the index construction to" << std::endl;
-    std::cout << "   -m_mds <m_file>    m_file is file to write measurement data of the construction of the move" << std::endl;
-    std::cout << "                      data structures to" << std::endl;
-    std::cout << "   <input_file>       input file" << std::endl;
+    std::cout << "   -c <mode>           construction mode: sa or bigbwt (default: sa)" << std::endl;
+    std::cout << "   -o <base_name>      names the index file base_name.move-rb (default: input_file)" << std::endl;
+    std::cout << "   -s <support>        support: count, locate_move, locate_rlzsa or locate_lzendsa" << std::endl;
+    std::cout << "                       (default: locate_move)" << std::endl;
+    std::cout << "   -p <integer>        number of threads to use during the construction of the index" << std::endl;
+    std::cout << "                       (default: all threads)" << std::endl;
+    std::cout << "   -a <integer>        balancing parameter; a must be an integer number and a >= 2 (default: 8)" << std::endl;
+    std::cout << "   -m_idx <m_file_idx> m_file_idx is file to write measurement data of the index construction to" << std::endl;
+    std::cout << "   -m_mds <m_file_mds> m_file_mds is file to write measurement data of the construction of the move" << std::endl;
+    std::cout << "                       data structures to" << std::endl;
+    std::cout << "   <input_file>        input file" << std::endl;
     exit(0);
 }
 
@@ -102,12 +102,12 @@ void parse_args(char** argv, int argc, int& ptr)
         if (ptr >= argc - 1) help("error: missing parameter after -m_idx option");
         std::string path_mf_idx = argv[ptr++];
         mf_idx.open(path_mf_idx, std::filesystem::exists(path_mf_idx) ? std::ios::app : std::ios::out);
-        if (!mf_idx.good()) help("error: cannot open or create measurement file");
+        if (!mf_idx.good()) help("error: cannot open nor create <m_file_idx>");
     } else if (s == "-m_mds") {
         if (ptr >= argc - 1) help("error: missing parameter after -m_mds option");
         std::string path_mf_mds = argv[ptr++];
         mf_mds.open(path_mf_mds, std::filesystem::exists(path_mf_mds) ? std::ios::app : std::ios::out);
-        if (!mf_mds.good()) help("error: cannot open or create at least one measurement file");
+        if (!mf_mds.good()) help("error: cannot open nor create <m_file_mds>");
     } else {
         help("error: unrecognized '" + s + "' option");
     }
@@ -116,7 +116,7 @@ void parse_args(char** argv, int argc, int& ptr)
 template <typename pos_t, move_r_support support>
 void build()
 {
-    move_rb<support, char, pos_t> index(path_input_file, { // "abdabcebc"
+    move_rb<support, char, pos_t> index(path_input_file, {
         .file_input = true,
         .mode = mode,
         .num_threads = p,

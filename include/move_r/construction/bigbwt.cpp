@@ -46,11 +46,7 @@ void move_r<support, sym_t, pos_t>::construction::bigbwt(bool delete_T)
     }
 
     system(("bigbwt " +
-        (std::string)((supports_locate) ? ((
-            support == _locate_rlzsa ||
-            support == _locate_rlzsa_bi_fwd ||
-            support == _locate_lzendsa ||
-            support == _locate_lzendsa_bi_fwd || p > 1) ? "-S " : "-s -e ") : "") +
+        (std::string)(supports_locate ? ((has_rlzsa || has_lzendsa || p > 1) ? "-S " : "-s -e ") : "") +
         (std::string)(p > 1 ? ("-t " + std::to_string(p) + " ") : "") +
         prefix_tmp_files + (std::string)(log ? "" : " >log_1 >log_2")).c_str());
 

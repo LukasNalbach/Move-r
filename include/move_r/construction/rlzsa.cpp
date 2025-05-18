@@ -626,6 +626,33 @@ void move_r<support, sym_t, pos_t>::construction::build_rlzsa_factorization()
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
+template <bool bigbwt, typename sa_sint_t>
+void move_r<support, sym_t, pos_t>::construction::build_sa_delta()
+{
+    if (idx.delta == 0) {
+        uint64_t target_sampling_size = idx.size_in_bytes() * default_relative_sampling_size;
+        idx.delta = n / (target_sampling_size / byte_width(n));
+    }
+
+    if (log) std::cout << "building SA_delta, delta = " << idx.delta << std::flush;
+    
+    time = now();
+    uint64_t num_samples = n / idx.delta;
+    idx._SA_delta = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
+    idx._SA_delta.resize_no_init(num_samples);
+    idx.last_sa = SA<bigbwt, sa_sint_t>(0, n - 1);
+
+    #pragma omp parallel for num_threads(p)
+    for (uint64_t i = 0; i < num_samples; i++) {
+        idx._SA_delta.template set_parallel<0, pos_t>(i, SA<bigbwt, sa_sint_t>(omp_get_thread_num(), i * idx.delta));
+    }
+
+    if (log) {
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::construction::load_r()
 {
     if (log) {

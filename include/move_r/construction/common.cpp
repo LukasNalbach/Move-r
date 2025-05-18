@@ -581,10 +581,7 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sa()
         }
     }
 
-    if (!build_sa_and_l &&
-        support != _locate_rlzsa && support != _locate_rlzsa_bi_fwd &&
-        support != _locate_lzendsa && support != _locate_lzendsa_bi_fwd
-    ) {
+    if (!build_sa_and_l && !has_rlzsa && !has_lzendsa ) {
         std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
 
         SA.clear();
@@ -608,7 +605,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
     }
 
     if constexpr (build_sas) {
-        if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+        if constexpr (has_locate_move) {
             no_init_resize(SA_s, r_);
         } else {
             idx._SA_s = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
@@ -637,7 +634,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
         pos_t rp_diff = r_p[i_p + 1] - r_p[i_p];
 
         // Index of the current input interval in M_LF, initially the index of the input interval of M_LF containing b
-        pos_t j = bin_search_max_leq<pos_t>(b, 0, r_ - 1, [this](pos_t x) { return idx._M_LF.p(x); });
+        pos_t j = bin_search_max_leq<pos_t>(b, 0, r_ - 1, [&](pos_t x) { return idx._M_LF.p(x); });
         // Starting position of the next bwt run.
         pos_t l_ = b;
 
@@ -645,7 +642,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
             idx._M_LF.template set_L_(j, run_sym(i_p, i));
 
             if constexpr (build_sas) {
-                if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+                if constexpr (has_locate_move) {
                     SA_s[j] = I_Phi_m1[b_r + i].second;
                 } else {
                     idx._SA_s.template set_parallel<0, pos_t>(j, I_Phi_m1[b_r + i].second);
@@ -668,7 +665,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
             // created by the balancing algorithm
             while (idx._M_LF.p(j) < l_) {
                 if constexpr (build_sas) {
-                    if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+                    if constexpr (has_locate_move) {
                         SA_s[j] = n;
                     } else {
                         idx._SA_s.template set_parallel<0, pos_t>(j, n);
@@ -697,7 +694,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
     RLBWT.clear();
     RLBWT.shrink_to_fit();
 
-    if constexpr (support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd) {
+    if constexpr (has_lzendsa) {
         I_Phi_m1.clear();
         I_Phi_m1.shrink_to_fit();
     }
@@ -871,7 +868,7 @@ void move_r<support, sym_t, pos_t>::construction::build_saphim1()
         pi_[i] = i;
     }
 
-    auto comp_pi_ = [this](pos_t i, pos_t j) { return SA_s[i] < SA_s[j]; };
+    auto comp_pi_ = [&](pos_t i, pos_t j) { return SA_s[i] < SA_s[j]; };
     if (p > 1) {
         ips4o::parallel::sort(pi_.begin(), pi_.end(), comp_pi_);
     } else {
@@ -1054,7 +1051,7 @@ void move_r<support, sym_t, pos_t>::construction::build_de()
 
     #pragma omp parallel for num_threads(p)
     for (uint16_t i = 0; i < idx.p_r - 1; i++) {
-        pos_t x = bin_search_min_geq<pos_t>((i + 1) * ((n - 1) / idx.p_r), 0, r - 1, [this](pos_t x) { return (((int64_t)SA_s[pi_[x]]) - 1) % n; });
+        pos_t x = bin_search_min_geq<pos_t>((i + 1) * ((n - 1) / idx.p_r), 0, r - 1, [&](pos_t x) { return (((int64_t)SA_s[pi_[x]]) - 1) % n; });
         idx._D_e[i] = std::make_pair(pi_[x], (pos_t)((((int64_t)SA_s[pi_[x]]) - 1) % n));
     }
 
@@ -1073,7 +1070,7 @@ void move_r<support, sym_t, pos_t>::construction::build_rsl_()
         std::cout << "building RS_L'" << std::flush;
     }
 
-    idx._RS_L_ = rsl_t([this](pos_t i) { return idx.L_(i); }, idx.sigma, 0, r_ - 1);
+    idx._RS_L_ = rsl_t([&](pos_t i) { return idx.L_(i); }, idx.sigma, 0, r_ - 1);
 
     if (log) {
         if (mf_idx != NULL)

@@ -54,8 +54,10 @@ public:
     rlzsa_encoding() = default;
 
     rlzsa_encoding(
-        const std::vector<int_t>& SA, std::vector<int_t>&& DSA, uint64_t reference_size,
-        bool add_literal_phrase_after_each_copy_phrase = false, bool log = false
+        const std::vector<int_t>& SA,
+        std::vector<int_t>&& DSA,
+        uint64_t reference_size,
+        bool log = false
     ) {
         n = DSA.size();
         auto time = now();
@@ -368,7 +370,7 @@ public:
                     S[z - 1] = (R.size() - FM_rrev[b_last]) - l;
                     i += l;
 
-                    if (add_literal_phrase_after_each_copy_phrase && i < n) {
+                    if (i < n) {
                         // add a literal phrase after each copy-phrase
                         z++;
                         PL.resize(z);
@@ -410,8 +412,8 @@ public:
         return n;
     }
 
-    template <typename out_t>
-    void extract(uint64_t l, uint64_t r, std::function<void(uint64_t, out_t)> report, int64_t sa_l = -1) const
+    template <typename out_t, typename report_fnc_t>
+    void extract(uint64_t l, uint64_t r, report_fnc_t report, int64_t sa_l = -1) const
     {
         if (r < l) return;
 

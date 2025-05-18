@@ -117,5 +117,5 @@ std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input,
         }
     }
 
-    return { sa, bwt};
+    return { sa, bwt };
 }

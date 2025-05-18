@@ -83,7 +83,7 @@ inline typename move_data_structure<pos_t>::construction::tout_it_t_v5 move_data
     // check, if the newly created has to be inserted into a tree in T_in_v5 of another thread
     if (p != 1 && !(s[i_p] <= pj_pd && pj_pd < s[i_p + 1])) {
         // calculate the index i_p' of the thread, into whiches tree in T_in_v5, the newly created pair has to be inserted
-        uint16_t i_p_ = bin_search_max_leq<pos_t>(pj_pd, 0, p - 1, [this](pos_t x) { return s[x]; });
+        uint16_t i_p_ = bin_search_max_leq<pos_t>(pj_pd, 0, p - 1, [&](pos_t x) { return s[x]; });
 
         // store the newly created pair in Q_v5[i_p'][i_p]
         Q_v5[i_p_][i_p].emplace_back(pr_new);

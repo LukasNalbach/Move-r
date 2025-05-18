@@ -41,7 +41,7 @@ void move_data_structure<pos_t>::construction::build_pi_for_I()
     }
 
     // sort pi by the output interval starting positions in I
-    auto comp_pi = [this](pos_t i, pos_t j) { return I[i].second < I[j].second; };
+    auto comp_pi = [&](pos_t i, pos_t j) { return I[i].second < I[j].second; };
     if (p > 1) {
         ips4o::parallel::sort(pi.begin(), pi.end(), comp_pi);
     } else {
@@ -61,7 +61,7 @@ void move_data_structure<pos_t>::construction::build_pi_for_dq()
     }
 
     // sort pi by D_q
-    auto comp_pi = [this](pos_t i, pos_t j) { return D_q[i] < D_q[j]; };
+    auto comp_pi = [&](pos_t i, pos_t j) { return D_q[i] < D_q[j]; };
     if (p > 1) {
         ips4o::parallel::sort(pi.begin(), pi.end(), comp_pi);
     } else {

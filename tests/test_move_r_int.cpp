@@ -90,7 +90,7 @@ void test_move_r_int()
     });
 
     // revert the index and compare the output with the input string
-    input_reverted = index.revert({ .num_threads = num_threads_distrib(gen) });
+    input_reverted = index.revert_range({ .num_threads = num_threads_distrib(gen) });
 
     #pragma omp parallel for num_threads(max_num_threads)
     for (uint32_t i = 0; i < input_size; i++)
@@ -116,7 +116,7 @@ void test_move_r_int()
     suffix_array[input_size] = 0;
     libsais_int_omp(&input_libsais[0], &suffix_array[0], input_size + 1, alphabet_size + 1, 0, max_num_threads);
     no_init_resize(suffix_array, input_size + 1);
-    suffix_array_retrieved = index.SA({ .num_threads = num_threads_distrib(gen) });
+    suffix_array_retrieved = index.SA_range({ .num_threads = num_threads_distrib(gen) });
 
     #pragma omp parallel for num_threads(max_num_threads)
     for (uint32_t i = 0; i <= input_size; i++)
@@ -135,7 +135,7 @@ void test_move_r_int()
         bwt[i] = suffix_array[i] == 0 ? 0 : input[suffix_array[i] - 1];
     }
 
-    bwt_retrieved = index.BWT({ .num_threads = num_threads_distrib(gen) });
+    bwt_retrieved = index.BWT_range({ .num_threads = num_threads_distrib(gen) });
 
     #pragma omp parallel for num_threads(max_num_threads)
     for (uint32_t i = 0; i <= input_size; i++)

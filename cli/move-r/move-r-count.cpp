@@ -35,6 +35,9 @@ std::string path_patterns_file;
 std::ifstream index_file;
 std::ifstream patterns_file;
 std::string name_text_file;
+std::string path_input_file;
+std::ifstream input_file;
+std::string input;
 
 void help(std::string msg)
 {
@@ -43,6 +46,8 @@ void help(std::string msg)
     std::cout << "usage: move-r-count <index_file> <patterns_file>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
+    std::cout << "   -i <input_file>            input_file must be the file the index was built for" << std::endl;
+    std::cout << "                              (only for locate_rlzsa_bin_search)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in pizza&chili format containing the patterns." << std::endl;
     exit(0);
@@ -57,8 +62,13 @@ void parse_args(char** argv, int argc, int& ptr)
         if (ptr >= argc - 1) help("error: missing parameter after -o option.");
         std::string path_m_file = argv[ptr++];
         mf.open(path_m_file, std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
-        if (!mf.good()) help("error: cannot open measurement file");
+        if (!mf.good()) help("error: cannot open nor create <m_file>");
         name_text_file = argv[ptr++];
+    } else if (s == "-i") {
+        if (ptr >= argc - 1) help("error: missing parameter after -i option.");
+        path_input_file = argv[ptr++];
+        input_file.open(path_input_file);
+        if (!input_file.good()) help("error: cannot open <input_file>");
     } else {
         help("error: unrecognized '" + s + "' option");
     }
@@ -69,13 +79,25 @@ void measure_count()
 {
     std::cout << std::setprecision(4);
     std::cout << "loading the index" << std::flush;
-    auto t1 = now();
-    move_r<support, char, pos_t> index;
+    auto time = now();
+    using idx_t = move_r<support, char, pos_t>;
+    idx_t index;
     index.load(index_file);
-    log_runtime(t1);
     index_file.close();
+    time = log_runtime(time);
     std::cout << std::endl;
     index.log_data_structure_sizes();
+    
+    if constexpr (support == _locate_rlzsa_bin_search) {
+        if (path_input_file == "") help("error: <input_file> not provided");
+        std::cout << std::endl << "loading input file" << std::flush;
+        no_init_resize(input, index.input_size());
+        read_from_file(input_file, input.data(), input.size());
+        index.set_input(input);
+        input_file.close();
+        time = log_runtime(time);
+    }
+    
     std::cout << std::endl << "searching patterns ... " << std::endl;
     std::string header;
     std::getline(patterns_file, header);
@@ -128,14 +150,14 @@ void measure_count()
         mf << " r=" << index.num_bwt_runs();
         mf << " r_=" << index.M_LF().num_intervals();
 
-        if constexpr (support != _count && support != _locate_one) {
-            if constexpr (support == _locate_move) {
+        if constexpr (idx_t::supports_multiple_locate) {
+            if constexpr (idx_t::has_locate_move) {
                 mf << " r__=" << index.M_Phi_m1().num_intervals();
-            } else if constexpr (support == _locate_rlzsa) {
+            } else if constexpr (idx_t::has_rlzsa) {
                 mf << " z=" << index.num_phrases_rlzsa();
                 mf << " z_l=" << index.num_literal_phrases_rlzsa();
                 mf << " z_c=" << index.num_copy_phrases_rlzsa();
-            } if constexpr (support == _locate_lzendsa) {
+            } if constexpr (idx_t::has_lzendsa) {
                 mf << " z=" << index.num_phrases_lzendsa();
             }
         }
@@ -193,6 +215,12 @@ int main(int argc, char** argv)
             measure_count<uint64_t, _locate_rlzsa>();
         } else {
             measure_count<uint32_t, _locate_rlzsa>();
+        }
+    } else if (_support == _locate_rlzsa_bin_search) {
+        if (is_64_bit) {
+            measure_count<uint64_t, _locate_rlzsa_bin_search>();
+        } else {
+            measure_count<uint32_t, _locate_rlzsa_bin_search>();
         }
     } else if (_support == _locate_lzendsa) {
         if (is_64_bit) {

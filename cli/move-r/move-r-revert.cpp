@@ -63,7 +63,7 @@ void parse_args(char** argv, int argc, int& ptr)
         if (ptr >= argc - 1) help("error: missing parameter after -m option");
         std::string path_m_file = argv[ptr++];
         mf.open(path_m_file, std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
-        if (!mf.good()) help("error: cannot open measurement file");
+        if (!mf.good()) help("error: cannot open nor create <m_file>");
         name_text_file = argv[ptr++];
     } else if (s == "-im") {
         revert_in_memory = true;
@@ -83,7 +83,8 @@ void measure_revert()
     std::cout << std::setprecision(4);
     std::cout << "loading the index" << std::flush;
     auto t1 = now();
-    move_r<support, char, pos_t> index;
+    using idx_t = move_r<support, char, pos_t>;
+    idx_t index;
     index.load(index_file);
     log_runtime(t1);
     index_file.close();
@@ -97,7 +98,7 @@ void measure_revert()
     if (revert_in_memory) {
         std::cout << "reverting the index in memory using " << format_threads(p) << std::flush;
         t2 = now();
-        input = index.revert({ .num_threads = p });
+        input = index.revert_range({ .num_threads = p });
         t3 = now();
         log_runtime(t2, t3);
         std::cout << "writing the input to the file " << std::flush;
@@ -108,7 +109,7 @@ void measure_revert()
         std::cout << "reverting the index using " << format_threads(p) << std::flush;
         output_file.close();
         t2 = now();
-        index.revert(path_outputfile, { .num_threads = p });
+        index.revert_range(path_outputfile, { .num_threads = p });
         t4 = now();
         log_runtime(t2, t4);
     }
@@ -125,14 +126,14 @@ void measure_revert()
         mf << " r=" << index.num_bwt_runs();
         mf << " r_=" << index.M_LF().num_intervals();
 
-        if constexpr (support != _count && support != _locate_one) {
-            if constexpr (support == _locate_move) {
+        if constexpr (idx_t::supports_multiple_locate) {
+            if constexpr (idx_t::has_locate_move) {
                 mf << " r__=" << index.M_Phi_m1().num_intervals();
-            } else if constexpr (support == _locate_rlzsa) {
+            } else if constexpr (idx_t::has_rlzsa) {
                 mf << " z=" << index.num_phrases_rlzsa();
                 mf << " z_l=" << index.num_literal_phrases_rlzsa();
                 mf << " z_c=" << index.num_copy_phrases_rlzsa();
-            } if constexpr (support == _locate_lzendsa) {
+            } if constexpr (idx_t::has_lzendsa) {
                 mf << " z=" << index.num_phrases_lzendsa();
             }
         }
@@ -191,6 +192,8 @@ int main(int argc, char** argv)
         } else {
             measure_revert<uint32_t, _locate_rlzsa>();
         }
+    } else if (_support == _locate_rlzsa_bin_search) {
+        help("error: this index does not support revert");
     } else if (_support == _locate_lzendsa) {
         if (is_64_bit) {
             measure_revert<uint64_t, _locate_lzendsa>();

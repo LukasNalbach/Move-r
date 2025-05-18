@@ -40,7 +40,7 @@ class r_index_lzendsa {
 
 protected:
     lzendsa_encoding lzendsa_enc;
-    custom_r_index::index<_run_ends> r_index;
+    custom_r_index::index r_index;
 
 public:
     r_index_lzendsa() = default;
@@ -57,7 +57,7 @@ public:
         // build r-index
         if (log) time = now();
         if (log) std::cout << "building r-index" << std::flush;
-        r_index = custom_r_index::index<_run_ends>(bwt, sa);
+        r_index = custom_r_index::index(bwt, sa, true);
         bwt.clear();
         bwt.shrink_to_fit();
         if (log) time = log_runtime(time);

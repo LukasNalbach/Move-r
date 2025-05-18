@@ -61,16 +61,26 @@ public:
     rlzsa() = default;
 
     // call when the suffix array of the input text is not yet calculated
-    rlzsa(std::string& input, double relative_reference_size = 0.1, int64_t d = -1, bool use_bigbwt = false, bool log = false)
+    rlzsa(std::string& input, int64_t d = -1, bool use_bigbwt = false, bool log = false)
     {
         auto time_start = now();
         auto time = time_start;
         assert(d != 0);
 
         // compute SA and BWT
-        auto [sa, bwt] = build_sa_and_bwt<int_t>(input, false, use_bigbwt, log);
+        auto [sa, bwt] = build_sa_and_bwt<int_t>(input, true, use_bigbwt, log);
         uint64_t n = sa.size();
         last_sa = sa[n - 1];
+        uint64_t r = 1;
+
+        for (uint64_t i = 1; i < n; i++) {
+            if (bwt[i] != bwt[i - 1]) {
+                r++;
+            }
+        }
+
+        bwt.clear();
+        bwt.shrink_to_fit();
 
         // construct differential suffix array (DSA)
         if (log) time = now();
@@ -87,8 +97,8 @@ public:
 
         // construct rlzsa
         if (log) std::cout << "building rlzsa:" << std::endl;
-        int64_t reference_size = n * relative_reference_size;
-        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, false, log);
+        uint64_t reference_size = std::min<uint64_t>(n / 3, 5.2 * r);
+        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, log);
 
         if (d <= 0) {
             uint64_t target_sampling_size_in_bits = (rlzsa_enc.size_in_bytes() * 8) * default_relative_sampling_size;
@@ -153,7 +163,7 @@ public:
     {
         auto [beg, end, result] = binary_sa_search_and_extract<int_t>(*input, pattern, num_samples(),
             [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
-            [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, std::function<void(int64_t, int64_t)>&& report){
+            [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, auto report){
                 rlzsa_enc.template extract<int_t>(b, e, report, sa_b);}, false);
         
         return {beg, end};
@@ -164,7 +174,7 @@ public:
     {
         auto [beg, end, result] = binary_sa_search_and_extract<out_t>(*input, pattern, num_samples(),
             [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
-            [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, std::function<void(int64_t, int64_t)>&& report){
+            [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, auto report){
                 rlzsa_enc.template extract<out_t>(b, e, report, sa_b);}, true);
         
         return result;

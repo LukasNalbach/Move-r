@@ -327,8 +327,8 @@ void no_init_resize(std::vector<std::tuple<T, T, T>>& vec, size_t size)
     (*reinterpret_cast<std::vector<std::tuple<no_init<T>, no_init<T>, no_init<T>>>*>(&vec)).resize(size);
 }
 
-template <typename pos_t>
-pos_t bin_search_max_leq(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at)
+template <typename pos_t, typename fnc_t>
+pos_t bin_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t middle;
 
@@ -345,8 +345,8 @@ pos_t bin_search_max_leq(pos_t value, pos_t left, pos_t right, std::function<pos
     return left;
 }
 
-template <typename pos_t>
-pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at)
+template <typename pos_t, typename fnc_t>
+pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t middle;
 
@@ -363,8 +363,8 @@ pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, std::function<pos
     return left;
 }
 
-template <typename pos_t>
-pos_t bin_search_max_lt(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at)
+template <typename pos_t, typename fnc_t>
+pos_t bin_search_max_lt(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t middle;
 
@@ -381,8 +381,8 @@ pos_t bin_search_max_lt(pos_t value, pos_t left, pos_t right, std::function<pos_
     return left;
 }
 
-template <typename pos_t>
-pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at)
+template <typename pos_t, typename fnc_t>
+pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t middle;
 
@@ -402,8 +402,8 @@ pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, std::function<pos_
 enum exp_search_dir { LEFT,
     RIGHT };
 
-template <typename pos_t, exp_search_dir search_dir>
-pos_t exp_search_max_leq(pos_t value, pos_t left, pos_t right, std::function<pos_t(pos_t)> value_at)
+template <typename pos_t, exp_search_dir search_dir, typename fnc_t>
+pos_t exp_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t cur_step_size = 1;
 

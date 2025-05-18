@@ -53,7 +53,7 @@ inline typename move_data_structure<pos_t>::construction::tout_node_t_v2v3v4* mo
 
     if (!(s[i_p] <= p_j + d && p_j + d < s[i_p + 1])) {
         // If the new pair must be inserted in L_in_v2v3v4[i_p_] of another thread i_p_ != i_p, find i_p_ with a binary search.
-        uint16_t i_p_ = bin_search_max_leq<pos_t>(p_j + d, 0, p - 1, [this](pos_t x) { return s[x]; });
+        uint16_t i_p_ = bin_search_max_leq<pos_t>(p_j + d, 0, p - 1, [&](pos_t x) { return s[x]; });
         Q_v4[i_p_][i_p].enqueue(q_node_t_v34 { &tn_NEW->v, &tn_J->v });
     } else {
         // Else insert it in L_in_v2v3v4[i_p].

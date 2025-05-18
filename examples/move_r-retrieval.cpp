@@ -33,19 +33,19 @@ int main()
 
     // retrieve the range [8,17] of the original text and store
     // it in a string using at most 2 threads
-    std::string reverted_range = index.revert(
+    std::string reverted_range = index.revert_range(
         { .l = 8, .r = 17, .num_threads = 2 });
     for (auto c : reverted_range) std::cout << c;
     std::cout << std::endl;
 
     // print the original text from right to left without storing it
     // using 1 thread
-    index.revert([](auto, auto c) { std::cout << c; }, { .num_threads = 1 });
+    index.revert_range([](auto, auto c) { std::cout << c; }, { .num_threads = 1 });
     std::cout << std::endl;
 
     // retrieve the suffix array values in the range [2,6] using at
     // most 4 threads and store them in a vector
-    std::vector<uint32_t> SA_range = index.SA(
+    std::vector<uint32_t> SA_range = index.SA_range(
         { .l = 2, .r = 6, .num_threads = 4 });
     for (auto s : SA_range) std::cout << s << ", ";
     std::cout << std::endl;
@@ -55,7 +55,7 @@ int main()
 
     // retrieve the BWT in the range [7,14] from left to right
     // using 1 thread
-    index.BWT([](auto, auto s) { std::cout << s << ", "; },
+    index.BWT_range([](auto, auto s) { std::cout << s << ", "; },
         { .l = 7, .r = 14, .num_threads = 1 });
     std::cout << std::endl;
 

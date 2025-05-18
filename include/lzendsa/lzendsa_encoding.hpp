@@ -143,7 +143,8 @@ public:
     }
 
     // extraction method
-    void extract_deltas(int64_t beg, int64_t end, const std::function<void(int64_t, int64_t)>& report) const
+    template <typename report_fnc_t>
+    void extract_deltas(int64_t beg, int64_t end, const report_fnc_t report) const
     {
         if (end < beg) return;
         int64_t phrase_id = phrase_containing(end);
@@ -227,7 +228,8 @@ public:
         return result;
     }
 
-    void extract(int64_t beg, int64_t end, int64_t sa_end, const std::function<void(int64_t, int64_t)>& report) const
+    template <typename report_fnc_t>
+    void extract(int64_t beg, int64_t end, int64_t sa_end, report_fnc_t report) const
     {
         report(end, sa_end);
         int64_t cur_val = sa_end;
