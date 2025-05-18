@@ -41,7 +41,7 @@ class r_index_rlzsa {
 
 protected:
     rlzsa_encoding<int_t> rlzsa_enc;
-    custom_r_index::index<_run_heads> r_index;
+    custom_r_index::index r_index;
 
 public:
     r_index_rlzsa() = default;
@@ -58,7 +58,7 @@ public:
         // build r-index
         if (log) time = now();
         if (log) std::cout << "building r-index" << std::flush;
-        r_index = custom_r_index::index<_run_heads>(bwt, sa);
+        r_index = custom_r_index::index(bwt, sa, false);
         bwt.clear();
         bwt.shrink_to_fit();
         if (log) time = log_runtime(time);
@@ -79,8 +79,12 @@ public:
         if (log) std::cout << "building rlzsa:" << std::endl;
         uint64_t r = r_index.number_of_runs();
         uint64_t reference_size = std::min<uint64_t>(n / 3, 5.2 * r);
-        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, false, log);
-        if (log) std::cout << "r-index-rlzsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
+        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, log);
+
+        if (log) {
+            std::cout << "r-index-rlzsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
+            std::cout << "relative reference size: " << reference_size / (double) n << std::endl;
+        }
     }
 
     // return a referrlzsa_ence to the rlzsa_encoding
@@ -92,9 +96,9 @@ public:
     template <typename out_t>
     std::vector<out_t> locate(const std::string &pattern) const
     {
-        auto [beg, end, sa_beg] = r_index.count_and_get_occ(pattern);
+        auto [beg, end] = r_index.count(pattern);
         if (end < beg) return {};
-        std::vector<out_t> Occ = rlzsa_enc.template extract<out_t>(beg, end, sa_beg);
+        std::vector<out_t> Occ = rlzsa_enc.template extract<out_t>(beg, end);
 
         #ifndef NDEBUG
         for (auto occ : Occ) {

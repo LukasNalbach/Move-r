@@ -182,19 +182,19 @@ int main()
 
    // retrieve the range [8,17] of the original text and store
    // it in a string using at most 2 threads
-   std::string reverted_range = index.revert(
+   std::string reverted_range = index.revert_range(
       { .l = 8, .r = 17, .num_threads = 2 });
    for (auto c : reverted_range) std::cout << c;
    std::cout << std::endl;
 
    // print the original text from right to left without storing it
    // using 1 thread
-   index.revert([](auto, auto c) { std::cout << c; }, { .num_threads = 1 });
+   index.revert_range([](auto, auto c) { std::cout << c; }, { .num_threads = 1 });
    std::cout << std::endl;
 
    // retrieve the suffix array values in the range [2,6] using at
    // most 4 threads and store them in a vector
-   std::vector<uint32_t> SA_range = index.SA(
+   std::vector<uint32_t> SA_range = index.SA_range(
       { .l = 2, .r = 6, .num_threads = 4 });
    for (auto s : SA_range) std::cout << s << ", ";
    std::cout << std::endl;
@@ -204,7 +204,7 @@ int main()
 
    // retrieve the BWT in the range [7,14] from left to right
    // using 1 thread
-   index.BWT([](auto, auto s) { std::cout << s << ", "; },
+   index.BWT_range([](auto, auto s) { std::cout << s << ", "; },
       { .l = 7, .r = 14, .num_threads = 1 });
    std::cout << std::endl;
 
@@ -217,17 +217,17 @@ int main()
 ### move-r-build: builds move-r.
 ```
 usage: move-r-build [options] <input_file>
-   -c <mode>          construction mode: sa or bigbwt (default: sa)
-   -o <base_name>     names the index file base_name.move-r (default: input_file)
-   -s <support>       support: count, locate_move, locate_rlzsa or locate_lzendsa
-                      (default: locate_move)
-   -p <integer>       number of threads to use during the construction of the index
-                      (default: all threads)
-   -a <integer>       balancing parameter; a must be an integer number and a >= 2 (default: 8)
-   -m_idx <m_file>    m_file is file to write measurement data of the index construction to
-   -m_mds <m_file>    m_file is file to write measurement data of the construction of the move
-                      data structures to
-   <input_file>       input file
+   -c <mode>           construction mode: sa or bigbwt (default: sa)
+   -o <base_name>      names the index file base_name.move-r (default: input_file)
+   -s <support>        support: count, locate_move, locate_rlzsa, locate_rlzsa_bin_search or locate_lzendsa
+                       (default: locate_move)
+   -p <integer>        number of threads to use during the construction of the index
+                       (default: all threads)
+   -a <integer>        balancing parameter; a must be an integer number and a >= 2 (default: 8)
+   -m_idx <m_file_idx> m_file_idx is file to write measurement data of the index construction to
+   -m_mds <m_file_mds> m_file_mds is file to write measurement data of the construction of the move
+                       data structures to
+   <input_file>        input file
 ```
 
 ### move-r-count: count all occurrences of the input patterns.
@@ -235,6 +235,8 @@ usage: move-r-build [options] <input_file>
 usage: move-r-count <index_file> <patterns_file>
    -m <m_file> <text_name>    m_file is the file to write measurement data to,
                               text_name should be the name of the original file
+   -i <input_file>            input_file must be the file the index was built for
+                              (only for locate_rlzsa_bin_search)
    <index_file>               index file (with extension .move-r)
    <patterns_file>            file in pizza&chili format containing the patterns.
 ```
@@ -242,10 +244,11 @@ usage: move-r-count <index_file> <patterns_file>
 ### move-r-locate: locate all occurrences of the input patterns.
 ```
 usage: move-r-locate [options] <index_file> <patterns>
-   -c <input_file>            check correctness of each pattern occurrence on
-                              this input file (must be the indexed input file)
    -m <m_file> <text_name>    m_file is the file to write measurement data to,
                               text_name should be the name of the original file
+   -i <input_file>            input_file must be the file the index was built for
+                              (required for locate_rlzsa_bin_search and the -c option)
+   -c                         checks correctness of each pattern occurrence on <input_file>
    -o <output_file>           write pattern occurrences to this file (ASCII)
    <index_file>               index file (with extension .move-r)
    <patterns_file>            file in pizza&chili format containing the patterns

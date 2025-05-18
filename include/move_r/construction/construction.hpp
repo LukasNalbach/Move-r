@@ -621,7 +621,7 @@ public:
             if (idx.sigma == 0) preprocess_t(!params.file_input, true, T);
             if (!params.file_input) store_t_in_file();
             construct_from_bigbwt(!params.file_input);
-            if (!is_bidirectional() && params.file_input) unmap_t(false);
+            if (!is_bidirectional && params.file_input) unmap_t(false);
         }
 
         if (log) log_finished();
@@ -718,18 +718,24 @@ public:
         prepare_phase_2();
         build_rlbwt_c<_bwt, sa_sint_t>();
         if (log) log_statistics();
-        build_ilf();
-        build_mlf();
+
+        if constexpr (supports_bwsearch) {
+            build_ilf();
+            build_mlf();
+        }
 
         if constexpr (supports_locate) {
             build_iphim1_sa<false, sa_sint_t>();
-            build_l__sas<true>();
+
+            if constexpr (supports_bwsearch) {
+                build_l__sas<true>();
+            }
         } else {
             build_l__sas<false>();
         }
 
         if constexpr (supports_multiple_locate) {
-            if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+            if constexpr (has_locate_move) {
                 if constexpr (support == _locate_move_bi_fwd) {
                     build_iphi();
                     sort_iphi();
@@ -740,14 +746,21 @@ public:
                 build_mphim1();
                 build_saphim1();
                 build_de();
-            } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
+            } else if constexpr (has_rlzsa) {
                 construct_rlzsa<false, sa_sint_t>();
-            } else if constexpr (support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd) {
+
+                if constexpr (!supports_bwsearch) {
+                    build_sa_delta<false, sa_sint_t>();
+                }
+            } else if constexpr (has_lzendsa) {
                 construct_lzendsa<false, sa_sint_t>();
             }
         }
 
-        build_l_prev_next();
+        if constexpr (supports_bwsearch) {
+            build_l_prev_next();
+        }
+
         if (log) log_finished();
     }
 
@@ -778,17 +791,26 @@ public:
         build_sa<sa_sint_t>();
         build_rlbwt_c<_sa, sa_sint_t>();
         if (log) log_statistics();
-        build_ilf();
-        if (_space) store_rlbwt();
-        build_mlf();
-        if (_space) load_rlbwt();
+
+        if constexpr (supports_bwsearch) {
+            build_ilf();
+            if (_space) store_rlbwt();
+            build_mlf();
+            if (_space) load_rlbwt();
+        }
 
         if constexpr (supports_locate) {
             build_iphim1_sa<false, sa_sint_t>();
-            build_l__sas<true>();
+
+            if constexpr (supports_bwsearch) {
+                build_l__sas<true>();
+            } else {
+                RLBWT.clear();
+                RLBWT.shrink_to_fit();
+            }
 
             if constexpr (supports_multiple_locate) {
-                if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+                if constexpr (has_locate_move) {
                     if (_space) store_sas();
                     if constexpr (byte_alphabet) build_l_prev_next();
                     else build_rsl_();
@@ -816,27 +838,36 @@ public:
                         if constexpr (byte_alphabet) load_l_prev_next();
                         else load_rsl_();
                     }
-                } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd ||
-                                     support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd) {
-                    if (_space) store_sas_idx();
-                    if constexpr (byte_alphabet) build_l_prev_next();
-                    else build_rsl_();
-                    if (_space) {
-                        if constexpr (byte_alphabet) store_l_prev_next();
-                        else store_rsl_();
+                } else if constexpr (has_rlzsa || has_lzendsa) {
+                    if constexpr (supports_bwsearch) {
+                        if (_space) store_sas_idx();
+                        if constexpr (byte_alphabet) build_l_prev_next();
+                        else build_rsl_();
+                        if (_space) {
+                            if constexpr (byte_alphabet) store_l_prev_next();
+                            else store_rsl_();
+                        }
+                        if (_space) store_mlf();
                     }
-                    if (_space) store_mlf();
-                    if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
+                    
+                    if constexpr (has_rlzsa) {
                         sort_iphim1();
                         construct_rlzsa<false, sa_sint_t>();
+
+                        if constexpr (!supports_bwsearch) {
+                            build_sa_delta<false, sa_sint_t>();
+                        }
                     } else {
                         construct_lzendsa<false, sa_sint_t>();
                     }
-                    if (_space) load_sas_idx();
-                    if (_space) load_mlf();
-                    if (_space) {
-                        if constexpr (byte_alphabet) load_l_prev_next();
-                        else load_rsl_();
+
+                    if constexpr (supports_bwsearch) {
+                        if (_space) load_sas_idx();
+                        if (_space) load_mlf();
+                        if (_space) {
+                            if constexpr (byte_alphabet) load_l_prev_next();
+                            else load_rsl_();
+                        }
                     }
                 } else if constexpr (support == _locate_bi_bwd) {
                     build_l_prev_next();
@@ -869,26 +900,27 @@ public:
         bigbwt(delete_T);
         build_rlbwt_c<_bwt_file, int32_t>();
         if (log) log_statistics();
-        build_ilf();
-        store_rlbwt();
-        build_mlf();
-        load_rlbwt();
+
+        if constexpr (supports_bwsearch) {
+            build_ilf();
+            store_rlbwt();
+            build_mlf();
+            load_rlbwt();
+        }
 
         if constexpr (supports_locate) {
-            if (support == _locate_rlzsa ||
-                support == _locate_rlzsa_bi_fwd ||
-                support == _locate_lzendsa ||
-                support == _locate_lzendsa_bi_fwd || p > 1
-            ) {
+            if (has_rlzsa || has_lzendsa || p > 1) {
                 build_iphim1_sa<true, int32_t>();
             } else {
                 read_iphim1_bigbwt();
             }
             
-            build_l__sas<true>();
+            if constexpr (supports_bwsearch) {
+                build_l__sas<true>();
+            }
 
             if constexpr (supports_multiple_locate) {
-                if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+                if constexpr (has_locate_move) {
                     store_sas();
                     build_l_prev_next();
                     store_mlf();
@@ -909,23 +941,33 @@ public:
                     load_mlf();
                     if constexpr (support == _locate_move_bi_fwd) load_mphi();
                     load_l_prev_next();
-                } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd ||
-                                     support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd) {
-                    store_sas_idx();
-                    build_l_prev_next();
-                    store_l_prev_next();
-                    store_mlf();
+                } else if constexpr (has_rlzsa || has_lzendsa) {
+                    if constexpr (supports_bwsearch) {
+                        store_sas_idx();
+                        build_l_prev_next();
+                        store_l_prev_next();
+                        store_mlf();
+                    }
+
                     sort_iphim1();
-                    if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
+
+                    if constexpr (has_rlzsa) {
                         construct_rlzsa<true, int32_t>();
+
+                        if constexpr (!supports_bwsearch) {
+                            build_sa_delta<true, int32_t>();
+                        }
                     } else if (n <= std::numeric_limits<int32_t>::max()) {
                         construct_lzendsa<true, int32_t>();
                     } else {
                         construct_lzendsa<true, int64_t>();
                     }
-                    load_mlf();
-                    load_l_prev_next();
-                    load_sas_idx();
+
+                    if constexpr (supports_bwsearch) {
+                        load_mlf();
+                        load_l_prev_next();
+                        load_sas_idx();
+                    }
                 } else if constexpr (support == _locate_bi_bwd) {
                     build_l_prev_next();
                 }
@@ -935,7 +977,7 @@ public:
                 load_sas_idx();
             }
 
-            if (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd || p > 1) {
+            if (has_rlzsa || p > 1) {
                 SA_file_bufs.clear();
                 SA_file_bufs.shrink_to_fit();
                 std::filesystem::remove(prefix_tmp_files + ".sa");
@@ -974,47 +1016,7 @@ public:
      * @tparam sa_sint_t signed integer type to use for the suffix array entries
      */
     template <bool bigbwt, typename sa_sint_t>
-    void construct_lzendsa()
-    {
-        if (log) std::cout << "building DSA" << std::flush;
-
-        std::vector<sa_sint_t> SA_vec = get_sa<sa_sint_t>();
-
-        if constexpr (bigbwt) {
-            no_init_resize(SA_vec, n);
-
-            for (uint16_t i = 0; i < p; i++) {
-                SA_file_bufs.emplace_back(sdsl::int_vector_buffer<40>(
-                    prefix_tmp_files + ".sa", std::ios::in,
-                    128 * 1024, 40, true));
-            }
-
-            #pragma omp parallel for num_threads(p)
-            for (uint64_t i = 0; i < n; i++) {
-                SA_vec[i] = SA<true, int32_t>(omp_get_thread_num(), i);
-            }
-        }
-        
-        SA_file_bufs.clear();
-        SA_file_bufs.shrink_to_fit();
-
-        // make DSA out of SA
-        for (uint64_t i = n - 1; i > 0; i--) {
-            SA_vec[i] = SA_vec[i] - SA_vec[i - 1];
-        }
-
-        if (log) time = log_runtime(time);
-        if (log) std::cout << "building LZ-End parsing:" << std::endl;
-        std::vector<lzend_phr_t<sa_sint_t>> lzend_phrases = construct_lzend_of_reverse<sa_sint_t>(SA_vec, -1, log);
-        idx.z_end = lzend_phrases.size();
-        SA_vec.clear();
-        SA_vec.shrink_to_fit();
-        if (log) time = now();
-
-        if (log) std::cout << "Encoding LZ-End parsing" << std::flush;
-        idx._lzendsa = lzendsa_encoding(lzend_phrases, n, 8192);
-        if (log) time = log_runtime(time);
-    }
+    void construct_lzendsa();
 
     /**
      * @brief builds the rlzsa
@@ -1302,6 +1304,13 @@ public:
     void build_rlzsa_factorization();
 
     /**
+     * @brief builds SA_delta
+     * @tparam sa_sint_t signed integer type to use for the suffix array entries
+     */
+    template <bool bigbwt, typename sa_sint_t>
+    void build_sa_delta();
+
+    /**
      * @brief stores R to disk
      */
     void store_r();
@@ -1315,5 +1324,6 @@ public:
 #include "bigbwt.cpp"
 #include "common.cpp"
 #include "rlzsa.cpp"
+#include "lzendsa.cpp"
 #include "libsais.cpp"
 #include "load_store.cpp"

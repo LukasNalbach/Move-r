@@ -27,10 +27,11 @@
 #pragma once
 
 #include <move_r/move_r.hpp>
+#include <algorithms/sparse_sa_bin_search.cpp>
 
 template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::setup_phi_m1_move_pair(pos_t& x, pos_t& s, pos_t& s_) const
-    requires(support == _locate_move || support == _locate_move_bi_fwd)
+    requires(has_locate_move)
 {
     // the index of the pair in M_Phi^{-1} creating the output interval with starting position s = SA[M_LF.p[x]]
     pos_t x_s_ = SA_Phi_m1(x);
@@ -46,15 +47,15 @@ template <move_r_support support, typename sym_t, typename pos_t>
 sym_t move_r<support, sym_t, pos_t>::BWT(pos_t i) const
 {
     // find the index of the input interval in M_LF containing i with a binary search.
-    return unmap_symbol(L_(bin_search_max_leq<pos_t>(i, 0, r_ - 1, [this](pos_t x) { return M_LF().p(x); })));
+    return unmap_symbol(L_(bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x) { return M_LF().p(x); })));
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
 pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
     requires(supports_multiple_locate)
 {
-    if constexpr (support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd) {
-        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [this](pos_t x_) { return M_LF().p(x_); });
+    if constexpr (has_lzendsa) {
+        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
 
         while (SA_s(x) == n) {
             x--;
@@ -65,7 +66,7 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
         _lzendsa.extract_deltas(j + 1, i, [&](int64_t, int64_t d){s += d;});
 
         return s;
-    } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
+    } else if constexpr (has_rlzsa) {
         pos_t x_p, x_lp, x_cp, x_r, s_np;
 
         // variable to store SA[i] in
@@ -78,9 +79,9 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
         next_rlzsa(i, s, x_p, x_lp, x_cp, x_r, s_np);
 
         return s;
-    } else if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+    } else if constexpr (has_locate_move) {
         // index of the input interval in M_LF containing i.
-        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [this](pos_t x_) { return M_LF().p(x_); });
+        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
 
         /* if i is a bwt run end position (i = M_LF.p(x+1)-1) and SA_Phi^{-1}[x+1] != r'', then
             SA[i] = Phi(SA_s[(x+1) mod r'])
@@ -159,9 +160,9 @@ bool move_r<support, sym_t, pos_t>::query_context::prepend(sym_t sym)
 
 template <move_r_support support, typename sym_t, typename pos_t>
 pos_t move_r<support, sym_t, pos_t>::query_context::next_occ()
-    requires(supports_multiple_locate && support != _locate_lzendsa && support != support != _locate_lzendsa)
+    requires(supports_multiple_locate && !has_lzendsa)
 {
-    if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
+    if constexpr (has_rlzsa) {
         if (i == b) [[unlikely]] {
             // compute the suffix array value at b
             s = idx->SA_s(hat_b_ap_y) - (y + 1);
@@ -204,7 +205,7 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::query_context::locate()
 {
     std::vector<pos_t> Occ;
 
-    if constexpr (support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd) {
+    if constexpr (has_lzendsa) {
         no_init_resize(Occ, num_occ_rem());
 
         // compute the suffix array value at b
@@ -222,7 +223,7 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::query_context::locate()
         }
 
         i = e + 1;
-    } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
+    } else if constexpr (has_rlzsa) {
         Occ.reserve(num_occ_rem());
 
         if (i == b) [[unlikely]] {
@@ -239,9 +240,10 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::query_context::locate()
 
         // compute the remaining occurrences SA(b,e]
         if (i <= e) [[likely]] {
-            idx->write_rlzsa_right(i, e, s, x_p, x_lp, x_cp, x_r, s_np, Occ);
+            idx->report_rlzsa_right(i, e, s, x_p, x_lp, x_cp, x_r, s_np,
+                [&](pos_t, pos_t v){Occ.emplace_back(v);});
         }
-    } else if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+    } else if constexpr (has_locate_move) {
         Occ.reserve(num_occ_rem());
 
         // compute the suffix array value at b
@@ -396,7 +398,7 @@ void move_r<support, sym_t, pos_t>::init_phi_m1(
     pos_t& b, pos_t& e,
     pos_t& s, pos_t& s_,
     pos_t& hat_b_ap_y, int64_t& y) const
-    requires(support == _locate_move || support == _locate_move_bi_fwd)
+    requires(has_locate_move)
 {
     setup_phi_m1_move_pair(hat_b_ap_y, s, s_);
     s -= y + 1;
@@ -405,7 +407,7 @@ void move_r<support, sym_t, pos_t>::init_phi_m1(
     // the s_-th one contains s, so we have to decrease s_. To find the correct value for s_, we perform
     // an exponential search to the left over the input interval starting positions of M_Phi^{-1} starting at s_.
     if (b < e && s < M_Phi_m1().p(s_)) {
-        s_ = exp_search_max_leq<pos_t, LEFT>(s, 0, s_, [this](pos_t x) { return M_Phi_m1().p(x); });
+        s_ = exp_search_max_leq<pos_t, LEFT>(s, 0, s_, [&](pos_t x) { return M_Phi_m1().p(x); });
     }
 }
 
@@ -413,7 +415,7 @@ template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::init_rlzsa(
     pos_t& i,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
-    requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    requires(has_rlzsa)
 {
     // index in SCP_S of the last sampled copy phrase starting before or at i
     pos_t x_scps = SCP_S().rank_1(i + 1);
@@ -471,10 +473,10 @@ template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::init_rlzsa(
     pos_t& i, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
-    requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    requires(has_rlzsa)
 {
     // index of the input interval in M_LF containing i.
-    pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [this](pos_t x_) { return M_LF().p(x_); });
+    pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
 
     while (SA_s(x) == n) {
         x--;
@@ -507,7 +509,7 @@ template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::skip_rlzsa_right(
     pos_t& i, pos_t& e, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
-    requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    requires(has_rlzsa)
 {
     while (i < e) {
         // decode all copy-phrases before the next literal phrase
@@ -550,7 +552,7 @@ template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::next_rlzsa(
     pos_t& i, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
-    requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    requires(has_rlzsa)
 {
     if (PT(x_p)) {
         // literal phrase
@@ -593,63 +595,12 @@ void move_r<support, sym_t, pos_t>::next_rlzsa(
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::write_rlzsa_right(
-    pos_t& i, pos_t& e, pos_t& s,
-    pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
-    std::vector<pos_t>& Occ) const
-    requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
-{
-    while (true) {
-        // decode all copy-phrases before the next literal phrase
-        while (!PT(x_p)) {
-            // decode the x_cp-th copy-phrase
-            while (i < s_np) {
-                s += R(x_r);
-                s -= n;
-                Occ.emplace_back(s);
-
-                if (i == e) [[unlikely]] {
-                    return;
-                }
-                
-                i++;
-                x_r++;
-            }
-
-            x_p++;
-            x_cp++;
-            x_r = SR(x_cp);
-            s_np += PT(x_p) ? 1 : CPL(x_cp);
-        }
-
-        // decode all literal phrases before the next copy-phrase
-        while (PT(x_p)) {
-            // decode the x_lp-th literal phrase
-            s = LP(x_lp);
-            Occ.emplace_back(s);
-
-            if (i == e) [[unlikely]] {
-                return;
-            }
-
-            i++;
-            x_p++;
-            x_lp++;
-            s_np++;
-        }
-
-        // set s_np to the starting position of the next (the x_lp-th)
-        // literal phrase after the current (the x_cp-th) copy-phrase
-        s_np += CPL(x_cp) - 1;
-    }
-}
-
-template <move_r_support support, typename sym_t, typename pos_t>
+template <typename report_fnc_t>
 void move_r<support, sym_t, pos_t>::report_rlzsa_right(
     pos_t& i, pos_t& e, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
-    const std::function<void(pos_t, pos_t)>& report) const
-    requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    report_fnc_t report) const
+    requires(has_rlzsa)
 {
     while (true) {
         // decode all copy-phrases before the next literal phrase
@@ -699,6 +650,22 @@ void move_r<support, sym_t, pos_t>::report_rlzsa_right(
 template <move_r_support support, typename sym_t, typename pos_t>
 pos_t move_r<support, sym_t, pos_t>::count(const inp_t& P) const
 {
+    if constexpr (!supports_bwsearch) {
+        auto [beg, end, result] = binary_sa_search_and_extract<pos_t>(*input, P, _SA_delta.size() + 1,
+            [&](pos_t i){return i == _SA_delta.size() ? last_sa : _SA_delta[i];},
+            [&](pos_t i){return i == _SA_delta.size() ? n - 1 : (i * delta);},
+            [&](pos_t b, pos_t e, pos_t sa_b, pos_t sa_e, auto report){
+                report(b, sa_b);
+                if (e == b) return;
+                b++;
+                pos_t x_p, x_lp, x_cp, x_r, s_np;
+                init_rlzsa(b, x_p, x_lp, x_cp, x_r, s_np);
+                report_rlzsa_right(b, e, sa_b, x_p, x_lp, x_cp, x_r, s_np, report);
+            }, false);
+        
+        return end - beg + 1;
+    }
+
     pos_t b, e, b_, e_, hat_b_ap_y, hat_e_ap_z;
     int64_t y, z;
 
@@ -717,6 +684,22 @@ template <move_r_support support, typename sym_t, typename pos_t>
 std::vector<pos_t> move_r<support, sym_t, pos_t>::locate(const inp_t& P) const
     requires(supports_multiple_locate)
 {
+    if constexpr (!supports_bwsearch) {
+        auto [beg, end, result] = binary_sa_search_and_extract<pos_t>(*input, P, _SA_delta.size() + 1,
+            [&](pos_t i){return i == _SA_delta.size() ? last_sa : _SA_delta[i];},
+            [&](pos_t i){return i == _SA_delta.size() ? n - 1 : (i * delta);},
+            [&](pos_t b, pos_t e, pos_t sa_b, pos_t sa_e, auto report){
+                report(b, sa_b);
+                if (e == b) return;
+                b++;
+                pos_t x_p, x_lp, x_cp, x_r, s_np;
+                init_rlzsa(b, x_p, x_lp, x_cp, x_r, s_np);
+                report_rlzsa_right(b, e, sa_b, x_p, x_lp, x_cp, x_r, s_np, report);
+            }, true);
+        
+        return result;
+    }
+
     pos_t b, e, b_, e_, hat_b_ap_y, hat_e_ap_z;
     int64_t y, z;
 
@@ -731,7 +714,7 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::locate(const inp_t& P) const
     std::vector<pos_t> Occ;
     Occ.reserve(e - b + 1);
 
-    if constexpr (support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd) {
+    if constexpr (has_lzendsa) {
         no_init_resize(Occ, e - b + 1);
 
         // compute the suffix array value at b
@@ -748,7 +731,7 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::locate(const inp_t& P) const
             Occ[i] += Occ[i - 1];
             Occ[i] -= n;
         }
-    } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
+    } else if constexpr (has_rlzsa) {
         pos_t s = SA_s(hat_b_ap_y) - (y + 1);
         Occ.emplace_back(s);
 
@@ -757,9 +740,10 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::locate(const inp_t& P) const
             pos_t x_p, x_lp, x_cp, x_r, s_np;
 
             init_rlzsa(i, x_p, x_lp, x_cp, x_r, s_np);
-            write_rlzsa_right(i, e, s, x_p, x_lp, x_cp, x_r, s_np, Occ);
+            report_rlzsa_right(i, e, s, x_p, x_lp, x_cp, x_r, s_np,
+                [&](pos_t, pos_t v){Occ.emplace_back(v);});
         }
-    } else if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+    } else if constexpr (has_locate_move) {
         pos_t s, s_;
         init_phi_m1(b, e, s, s_, hat_b_ap_y, y);
         Occ.emplace_back(s);
@@ -779,7 +763,9 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::locate(const inp_t& P) const
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::revert(const std::function<void(pos_t, sym_t)>& report, retrieve_params params) const
+template <typename report_fnc_t>
+void move_r<support, sym_t, pos_t>::revert_range(report_fnc_t report, retrieve_params params) const
+    requires(supports_bwsearch)
 {
     adjust_retrieve_params(params, n - 2);
 
@@ -795,8 +781,8 @@ void move_r<support, sym_t, pos_t>::revert(const std::function<void(pos_t, sym_t
         s_l = 0;
         s_r = 0;
     } else {
-        s_l = bin_search_min_gt<pos_t>(l, 0, p_r - 1, [this](pos_t x) { return _D_e[x].second; });
-        s_r = bin_search_min_geq<pos_t>(r, 0, p_r - 1, [this](pos_t x) { return _D_e[x].second; });
+        s_l = bin_search_min_gt<pos_t>(l, 0, p_r - 1, [&](pos_t x) { return _D_e[x].second; });
+        s_r = bin_search_min_geq<pos_t>(r, 0, p_r - 1, [&](pos_t x) { return _D_e[x].second; });
     }
 
     uint16_t p = std::max(
@@ -852,7 +838,8 @@ void move_r<support, sym_t, pos_t>::revert(const std::function<void(pos_t, sym_t
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::BWT(const std::function<void(pos_t, sym_t)>& report, retrieve_params params) const
+template <typename report_fnc_t>
+void move_r<support, sym_t, pos_t>::BWT_range(report_fnc_t report, retrieve_params params) const
 {
     adjust_retrieve_params(params, n - 1);
 
@@ -881,11 +868,11 @@ void move_r<support, sym_t, pos_t>::BWT(const std::function<void(pos_t, sym_t)>&
         pos_t i = b;
 
         // index of the input interval in M_LF containing i.
-        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [this](pos_t x_) { return M_LF().p(x_); });
+        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
 
         // start position of the next input interval in M_LF
         pos_t l_xp1;
-
+ 
         // iterate until x is the input interval containing e
         while ((l_xp1 = M_LF().p(x + 1)) <= e) {
 
@@ -907,7 +894,8 @@ void move_r<support, sym_t, pos_t>::BWT(const std::function<void(pos_t, sym_t)>&
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::SA(const std::function<void(pos_t, pos_t)>& report, retrieve_params params) const
+template <typename report_fnc_t>
+void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_params params) const
     requires(supports_multiple_locate)
 {
     adjust_retrieve_params(params, n - 1);
@@ -933,7 +921,7 @@ void move_r<support, sym_t, pos_t>::SA(const std::function<void(pos_t, pos_t)>& 
         // iteration range end position
         pos_t e = i_p == p - 1 ? r : l + (i_p + 1) * ((r - l + 1) / p) - 1;
 
-        if constexpr (support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd) {
+        if constexpr (has_lzendsa) {
             // compute the suffix array value at e
             int64_t s = SA(e);
             pos_t i = e;
@@ -946,9 +934,9 @@ void move_r<support, sym_t, pos_t>::SA(const std::function<void(pos_t, pos_t)>& 
                     i--;
                     report(i, s);
                 });
-        } else if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+        } else if constexpr (has_locate_move) {
             // the input interval of M_LF containing i
-            pos_t x = bin_search_max_leq<pos_t>(b, 0, r_ - 1, [this](pos_t x_) { return M_LF().p(x_); });
+            pos_t x = bin_search_max_leq<pos_t>(b, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
 
             // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
             while (SA_Phi_m1(x) == r__) {
@@ -981,7 +969,7 @@ void move_r<support, sym_t, pos_t>::SA(const std::function<void(pos_t, pos_t)>& 
                 i++;
                 report(i, s);
             }
-        } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
+        } else if constexpr (has_rlzsa) {
             pos_t x_p, x_lp, x_cp, x_r, s_np;
 
             // current suffix array value
@@ -990,7 +978,7 @@ void move_r<support, sym_t, pos_t>::SA(const std::function<void(pos_t, pos_t)>& 
             // initialize the rlzsa context to position b
             init_rlzsa(b, s, x_p, x_lp, x_cp, x_r, s_np);
 
-            // decode and report SA(b..e]
+            // decode and report SA[b..e]
             report_rlzsa_right(b, e, s, x_p, x_lp, x_cp, x_r, s_np, report);
         }
     }
@@ -1000,7 +988,7 @@ template <move_r_support support, typename sym_t, typename pos_t>
 template <typename output_t, bool output_reversed>
 void move_r<support, sym_t, pos_t>::retrieve_range(
     void (move_r<support, sym_t, pos_t>::*retrieve_method)(
-        const std::function<void(pos_t, output_t)>&, move_r<support, sym_t, pos_t>::retrieve_params) const,
+        std::function<void(pos_t, output_t)>&&, move_r<support, sym_t, pos_t>::retrieve_params) const,
     std::string file_name, move_r<support, sym_t, pos_t>::retrieve_params params) const
 {
     pos_t l = params.l;
@@ -1015,7 +1003,7 @@ void move_r<support, sym_t, pos_t>::retrieve_range(
     for (uint16_t i = 0; i < num_threads; i++) {
         file_bufs.emplace_back(sdsl::int_vector_buffer<sizeof(output_t) * 8>(file_name, std::ios::in, buffer_size_per_thread, sizeof(output_t) * 8, true));
     }
-
+    
     (this->*retrieve_method)([&](pos_t pos, output_t val) {
         file_bufs[omp_get_thread_num()][pos] = *reinterpret_cast<uint64_t*>(&val);
     }, params);

@@ -46,6 +46,8 @@ enum move_r_support {
     _locate_one, // support for computing exaclty one occurrence per pattern
     _locate_move, // locate support is implemented using a move data structure to answer Phi^{-1}-queries
     _locate_rlzsa, // locate support is implemented by relative lepel-ziv encoding the differential suffix array
+    _locate_rlzsa_bin_search, // count and locate is implemented by relative lepel-ziv encoding the differential
+                              // suffix array and performing binary search over the suffix array
     _locate_lzendsa, // locate support is implemented by LZ-end encoding the differential suffix array
 
     // ############################# INTERNAL (DON'T USE) #############################
@@ -89,9 +91,10 @@ struct move_r_params {
     uint16_t num_threads = omp_get_max_threads(); // maximum number of threads to use during the construction
     uint16_t a = 8; // balancing parameter, 2 <= a
     /* alphabet size of the input (only for int_alphabet = true); if set to 0, a hash map is used to map the symbols
-       in the input to its effective alphabet; else (alphabet_size != 0), the input must already be mapped to its
-       effective alphabet, and no hashmap is used */
+       in the input to a compact alphabet; else (alphabet_size != 0), the input must already have a compact alphabet,
+       and no hashmap is used */
     uint64_t alphabet_size = 0;
+    uint16_t delta = 0; // SA-sampling rate (only for _locate_rlzsa_bin_search); if set to 0, the SA-sampling will be ~10% of the index size
     bool log = false; // controls, whether to print log messages
     std::ostream* mf_idx = NULL; // measurement file for the index construciton
     std::ostream* mf_mds = NULL; // measurement file for the move data structure construction
@@ -133,9 +136,19 @@ public:
         constexpr_case<sizeof(sym_t) == 4,    uint32_t>,
      /* constexpr_case<sizeof(sym_t) == 8, */ uint64_t>;
 
+    static constexpr bool is_bidirectional =
+        support == _count_bi ||
+        support == _locate_move_bi_fwd ||
+        support == _locate_rlzsa_bi_fwd ||
+        support == _locate_lzendsa_bi_fwd ||
+        support == _locate_bi_bwd;
+        
     static constexpr bool supports_locate = support != _count && support != _count_bi; // true <=> the index supports locate
-    // true <=> the index supports locating multiple occurrences
-    static constexpr bool supports_multiple_locate = supports_locate && support != _locate_one;
+    static constexpr bool supports_multiple_locate = supports_locate && support != _locate_one; // true <=> the index supports locating multiple occurrences
+    static constexpr bool supports_bwsearch = support != _locate_rlzsa_bin_search;
+    static constexpr bool has_rlzsa = support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd || support == _locate_rlzsa_bin_search;
+    static constexpr bool has_lzendsa = support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd;
+    static constexpr bool has_locate_move = support == _locate_move || support == _locate_move_bi_fwd;
     static constexpr bool str_input = std::is_same_v<sym_t, char>; // true <=> the input is a string
     static constexpr bool int_input = !str_input; // true <=> the input is an iteger vector
     static constexpr bool byte_alphabet = sizeof(sym_t) == 1; // true <=> the input uses a byte alphabet
@@ -155,6 +168,9 @@ public:
     // space-time tradeoff parameter for the size of blocks in L' (for L_prev and L_next)
     static constexpr pos_t _l_blk_size_factor = 4;
 
+    // default overall size of the SA-delta-samples relative to the index size
+    static constexpr double default_relative_sampling_size = 0.1;
+
     // ############################# INDEX VARIABLES #############################
 
 protected:
@@ -168,11 +184,13 @@ protected:
     pos_t z_l = 0; // z_l, the number of literal phrases in the rlzsa
     pos_t z_c = 0; // z_c, the number of copy-phrases in the rlzsa
     pos_t z_end = 0; // z_end, the number of phrases in the lzendsa
+    pos_t delta = 0; // SA-sample rate (for _locate_rlzsa_bin_search)
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))+z), 2 <= a
     uint16_t p_r = 1; // maximum possible number of threads to use while reverting the index
     pos_t _l_blk_size = 0; // size of the blocks in L' (for L_prev and L_next)
     pos_t _num_blks_l_ = 0; // number of blocks (of size _l_blk_size) in L' (for L_prev and L_next)
     uint8_t omega_idx = 0; // word width of SA_Phi^{-1}
+    pos_t last_sa = 0; // SA[n - 1]
 
     /* true <=> the characters of the input have been remapped internally */
     bool symbols_remapped = false;
@@ -229,6 +247,11 @@ protected:
     // LZ-End encoding of the differential suffix array
     lzendsa_encoding _lzendsa;
 
+    // [0..n / delta - 1] stores evenly-spaced SA-samples, i.e, SA_delta[i] = SA[i * delta] (for _locate_rlzsa_bin_search)
+    interleaved_byte_aligned_vectors<pos_t, pos_t> _SA_delta;
+
+    const inp_t* input = nullptr;
+
     // ############################# INTERNAL METHODS #############################
 
     /**
@@ -284,18 +307,7 @@ public:
 
     // ############################# MISC PUBLIC METHODS #############################
 
-    static constexpr bool is_bidirectional()
-    {
-        return
-            support == _count_bi ||
-            support == _locate_move_bi_fwd ||
-            support == _locate_rlzsa_bi_fwd ||
-            support == _locate_lzendsa_bi_fwd ||
-            support == _locate_bi_bwd;
-    }
-
-    void set_alphabet_maps(map_int_t& map_int, map_ext_t& map_ext)
-        requires(is_bidirectional())
+    void set_alphabet_maps(map_int_t& map_int, map_ext_t& map_ext) requires(is_bidirectional)
     {
         _map_int = map_int;
         _map_ext = map_ext;
@@ -350,8 +362,7 @@ public:
      * @brief returns the number of phrases in the rlzsa
      * @return number of phrases in the rlzsa
      */
-    inline pos_t num_phrases_rlzsa() const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline pos_t num_phrases_rlzsa() const requires(has_rlzsa)
     {
         return z;
     }
@@ -360,8 +371,7 @@ public:
      * @brief returns the number of literal phrases in the rlzsa
      * @return number of literal phrases in the rlzsa
      */
-    inline pos_t num_literal_phrases_rlzsa() const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline pos_t num_literal_phrases_rlzsa() const requires(has_rlzsa)
     {
         return z_l;
     }
@@ -370,8 +380,7 @@ public:
      * @brief returns the number of copy phrases in the rlzsa
      * @return number of copy phrases in the rlzsa
      */
-    inline pos_t num_copy_phrases_rlzsa() const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline pos_t num_copy_phrases_rlzsa() const requires(has_rlzsa)
     {
         return z_c;
     }
@@ -380,8 +389,7 @@ public:
      * @brief returns the number of phrases in the rlzsa
      * @return number of phrases in the rlzsa
      */
-    inline pos_t num_phrases_lzendsa() const
-        requires(support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd)
+    inline pos_t num_phrases_lzendsa() const requires(has_lzendsa)
     {
         return z_end;
     }
@@ -399,8 +407,7 @@ public:
      * @brief returns the number omega_idx of bits used by one entry in SA_Phi^{-1} (word width of SA_Phi^{-1})
      * @return omega_idx
      */
-    inline uint8_t width_saphi() const
-        requires(support == _locate_move || support == _locate_move_bi_fwd)
+    inline uint8_t width_saphi() const requires(has_locate_move)
     {
         return omega_idx;
     }
@@ -412,6 +419,11 @@ public:
     inline uint16_t max_revert_threads() const
     {
         return p_r;
+    }
+
+    inline void set_input(inp_t& input) requires (support == _locate_rlzsa_bin_search)
+    {
+        this->input = &input;
     }
 
     /**
@@ -431,6 +443,7 @@ public:
             _SA_Phi_m1.size_in_bytes() +
             _SA_s.size_in_bytes() +
             _SA_s_.size_in_bytes() +
+            _SA_delta.size_in_bytes() +
             _R.size_in_bytes() +
             (z_c + 2) * sizeof(uint16_t) + // CPL
             _SCP_S.size_in_bytes() +
@@ -447,15 +460,17 @@ public:
     {
         if (print_index_size) std::cout << "index size: " << format_size(size_in_bytes()) << std::endl;
 
-        uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
-        std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes() - size_l_) << std::endl;
-        std::cout << "L': " << format_size(size_l_) << std::endl;
+        if constexpr (supports_bwsearch) {
+            uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
+            std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes() - size_l_) << std::endl;
+            std::cout << "L': " << format_size(size_l_) << std::endl;
 
-        if constexpr (byte_alphabet) {
-            std::cout << "L'_prev & L'_next: " << format_size(
-                _L_prev.size_in_bytes() + _L_next.size_in_bytes()) << std::endl;
-        } else {
-            std::cout << "RS_L': " << format_size(_RS_L_.size_in_bytes()) << std::endl;
+            if constexpr (byte_alphabet) {
+                std::cout << "L'_prev & L'_next: " << format_size(
+                    _L_prev.size_in_bytes() + _L_next.size_in_bytes()) << std::endl;
+            } else {
+                std::cout << "RS_L': " << format_size(_RS_L_.size_in_bytes()) << std::endl;
+            }
         }
 
         if (int_alphabet && symbols_remapped) {
@@ -463,25 +478,29 @@ public:
             std::cout << "map_ext: " << format_size(sizeof(sym_t) * sigma) << std::endl;
         }
 
-        if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+        if constexpr (has_locate_move) {
             if constexpr (support == _locate_move_bi_fwd) {
                 std::cout << "M_Phi: " << format_size(_M_Phi.size_in_bytes()) << std::endl;
             }
 
             std::cout << "M_Phi^{-1}: " << format_size(_M_Phi_m1.size_in_bytes()) << std::endl;
             std::cout << "SA_Phi^{-1}: " << format_size(_SA_Phi_m1.size_in_bytes()) << std::endl;
-        } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
+        } else if constexpr (has_rlzsa) {
             std::cout << "R: " << format_size(_R.size_in_bytes()) << std::endl;
             std::cout << "CPL: " << format_size((z_c + 2) * sizeof(uint16_t)) << std::endl;
             std::cout << "SCP_S: " << format_size(_SCP_S.size_in_bytes()) << std::endl;
             std::cout << "SR: " << format_size(_SR.size_in_bytes()) << std::endl;
             std::cout << "LP: " << format_size(_LP.size_in_bytes()) << std::endl;
             std::cout << "PT: " << format_size(_PT.size_in_bytes()) << std::endl;
+
+            if constexpr (!supports_bwsearch) {
+                std::cout << "SA_delta: " << format_size(_SA_delta.size_in_bytes()) << std::endl;
+            }
         }
 
         if constexpr (support == _locate_one || support == _locate_rlzsa ||
             support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd ||
-            support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd
+            has_lzendsa
         ) {
             std::cout << "SA_s: " << format_size(_SA_s.size_in_bytes()) << std::endl;
         }
@@ -490,7 +509,7 @@ public:
             std::cout << "SA_s': " << format_size(_SA_s_.size_in_bytes()) << std::endl;
         }
 
-        if constexpr (support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd) {
+        if constexpr (has_lzendsa) {
             std::cout << "lzendsa:" << std::endl;
             _lzendsa.log_data_structure_sizes();
         }
@@ -503,15 +522,18 @@ public:
     void log_data_structure_sizes(std::ostream& out) const
     {
         out << " size_index=" << size_in_bytes();
-        uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
-        out << " size_m_lf=" << _M_LF.size_in_bytes() - size_l_;
-        out << " size_l_=" << size_l_;
-        
-        if constexpr (byte_alphabet) {
-            out << " size_l_prev=" << _L_prev.size_in_bytes();
-            out << " size_l_next=" << _L_next.size_in_bytes();
-        } else {
-            out << " size_rs_l_=" << _RS_L_.size_in_bytes();
+
+        if constexpr (supports_bwsearch) {
+            uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
+            out << " size_m_lf=" << _M_LF.size_in_bytes() - size_l_;
+            out << " size_l_=" << size_l_;
+            
+            if constexpr (byte_alphabet) {
+                out << " size_l_prev=" << _L_prev.size_in_bytes();
+                out << " size_l_next=" << _L_next.size_in_bytes();
+            } else {
+                out << " size_rs_l_=" << _RS_L_.size_in_bytes();
+            }
         }
 
         if (int_alphabet && symbols_remapped) {
@@ -521,25 +543,29 @@ public:
 
         if constexpr (support == _locate_one || support == _locate_rlzsa ||
             support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd ||
-            support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd
+            has_lzendsa
         ) {
             out << " size_sa_s=" << _SA_s.size_in_bytes();
         }
 
-        if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+        if constexpr (has_locate_move) {
             if constexpr (support == _locate_move_bi_fwd) {
                 out << " size_m_phi=" << _M_Phi.size_in_bytes();
             }
 
             out << " size_m_phim1=" << _M_Phi_m1.size_in_bytes();
             out << " size_sa_phim1=" << _SA_Phi_m1.size_in_bytes();
-        } else if constexpr (support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd) {
+        } else if constexpr (has_rlzsa) {
             out << " size_r=" << _R.size_in_bytes();
             out << " size_cpl=" << (z_c + 2) * sizeof(uint16_t);
             out << " size_scp=" << _SCP_S.size_in_bytes();
             out << " size_sr=" << _SR.size_in_bytes();
             out << " size_lp=" << _LP.size_in_bytes();
             out << " size_pt=" << _PT.size_in_bytes();
+
+            if constexpr (!supports_bwsearch) {
+                std::cout << " size_sa_delta=" << _SA_delta.size_in_bytes() << std::endl;
+            }
         }
 
         if constexpr (support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd) {
@@ -562,8 +588,7 @@ public:
      * @brief returns a reference to M_Phi^{-1}
      * @return M_Phi^{-1}
      */
-    inline const move_data_structure<pos_t>& M_Phi_m1() const
-        requires(support == _locate_move || support == _locate_move_bi_fwd)
+    inline const move_data_structure<pos_t>& M_Phi_m1() const requires(has_locate_move)
     {
         return _M_Phi_m1;
     }
@@ -572,8 +597,7 @@ public:
      * @brief returns a reference to M_Phi
      * @return M_Phi
      */
-    inline const move_data_structure<pos_t>& M_Phi() const
-        requires(support == _locate_move_bi_fwd)
+    inline const move_data_structure<pos_t>& M_Phi() const requires(support == _locate_move_bi_fwd)
     {
         return _M_Phi;
     }
@@ -616,8 +640,7 @@ public:
      * @brief returns a reference to R
      * @return R
      */
-    inline const interleaved_byte_aligned_vectors<uint64_t, pos_t>& R() const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline const interleaved_byte_aligned_vectors<uint64_t, pos_t>& R() const requires(has_rlzsa)
     {
         return _R;
     }
@@ -626,8 +649,7 @@ public:
      * @brief returns a reference to PT
      * @return PT
      */
-    inline const plain_bit_vector<pos_t, true, true, true>& PT() const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline const plain_bit_vector<pos_t, true, true, true>& PT() const requires(has_rlzsa)
     {
         return _PT;
     }
@@ -636,8 +658,7 @@ public:
      * @brief returns a reference to CPL
      * @return CPL
      */
-    inline const std::vector<uint16_t>& CPL() const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline const std::vector<uint16_t>& CPL() const requires(has_rlzsa)
     {
         return _CPL;
     }
@@ -646,8 +667,7 @@ public:
      * @brief returns a reference to SCP_S
      * @return SCP_S
      */
-    inline const sd_array<pos_t>& SCP_S() const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline const sd_array<pos_t>& SCP_S() const requires(has_rlzsa)
     {
         return _SCP_S;
     }
@@ -656,8 +676,7 @@ public:
      * @brief returns a reference to SR
      * @return SR
      */
-    inline const interleaved_byte_aligned_vectors<pos_t, pos_t>& SR() const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline const interleaved_byte_aligned_vectors<pos_t, pos_t>& SR() const requires(has_rlzsa)
     {
         return _SR;
     }
@@ -666,8 +685,7 @@ public:
      * @brief returns a reference to LP
      * @return LP
      */
-    inline const interleaved_byte_aligned_vectors<pos_t, pos_t>& LP() const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline const interleaved_byte_aligned_vectors<pos_t, pos_t>& LP() const requires(has_rlzsa)
     {
         return _LP;
     }
@@ -677,8 +695,7 @@ public:
      * @param x [0..|R|-1] index in R
      * @return R[x]
      */
-    inline uint64_t R(pos_t x) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline uint64_t R(pos_t x) const requires(has_rlzsa)
     {
         return _R[x];
     }
@@ -688,8 +705,7 @@ public:
      * @param x [0..z-1] index in PT
      * @return PT[x]
      */
-    inline bool PT(pos_t x) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline bool PT(pos_t x) const requires(has_rlzsa)
     {
         return _PT[x];
     }
@@ -699,8 +715,7 @@ public:
      * @param x [0..z_c-1] index in CPL
      * @return CPL[x]
      */
-    inline uint16_t CPL(pos_t x) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline uint16_t CPL(pos_t x) const requires(has_rlzsa)
     {
         return _CPL[x];
     }
@@ -710,8 +725,7 @@ public:
      * @param x [0..z_c/sample_rate_scp-1] index in SCP_S
      * @return SCP_S[x]
      */
-    inline pos_t SCP_S(pos_t x) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline pos_t SCP_S(pos_t x) const requires(has_rlzsa)
     {
         return _SCP_S.select_1(x + 1);
     }
@@ -721,8 +735,7 @@ public:
      * @param x [0..z_r-1] index in SR
      * @return SR[x]
      */
-    inline pos_t SR(pos_t x) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline pos_t SR(pos_t x) const requires(has_rlzsa)
     {
         return _SR[x];
     }
@@ -732,8 +745,7 @@ public:
      * @param x [0..z_l-1] index in LP
      * @return LP[x]
      */
-    inline pos_t LP(pos_t x) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd)
+    inline pos_t LP(pos_t x) const requires(has_rlzsa)
     {
         return _LP[x];
     }
@@ -743,8 +755,7 @@ public:
      * @param x [0..z_l-1] index in LP
      * @return LP[x]
      */
-    inline const lzendsa_encoding& lzend() const
-        requires(support == _locate_lzendsa || support == _locate_lzendsa_bi_fwd)
+    inline const lzendsa_encoding& lzend() const requires(has_lzendsa)
     {
         return _lzendsa;
     }
@@ -754,8 +765,7 @@ public:
      * @param x [0..r''-1]
      * @return SA_Phi^{-1}[x]
      */
-    inline pos_t SA_Phi_m1(pos_t x) const
-        requires(support == _locate_move || support == _locate_move_bi_fwd)
+    inline pos_t SA_Phi_m1(pos_t x) const requires(has_locate_move)
     {
         return _SA_Phi_m1[x];
     }
@@ -769,7 +779,7 @@ public:
     inline pos_t SA_s(pos_t x) const
         requires(supports_locate)
     {
-        if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+        if constexpr (has_locate_move) {
             return M_Phi_m1().q(SA_Phi_m1(x));
         } else {
             return _SA_s[x];
@@ -785,7 +795,7 @@ public:
     inline pos_t SA_s_(pos_t x) const
         requires(support != _count && support != _count_bi && support != _locate_rlzsa)
     {
-        if constexpr (support == _locate_move || support == _locate_move_bi_fwd) {
+        if constexpr (has_locate_move) {
             if (x == r_ - 1) [[unlikely]] {
                 return M_Phi_m1().p(SA_Phi_m1(0));
             } else {
@@ -968,24 +978,19 @@ public:
          * @brief reports the next occurrence of the currently matched pattern
          * @return next occurrence
          */
-        inline pos_t next_occ()
-            requires(supports_multiple_locate &&
-                support != _locate_lzendsa &&
-                support != support != _locate_lzendsa);
+        inline pos_t next_occ() requires(supports_multiple_locate && !has_lzendsa);
 
         /**
          * @brief reports one occurrence of the currently matched pattern
          * @return an occurrence
          */
-        inline pos_t one_occ() const
-            requires(supports_locate);
+        inline pos_t one_occ() const requires(supports_locate);
 
         /**
          * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
          * @return vector containing the occurrences
          */
-        std::vector<pos_t> locate()
-            requires(supports_multiple_locate);
+        std::vector<pos_t> locate() requires(supports_multiple_locate);
     };
 
     /**
@@ -1052,8 +1057,7 @@ protected:
      * @param s variable to store the suffix array sample at position M_LF.p[x]
      * @param s_ variable to store the index of the input interval in M_Phi^{-1} containing s
      */
-    inline void setup_phi_m1_move_pair(pos_t& x, pos_t& s, pos_t& s_) const
-        requires(support == _locate_move || support == _locate_move_bi_fwd);
+    inline void setup_phi_m1_move_pair(pos_t& x, pos_t& s, pos_t& s_) const requires(has_locate_move);
 
     /**
      * @brief prepares the variables to decode SA[b]
@@ -1067,8 +1071,7 @@ protected:
     inline void init_phi_m1(
         pos_t& b, pos_t& e,
         pos_t& s, pos_t& s_,
-        pos_t& hat_b_ap_y, int64_t& y) const
-        requires(support == _locate_move || support == _locate_move_bi_fwd);
+        pos_t& hat_b_ap_y, int64_t& y) const requires(has_locate_move);
 
     /**
      * @brief prepares the variables to decode SA[i]
@@ -1081,8 +1084,7 @@ protected:
      */
     inline void init_rlzsa(
         pos_t& i,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd);
+        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const requires(has_rlzsa);
 
     /**
      * @brief prepares the context to decode SA[i]; if there
@@ -1097,8 +1099,7 @@ protected:
      */
     inline void init_rlzsa(
         pos_t& i, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd);
+        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const requires(has_rlzsa);
 
     /**
      * @brief decodes and stores SA[i] in s and prepares the context to decode
@@ -1113,26 +1114,7 @@ protected:
      */
     inline void next_rlzsa(
         pos_t& i, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd);
-
-    /**
-     * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
-     * @param i current position in the suffix array
-     * @param e right interval limit of the suffix array interval
-     * @param s current suffix array value
-     * @param x_p phrase-index of the phrase of the rlzsa contianing i
-     * @param x_lp literal-phrase index of the current or next literal phrase of the rlzsa
-     * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzsa
-     * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzsa
-     * @param s_np starting position in the rlzsa of the next phrase of the rlzsa
-     * @param Occ vector to append the occurrences to
-     */
-    inline void write_rlzsa_right(
-        pos_t& i, pos_t& e, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
-        std::vector<pos_t>& Occ) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd);
+        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const requires(has_rlzsa);
 
     /**
      * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
@@ -1146,11 +1128,11 @@ protected:
      * @param s_np starting position in the rlzsa of the next phrase of the rlzsa
      * @param report function that is called with every tuple (j,SA[j]) as a parameter, where j in [i,e]; the values are reported from left to right
      */
+    template <typename report_fnc_t>
     inline void report_rlzsa_right(
         pos_t& i, pos_t& e, pos_t& s,
         pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
-        const std::function<void(pos_t, pos_t)>& report) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd);
+        report_fnc_t report) const requires(has_rlzsa);
 
     /**
      * @brief advances the rlzsa context to the right up to position e
@@ -1165,8 +1147,7 @@ protected:
      */
     inline void skip_rlzsa_right(
         pos_t& i, pos_t& e, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
-        requires(support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd);
+        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const requires(has_rlzsa);
 
 public:
     /**
@@ -1221,7 +1202,7 @@ protected:
      */
     template <typename output_t, bool output_reversed>
     void retrieve_range(
-        void (move_r<support, sym_t, pos_t>::*retrieve_method)(const std::function<void(pos_t, output_t)>&, retrieve_params) const,
+        void (move_r<support, sym_t, pos_t>::*retrieve_method)(std::function<void(pos_t, output_t)>&&, retrieve_params) const,
         std::string file_name, retrieve_params params) const;
 
 public:
@@ -1232,12 +1213,12 @@ public:
      * @param params parameters
      * @return the bwt range [l,r]
      */
-    inp_t BWT(retrieve_params params = {}) const
+    inp_t BWT_range(retrieve_params params = {}) const
     {
         adjust_retrieve_params(params, n - 1);
         inp_t L;
         no_init_resize(L, params.r - params.l + 1);
-        BWT([&L, &params](pos_t i, sym_t c) { L[i - params.l] = c; }, params);
+        BWT_range([&](pos_t i, sym_t c) { L[i - params.l] = c; }, params);
         return L;
     }
 
@@ -1248,7 +1229,8 @@ public:
      * then the values are reported from left to right, if num_threads > 1, the order may vary
      * @param params parameters
      */
-    void BWT(const std::function<void(pos_t, sym_t)>& report, retrieve_params params = {}) const;
+    template <typename report_fnc_t>
+    void BWT_range(report_fnc_t report, retrieve_params params = {}) const;
 
     /**
      * @brief writes the characters in the bwt in the range [l,r] blockwise to the file out (0 <= l <= r <= input size), else if
@@ -1256,7 +1238,7 @@ public:
      * @param file_name name of the file to write the bwt to
      * @param params parameters
      */
-    void BWT(std::string file_name, retrieve_params params = {}) const
+    void BWT_range(std::string file_name, retrieve_params params = {}) const
     {
         adjust_retrieve_params(params, n - 1);
         retrieve_range<sym_t, false>(&move_r<support, sym_t, pos_t>::BWT, file_name, params);
@@ -1268,12 +1250,12 @@ public:
      * @param params parameters
      * @return the input range [l,r]
      */
-    inp_t revert(retrieve_params params = {}) const
+    inp_t revert_range(retrieve_params params = {}) const
     {
         adjust_retrieve_params(params, n - 2);
         inp_t input;
         no_init_resize(input, params.r - params.l + 1);
-        revert([&input, &params](pos_t i, sym_t c) { input[i - params.l] = c; }, params);
+        revert_range([&](pos_t i, sym_t c) { input[i - params.l] = c; }, params);
         return input;
     }
 
@@ -1284,7 +1266,8 @@ public:
      * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = input[i]
      * @param params parameters
      */
-    void revert(const std::function<void(pos_t, sym_t)>& report, retrieve_params params = {}) const;
+    template <typename report_fnc_t>
+    void revert_range(report_fnc_t report, retrieve_params params = {}) const requires(supports_bwsearch);
 
     /**
      * @brief reverts the input in the range [l,r] blockwise and writes it to the file out (0 <= l <= r < input size),
@@ -1292,10 +1275,10 @@ public:
      * @param file_name name of the file to write the reverted input to
      * @param params parameters
      */
-    void revert(std::string file_name, retrieve_params params = {}) const
+    void revert_range(std::string file_name, retrieve_params params = {}) const
     {
         adjust_retrieve_params(params, n - 2);
-        retrieve_range<sym_t, true>(&move_r<support, sym_t, pos_t>::revert, file_name, params);
+        retrieve_range<sym_t, true>(&move_r<support, sym_t, pos_t>::revert_range, file_name, params);
     }
 
     /**
@@ -1304,13 +1287,13 @@ public:
      * @param params parameters
      * @return the suffix array range [l,r]
      */
-    std::vector<pos_t> SA(retrieve_params params = {}) const requires(supports_multiple_locate)
+    std::vector<pos_t> SA_range(retrieve_params params = {}) const requires(supports_multiple_locate)
     {
         adjust_retrieve_params(params, n - 1);
-        std::vector<pos_t> SA_range;
-        no_init_resize(SA_range, params.r - params.l + 1);
-        SA([&](pos_t i, pos_t v){SA_range[i - params.l] = v;}, params);
-        return SA_range;
+        std::vector<pos_t> SA_rng;
+        no_init_resize(SA_rng, params.r - params.l + 1);
+        SA_range([&](pos_t i, pos_t v){SA_rng[i - params.l] = v;}, params);
+        return SA_rng;
     }
 
     /**
@@ -1320,7 +1303,8 @@ public:
      * @param report function that is called with every tuple (i,s) as a parameter, where i in [l,r] and s = SA[i]
      * @param params parameters
      */
-    void SA(const std::function<void(pos_t, pos_t)>& report, retrieve_params params = {}) const requires(supports_multiple_locate);
+    template <typename report_fnc_t>
+    void SA_range(report_fnc_t report, retrieve_params params = {}) const requires(supports_multiple_locate);
 
     /**
      * @brief writes the values in the suffix array of the input in the range [l,r] blockwise to the file out (0 <= l <= r <= input size),
@@ -1328,7 +1312,7 @@ public:
      * @param file_name name of the file to write the suffix array to
      * @param params parameters
      */
-    void SA(std::string file_name, retrieve_params params = {}) const requires(supports_multiple_locate)
+    void SA_range(std::string file_name, retrieve_params params = {}) const requires(supports_multiple_locate)
     {
         adjust_retrieve_params(params, n - 1);
         retrieve_range<pos_t, false>(&move_r<support, sym_t, pos_t>::SA, file_name, params);
@@ -1385,9 +1369,7 @@ public:
 
         if constexpr (support == _locate_one) {
             _SA_s.serialize(out);
-        } else if constexpr (
-            support == _locate_move ||
-            support == _locate_move_bi_fwd)
+        } else if constexpr (has_locate_move)
         {
             if constexpr (support == _locate_move_bi_fwd) {
                 out.write((char*) &r___, sizeof(pos_t));
@@ -1399,9 +1381,7 @@ public:
 
             out.write((char*) &omega_idx, 1);
             _SA_Phi_m1.serialize(out);
-        } else if constexpr (
-            support == _locate_rlzsa ||
-            support == _locate_rlzsa_bi_fwd)
+        } else if constexpr (has_rlzsa)
         {
             out.write((char*) &z, sizeof(pos_t));
             out.write((char*) &z_l, sizeof(pos_t));
@@ -1415,13 +1395,16 @@ public:
             _SR.serialize(out);
             _LP.serialize(out);
             _PT.serialize(out);
+
+            if constexpr (!supports_bwsearch) {
+                out.write((char*) &delta, sizeof(pos_t));
+                out.write((char*) &last_sa, sizeof(pos_t));
+                _SA_delta.serialize(out);
+            }
         } else if constexpr (support == _locate_bi_bwd) {
             _SA_s.serialize(out);
             _SA_s_.serialize(out);
-        } else if constexpr (
-            support == _locate_lzendsa ||
-            support == _locate_lzendsa_bi_fwd)
-        {
+        } else if constexpr (has_lzendsa) {
             _SA_s.serialize(out);
             out.write((char*) &z_end, sizeof(pos_t));
             _lzendsa.serialize(out);
@@ -1500,9 +1483,7 @@ public:
 
         if constexpr (support == _locate_one) {
             _SA_s.load(in);
-        } else if constexpr (
-            support == _locate_move ||
-            support == _locate_move_bi_fwd)
+        } else if constexpr (has_locate_move)
         {
             if constexpr (support == _locate_move_bi_fwd) {
                 in.read((char*) &r___, sizeof(pos_t));
@@ -1514,9 +1495,7 @@ public:
 
             in.read((char*) &omega_idx, 1);
             _SA_Phi_m1.load(in);
-        } else if constexpr (
-            support == _locate_rlzsa ||
-            support == _locate_rlzsa_bi_fwd)
+        } else if constexpr (has_rlzsa)
         {
             in.read((char*) &z, sizeof(pos_t));
             in.read((char*) &z_l, sizeof(pos_t));
@@ -1531,13 +1510,16 @@ public:
             _SR.load(in);
             _LP.load(in);
             _PT.load(in);
+            
+            if constexpr (!supports_bwsearch) {
+                in.read((char*) &delta, sizeof(pos_t));
+                in.read((char*) &last_sa, sizeof(pos_t));
+                _SA_delta.load(in);
+            }
         } else if constexpr (support == _locate_bi_bwd) {
             _SA_s.load(in);
             _SA_s_.load(in);
-        } else if constexpr (
-            support == _locate_lzendsa ||
-            support == _locate_lzendsa_bi_fwd)
-        {
+        } else if constexpr (has_lzendsa) {
             _SA_s.load(in);
             in.read((char*) &z_end, sizeof(pos_t));
             _lzendsa.load(in);

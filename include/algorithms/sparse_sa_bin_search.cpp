@@ -29,13 +29,14 @@
 #include <functional>
 #include <cstdint>
 #include <vector>
+#include <type_traits>
 
 #include <misc/utils.hpp>
 
-template <typename char_t>
-inline static uint64_t lce(const char_t* beg_1, const char_t* end_1, const char_t* beg_2, const char_t* end_2)
+template <typename val_t>
+inline static uint64_t lce(const val_t* beg_1, const val_t* end_1, const val_t* beg_2, const val_t* end_2)
 {
-    static constexpr uint64_t blk_size = sizeof(uint64_t) / sizeof(char_t);
+    static constexpr uint64_t blk_size = sizeof(uint64_t) / sizeof(val_t);
     const uint64_t max_lce = std::min<uint64_t>(end_1 - beg_1, end_2 - beg_2);
     const uint64_t max_blks = max_lce / blk_size;
     uint64_t const* const blks_1 = reinterpret_cast<uint64_t const*>(beg_1);
@@ -56,30 +57,35 @@ inline static uint64_t lce(const char_t* beg_1, const char_t* end_1, const char_
         return lce_val;
     }
 
-    return lce_val * blk_size + std::countr_zero(blks_1[lce_val] ^ blks_2[lce_val]) / (8 * sizeof(char_t));
+    return lce_val * blk_size + std::countr_zero(blks_1[lce_val] ^ blks_2[lce_val]) / (8 * sizeof(val_t));
 }
 
+template <typename inp_t>
 inline uint64_t lce(
-    const std::string& input, const std::string& pattern,
+    const inp_t& input, const inp_t& pattern,
     uint64_t input_pos, uint64_t lce_min = 0
 ) {
-    return lce_min + lce<char>(
+    return lce_min + lce<typename inp_t::value_type>(
         input.data() + input_pos + lce_min, input.data() + input.size(),
         pattern.data() + lce_min, pattern.data() + pattern.size());
 }
 
+template <typename inp_t>
 inline bool lex_less(
-    const std::string& input, const std::string& pattern,
+    const inp_t& input, const inp_t& pattern,
     uint64_t input_pos, uint64_t lce
 ) {
     if (input_pos + lce == input.size() || lce == pattern.size()) [[unlikely]] return false;
-    return char_to_uchar(input[input_pos + lce]) < char_to_uchar(pattern[lce]);
+    using cmp_t = std::make_unsigned_t<typename inp_t::value_type>;
+    return *reinterpret_cast<const cmp_t*>(&input[input_pos + lce]) <
+           *reinterpret_cast<const cmp_t*>(&pattern[lce]);
 }
 
+template <typename inp_t, typename fnc_t>
 std::tuple<uint64_t, uint64_t> sa_interval(
-    const std::string& input, const std::string& pattern,
+    const inp_t& input, const inp_t& pattern,
     uint64_t beg, uint64_t end,
-    const std::function<uint64_t(uint64_t)>& get_sa_sample
+    fnc_t get_sa_sample
 ) {
     uint64_t len = pattern.size();
 
@@ -176,9 +182,9 @@ enum lex_boundary_t {
     _max_lex_leq // search for the maximum lexicographically less than or equal suffix
 };
 
-template <lex_boundary_t boundary_type>
+template <lex_boundary_t boundary_type, typename inp_t>
 uint64_t lex_boundary(
-    const std::string& input, const std::string& pattern,
+    const inp_t& input, const inp_t& pattern,
     uint64_t beg, uint64_t end,
     const std::function<uint64_t(uint64_t)>& get_sa_sample
 ) {
@@ -212,13 +218,11 @@ uint64_t lex_boundary(
     }
 }
 
-template <typename out_t>
+template <typename out_t, typename inp_t, typename smpl_fnc_t, typename smpl_pos_fnc_t, typename report_fnc_t>
 std::tuple<uint64_t, uint64_t, std::vector<out_t>> binary_sa_search_and_extract(
-    const std::string& input, const std::string& pattern, uint64_t num_samples,
-    std::function<uint64_t(uint64_t)>&& get_sa_sample,
-    std::function<uint64_t(uint64_t)>&& get_sa_smpl_pos,
-    std::function<void(uint64_t, uint64_t, uint64_t, uint64_t, std::function<void(uint64_t, uint64_t)>&&)>&& report_sa_rng,
-    bool extract_sa_values = true
+    const inp_t& input, const inp_t& pattern, uint64_t num_samples,
+    smpl_fnc_t get_sa_sample, smpl_pos_fnc_t get_sa_smpl_pos,
+    report_fnc_t report_sa_rng, bool extract_sa_values = true
 ) {
     // binary search over sampled SA-positions
     auto [fst_smpl_idx, lst_smpl_idx] = sa_interval(input, pattern, 0, num_samples - 1, get_sa_sample);

@@ -123,7 +123,7 @@ void parse_args(char** argv, int argc, int& ptr)
         if (ptr >= argc - 1) help("error: missing parameter after -m option");
         path_mf = argv[ptr++];
         mf.open(path_mf, std::filesystem::exists(path_mf) ? std::ios::app : std::ios::out);
-        if (!mf.good()) help("error: cannot open or create measurement file");
+        if (!mf.good()) help("error: cannot open nor create measurement file");
     } else if (s == "-c") {
         if (ptr >= argc - 1) help("error: missing parameter after -c option");
         check_correctness = true;
@@ -138,7 +138,7 @@ int main_bench_a(int argc, char** argv)
         if (std::string(argv[2]) != "-m") help("");
         path_mf = argv[3];
         mf.open(path_mf, std::filesystem::exists(path_mf) ? std::ios::app : std::ios::out);
-        if (!mf.good()) help("error: cannot open or create measurement file");
+        if (!mf.good()) help("error: cannot open nor create measurement file");
         path_input_file = argv[4];
         path_patterns_file_1 = argv[5];
         path_patterns_file_2 = argv[6];

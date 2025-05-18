@@ -41,7 +41,6 @@ void help()
     std::cout << "\t<text file>     path to the input file (should contain text)" << std::endl;
     std::cout << "\t-o              path to the desired output file (the extension .rlzsa will be added automatically)" << std::endl;
     std::cout << "\t-d              delta, if not provided the sample will be about 10\% of the index size" << std::endl;
-    std::cout << "\t-ref-size       reference size (in relation to the input size, default = 0.1 (10\%))" << std::endl;
     std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
     std::cout << "\t--f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
 }
@@ -53,7 +52,6 @@ int main(int argc, char** argv)
 
     allowed_value_options.insert("-o");
     allowed_value_options.insert("-d");
-    allowed_value_options.insert("-ref-size");
     allowed_literal_options.insert("--f64");
     allowed_literal_options.insert("--bigbwt");
 
@@ -71,7 +69,6 @@ int main(int argc, char** argv)
     bool use_bigbwt = false;
     bool use64 = false;
     int64_t d = -1;
-    double relative_reference_size = 0.1;
 
     if (parsed_args.literal_options.contains("--f64")) {
         use64 = true;
@@ -88,10 +85,6 @@ int main(int argc, char** argv)
 
         if (value_option.name == "-d") {
             d = std::stol(value_option.value);
-        }
-
-        if (value_option.name == "-ref-size") {
-            relative_reference_size = std::stod(value_option.value);
         }
     }
 
@@ -112,10 +105,10 @@ int main(int argc, char** argv)
 
     if (n <= INT32_MAX && !use64) {
         std::cout << "Constructing using 32-bit integers" << std::endl;
-        rlzsa_32 = rlzsa<int32_t>(input, relative_reference_size, d, use_bigbwt, true);
+        rlzsa_32 = rlzsa<int32_t>(input, d, use_bigbwt, true);
     } else {
         std::cout << "Constructing using 64-bit integers" << std::endl;
-        rlzsa_64 = rlzsa<int64_t>(input, relative_reference_size, d, use_bigbwt, true);
+        rlzsa_64 = rlzsa<int64_t>(input, d, use_bigbwt, true);
     }
 
     auto t2 = now();

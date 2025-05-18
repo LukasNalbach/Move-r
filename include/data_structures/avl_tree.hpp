@@ -473,8 +473,8 @@ protected:
      * @param max_tasks max number of tasks to start
      * @return the root of the avl subtree
      */
-    template <typename pos_t>
-    inline static avl_node* build_subtree(pos_t l, pos_t r, std::function<avl_node*(pos_t)>& at, uint16_t max_tasks = 1)
+    template <typename pos_t, typename fnc_t>
+    inline static avl_node* build_subtree(pos_t l, pos_t r, fnc_t at, uint16_t max_tasks = 1)
     {
         if (r == l) {
             avl_node* n_l = at(l);
@@ -624,8 +624,8 @@ public:
      * @param at function returning the node at a given position
      * @param max_tasks max number of tasks to start
      */
-    template <typename pos_t>
-    void insert_array(pos_t l, pos_t r, std::function<avl_node*(pos_t)>& at, uint16_t max_tasks = 1)
+    template <typename pos_t, typename fnc_t>
+    void insert_array(pos_t l, pos_t r, fnc_t at, uint16_t max_tasks = 1)
     {
         if (empty() && l >= 0 && r >= l) {
             this->r = build_subtree(l, r, at, omp_in_parallel() ? max_tasks : 1);

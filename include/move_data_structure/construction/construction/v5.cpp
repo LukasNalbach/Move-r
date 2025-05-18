@@ -99,7 +99,7 @@ void move_data_structure<pos_t>::construction::build_tin_tout_v5()
         if (T_in_v5[i].empty() || (*T_in_v5[i].begin()).first != s[i]) {
             pair_t pr_split = *T_in_v5[i - 1].rbegin();
             pair_t pr_new { s[i], pr_split.second + (s[i] - pr_split.first) };
-            uint16_t i_p_ = bin_search_max_leq<pos_t>(pr_new.second, 0, p - 1, [this](pos_t x) { return s[x]; });
+            uint16_t i_p_ = bin_search_max_leq<pos_t>(pr_new.second, 0, p - 1, [&](pos_t x) { return s[x]; });
             T_in_v5[i].emplace(pr_new);
             T_out_v5[i_p_].emplace(pr_new);
         }
@@ -110,7 +110,7 @@ void move_data_structure<pos_t>::construction::build_tin_tout_v5()
         if (T_out_v5[i].empty() || (*T_out_v5[i].begin()).second != s[i]) {
             pair_t pr_split = *T_out_v5[i - 1].rbegin();
             pair_t pr_new { pr_split.first + (s[i] - pr_split.second), s[i] };
-            uint16_t i_p_ = bin_search_max_leq<pos_t>(pr_new.first, 0, p - 1, [this](pos_t x) { return s[x]; });
+            uint16_t i_p_ = bin_search_max_leq<pos_t>(pr_new.first, 0, p - 1, [&](pos_t x) { return s[x]; });
             T_in_v5[i_p_].emplace(pr_new);
             T_out_v5[i].emplace(pr_new);
         }
@@ -147,7 +147,7 @@ void move_data_structure<pos_t>::construction::build_tin_tout_v5()
                 pr_Im1 = *tn_I;
                 tn_I++;
 
-                uint16_t i_p_ = bin_search_max_leq<pos_t>(pr_Im1.second, 0, p - 1, [this](pos_t x) { return s[x]; });
+                uint16_t i_p_ = bin_search_max_leq<pos_t>(pr_Im1.second, 0, p - 1, [&](pos_t x) { return s[x]; });
 
                 // store each new pair in its corresponding tree in T_out_temp_v5
                 T_out_temp_v5[i_p_][i_p].emplace(pr_Im1);

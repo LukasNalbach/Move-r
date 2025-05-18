@@ -335,7 +335,7 @@ public:
                 time = log_runtime(time);
             }
             
-            std::vector<pos_t> SA_fwd = idx_fwd.SA();
+            std::vector<pos_t> SA_fwd = idx_fwd.SA_range();
 
             time = now();
             std::cout << "building H" << std::flush;
@@ -426,11 +426,12 @@ public:
         log_runtime(time);
     }
 
+    template <typename fnc_t>
     sd_array<pos_t> build_sampling(
         pos_t num_values,
         pos_t max_value,
         pos_t sample_rate,
-        std::function<pos_t(pos_t)> sample
+        fnc_t sample
     ) {
         pos_t num_samples = div_ceil(num_values, sample_rate);
         sdsl::sd_vector_builder builder(max_value + 1, num_samples + 1);
@@ -443,7 +444,8 @@ public:
         return sd_array<pos_t>(sdsl::sd_vector<>(builder));
     }
 
-    static pos_t input_interval(pos_t i, const sd_array<pos_t>& sd_arr, std::function<pos_t(pos_t)> interval_start)
+    template <typename fnc_t>
+    static pos_t input_interval(pos_t i, const sd_array<pos_t>& sd_arr, fnc_t interval_start)
     {
         pos_t x = (sd_arr.rank_1(i) - 1) * sample_rate_input_intervals;
 

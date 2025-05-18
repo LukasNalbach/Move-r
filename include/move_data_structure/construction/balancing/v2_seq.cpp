@@ -83,10 +83,8 @@ void move_data_structure<pos_t>::construction::balance_v2_seq()
     }
 
     // Build T_e_v2 from nodes_te.
-    std::function<te_node_t_v2*(pos_t)> at = [&nodes_te](pos_t i) { return &nodes_te[i]; };
-
     if (!nodes_te.empty()) {
-        T_e_v2.insert_array((pos_t)0, (pos_t)nodes_te.size() - 1, at);
+        T_e_v2.insert_array((pos_t)0, (pos_t)nodes_te.size() - 1, [&](pos_t i) { return &nodes_te[i]; });
     }
 
     if (log) {
