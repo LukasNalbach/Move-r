@@ -517,6 +517,8 @@ public:
     void serialize(std::ostream& out) const
     {
         out.write((char*) &n, sizeof(uint64_t));
+        out.write((char*) &z, sizeof(uint64_t));
+
         R.serialize(out);
         PS.serialize(out);
         PL.serialize(out);
@@ -526,6 +528,8 @@ public:
     void load(std::istream& in)
     {
         in.read((char*) &n, sizeof(uint64_t));
+        in.read((char*) &z, sizeof(uint64_t));
+
         R.load(in);
         PS.load(in);
         PL.load(in);
