@@ -44,12 +44,13 @@ void help()
 }
 
 template <typename int_t>
-void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string file_name, std::string input_file)
+void locate(std::ifstream& index_file, std::ifstream& patterns_file, std::string file_name, std::string input_file)
 {
     size_t pre_load_memory = malloc_count_current();
     std::cout << "Loading r-index-rlzsa index" << std::flush;
     r_index_rlzsa<int_t> index;
     index.load(index_file);
+    index_file.close();
     std::cout << " done" << std::endl;
     std::string input;
 
@@ -62,20 +63,25 @@ void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string fi
         std::cout << " done" << std::endl;
     }
 
-    std::cout << "Loading patterns" << std::flush;
     std::string pattern_header;
-    std::getline(pattern_in, pattern_header);
+    std::getline(patterns_file, pattern_header);
     uint64_t pattern_length = get_pattern_length(pattern_header);
     uint64_t pattern_count = get_pattern_count(pattern_header);
-    std::vector<std::string> patterns = load_patterns(pattern_in, pattern_length, pattern_count);
-    std::cout << " found " << pattern_count << " patterns of length " << pattern_length << "." << std::endl;
-
+    std::cout << "Found " << pattern_count << " patterns of length " << pattern_length << "." << std::endl;
     std::cout << "Locate: " << std::flush;
     int64_t occ_total = 0;
-    auto t1 = now();
+    uint64_t time_ns = 0;
+    std::string pattern;
+    no_init_resize(pattern, pattern_length);
 
-    for (std::string& pattern : patterns) {
+    for (uint64_t i = 0; i < pattern_count; i++) {
+        patterns_file.read(pattern.data(), pattern_length);
+
+        auto t1 = now();
         std::vector<int_t> occurrences = index.template locate<int_t>(pattern);
+        auto t2 = now();
+
+        time_ns += time_diff_ns(t1, t2);
         occ_total += occurrences.size();
         
         if (!input_file.empty()) {
@@ -88,9 +94,7 @@ void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string fi
         }
     }
 
-    auto t2 = now();
-    uint64_t time_ns = time_diff_ns(t1, t2);
-    std::cout << "Located " << patterns.size() << " patterns (with " << occ_total << " occurences) in " << format_time(time_ns) << std::endl;
+    std::cout << "Located " << pattern_count << " patterns (with " << occ_total << " occurences) in " << format_time(time_ns) << std::endl;
     uint64_t size_index = index.size_in_bytes();
 
     std::cout << "RESULT"
@@ -100,7 +104,7 @@ void locate(std::ifstream& index_file, std::ifstream& pattern_in, std::string fi
         << " num_occurrences=" << occ_total
         << " text=" << file_name
         << " pattern_length=" << pattern_length
-        << " num_patterns=" << patterns.size()
+        << " num_patterns=" << pattern_count
         << " z=" << index.sa_encoding().num_phrases()
         << std::endl;
 }

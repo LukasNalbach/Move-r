@@ -144,7 +144,7 @@ public:
 
     // extraction method
     template <typename report_fnc_t>
-    void extract_deltas(int64_t beg, int64_t end, const report_fnc_t report) const
+    void extract_deltas(int64_t beg, int64_t end, report_fnc_t report) const
     {
         if (end < beg) return;
         int64_t phrase_id = phrase_containing(end);

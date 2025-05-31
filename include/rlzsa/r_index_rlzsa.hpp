@@ -41,7 +41,7 @@ class r_index_rlzsa {
 
 protected:
     rlzsa_encoding<int_t> rlzsa_enc;
-    custom_r_index::index r_index;
+    custom_r_index::index r_idx;
 
 public:
     r_index_rlzsa() = default;
@@ -58,7 +58,7 @@ public:
         // build r-index
         if (log) time = now();
         if (log) std::cout << "building r-index" << std::flush;
-        r_index = custom_r_index::index(bwt, sa, false);
+        r_idx = custom_r_index::index(bwt, sa, false);
         bwt.clear();
         bwt.shrink_to_fit();
         if (log) time = log_runtime(time);
@@ -77,7 +77,7 @@ public:
         
         // compute rlzsa
         if (log) std::cout << "building rlzsa:" << std::endl;
-        uint64_t r = r_index.number_of_runs();
+        uint64_t r = r_idx.number_of_runs();
         uint64_t reference_size = std::min<uint64_t>(n / 3, 5.2 * r);
         rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, log);
 
@@ -85,6 +85,12 @@ public:
             std::cout << "r-index-rlzsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
             std::cout << "relative reference size: " << reference_size / (double) n << std::endl;
         }
+    }
+
+    // return a referrlzsa_ence to the r-index
+    const custom_r_index::index& r_index() const
+    {
+        return r_idx;
     }
 
     // return a referrlzsa_ence to the rlzsa_encoding
@@ -96,7 +102,7 @@ public:
     template <typename out_t>
     std::vector<out_t> locate(const std::string &pattern) const
     {
-        auto [beg, end] = r_index.count(pattern);
+        auto [beg, end] = r_idx.count(pattern);
         if (end < beg) return {};
         std::vector<out_t> Occ = rlzsa_enc.template extract<out_t>(beg, end);
 
@@ -112,7 +118,7 @@ public:
 
     std::pair<uint64_t, uint64_t> count(std::string &pattern) const
     {
-        return r_index.count(pattern);
+        return r_idx.count(pattern);
     }
 
     uint64_t input_size() const
@@ -127,28 +133,28 @@ public:
 
     uint64_t num_samples() const
     {
-        return r_index.num_bwt_runs();
+        return r_idx.num_bwt_runs();
     }
 
     uint64_t sample(uint64_t i) const
     {
-        return r_index.sample(i);
+        return r_idx.sample(i);
     }
 
     uint64_t size_in_bytes() const
     {
-        return sizeof(this) + rlzsa_enc.size_in_bytes() + r_index.size_in_bytes();
+        return sizeof(this) + rlzsa_enc.size_in_bytes() + r_idx.size_in_bytes();
     }
 
     void serialize(std::ostream &out) const
     {
         rlzsa_enc.serialize(out);
-        r_index.serialize(out);
+        r_idx.serialize(out);
     }
 
     void load(std::istream &in)
     {
         rlzsa_enc.load(in);
-        r_index.load(in);
+        r_idx.load(in);
     }
 };
