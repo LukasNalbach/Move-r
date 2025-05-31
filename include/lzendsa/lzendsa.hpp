@@ -58,11 +58,37 @@ protected:
 
     const std::string* input;
 
+    void build_sampling(const std::vector<int_t>& sa, int_t d, bool log)
+    {
+        uint64_t n = sa.size();
+        
+        if (d <= 0) {
+            uint64_t target_sampling_size_in_bits = (lzendsa_enc.size_in_bytes() * 8) * default_relative_sampling_size;
+            d = n / (target_sampling_size_in_bits / std::bit_width(uint64_t{n}));
+        }
+
+        this->d = d;
+
+        // construct the SA sampling
+        if (log) std::cout << "building SA-Samples, d = " << d << std::flush;
+
+        auto time = now();
+        uint64_t num_samples = n / d;
+        sa_samples = interleaved_bit_aligned_vectors<uint64_t, 1>({ std::bit_width(uint64_t{n}) });
+        sa_samples.resize_no_init(num_samples);
+
+        for (uint64_t i = 0; i < num_samples; i++) {
+            sa_samples.set<0>(i, sa[i * d]);
+        }
+
+        if (log) time = log_runtime(time);
+    }
+
 public:
     lzendsa() = default;
 
     // call when the suffix array of the input text is not yet calculated
-    lzendsa(std::string& input, int_t d = -1, int_t h = 8192, bool use_bigbwt = false, bool log = false) : d(d)
+    lzendsa(std::string& input, int_t d = -1, int_t h = 8192, bool use_bigbwt = false, bool log = false)
     {
         auto time_start = now();
         auto time = time_start;
@@ -95,25 +121,13 @@ public:
         // lzendsa_encode the lzend parsing of DSA
         lzendsa_enc = lzendsa_encoding(lzend_phrases, n, h);
 
-        if (d <= 0) {
-            uint64_t target_sampling_size_in_bits = (lzendsa_enc.size_in_bytes() * 8) * default_relative_sampling_size;
-            d = n / (target_sampling_size_in_bits / std::bit_width(uint64_t{n}));
-            this->d = d;
-        }
+        build_sampling(sa, d, log);
+    }
 
-        // construct the SA sampling
-        if (log) std::cout << "building SA-Samples, d = " << d << std::flush;
-
-        time = now();
-        uint64_t num_samples = n / d;
-        sa_samples = interleaved_bit_aligned_vectors<uint64_t, 1>({ std::bit_width(uint64_t{n}) });
-        sa_samples.resize_no_init(num_samples);
-
-        for (uint64_t i = 0; i < num_samples; i++) {
-            sa_samples.set<0>(i, sa[i * d]);
-        }
-
-        if (log) time = log_runtime(time);
+    lzendsa(const lzendsa_encoding& lzendsa_enc, const std::vector<int_t>& sa, int_t d = -1, bool log = false)
+    {
+        this->lzendsa_enc = lzendsa_enc;
+        build_sampling(sa, d, log);
     }
 
     void set_input(const std::string& str)

@@ -40,7 +40,7 @@ class r_index_lzendsa {
 
 protected:
     lzendsa_encoding lzendsa_enc;
-    custom_r_index::index r_index;
+    custom_r_index::index r_idx;
 
 public:
     r_index_lzendsa() = default;
@@ -57,7 +57,7 @@ public:
         // build r-index
         if (log) time = now();
         if (log) std::cout << "building r-index" << std::flush;
-        r_index = custom_r_index::index(bwt, sa, true);
+        r_idx = custom_r_index::index(bwt, sa, true);
         bwt.clear();
         bwt.shrink_to_fit();
         if (log) time = log_runtime(time);
@@ -96,7 +96,7 @@ public:
 
     std::vector<int_t> locate(const std::string &pattern) const
     {
-        auto [beg, end, last_value] = r_index.count_and_get_occ(pattern);
+        auto [beg, end, last_value] = r_idx.count_and_get_occ(pattern);
         if (end < beg) return {};
         std::vector<int_t> result = lzendsa_enc.template extract_deltas<int_t>(beg + 1, end);
         result.push_back(last_value);
@@ -114,6 +114,12 @@ public:
         return result;
     }
 
+    // return a reference to the r_index
+    const custom_r_index::index& r_index() const
+    {
+        return r_idx;
+    }
+
     // return a reference to the lzendsa_encoding
     const lzendsa_encoding& sa_encoding() const
     {
@@ -122,7 +128,7 @@ public:
 
     std::pair<uint64_t, uint64_t> count(std::string &pattern) const
     {
-        return r_index.count(pattern);
+        return r_idx.count(pattern);
     }
 
     uint64_t input_size() const
@@ -137,33 +143,33 @@ public:
 
     uint64_t num_samples() const
     {
-        return r_index.num_bwt_runs();
+        return r_idx.num_bwt_runs();
     }
 
     uint64_t sample(uint64_t i) const
     {
-        return r_index.sample(i);
+        return r_idx.sample(i);
     }
 
     uint64_t sample_pos(uint64_t i) const
     {
-        return r_index.sample_pos(i);
+        return r_idx.sample_pos(i);
     }
 
     uint64_t size_in_bytes() const
     {
-        return sizeof(this) + lzendsa_enc.size_in_bytes() + r_index.size_in_bytes();
+        return sizeof(this) + lzendsa_enc.size_in_bytes() + r_idx.size_in_bytes();
     }
 
     void serialize(std::ostream &out) const
     {
         lzendsa_enc.serialize(out);
-        r_index.serialize(out);
+        r_idx.serialize(out);
     }
 
     void load(std::istream &in)
     {
         lzendsa_enc.load(in);
-        r_index.load(in);
+        r_idx.load(in);
     }
 };
