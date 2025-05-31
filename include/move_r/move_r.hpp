@@ -75,6 +75,7 @@ static std::string move_r_support_suffix(move_r_support support)
         case _count: support_suffix = ""; break;
         case _locate_move: support_suffix = "move"; break;
         case _locate_rlzsa: support_suffix = "rlzsa"; break;
+        case _locate_rlzsa_bin_search: support_suffix = "rlzsa_bin_search"; break;
         case _locate_lzendsa: support_suffix = "lzendsa"; break;
         default: break;
     }
@@ -564,7 +565,7 @@ public:
             out << " size_pt=" << _PT.size_in_bytes();
 
             if constexpr (!supports_bwsearch) {
-                std::cout << " size_sa_delta=" << _SA_delta.size_in_bytes() << std::endl;
+                out << " size_sa_delta=" << _SA_delta.size_in_bytes();
             }
         }
 

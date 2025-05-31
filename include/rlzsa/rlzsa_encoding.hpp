@@ -509,8 +509,8 @@ public:
     std::vector<out_t> extract(uint64_t l, uint64_t r, int64_t sa_l = -1) const
     {
         std::vector<out_t> result;
-        no_init_resize(result, r - l + 1);
-        extract<out_t>(l, r, [&](uint64_t i, out_t v){result[i - l] = v;}, sa_l);
+        result.reserve(r - l + 1);
+        extract<out_t>(l, r, [&](uint64_t, out_t v){result.emplace_back(v);}, sa_l);
         return result;
     }
 
