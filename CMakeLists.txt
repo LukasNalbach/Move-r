@@ -128,6 +128,7 @@ if(MOVE_R_BUILD_LZENDSA_CLI)
   add_executable(lzendsa-locate cli/lzendsa/lzendsa-locate.cpp)
   add_executable(lzendsa-random-access cli/lzendsa/lzendsa-random-access.cpp)
   add_executable(r-index-lzendsa-build cli/lzendsa/r-index-lzendsa-build.cpp)
+  add_executable(r-index-lzendsa-count cli/lzendsa/r-index-lzendsa-count.cpp)
   add_executable(r-index-lzendsa-locate cli/lzendsa/r-index-lzendsa-locate.cpp)
 
   target_link_libraries(lzendsa-build PRIVATE move_r)
@@ -136,11 +137,12 @@ if(MOVE_R_BUILD_LZENDSA_CLI)
   target_link_libraries(lzendsa-locate PRIVATE move_r)
   target_link_libraries(lzendsa-random-access PRIVATE move_r)
   target_link_libraries(r-index-lzendsa-build PRIVATE move_r)
+  target_link_libraries(r-index-lzendsa-count PRIVATE move_r)
   target_link_libraries(r-index-lzendsa-locate PRIVATE move_r)
 
   set_target_properties(
     lzendsa-build lzendsa-convert lzendsa-count lzendsa-locate lzendsa-random-access
-    r-index-lzendsa-build r-index-lzendsa-locate
+    r-index-lzendsa-build r-index-lzendsa-count r-index-lzendsa-locate
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/"
   )
 endif()
@@ -152,6 +154,7 @@ if(MOVE_R_BUILD_RLZSA_CLI)
   add_executable(rlzsa-locate cli/rlzsa/rlzsa-locate.cpp)
   add_executable(rlzsa-random-access cli/rlzsa/rlzsa-random-access.cpp)
   add_executable(r-index-rlzsa-build cli/rlzsa/r-index-rlzsa-build.cpp)
+  add_executable(r-index-rlzsa-count cli/rlzsa/r-index-rlzsa-count.cpp)
   add_executable(r-index-rlzsa-locate cli/rlzsa/r-index-rlzsa-locate.cpp)
 
   target_link_libraries(rlzsa-build PRIVATE move_r)
@@ -160,11 +163,12 @@ if(MOVE_R_BUILD_RLZSA_CLI)
   target_link_libraries(rlzsa-locate PRIVATE move_r)
   target_link_libraries(rlzsa-random-access PRIVATE move_r)
   target_link_libraries(r-index-rlzsa-build PRIVATE move_r)
+  target_link_libraries(r-index-rlzsa-count PRIVATE move_r)
   target_link_libraries(r-index-rlzsa-locate PRIVATE move_r)
   
   set_target_properties(
     rlzsa-build rlzsa-convert rlzsa-count rlzsa-locate rlzsa-random-access
-    r-index-rlzsa-build r-index-rlzsa-locate
+    r-index-rlzsa-build r-index-rlzsa-count r-index-rlzsa-locate
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/"
   )
 endif()
