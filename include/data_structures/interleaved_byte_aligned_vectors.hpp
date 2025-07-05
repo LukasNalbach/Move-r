@@ -504,6 +504,40 @@ public:
     }
 
     /**
+     * @brief logs the contents of all vectos
+     */
+    void log_contents() const
+    {
+        uint8_t last_used_vec = 0;
+        uint8_t num_used_vecs = 0;
+
+        for_constexpr<0, num_vectors, 1>([&](auto vec_idx){
+            if (widths[vec_idx] != 0) {
+                last_used_vec = vec_idx;
+                num_used_vecs++;
+            }
+        });
+
+        std::string opening_bracket_str = num_used_vecs <= 1 ? "" : "(";
+        std::string closing_bracket_str = num_used_vecs <= 1 ? "" : ")";
+
+        for (uint64_t i = 0; i < size_vectors; i++) {
+            std::cout << opening_bracket_str;
+
+            for_constexpr<0, num_vectors, 1>([&](auto vec_idx){
+                if (widths[vec_idx] != 0) {
+                    std::cout << get<vec_idx>(i) << (vec_idx == last_used_vec ? "" : ", ");
+                }
+            });
+
+            std::cout << closing_bracket_str;
+            if (i != size_vectors - 1) std::cout << ", ";
+        }
+        
+        std::cout << std::endl;
+    }
+
+    /**
      * @brief serializes the interleaved vectors to an output stream
      * @param out output stream
      */

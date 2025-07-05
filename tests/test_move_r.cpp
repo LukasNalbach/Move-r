@@ -198,8 +198,7 @@ void test_move_r()
                     }
                 }
 
-                if (match)
-                    correct_occurrences.emplace_back(i);
+                if (match) correct_occurrences.emplace_back(i);
             }
             
             EXPECT_EQ(index.count(pattern), correct_occurrences.size());

@@ -57,6 +57,7 @@ public:
         const std::vector<int_t>& SA,
         std::vector<int_t>&& DSA,
         uint64_t reference_size,
+        bool add_literal_phrase_after_each_copy_phrase = false,
         bool log = false
     ) {
         n = DSA.size();
@@ -370,7 +371,7 @@ public:
                     S[z - 1] = (R.size() - FM_rrev[b_last]) - l;
                     i += l;
 
-                    if (i < n) {
+                    if (add_literal_phrase_after_each_copy_phrase && i < n) {
                         // add a literal phrase after each copy-phrase
                         z++;
                         PL.resize(z);

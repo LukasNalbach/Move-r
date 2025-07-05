@@ -77,7 +77,8 @@ public:
     pos_t size_R_target = 0; // target size for R
     pos_t seg_size = 0; // (maximum) size of each segment from SA^d to be included in R
     pos_t num_cand_segs = 0; // number of candidate segments that are considered in each iteration during the construction of R
-    bool move_rb = false;
+    void* sa_vector; // pointer to the suffix array (used only for bidirectional forward indexes)
+    std::string* sa_file_name; // name of the suffix array file (used only for bidirectional forward indexes)
 
     // ############################# INDEX VARIABLES #############################
 
@@ -569,6 +570,8 @@ public:
         this->mf_idx = params.mf_idx;
         this->mf_mds = params.mf_mds;
         this->name_text_file = params.name_text_file;
+        this->sa_vector = params.sa_vector;
+        this->sa_file_name = params.sa_file_name;
     }
 
     /**
@@ -605,7 +608,7 @@ public:
             if (params.file_input) {
                 read_t_from_file(T);
             } else {
-                T.push_back(uchar_to_char((uint8_t) 0));
+                T.push_back(0);
             }
             
             if (idx.sigma == 0) preprocess_t(true, false, T);
@@ -613,7 +616,10 @@ public:
 
             if (!delete_T && !params.file_input) {
                 T.resize(n - 1);
-                unmap_t(true);
+
+                if (!is_bidirectional) {
+                    unmap_t(true);
+                }
             }
         } else {
             min_valid_char = 3;
@@ -655,7 +661,7 @@ public:
 
         if (!delete_T) {
             T.resize(n - 1);
-            if (idx.symbols_remapped) unmap_t(true);
+            if (idx.symbols_remapped && !delete_T) unmap_t(true);
         }
 
         if (log) log_finished();
@@ -725,13 +731,13 @@ public:
         }
 
         if constexpr (supports_locate) {
-            build_iphim1_sa<false, sa_sint_t>();
+            build_iphim1_sas_from_sa<false, sa_sint_t>();
 
-            if constexpr (supports_bwsearch) {
-                build_l__sas<true>();
+            if constexpr (supports_locate && supports_bwsearch) {
+                build_l__sas();
             }
         } else {
-            build_l__sas<false>();
+            build_l__sas();
         }
 
         if constexpr (supports_multiple_locate) {
@@ -744,7 +750,7 @@ public:
 
                 sort_iphim1();
                 build_mphim1();
-                build_saphim1();
+                if constexpr (support == _locate_move) build_saphim1();
                 build_de();
             } else if constexpr (has_rlzsa) {
                 construct_rlzsa<false, sa_sint_t>();
@@ -800,10 +806,14 @@ public:
         }
 
         if constexpr (supports_locate) {
-            build_iphim1_sa<false, sa_sint_t>();
+            if (support == _locate_bi_bwd) {
+                build_sas_from_sa<false, sa_sint_t>();
+            } else {
+                build_iphim1_sas_from_sa<false, sa_sint_t>();
+            }
 
             if constexpr (supports_bwsearch) {
-                build_l__sas<true>();
+                build_l__sas();
             } else {
                 RLBWT.clear();
                 RLBWT.shrink_to_fit();
@@ -830,7 +840,7 @@ public:
                     sort_iphim1();
                     build_mphim1();
                     if (_space) load_sas();
-                    build_saphim1();
+                    if (!is_bidirectional) build_saphim1();
                     build_de();
                     if (_space) {
                         load_mlf();
@@ -872,6 +882,10 @@ public:
                 } else if constexpr (support == _locate_bi_bwd) {
                     build_l_prev_next();
                 }
+
+                if constexpr (support == _locate_move_bi_fwd || support == _locate_rlzsa_bi_fwd) {
+                    *reinterpret_cast<std::vector<sa_sint_t>*>(sa_vector) = std::move(get_sa<sa_sint_t>());
+                }
             } else {
                 if (_space) store_sas_idx();
                 if constexpr (byte_alphabet) build_l_prev_next();
@@ -879,7 +893,7 @@ public:
                 if (_space) load_sas_idx();
             }
         } else {
-            build_l__sas<false>();
+            build_l__sas();
             if constexpr (byte_alphabet) build_l_prev_next();
             else build_rsl_();
         }
@@ -909,14 +923,18 @@ public:
         }
 
         if constexpr (supports_locate) {
-            if (has_rlzsa || has_lzendsa || p > 1) {
-                build_iphim1_sa<true, int32_t>();
+            if (is_bidirectional || has_rlzsa || has_lzendsa || p > 1) {
+                if (support == _locate_bi_bwd) {
+                    build_sas_from_sa<true, int32_t>();
+                } else {
+                    build_iphim1_sas_from_sa<true, int32_t>();
+                }
             } else {
                 read_iphim1_bigbwt();
             }
             
             if constexpr (supports_bwsearch) {
-                build_l__sas<true>();
+                build_l__sas();
             }
 
             if constexpr (supports_multiple_locate) {
@@ -925,6 +943,7 @@ public:
                     build_l_prev_next();
                     store_mlf();
                     store_l_prev_next();
+
                     if constexpr (support == _locate_move_bi_fwd) {
                         build_iphi();
                         store_iphim1();
@@ -933,10 +952,11 @@ public:
                         store_mphi();
                         load_iphim1();
                     }
+
                     sort_iphim1();
                     build_mphim1();
                     load_sas();
-                    build_saphim1();
+                    if constexpr (support == _locate_move) build_saphim1();
                     build_de();
                     load_mlf();
                     if constexpr (support == _locate_move_bi_fwd) load_mphi();
@@ -977,13 +997,20 @@ public:
                 load_sas_idx();
             }
 
-            if (has_rlzsa || p > 1) {
+            if (has_rlzsa || has_lzendsa || p > 1 ||
+                support == _locate_move_bi_fwd || support == _locate_rlzsa_bi_fwd
+            ) {
                 SA_file_bufs.clear();
                 SA_file_bufs.shrink_to_fit();
-                std::filesystem::remove(prefix_tmp_files + ".sa");
+
+                if constexpr (support == _locate_move_bi_fwd || support == _locate_rlzsa_bi_fwd) {
+                    *sa_file_name = prefix_tmp_files + ".sa";
+                } else {
+                    std::filesystem::remove(prefix_tmp_files + ".sa");
+                }
             }
         } else {
-            build_l__sas<false>();
+            build_l__sas();
             build_l_prev_next();
         }
     };
@@ -1076,18 +1103,24 @@ public:
     void build_mlf();
 
     /**
-     * @brief builds I_Phi^{m1} from SA in memory
+     * @brief builds SA_s and SA_s' from SA
      * @tparam bigbwt true <=> read I_Phi from the SA file output by Big-BWT
      * @tparam sa_sint_t suffix array signed integer type
      */
     template <bool bigbwt, typename sa_sint_t>
-    void build_iphim1_sa();
+    void build_sas_from_sa();
+
+    /**
+     * @brief builds I_Phi^{m1} and SA_s and SA_s' from SA
+     * @tparam bigbwt true <=> read I_Phi from the SA file output by Big-BWT
+     * @tparam sa_sint_t suffix array signed integer type
+     */
+    template <bool bigbwt, typename sa_sint_t>
+    void build_iphim1_sas_from_sa();
 
     /**
      * @brief builds L' in M_LF (and SA_s)
-     * @tparam build_sas controls, whether to build SA_s
      */
-    template <bool build_sas>
     void build_l__sas();
 
     /**

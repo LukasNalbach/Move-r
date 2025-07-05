@@ -38,11 +38,12 @@ void help()
 {
     std::cout << "r-index-rlzsa-build: builds the r-index-rlzsa-Index from the input file." << std::endl << std::endl;
     std::cout << "Usage: r-index-rlzsa-build [options] <text file>" << std::endl;
-    std::cout << "\t<text file>     path to the input file (should contain text)" << std::endl;
-    std::cout << "\t-o              path to the desired output file (the extension .r-index-rlzsa will be added automatically)" << std::endl;
-    std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
-    std::cout << "\t--f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
-    std::cout << "\t                this mode additionally ensures that there is a literal phrase after each copy phrase in the rlzsa" << std::endl;
+    std::cout << "\t<text file>        path to the input file (should contain text)" << std::endl;
+    std::cout << "\t-o                 path to the desired output file (the extension .r-index-rlzsa will be added automatically)" << std::endl;
+    std::cout << "\t--bigbwt           use Big-BWT instead of libsais" << std::endl;
+    std::cout << "\t--f64              explicitly use 64-bit-integers regardless of the file size" << std::endl;
+    std::cout << "\t--r-index-samples  use the SA-Samples in the r-index instead of the literal phrases in the rlzsa factorization" << std::endl;
+    std::cout << "\t                   this mode additionally ensures that there is a literal phrase after each copy phrase in the rlzsa" << std::endl;
 }
 
 int main(int argc, char** argv)
@@ -53,6 +54,7 @@ int main(int argc, char** argv)
     allowed_value_options.insert("-o");
     allowed_literal_options.insert("--bigbwt");
     allowed_literal_options.insert("--f64");
+    allowed_literal_options.insert("--r-index-samples");
 
     CommandLineArguments parsed_args = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 1);
 
@@ -67,6 +69,7 @@ int main(int argc, char** argv)
     std::string file_name = filepath.substr(filepath.find_last_of("/\\") + 1);
     bool use_bigbwt = false;
     bool use64 = false;
+    bool use_r_index_samples = false;
 
     if (parsed_args.literal_options.contains("--f64")) {
         use64 = true;
@@ -74,6 +77,10 @@ int main(int argc, char** argv)
 
     if (parsed_args.literal_options.contains("--bigbwt")) {
         use_bigbwt = true;
+    }
+
+    if (parsed_args.literal_options.contains("--r-index-samples")) {
+        use_r_index_samples = true;
     }
 
     for (Option value_option : parsed_args.value_options) {
@@ -103,10 +110,10 @@ int main(int argc, char** argv)
 
     if (n <= INT32_MAX && !use64) {
         std::cout << "Using 32-bit-integers" << std::endl;
-        index_32 = r_index_rlzsa<int32_t>(input, use_bigbwt, true);
+        index_32 = r_index_rlzsa<int32_t>(input, use_bigbwt, use_r_index_samples, true);
     } else {
         std::cout << "Using 64-bit-integers" << std::endl;
-        index_64 = r_index_rlzsa<int64_t>(input, use_bigbwt, true);
+        index_64 = r_index_rlzsa<int64_t>(input, use_bigbwt, use_r_index_samples, true);
     }
 
     auto t2 = now();

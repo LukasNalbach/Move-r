@@ -131,6 +131,15 @@ public:
     }
 
     /**
+     * @brief returns whether the move data structure is empty
+     * @return true <=> k != 0
+     */
+    inline bool empty() const
+    {
+        return num_intervals() == 0;
+    }
+
+    /**
      * @brief returns the number omega_p of bits used by one entry in D_p (word width of D_p)
      * @return omega_p
      */
@@ -286,6 +295,24 @@ public:
     {
         move(ix.first, ix.second);
         return ix;
+    }
+
+    /**
+     * @brief logs all data structures
+     */
+    void log_contents() const
+    {
+        std::cout << "p:   ";
+        for (pos_t i = 0; i < k_ - 1; i++) std::cout << p(i) << ", ";
+        std::cout << p(k_ - 1) << std::endl;
+
+        std::cout << "q:   ";
+        for (pos_t i = 0; i < k_ - 1; i++) std::cout << q(i) << ", ";
+        std::cout << q(k_ - 1) << std::endl;
+
+        std::cout << "idx: ";
+        for (pos_t i = 0; i < k_ - 1; i++) std::cout << idx(i) << ", ";
+        std::cout << idx(k_ - 1) << std::endl;
     }
 
     /**

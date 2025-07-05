@@ -205,13 +205,27 @@ void move_r<support, sym_t, pos_t>::construction::store_sas()
 {
     if (log) {
         time = now();
-        std::cout << "storing SA_s to disk" << std::flush;
+        std::cout << "storing SA_s" <<
+            (is_bidirectional ? " and SA_s'" : "") <<
+            " to disk" << std::flush;
     }
 
     std::ofstream file_sas(prefix_tmp_files + ".sas");
-    write_to_file(file_sas, (char*) &SA_s[0], r_ * sizeof(pos_t));
-    SA_s.clear();
-    SA_s.shrink_to_fit();
+
+    if constexpr (support == _locate_move) {
+        write_to_file(file_sas, (char*) &SA_s[0], r_ * sizeof(pos_t));
+        SA_s.clear();
+        SA_s.shrink_to_fit();
+    } else {
+        idx._SA_s.serialize(file_sas);
+        idx._SA_s.clear();
+        idx._SA_s.shrink_to_fit();
+
+        idx._SA_s_.serialize(file_sas);
+        idx._SA_s_.clear();
+        idx._SA_s_.shrink_to_fit();
+    }
+
     file_sas.close();
 
     if (log) {
@@ -224,12 +238,21 @@ void move_r<support, sym_t, pos_t>::construction::load_sas()
 {
     if (log) {
         time = now();
-        std::cout << "loading SA_s from disk" << std::flush;
+        std::cout << "loading SA_s" <<
+            (is_bidirectional ? " and SA_s'" : "") <<
+            " from disk" << std::flush;
     }
 
     std::ifstream file_sas(prefix_tmp_files + ".sas");
-    no_init_resize(SA_s, r_);
-    read_from_file(file_sas, (char*) &SA_s[0], r_ * sizeof(pos_t));
+
+    if constexpr (support == _locate_move) {
+        no_init_resize(SA_s, r_);
+        read_from_file(file_sas, (char*) &SA_s[0], r_ * sizeof(pos_t));
+    } else {
+        idx._SA_s.load(file_sas);
+        idx._SA_s_.load(file_sas);
+    }
+
     file_sas.close();
     std::filesystem::remove(prefix_tmp_files + ".sas");
 

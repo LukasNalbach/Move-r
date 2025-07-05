@@ -250,6 +250,27 @@ public:
         return result;
     }
 
+    void log_contents() const
+    {
+        std::cout << "z_end = " << z << std::endl;
+        std::cout << "h = " << h << std::endl;
+
+        std::cout << "sources:       ";
+        for (uint64_t i = 0; i < z - 1; i++)
+            std::cout << source(i) << ", ";
+        std::cout << source(z - 1) << std::endl;
+
+        std::cout << "extensions:    ";
+        for (uint64_t i = 0; i < z - 1; i++)
+            std::cout << extension(i) << ", ";
+        std::cout << extension(z - 1) << std::endl;
+
+        std::cout << "end_positions: ";
+        for (uint64_t i = 0; i < z - 1; i++)
+            std::cout << end_position(i) << ", ";
+        std::cout << end_position(z - 1) << std::endl;
+    }
+
     void load(std::istream& in)
     {
         in.read((char*) &n, sizeof(n));

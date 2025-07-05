@@ -81,7 +81,7 @@ int main(int argc, char* argv[])
     output_file << "# number=" << num_patterns << " length=" << pattern_length << " file=" << basename << " forbidden=\n";
     input_file.seekg(0, std::ios::beg);
 
-    std::cout << "generating " << num_patterns << " petterns of length " << pattern_length << std::flush;
+    std::cout << "generating " << num_patterns << " patterns of length " << pattern_length << std::flush;
     uint64_t pos_random;
     std::string pattern;
     no_init_resize(pattern, pattern_length);

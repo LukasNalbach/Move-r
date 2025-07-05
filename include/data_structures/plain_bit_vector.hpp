@@ -278,6 +278,20 @@ public:
     }
 
     /**
+     * @brief logs the contents of all vectos
+     */
+    void log_contents() const
+    {
+        if (empty()) return;
+
+        for (uint64_t i = 0; i < size() - 1; i++) {
+            std::cout << operator[](i) << ", ";
+        }
+
+        std::cout << operator[](size() - 1) << std::endl;
+    }
+
+    /**
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
      */

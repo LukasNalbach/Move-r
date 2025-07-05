@@ -122,7 +122,7 @@ public:
         // construct rlzsa
         if (log) std::cout << "building rlzsa:" << std::endl;
         uint64_t reference_size = std::min<uint64_t>(n / 3, 5.2 * r);
-        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, log);
+        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, false, log);
         if (log) time = log_runtime(time);
 
         build_sampling(sa, d, log);

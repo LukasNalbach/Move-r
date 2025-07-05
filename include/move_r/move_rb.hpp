@@ -43,13 +43,11 @@ protected:
     using move_r_fwd_t = constexpr_switch_t< // forward move_r index type
         constexpr_case<support == _locate_move,    move_r<_locate_move_bi_fwd,    sym_t, pos_t>>,
         constexpr_case<support == _locate_rlzsa,   move_r<_locate_rlzsa_bi_fwd,   sym_t, pos_t>>,
-        constexpr_case<support == _locate_lzendsa, move_r<_locate_lzendsa_bi_fwd, sym_t, pos_t>>,
      /* constexpr_case<support == _count, */       move_r<_count_bi,              sym_t, pos_t>>;
 
     using move_r_bwd_t = constexpr_switch_t< // backward move_r index type
         constexpr_case<support == _locate_move,    move_r<_locate_bi_bwd, sym_t, pos_t>>,
         constexpr_case<support == _locate_rlzsa,   move_r<_locate_bi_bwd, sym_t, pos_t>>,
-        constexpr_case<support == _locate_lzendsa, move_r<_locate_bi_bwd, sym_t, pos_t>>,
      /* constexpr_case<support == _count, */       move_r<_count_bi,      sym_t, pos_t>>;
 
     using i_sym_t = move_r_fwd_t::i_sym_t; // internal (unsigned) symbol type
@@ -80,12 +78,10 @@ protected:
 
     // ############################# INTERNAL METHODS #############################
 
-    enum direction { _LEFT, _RIGHT, _NONE };
-
     template <direction dir>
-    const std::conditional_t<dir == _LEFT, move_r_fwd_t, move_r_bwd_t>& index() const
+    const std::conditional_t<dir == LEFT, move_r_fwd_t, move_r_bwd_t>& index() const
     {
-        if constexpr (dir == _LEFT) {
+        if constexpr (dir == LEFT) {
             return idx_fwd;
         } else {
             return idx_bwd;
@@ -95,41 +91,33 @@ protected:
     template <direction dir>
     const sd_array<pos_t>& S_MLF_p() const
     {
-        if constexpr (dir == _LEFT) {
+        if constexpr (dir == LEFT) {
             return _S_MLF_p_fwd;
         } else {
             return _S_MLF_p_bwd;
         }
     }
 
-    // ############################# CONSTRUCTORS #############################
-
-public:
-    move_rb() = default;
-
     /**
      * @brief constructs a move_r index of the input
+     * @tparam bigbwt true <=> use Big-BWT
+     * @tparam sa_sint_t suffix array signed integer type
      * @param input the input
      * @param params construction parameters
      */
-    move_rb(inp_t&& input, move_r_params params = {}) : move_rb(input, params) {}
-
-    /**
-     * @brief constructs a move_r index of the input
-     * @param input the input
-     * @param params construction parameters
-     */
-    move_rb(inp_t& input, move_r_params params = {})
+    template <bool bigbwt, typename sa_sint_t>
+    void build(inp_t& input, move_r_params params = {})
     {
         auto time = now();
         auto time_start = time;
-        std::cout << "preprocessing T" << std::flush;
+        bool log = params.log;
+
+        if (log) std::cout << "preprocessing T" << std::flush;
 
         uint16_t p = params.num_threads;
         std::vector<std::vector<pos_t>> freq_thr(p, std::vector<pos_t>(256, 0));
 
-        if (params.file_input) {
-            n = std::filesystem::file_size(input) + 1;
+        if constexpr (bigbwt) {
             std::vector<sdsl::int_vector_buffer<8>> T_buf;
 
             for (uint16_t i = 0; i < p; i++) {
@@ -141,11 +129,9 @@ public:
                 freq_thr[omp_get_thread_num()][T_buf[omp_get_thread_num()][i]]++;
             }
         } else {
-            n = input.size() + 1;
-            
             #pragma omp parallel for num_threads(p)
             for (uint64_t i = 0; i < n - 1; i++) {
-                freq_thr[omp_get_thread_num()][char_to_uchar(input[i])]++;
+                freq_thr[omp_get_thread_num()][*reinterpret_cast<i_sym_t*>(&input[i])]++;
             }
         }
 
@@ -159,7 +145,7 @@ public:
 
         freq_thr.clear();
         freq_thr.shrink_to_fit();
-        std::vector<uint8_t> uchars_sorted;
+        std::vector<i_sym_t> uchars_sorted;
 
         for (uint16_t c = 0; c < 256; c++) {
             if (freq[c] != 0) {
@@ -168,24 +154,26 @@ public:
         }
 
         std::sort(uchars_sorted.begin(), uchars_sorted.end(),
-            [&](uint8_t c1, uint8_t c2){
+            [&](i_sym_t c1, i_sym_t c2){
                 return freq[c1] > freq[c2];
         });
 
-        params.alphabet_size = uchars_sorted.size();
-        sigma = params.alphabet_size + 1;
-        uint8_t cur_uchar = params.mode == _bigbwt ? 3 : 1;
-        std::vector<uint8_t> map_int(256, 0);
+        params.alphabet_size = uchars_sorted.size() + 1;
+        sigma = params.alphabet_size;
+        i_sym_t cur_uchar = params.mode == _bigbwt ? 3 : 1;
+        std::vector<i_sym_t> map_int(256, 0);
 
-        for (uint8_t c : uchars_sorted) {
+        for (i_sym_t c : uchars_sorted) {
             map_int[c] = cur_uchar;
             cur_uchar++;
         }
 
-        time = log_runtime(time);
-        std::cout << "mapping T to its internal alphabet" << std::flush;
+        if (log) {
+            time = log_runtime(time);
+            std::cout << "mapping T to its internal alphabet" << std::flush;
+        }
 
-        if (params.file_input) {
+        if constexpr (bigbwt) {
             std::vector<sdsl::int_vector_buffer<8>> T_buf;
 
             for (uint16_t i = 0; i < p; i++) {
@@ -199,32 +187,43 @@ public:
         } else {
             #pragma omp parallel for num_threads(p)
             for (uint64_t i = 0; i < n - 1; i++) {
-                input[i] = uchar_to_char(map_int[char_to_uchar(input[i])]);
+                input[i] = map_int[*reinterpret_cast<i_sym_t*>(&input[i])];
             }
         }
 
-        std::vector<char> map_ext(256, 0);
+        std::vector<sym_t> map_ext(256, 0);
 
         for (uint16_t c = 0; c < 256; c++) {
             if (map_int[c] != 0) {
-                map_int[c] -= 2;
+                if (params.mode == _bigbwt) {
+                    map_int[c] -= 2;
+                }
+
                 map_ext[map_int[c]] = c;
             }
         }
 
-        time = log_runtime(time);
+        if (log) time = log_runtime(time);
 
-        if (params.file_input) {
-            reverse(input, p, false);
+        std::string sa_fwd_file_name;
+        std::vector<sa_sint_t> SA_fwd;
+        std::vector<sdsl::int_vector_buffer<40>> SA_fwd_file_bufs;
 
-            std::cout << std::endl;
-            std::cout << "building backward index:" << std::endl;
+        if constexpr (bigbwt) {
+            reverse(input, p, false, log);
+
+            if (log) {
+                std::cout << std::endl;
+                std::cout << "building backward index:" << std::endl;
+            }
 
             idx_bwd = move_r_bwd_t(input, params);
 
-            std::cout << std::endl;
-            std::cout << "storing backward index to disk" << std::flush;
-            time = now();
+            if (log) {
+                std::cout << std::endl;
+                std::cout << "storing backward index to disk" << std::flush;
+                time = now();
+            }
 
             std::string idx_bwd_file_name = random_alphanumeric_string(10);
             std::ofstream idx_bwd_ofile(idx_bwd_file_name);
@@ -239,19 +238,24 @@ public:
             _SA_eR_m1 = interleaved_byte_aligned_vectors<pos_t, pos_t>();
             idx_bwd_ofile.close();
             
-            time = log_runtime(time);
+            if (log) time = log_runtime(time);
 
-            reverse(input, p, false);
+            reverse(input, p, false, log);
             
-            std::cout << std::endl;
-            std::cout << "building forward index:" << std::endl;
+            if (log) {
+                std::cout << std::endl;
+                std::cout << "building forward index:" << std::endl;
+            }
 
+            params.sa_file_name = &sa_fwd_file_name;
             idx_fwd = move_r_fwd_t(input, params);
             idx_fwd.set_alphabet_maps(map_int, map_ext);
 
-            std::cout << std::endl;
-            std::cout << "loading backward index from disk" << std::flush;
-            time = now();
+            if (log) {
+                std::cout << std::endl;
+                std::cout << "loading backward index from disk" << std::flush;
+                time = now();
+            }
 
             std::ifstream idx_bwd_ifile(idx_bwd_file_name);
             idx_bwd.load(idx_bwd_ifile);
@@ -260,28 +264,33 @@ public:
             _SA_eR_m1.load(idx_bwd_ifile);
             idx_bwd_ifile.close();
             
-            time = log_runtime(time);
+            if (log) time = log_runtime(time);
         } else {
-            reverse(input, p, true);
+            reverse(input, p, true, log);
             idx_bwd = move_r_bwd_t(input, params);
             idx_bwd.set_alphabet_maps(map_int, map_ext);
-            reverse(input, p, true);
+            reverse(input, p, true, log);
+            params.sa_vector = reinterpret_cast<void*>(&SA_fwd);
             idx_fwd = move_r_fwd_t(input, params);
             idx_fwd.set_alphabet_maps(map_int, map_ext);
         }
         
-        time = now();
-        std::cout << std::endl;
-        std::cout << "unmapping T from its internal alphabet" << std::flush;
-
-        for (uint8_t c = 255; c >= 2; c--) {
-            map_ext[c] = map_ext[c - 2];
+        if (log) {
+            time = now();
+            std::cout << std::endl;
+            std::cout << "unmapping T from its internal alphabet" << std::flush;
         }
 
-        map_ext[0] = 0;
-        map_ext[1] = 0;
+        if (params.mode == _bigbwt) {
+            for (i_sym_t c = 255; c >= 2; c--) {
+                map_ext[c] = map_ext[c - 2];
+            }
 
-        if (params.file_input) {
+            map_ext[0] = 0;
+            map_ext[1] = 0;
+        }
+
+        if constexpr (bigbwt) {
             std::vector<sdsl::int_vector_buffer<8>> T_buf;
 
             for (uint16_t i = 0; i < p; i++) {
@@ -290,57 +299,60 @@ public:
 
             #pragma omp parallel for num_threads(p)
             for (uint64_t i = 0; i < n - 1; i++) {
-                T_buf[omp_get_thread_num()][i] = char_to_uchar(map_ext[T_buf[omp_get_thread_num()][i]]);
+                T_buf[omp_get_thread_num()][i] = *reinterpret_cast<i_sym_t*>(&map_ext[T_buf[omp_get_thread_num()][i]]);
             }
         } else {
             #pragma omp parallel for num_threads(p)
             for (uint64_t i = 0; i < n - 1; i++) {
-                input[i] = map_ext[char_to_uchar(input[i])];
+                input[i] = map_ext[*reinterpret_cast<i_sym_t*>(&input[i])];
             }
         }
 
-        time = log_runtime(time);
-        std::cout << "building S_MLF_p_fwd" << std::flush;
-        
-        pos_t n = idx_fwd.input_size() + 1;
+        if (log) {
+            time = log_runtime(time);
+            std::cout << "building S_MLF_p_fwd" << std::flush;
+        }
         
         _S_MLF_p_fwd = build_sampling(
             idx_fwd.M_LF().num_intervals(), n, sample_rate_input_intervals,
             [&](pos_t i){return idx_fwd.M_LF().p(i);});
 
-        time = log_runtime(time);
-        std::cout << "building S_MLF_p_bwd" << std::flush;
+        if (log) {
+            time = log_runtime(time);
+            std::cout << "building S_MLF_p_bwd" << std::flush;
+        }
 
         _S_MLF_p_bwd = build_sampling(
             idx_bwd.M_LF().num_intervals(), n, sample_rate_input_intervals,
             [&](pos_t i){return idx_bwd.M_LF().p(i);});
 
-        time = log_runtime(time);
+        if (log) time = log_runtime(time);
 
         if constexpr (support != _count) {
             if constexpr (support == _locate_move) {
-                std::cout << "building S_MPhi_p" << std::flush;
+                if (log) std::cout << "building S_MPhi_p" << std::flush;
 
                 _S_MPhi_p = build_sampling(
                     idx_fwd.M_Phi().num_intervals(), n, sample_rate_input_intervals,
                     [&](pos_t i){return idx_fwd.M_Phi().p(i);});
 
-                time = log_runtime(time);
-                std::cout << "building S_MPhi^{-1}_p" << std::flush;
+                if (log) {
+                    time = log_runtime(time);
+                    std::cout << "building S_MPhi^{-1}_p" << std::flush;
+                }
 
                 _S_MPhi_m1_p = build_sampling(
                     idx_fwd.M_Phi_m1().num_intervals(), n, sample_rate_input_intervals,
                     [&](pos_t i){return idx_fwd.M_Phi_m1().p(i);});
 
-                time = log_runtime(time);
+                if (log) time = log_runtime(time);
             }
-            
-            std::vector<pos_t> SA_fwd = idx_fwd.SA_range();
 
-            time = now();
-            std::cout << "building H" << std::flush;
+            if (log) {
+                std::cout << "building H" << std::flush;
+            }
 
-            enum sample_type {
+            enum sample_type : uint8_t {
                 _run_start,
                 _run_end,
                 _run_start_and_end
@@ -357,15 +369,17 @@ public:
 
             for (pos_t i = 0; i < r_bwd; i++) {
                 if (idx_bwd.M_LF().p(i + 1) - idx_bwd.M_LF().p(i) == 1) {
-                    H.emplace((n - idx_bwd.SA_s(i)) - 1,  entry_t {.x = i, .type = _run_start_and_end });
+                    H.emplace((n - idx_bwd.SA_s(i) - 1),  entry_t {.x = i, .type = _run_start_and_end });
                 } else {
-                    H.emplace((n - idx_bwd.SA_s(i)) - 1,  entry_t {.x = i, .type = _run_start });
-                    H.emplace((n - idx_bwd.SA_s_(i)) - 1, entry_t {.x = i, .type = _run_end   });
+                    H.emplace((n - idx_bwd.SA_s(i) - 1),  entry_t {.x = i, .type = _run_start });
+                    H.emplace((n - idx_bwd.SA_s_(i) - 1), entry_t {.x = i, .type = _run_end   });
                 }
             }
-                
-            time = log_runtime(time);
-            std::cout << "building SA^{-1}_sR and SA^{-1}_eR" << std::flush;
+            
+            if (log) {
+                time = log_runtime(time);
+                std::cout << "building SA^{-1}_sR and SA^{-1}_eR" << std::flush;
+            }
 
             _SA_sR_m1 = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
             _SA_eR_m1 = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
@@ -373,9 +387,29 @@ public:
             _SA_sR_m1.resize_no_init(r_bwd);
             _SA_eR_m1.resize_no_init(r_bwd);
 
+            if constexpr (bigbwt) {
+                for (uint16_t i = 0; i < p; i++) {
+                    SA_fwd_file_bufs.emplace_back(sdsl::int_vector_buffer<40>(
+                        sa_fwd_file_name, std::ios::in,
+                        128 * 1024, 40, true));
+                }
+            }
+
             #pragma omp parallel for num_threads(p)
-            for (pos_t i = 0; i < n; i++) {
-                auto it = H.find(SA_fwd[i]);
+            for (uint64_t i = 0; i < n; i++) {
+                pos_t SA_fwd_i;
+
+                if constexpr (bigbwt) {
+                    if (i == 0) [[unlikely]] {
+                        SA_fwd_i = n - 1;
+                    } else {
+                        SA_fwd_i = SA_fwd_file_bufs[omp_get_thread_num()][i - 1];
+                    }
+                } else {
+                    SA_fwd_i = SA_fwd[i];
+                }
+
+                auto it = H.find(SA_fwd_i);
 
                 if (it != H.end()) {
                     if (it->second.type == _run_start || it->second.type == _run_start_and_end) [[likely]] {
@@ -388,17 +422,19 @@ public:
                 }
             }
 
-            time = log_runtime(time);
+            if (log) time = log_runtime(time);
         }
 
-        std::cout << std::endl;
-        std::cout << "overall construction time: " << format_time(time_diff_ns(time_start, now())) << std::endl;
-        log_data_structure_sizes();
+        if (log) {
+            std::cout << std::endl;
+            std::cout << "overall construction time: " << format_time(time_diff_ns(time_start, now())) << std::endl;
+            log_data_structure_sizes();
+        }
     }
 
-    void reverse(std::string& T, uint16_t p, bool in_memory) {
+    void reverse(std::string& T, uint16_t p, bool in_memory, bool log = false) {
         auto time = now();
-        std::cout << "reversing T" << std::flush;
+        if (log) std::cout << "reversing T" << std::flush;
         uint64_t n_2 = (n - 1) / 2;
 
         if (in_memory) {
@@ -423,7 +459,7 @@ public:
             }
         }
 
-        log_runtime(time);
+        if (log) log_runtime(time);
     }
 
     template <typename fnc_t>
@@ -445,9 +481,9 @@ public:
     }
 
     template <typename fnc_t>
-    static pos_t input_interval(pos_t i, const sd_array<pos_t>& sd_arr, fnc_t interval_start)
+    inline static pos_t input_interval(pos_t i, const sd_array<pos_t>& sd_arr, fnc_t interval_start)
     {
-        pos_t x = (sd_arr.rank_1(i) - 1) * sample_rate_input_intervals;
+        pos_t x = (std::max<pos_t>(1, sd_arr.rank_1(i)) - 1) * sample_rate_input_intervals;
 
         while (i >= interval_start(x + 1)) {
             x++;
@@ -456,15 +492,40 @@ public:
         return x;
     }
 
+    // ############################# CONSTRUCTORS #############################
+
+public:
+    move_rb() = default;
+
     /**
-     * @brief constructs a move_r index from an input file
-     * @param input_file input file
+     * @brief constructs a move_r index of the input
+     * @param input the input
      * @param params construction parameters
      */
-    move_rb(std::ifstream& input_file, move_r_params params = {})
-        requires(str_input)
+    move_rb(inp_t&& input, move_r_params params = {}) : move_rb(input, params) {}
+
+    /**
+     * @brief constructs a move_r index of the input
+     * @param input the input
+     * @param params construction parameters
+     */
+    move_rb(inp_t& input, move_r_params params = {})
     {
-        
+        if (params.file_input) {
+            n = std::filesystem::file_size(input) + 1;
+        } else {
+            n = input.size() + 1;
+        }
+
+        if (params.file_input) {
+            build<true, int32_t>(input, params);
+        } else {
+            if (n <= std::numeric_limits<int32_t>::max()) {
+                build<false, int32_t>(input, params);
+            } else {
+                build<false, int64_t>(input, params);
+            }
+        }
     }
 
     // ############################# MISC PUBLIC METHODS #############################
@@ -498,8 +559,8 @@ public:
         std::cout << "S_MLF_p: " << format_size(_S_MLF_p_fwd.size_in_bytes()) << std::endl;
         
         if constexpr (support == _locate_move) {
-            std::cout << "S_MPhi_m1_p: " << format_size(_S_MPhi_m1_p.size_in_bytes()) << std::endl;
             std::cout << "S_MPhi_p: " << format_size(_S_MPhi_p.size_in_bytes()) << std::endl;
+            std::cout << "S_MPhi^{-1}_p: " << format_size(_S_MPhi_m1_p.size_in_bytes()) << std::endl;
         }
 
         std::cout << std::endl << "Backward Index: " << std::endl;
@@ -507,6 +568,48 @@ public:
         std::cout << "S_MLF_p: " << format_size(_S_MLF_p_bwd.size_in_bytes()) << std::endl;
         std::cout << "SA_^{-1}_sR: " << format_size(_SA_sR_m1.size_in_bytes()) << std::endl;
         std::cout << "SA_^{-1}_eR: " << format_size(_SA_eR_m1.size_in_bytes()) << std::endl;
+    }
+
+    /**
+     * @brief logs all data structures
+     */
+    void log_data_structures() const
+    {
+        if (n > 50) {
+            std::cout << "cannot log the contents for n > 50" << std::endl;
+            return;
+        }
+
+        std::cout << "Forward Index: " << std::endl;
+        idx_fwd.log_data_structures();
+
+        std::cout << std::endl << "input interval sampling rate: "
+            << sample_rate_input_intervals;
+
+        std::cout << std::endl;
+        std::cout << "S_MLF_p: ";
+        log_contents(_S_MLF_p_fwd);
+        
+        if constexpr (support == _locate_move) {
+            std::cout << "S_MPhi_p: ";
+            log_contents(_S_MPhi_p);
+
+            std::cout << "S_MPhi^{-1}_p: ";
+            log_contents(_S_MPhi_m1_p);
+        }
+
+        std::cout << std::endl << "Backward Index: " << std::endl;
+        idx_bwd.log_data_structures();
+
+        std::cout << std::endl;
+        std::cout << "S_MLF_p: ";
+        log_contents(_S_MLF_p_bwd);
+        
+        std::cout << "SA_^{-1}_sR: ";
+        log_contents(_SA_sR_m1);
+
+        std::cout << "SA_^{-1}_eR: ";
+        log_contents(_SA_eR_m1);
     }
 
     /**
@@ -523,7 +626,7 @@ public:
      * @brief returns a reference to the move_r index of the forward input
      * @return index the forward input
      */
-    inline const move_r<support, sym_t, pos_t>& forward_index() const
+    inline const move_r_fwd_t& forward_index() const
     {
         return idx_fwd;
     }
@@ -532,7 +635,7 @@ public:
      * @brief returns a reference to the move_r index of the backward input
      * @return index the backward input
      */
-    inline const move_r<support, sym_t, pos_t>& backward_index() const
+    inline const move_r_bwd_t& backward_index() const
     {
         return idx_bwd;
     }
@@ -555,23 +658,40 @@ public:
 
         // ############################# VARIABLES FOR MAINTAINING SA-SAMPLE INFORMATION DURING SEARCH #############################
 
-        bool v_b, v_e; // true <=> SA[b/e] can be computed with SA-Samples
-        bool v_b_R, v_e_R; // true <=> n - SA^R[b_R/e_R] + 1 can be computed with SA^R-Samples
-        pos_t i_b, i_e; // numbers of iterations since b/e has been altered by a rank-select query
-        pos_t i_b_R, i_e_R; // numbers of iterations since b_R/e_R has been altered by a rank-select query
-        pos_t x_b, x_e; // indices of the (sub-)runs in L', to whose beginning/end b/e has been set i_b/i_e iterations ago
-        pos_t x_b_R, x_e_R; // indices of the (sub-)runs in L', to whose beginning/end b_R/e_R has been set i_b_R/i_e_R iterations ago
+        enum sample_t : uint8_t {
+            NO_SAMPLE = 0,
+            RUN_START = 1,
+            RUN_END = 2
+        };
+
+        sample_t s_1, s_2; // s_1/2 = RUN_START/RUN_END <=> the usable SA-sample of type 1/2 is at a run start/end in the forward index
+        sample_t s_1_R, s_2_R; // s_1/2_R = RUN_START/RUN_END <=> the usable SA-sample of type 1/2 is at a run start/end in the backward index
+        pos_t o_1, o_2; // o_1/2 = offset from the left/right of the SA-interval of the usable SA-sample of type 1/2 in the forward index
+        pos_t o_1_R, o_2_R; // o_1/2_R = offset from the left/right of the SA-interval of the usable SA-sample of type 1/2 in the backward index
+        pos_t i_1, i_2; // i_1/2 = number of iterations since s_1/2 has been set
+        pos_t i_1_R, i_2_R; // i_1/2_R = number of iterations since s_1/2_R has been set
+        pos_t x_1, x_2; // x_1/2 = index of the (sub-)run in L', whose start/end is the position of the usable SA-sample of type 1/2
+        pos_t x_1_R, x_2_R; // x_1/2_R = index of the (sub-)run in L' of T^R, whose start/end is the position of the usable SA-sample of type 1/2
 
         // ############################# VARIABLES FOR THE LOCATE PHASE #############################
         
-        direction locate_dir = _NONE; // current locate direction
+        direction locate_dir = NO_DIR; // current locate direction
         pos_t occ_rem; // number of remaining occurrences to locate
         pos_t c; // initial position in the suffix array
         pos_t SA_c; // initial suffix SA[c] in the suffix array interval
         pos_t i; // current position in the suffix array interval
         pos_t SA_i; // current suffix SA[i] in the suffix array interval
-        pos_t s_; // index of the input inteval of M_Phi/M_Phi^{-1} containing SA_i
-        pos_t x_p, x_lp, x_cp, x_r, s_np; // variables for decoding the rlzsa
+
+        struct empty {};
+
+        std::conditional_t<support == _locate_move, pos_t, empty> s_; // index of the input inteval of M_Phi/M_Phi^{-1} containing SA_i
+
+        struct rlzsa_ctx_t {
+            pos_t x_p, x_lp, x_cp, x_r, s_p; // variables for decoding the rlzsa
+        };
+
+        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, empty> rlz_l; // rlzsa context for position i
+        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, empty> rlz_r; // rlzsa context for position c
 
         const move_rb<support, sym_t, pos_t>* idx; // index to query
 
@@ -591,7 +711,7 @@ public:
          */
         inline void reset()
         {
-            last_dir = _NONE;
+            last_dir = NO_DIR;
             m = 0;
 
             b = 0;
@@ -603,29 +723,31 @@ public:
             b_R_ = 0;
             e_R_ = idx->idx_bwd.M_LF().num_intervals() - 1;
 
-            v_b = true;
-            v_e = true;
-            v_b_R = true;
-            v_e_R = true;
-            i_b = 0;
-            i_e = 0;
-            i_b_R = 0;
-            i_e_R = 0;
-            x_b = 0;
-            x_e = e_ - 1;
-            x_b_R = 0;
-            x_e_R = e_R_ - 1;
-            
-            i = 0;
-            c = 0;
-            SA_i = 0;
-            SA_c = 0;
-            s_ = 0;
-            x_p = 0;
-            x_lp = 0;
-            x_cp = 0;
-            x_r = 0;
-            s_np = 0;
+            s_1 = RUN_START;
+            s_2 = RUN_END;
+            s_1_R = RUN_START;
+            s_2_R = RUN_END;
+            o_1 = 0;
+            o_2 = 0;
+            o_1_R = 0;
+            o_2_R = 0;
+            i_1 = 0;
+            i_2 = 0;
+            i_1_R = 0;
+            i_2_R = 0;
+            x_1 = 0;
+            x_2 = e_;
+            x_1_R = 0;
+            x_2_R = e_R_;
+        }
+
+        /**
+         * @brief resets the context to the beginning of the locate phase
+         */
+        void reset_locate()
+        {
+            occ_rem = e - b + 1;
+            locate_dir = NO_DIR;
         }
 
         /**
@@ -643,7 +765,7 @@ public:
          */
         inline pos_t num_occ() const
         {
-            return e >= b ? e - b + 1 : 0;
+            return e - b + 1;
         }
 
         /**
@@ -663,7 +785,7 @@ public:
         template <direction dir>
         inline std::pair<pos_t, pos_t> sa_interval() const
         {
-            if constexpr (dir == _LEFT) {
+            if constexpr (dir == LEFT) {
                 return forward_sa_interval();
             } else {
                 return backward_sa_interval();
@@ -703,78 +825,43 @@ public:
             i_sym_t i_sym = idx->idx_fwd.map_symbol(sym);
 
             // If i_sym does not occur in L', then P[i..m] does not occur in T
-            if (i_sym == 0) return false;
+            if (i_sym == 0) {
+                return false;
+            }
 
-            pos_t b_tmp = b;
-            pos_t e_tmp = e;
-            pos_t b_R_tmp = b_R;
-            pos_t e_R_tmp = e_R;
-            pos_t b__tmp = b_;
-            pos_t e__tmp = e_;
-            pos_t b_R__tmp = b_R_;
-            pos_t e_R__tmp = e_R_;
-
-            bool v_b_tmp = v_b;
-            bool v_e_tmp = v_e;
-            bool v_b_R_tmp = v_b_R;
-            bool v_e_R_tmp = v_e_R;
-            pos_t i_l_tmp = i_b;
-            pos_t i_r_tmp = i_e;
-            pos_t i_l_R_tmp = i_b_R;
-            pos_t i_r_R_tmp = i_e_R;
-            pos_t x_b_tmp = x_b;
-            pos_t x_e_tmp = x_e;
-            pos_t x_b_R_tmp = x_b_R;
-            pos_t x_e_R_tmp = x_e_R;
-
+            query_context ctx_old = *this;
             bool result;
 
-            if (dir == _LEFT) {
-                result = extend<_LEFT>(
-                    i_sym, last_dir,
-                    v_b, v_e, v_b_R, v_e_R,
+            if constexpr (dir == LEFT) {
+                result = extend<LEFT>(
+                    i_sym,
                     b, e, b_R, e_R,
-                    b_, e_, b_R_, e_R_,
-                    i_b, i_e, i_b_R, i_e_R,
-                    x_b, x_e, x_b_R, x_e_R);
+                    b_, e_,
+                    s_1, s_2, s_1_R, s_2_R,
+                    o_1, o_2, o_1_R, o_2_R,
+                    i_1, i_2,
+                    x_1, x_2
+                );
             } else {
-                result = extend<_RIGHT>(
-                    i_sym, last_dir,
-                    v_b_R, v_e_R, v_b, v_e,
+                result = extend<RIGHT>(
+                    i_sym,
                     b_R, e_R, b, e,
-                    b_R_, e_R_, b_, e_,
-                    i_b_R, i_e_R, i_b, i_e,
-                    x_b_R, x_e_R, x_b, x_e);
+                    b_R_, e_R_,
+                    s_1_R, s_2_R, s_1, s_2,
+                    o_1_R, o_2_R, o_1, o_2,
+                    i_1_R, i_2_R,
+                    x_1_R, x_2_R
+                );
             }
 
             if (result) {
                 m++;
-                i = b;
+                i = 0;
                 occ_rem = e - b + 1;
-                locate_dir = _NONE;
+                locate_dir = NO_DIR;
                 last_dir = dir;
             } else {
-                b = b_tmp;
-                e = e_tmp;
-                b_R = b_R_tmp;
-                e_R = e_R_tmp;
-                b_ = b__tmp;
-                e_ = e__tmp;
-                b_R_ = b_R__tmp;
-                e_R_ = e_R__tmp;
-
-                v_b = v_b_tmp;
-                v_e = v_e_tmp;
-                v_b_R = v_b_R_tmp;
-                v_e_R = v_e_R_tmp;
-                i_b = i_l_tmp;
-                i_e = i_r_tmp;
-                i_b_R = i_l_R_tmp;
-                i_e_R = i_r_R_tmp;
-                x_b = x_b_tmp;
-                x_e = x_e_tmp;
-                x_b_R = x_b_R_tmp;
-                x_e_R = x_e_R_tmp;
+                *this = ctx_old;
             }
 
             return result;
@@ -782,71 +869,83 @@ public:
 
         /**
          * @brief extends the currently matched pattern with sym; if the extended pattern occurs in the input, true is
-         * returned and the query context is adjusted to store the information for the extended pattern; else,
-         * false is returned and the query context is not modified; let S be a string, then S(_LEFT) = S; S(_RIGHT) = S^R
-         * and !LEFT = RIGHT = !!LEFT
+         * returned and the query context is adjusted to store the context for the extended pattern; else,
+         * false is returned and the query context is not modified; let S be a string, then S(LEFT) = S and S(RIGHT) = S^R
+         * and !LEFT = RIGHT = !!RIGHT
          * @tparam dir extend direction
          * @param sym next symbol to match
          * @param b Left interval limit of the suffix array interval of P(dir) in T(dir).
          * @param e Right interval limit of the suffix array interval of P(dir) in T(dir).
-         * @param b_ index of the input interval in M_LF of T(dir) containing b.
-         * @param e_ index of the input interval in M_LF of T(dir) containing e.
          * @param b_r Left interval limit of the suffix array interval of P(!dir) in T(!dir).
          * @param e_r Right interval limit of the suffix array interval of P(!dir) in T(!dir).
-         * @param b_r_ index of the input interval in M_LF of T(!dir) containing b_r.
-         * @param e_r_ index of the input interval in M_LF of T(!dir) containing e_r.
-         * @param hat_b_ap_y \hat{b}'_y
-         * @param y y
-         * @param hat_e_ap_z \hat{e}'_z
-         * @param z z
-         * @param hat_b_r_ap_y \hat{b_r}'_y
-         * @param y_r y_r
-         * @param hat_e_r_ap_z \hat{e_r}'_y
-         * @param z_r z_r
+         * @param b_ index of the input interval in M_LF of T(dir) containing b.
+         * @param e_ index of the input interval in M_LF of T(dir) containing e.
+         * @param s_1
+         * @param s_2
+         * @param s_1_R
+         * @param s_2_R
+         * @param o_1
+         * @param o_2
+         * @param i_1
+         * @param i_2
+         * @param x_1
+         * @param x_2
          * @return whether the extended pattern occurs in the input
          */
         template <direction dir>
         bool extend(
             i_sym_t i_sym,
-            direction last_dir,
-            bool& v_b, bool& v_e,
-            bool& v_b_R, bool& v_e_R,
-            pos_t& b, pos_t& e,
-            pos_t& b_R, pos_t& e_R,
+            pos_t& b, pos_t& e, pos_t& b_R, pos_t& e_R,
             pos_t& b_, pos_t& e_,
-            pos_t& b_R_, pos_t& e_R_,
-            pos_t& i_b, pos_t& i_e,
-            pos_t& i_b_R, pos_t& i_e_R,
-            pos_t& x_b, pos_t& x_e,
-            pos_t& x_b_R, pos_t& x_e_R ) const
-        {
-            if (last_dir != _NONE && dir != last_dir) {
-                b_ = input_interval(b, idx->S_MLF_p<dir>(), [&](pos_t x){return idx->index<dir>().M_LF().p(x);});
+            sample_t& s_1, sample_t& s_2, sample_t& s_1_R, sample_t& s_2_R,
+            pos_t& o_1, pos_t& o_2, pos_t& o_1_R, pos_t& o_2_R,
+            pos_t& i_1, pos_t& i_2,
+            pos_t& x_1, pos_t& x_2
+        ) const {
+            const auto& idx_dir = idx->index<dir>();
 
-                if (b == idx->index<dir>().M_LF().p(b_)) {
-                    v_b = true;
-                    i_b = 0;
-                    x_b = b_;
-                } else {
-                    v_b = false;
+            if (last_dir != NO_DIR && dir != last_dir) {
+                if (!(idx_dir.M_LF().p(b_) <= b && b < idx_dir.M_LF().p(b_ + 1))) {
+                    b_ = input_interval(b, idx->S_MLF_p<dir>(), [&](pos_t x){return idx_dir.M_LF().p(x);});
                 }
 
-                e_ = input_interval(e, idx->S_MLF_p<dir>(), [&](pos_t x){return idx->index<dir>().M_LF().p(x);});
+                if (b == idx_dir.M_LF().p(b_)) {
+                    s_1 = RUN_START;
+                    o_1 = 0;
+                    i_1 = 0;
+                    x_1 = b_;
+                } else if (b == idx_dir.M_LF().p(b_ + 1) - 1) {
+                    s_1 = RUN_END;
+                    o_1 = 0;
+                    i_1 = 0;
+                    x_1 = b_;
+                }
 
-                if (e == idx->index<dir>().M_LF().p(e_)) {
-                    v_e = true;
-                    i_e = 0;
-                    x_e = e_;
-                } else {
-                    v_e = false;
+                if (!(idx_dir.M_LF().p(e_) <= e && e < idx_dir.M_LF().p(e_ + 1))) {
+                    e_ = input_interval(e, idx->S_MLF_p<dir>(), [&](pos_t x){return idx_dir.M_LF().p(x);});
+                }
+
+                if (e == idx_dir.M_LF().p(e_)) {
+                    s_2 = RUN_START;
+                    o_2 = 0;
+                    i_2 = 0;
+                    x_2 = e_;
+                } else if (e == idx_dir.M_LF().p(e_ + 1) - 1) {
+                    s_2 = RUN_END;
+                    o_2 = 0;
+                    i_2 = 0;
+                    x_2 = e_;
                 }
             }
             
             int64_t next[256];
             int64_t prev[256];
 
-            std::fill_n(next, 256, LONG_MAX);
-            std::fill_n(prev, 256, LONG_MIN);
+            std::fill_n(next, 256, std::numeric_limits<int64_t>::max());
+            std::fill_n(prev, 256, std::numeric_limits<int64_t>::min());
+
+            pos_t b_old = b;
+            pos_t e_old = e;
 
             pos_t b__old = b_;
             pos_t e__old = e_;
@@ -854,23 +953,24 @@ public:
             pos_t b_R_old = b_R;
             pos_t e_R_old = e_R;
 
-            pos_t blk_size = idx->index<dir>().L_block_size();
+            pos_t blk_size = idx_dir.L_block_size();
 
             {
                 pos_t blk = div_ceil<pos_t>(b_, blk_size);
                 int64_t beg = b_;
                 int64_t end = std::min<pos_t>(blk * blk_size, e_);
 
-                for (int64_t i = end; i >= beg; i--) {
-                    next[idx->index<dir>().L_(i)] = i;
+                if (end != e_) {
+                    pos_t blk_beg = blk * idx->sigma;
+                    pos_t max_sym = i_sym;
+
+                    for (pos_t i = 0; i <= max_sym; i++) {
+                        next[i] = idx_dir.L_next(blk_beg + i);
+                    }
                 }
 
-                if (end != e_) {
-                    for (i_sym_t i = 0; i <= i_sym; i++) {
-                        if (next[i] == LONG_MAX) {
-                            next[i] = idx->index<dir>().L_next(blk, i);
-                        }
-                    }
+                for (int64_t i = end; i >= beg; i--) {
+                    next[idx_dir.L_(i)] = i;
                 }
             }
 
@@ -880,92 +980,154 @@ public:
                 int64_t end = e_;
 
                 if (beg != b_) {
-                    for (i_sym_t i = 0; i <= i_sym; i++) {
-                        if (prev[i] == LONG_MIN) {
-                            prev[i] = idx->index<dir>().L_prev(blk, i);
-                        }
+                    pos_t blk_beg = blk * idx->sigma;
+                    pos_t max_sym = i_sym;
+
+                    for (pos_t i = 0; i <= max_sym; i++) {
+                        prev[i] = idx_dir.L_prev(blk_beg + i);
                     }
                 }
 
                 for (int64_t i = beg; i <= end; i++) {
-                    prev[idx->index<dir>().L_(i)] = i;
+                    prev[idx_dir.L_(i)] = i;
                 }
+            }
+
+            if (next[i_sym] > prev[i_sym]) [[unlikely]] {
+                return false;
             }
 
             b_ = next[i_sym];
             e_ = prev[i_sym];
 
-            if (b_ > e_) [[unlikely]] {
-                return false;
-            }
-
             if (b_ != b__old) {
-                b = idx->index<dir>().M_LF().p(b_);
-                v_b = true;
-                x_b = b_;
-                i_b = 0;
-            } else if (v_b) {
-                i_b++;
+                b = idx_dir.M_LF().p(b_);
+                s_1 = RUN_START;
+                o_1 = 0;
+                x_1 = b_;
+                i_1 = 1;
+            } else if (s_1 == RUN_START) {
+                i_1++;
+            } else if (s_1 == RUN_END) {
+                pos_t p_1 = b + o_1;
+                pos_t y_1 = idx_dir.M_LF().p(b_ + 1);
+
+                if (p_1 < y_1) {
+                    i_1++;
+                } else {
+                    o_1 = y_1 - b - 1;
+                    x_1 = b_;
+                    i_1 = 1;
+                }
             }
 
             if (e_ != e__old) {
-                e = idx->index<dir>().M_LF().p(e_ + 1) - 1;
-                v_e = true;
-                x_e = e_;
-                i_e = 0;
-            } else if (v_e) {
-                i_e++;
+                e = idx_dir.M_LF().p(e_ + 1) - 1;
+                s_2 = RUN_END;
+                o_2 = 0;
+                x_2 = e_;
+                i_2 = 1;
+            } else if (s_2 == RUN_END) {
+                i_2++;
+            } else if (s_2 == RUN_START) {
+                pos_t p_2 = e - o_2;
+                pos_t y_2 = idx_dir.M_LF().p(e_);
+
+                if (y_2 <= p_2) {
+                    i_2++;
+                } else {
+                    o_2 = e - y_2;
+                    x_2 = e_;
+                    i_2 = 1;
+                }
+            }
+
+            pos_t b_prime = b;
+            pos_t e_prime = e;
+
+            pos_t b__prime = b_;
+            pos_t e__prime = e_;
+
+            for (i_sym_t i = 0; i < i_sym; i++) {
+                if (next[i] <= prev[i] && prev[i] != idx_dir.M_LF().num_intervals()) {
+                    pos_t x = next[i];
+                    pos_t y = prev[i];
+
+                    b_R += idx_dir.M_LF().p(y + 1) - idx_dir.M_LF().p(y);
+
+                    if (x < y) [[likely]] {
+                        b_R += idx_dir.M_LF().q(y) - idx_dir.M_LF().q(x);
+                    }
+                }
+            }
+
+            if (idx_dir.L_(b__old) < i_sym) {
+                b_R -= b_old - idx_dir.M_LF().p(b__old);
+            }
+
+            if (idx_dir.L_(e__old) < i_sym) {
+                b_R -= idx_dir.M_LF().p(e__old + 1) - e_old - 1;
             }
 
             if (b_ == e_) {
                 if (b == e) {
-                    idx->index<dir>().M_LF().move(b, b_);
+                    idx_dir.M_LF().move(b, b_);
                     e = b;
                     e_ = b_;
                 } else {
                     pos_t diff_eb = e - b;
-                    idx->index<dir>().M_LF().move(b, b_);
+                    idx_dir.M_LF().move(b, b_);
                     e = b + diff_eb;
                     e_ = b_;
 
-                    while (e >= idx->index<dir>().M_LF().p(e_ + 1)) {
+                    while (e >= idx_dir.M_LF().p(e_ + 1)) {
                         e_++;
                     }
                 }
             } else {
-                idx->index<dir>().M_LF().move(b, b_);
-                idx->index<dir>().M_LF().move(e, e_);
-            }
-
-            for (i_sym_t i = 0; i < i_sym; i++) {
-                pos_t x = next[i];
-                pos_t y = prev[i];
-
-                if (x <= y) {
-                    b_R += (idx->index<dir>().M_LF().q(y) -     idx->index<dir>().M_LF().q(x)) +
-                           (idx->index<dir>().M_LF().p(y + 1) - idx->index<dir>().M_LF().p(y));
-                }
+                idx_dir.M_LF().move(b, b_);
+                idx_dir.M_LF().move(e, e_);
             }
 
             e_R = b_R + (e - b);
 
-            if (b_R != b_R_old) {
-                v_b_R = false;
-                i_b_R = 0;
-                x_b_R = 0;
-                b_R_ = 0;
-            } else if (v_b_R) {
-                i_b_R++;
+            if (e - b != e_prime - b_prime) {
+                if (b_prime == b_old) {
+                    s_1 = RUN_END;
+                    o_1 = idx_dir.M_LF().p(b__prime + 1) - 1 - b_prime;
+                    x_1 = b__prime;
+                    i_1 = 1;
+                }
+
+                if (e_prime == e_old) {
+                    s_2 = RUN_START;
+                    o_2 = e_prime - idx_dir.M_LF().p(e__prime);
+                    x_2 = e__prime;
+                    i_2 = 1;
+                }
             }
 
-            if (e_R != e_R_old) {
-                v_e_R = false;
-                i_e_R = 0;
-                x_e_R = 0;
-                e_R_ = 0;
-            } else if (v_e_R) {
-                i_e_R++;
+            if (s_1_R) {
+                pos_t p_1 = b_R_old + o_1_R;
+
+                if (!(b_R <= p_1 && p_1 <= e_R)) {
+                    s_1_R = NO_SAMPLE;
+                } else {
+                    o_1_R -= b_R - b_R_old;
+                }
             }
+
+            if (s_2_R) {
+                pos_t p_2 = e_R_old - o_2_R;
+
+                if (!(b_R <= p_2 && p_2 <= e_R)) {
+                    s_2_R = NO_SAMPLE;
+                } else {
+                    o_2_R -= e_R_old - e_R;
+                }
+            }
+
+            assert(s_1 || s_2 || s_1_R || s_2_R);
 
             return true;
         }
@@ -980,7 +1142,7 @@ public:
          */
         bool prepend(sym_t sym)
         {
-            return extend<_LEFT>(sym);
+            return extend<LEFT>(sym);
         }
 
         /**
@@ -992,76 +1154,137 @@ public:
          */
         bool append(sym_t sym)
         {
-            return extend<_RIGHT>(sym);
+            return extend<RIGHT>(sym);
         }
 
+    protected:
+        inline pos_t first_occ()
+        {
+            if (s_1) {
+                i = b + o_1;
+                SA_i = (s_1 == RUN_START ? idx->idx_fwd.SA_s(x_1) : idx->idx_fwd.SA_s_(x_1)) - i_1;
+            } else if (s_2) {
+                i = e - o_2;
+                SA_i = (s_2 == RUN_START ? idx->idx_fwd.SA_s(x_2) : idx->idx_fwd.SA_s_(x_2)) - i_2;
+            } else if (s_1_R) {
+                if (s_1_R == RUN_START) {
+                    i = idx->_SA_sR_m1[x_1_R];
+                    SA_i = idx->n - idx->idx_bwd.SA_s(x_1_R) - 1 + i_1_R - m;
+                } else {
+                    i = idx->_SA_eR_m1[x_1_R];
+                    SA_i = idx->n - idx->idx_bwd.SA_s_(x_1_R) - 1 + i_1_R - m;
+                }
+
+                pos_t i_ = input_interval(i, idx->_S_MLF_p_fwd,
+                    [&](pos_t x){return idx->idx_fwd.M_LF().p(x);});
+
+                for (pos_t j = 0; j < m - i_1_R; j++) {
+                    idx->idx_fwd.M_LF().move(i, i_);
+                }
+            } else /* if (s_2_R) */ {
+                if (s_2_R == RUN_START) {
+                    i = idx->_SA_sR_m1[x_2_R];
+                    SA_i = idx->n - idx->idx_bwd.SA_s(x_2_R) - 1 + i_2_R - m;
+                } else {
+                    i = idx->_SA_eR_m1[x_2_R];
+                    SA_i = idx->n - idx->idx_bwd.SA_s_(x_2_R) - 1 + i_2_R - m;
+                }
+
+                pos_t i_ = input_interval(i, idx->_S_MLF_p_fwd,
+                    [&](pos_t x){return idx->idx_fwd.M_LF().p(x);});
+
+                for (pos_t j = 0; j < m - i_2_R; j++) {
+                    idx->idx_fwd.M_LF().move(i, i_);
+                }
+            }
+
+            c = i;
+            SA_c = SA_i;
+
+            if (occ_rem > 1) [[likely]] {
+                locate_dir = i > b ? LEFT : RIGHT;
+
+                if constexpr (support == _locate_move) {
+                    if (locate_dir == LEFT) {
+                        s_ = input_interval(SA_i, idx->_S_MPhi_p,
+                            [&](pos_t x){return idx->idx_fwd.M_Phi().p(x);});
+                    } else {
+                        s_ = input_interval(SA_i, idx->_S_MPhi_m1_p,
+                            [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
+                    }
+                } else if constexpr (support == _locate_rlzsa) {
+                    if (locate_dir == LEFT) {
+                        idx->idx_fwd.init_rlzsa(i, rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p);
+
+                        if (c < e) [[likely]] {
+                            rlz_r = rlz_l;
+                            pos_t tmp_1 = c;
+                            pos_t tmp_2;
+                            idx->idx_fwd.next_rlzsa(tmp_1, tmp_2, rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p);
+                        }
+
+                        idx->idx_fwd.turn_rlzsa_left(rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p);
+                    } else {
+                        i++;
+                        idx->idx_fwd.init_rlzsa(i, rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p);
+                    }
+                }
+            }
+
+            occ_rem--;
+            return SA_i;
+        }
+
+    public:
         /**
          * @brief reports the next occurrence of the currently matched pattern
          * @return next occurrence
          */
         inline pos_t next_occ()
         {
-            if (locate_dir == _NONE) {
-                if (v_b) {
-                    c = b;
-                    i = b;
-                    SA_i = idx->idx_fwd.SA_s(x_b) - i_b;
-                } else if (v_e) {
-                    c = e;
-                    i = e;
-                    SA_i = idx->idx_fwd.SA_s_(x_e) - i_e;
-                } else if (v_b_R) {
-                    SA_i = (n - idx->idx_bwd.SA_s(x_b_R) + 1) + i_b_R - m;
-                    i = idx->_SA_sR_m1(x_b_R);
-                    pos_t i_ = input_interval(i, idx->_S_MLF_p_fwd, [&](pos_t x){return idx->idx_fwd.M_LF().p(x);});
+            if (locate_dir == NO_DIR) [[unlikely]] {
+                return first_occ();
+            }
 
-                    for (pos_t j = 0; j < m - i_b_R; j++) {
-                        idx->idx_fwd.M_LF().move(i, i_);
-                    }
+            pos_t occ;
 
-                    c = i;
-                } else {
-                    SA_i = (n - idx->idx_bwd.SA_s_(x_e_R) + 1) + i_e_R - m;
-                    i = idx->_SA_sR_m1(x_e_R);
-                    pos_t i_ = input_interval(i, idx->_S_MLF_p_fwd, [&](pos_t x){return idx->idx_fwd.M_LF().p(x);});
-
-                    for (pos_t j = 0; j < m - i_e_R; j++) {
-                        idx->idx_fwd.M_LF().move(i, i_);
-                    }
-
-                    c = i;
-                }
-
-                SA_c = SA_i;
-                locate_dir = b == e ? _NONE : (i > b ? _LEFT : _RIGHT);
-
-                if (locate_dir == _LEFT) {
-                    s_ = input_interval(i, idx->_S_MPhi_p, [&](pos_t x){return idx->idx_fwd.M_Phi().p(x);});
-                } else if (locate_dir == _RIGHT) {
-                    s_ = input_interval(i, idx->_S_MPhi_m1_p, [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
-                }
-            } else if (locate_dir == _LEFT) {
-                idx->idx_fwd.M_Phi().move(SA_i, s_);
-
-                if (i > b) [[likely]] {
+            if constexpr (support == _locate_move) {
+                if (locate_dir == LEFT) {
+                    idx->idx_fwd.M_Phi().move(SA_i, s_);
+                    occ = SA_i;
                     i--;
-                } else {
-                    i = c;
-                    SA_i = SA_c;
-                    s_ = input_interval(i, idx->_S_MPhi_m1_p, [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
-                    locate_dir = _RIGHT;
-                }
-            } else if (locate_dir == _RIGHT) {
-                idx->idx_fwd.M_Phi_m1().move(SA_i, s_);
-                
-                if (i < e) [[likely]] {
+
+                    if (i == b) [[unlikely]] {
+                        i = c;
+                        SA_i = SA_c;
+                        locate_dir = RIGHT;
+
+                        s_ = input_interval(SA_i, idx->_S_MPhi_m1_p,
+                            [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
+                    }
+                } else /* if (locate_dir == RIGHT) */ {
+                    idx->idx_fwd.M_Phi_m1().move(SA_i, s_);
+                    occ = SA_i;
                     i++;
-                } else {
-                    locate_dir = _NONE;
+                }
+            } else if constexpr (support == _locate_rlzsa) {
+                if (locate_dir == LEFT) {
+                    idx->idx_fwd.prev_rlzsa(i, SA_i, rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p);
+                    occ = SA_i;
+
+                    if (i == b && c < e) [[unlikely]] {
+                        i = c + 1;
+                        locate_dir = RIGHT;
+                        SA_i = SA_c;
+                    }
+                } else /* if (locate_dir == RIGHT) */ {
+                    idx->idx_fwd.next_rlzsa(i, SA_i, rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p);
+                    occ = SA_i;
                 }
             }
 
-            return SA_i;
+            occ_rem--;
+            return occ;
         }
 
         /**
@@ -1070,6 +1293,58 @@ public:
          */
         inline void locate(std::vector<pos_t>& Occ)
         {
+            Occ.reserve(Occ.size() + occ_rem);
+
+            if (occ_rem == num_occ()) {
+                Occ.emplace_back(first_occ());
+            }
+
+            if constexpr (support == _locate_move) {
+                if (locate_dir == LEFT) {
+                    while (i > b) {
+                        idx->idx_fwd.M_Phi().move(SA_i, s_);
+                        Occ.emplace_back(SA_i);
+                        i--;
+                    }
+
+                    if (c < e) {
+                        i = c;
+                        SA_i = SA_c;
+                        s_ = input_interval(SA_i, idx->_S_MPhi_m1_p,
+                            [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
+                    }
+                }
+
+                if (c < e) {
+                    while (i < e) {
+                        idx->idx_fwd.M_Phi_m1().move(SA_i, s_);
+                        Occ.emplace_back(SA_i);
+                        i++;
+                    }
+                }
+            } else if constexpr (support == _locate_rlzsa) {
+                if (locate_dir == LEFT) {
+                    idx->idx_fwd.report_rlzsa_left(i, b, SA_i,
+                        rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p,
+                        [&](pos_t, pos_t occ){Occ.emplace_back(occ);}
+                    );
+
+                    if (c < e) [[likely]] {
+                        i = c + 1;
+                        locate_dir = RIGHT;
+                        SA_i = SA_c;
+                    }
+                }
+
+                if (c < e) [[likely]] {
+                    idx->idx_fwd.report_rlzsa_right(i, e, SA_i,
+                        rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p,
+                        [&](pos_t, pos_t occ){Occ.emplace_back(occ);}
+                    );
+                }
+            }
+
+            occ_rem = 0;
         }
 
         /**
@@ -1078,6 +1353,9 @@ public:
          */
         std::vector<pos_t> locate()
         {
+            std::vector<pos_t> Occ;
+            locate(Occ);
+            return Occ;
         }
     };
 
