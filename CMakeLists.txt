@@ -300,14 +300,16 @@ if(MOVE_R_BUILD_TESTS)
 
   add_executable(test-move_r "${CMAKE_SOURCE_DIR}/tests/test_move_r.cpp")
   add_executable(test-move_r_int "${CMAKE_SOURCE_DIR}/tests/test_move_r_int.cpp")
+  add_executable(test-move_rb "${CMAKE_SOURCE_DIR}/tests/test_move_rb.cpp")
   add_executable(test-move_data_structure "${CMAKE_SOURCE_DIR}/tests/test_move_data_structure.cpp")
 
   target_link_libraries(test-move_r PRIVATE GTest::gtest move_r)
   target_link_libraries(test-move_r_int PRIVATE GTest::gtest move_r)
+  target_link_libraries(test-move_rb PRIVATE GTest::gtest move_r)
   target_link_libraries(test-move_data_structure PRIVATE GTest::gtest move_r)
 
   set_target_properties(
-    test-move_r test-move_r_int test-move_data_structure
+    test-move_r test-move_r_int test-move_rb test-move_data_structure
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY
     "${CMAKE_BINARY_DIR}/tests/"
   )

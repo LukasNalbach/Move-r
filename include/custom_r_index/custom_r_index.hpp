@@ -18,11 +18,17 @@
 #include "sparse_sd_vector.hpp"
 #include <misc/utils.hpp>
 
+enum sample_mode {
+    _run_heads,
+    _run_ends
+};
+
 namespace custom_r_index {
 
 /*
  * sparse RLBWT: r (log sigma + (1+epsilon) * log (n/r)) (1+o(1)) bits
  */
+template <sample_mode mode = _run_ends>
 class index {
 
 protected:
@@ -40,6 +46,11 @@ protected:
 public:
     index() = default;
 
+    bool has_sa_samples() const
+    {
+        return !samples.empty();
+    }
+
     uint64_t size_in_bytes() const
     {
         return sizeof(this) +
@@ -52,7 +63,7 @@ public:
      * Build index
      */
     template <typename int_t>
-    index(const std::string& BWT, const std::vector<int_t>& SA, bool sa_samples = false)
+    index(const std::string& BWT, const std::vector<int_t>& SA, bool build_sa_samples = true)
     {
         bwt = rle_string(BWT);
         uint64_t n = BWT.size();
@@ -72,20 +83,32 @@ public:
 
         r = bwt.number_of_runs();
 
-        if (!sa_samples) return;
+        if (!build_sa_samples) return;
 
         samples.width(std::bit_width(n));
         samples.resize(r);
         uint64_t run = 0;
 
+        if constexpr (mode == _run_heads) {
+            samples[0] = SA[0];
+            run++;
+        }
+
         for (uint64_t i = 1; i < n; i++) {
             if (BWT[i] != BWT[i - 1]) {
-                samples[run] = SA[i - 1];
+                if constexpr (mode == _run_heads) {
+                    samples[run] = SA[i];
+                } else {
+                    samples[run] = SA[i - 1];
+                }
+
                 run++;
             }
         }
 
-        samples[r - 1] = SA[n - 1];
+        if constexpr (mode == _run_ends) {
+            samples[r - 1] = SA[n - 1];
+        }
     }
 
     uint64_t num_bwt_runs() const
@@ -114,7 +137,11 @@ public:
 
     uint64_t sample_pos(uint64_t i) const
     {
-        return bwt.run_range(i).second;
+        if constexpr (mode == _run_heads) {
+            return bwt.run_range(i).first;
+        } else {
+            return bwt.run_range(i).second;
+        }
     }
 
     /*
@@ -254,7 +281,9 @@ public:
         out.write((char*)F.data(), 256 * sizeof(uint64_t));
         bwt.serialize(out);
 
-        samples.serialize(out);
+        bool has_samples = has_sa_samples();
+        out.write((char*) &has_samples, 1);
+        if (has_samples) samples.serialize(out);
     }
 
     /* load the structure from the istream
@@ -268,31 +297,9 @@ public:
         bwt.load(in);
         r = bwt.number_of_runs();
 
-        samples.load(in);
-    }
-
-    /*
-     * save the structure to the path specified.
-     * \param path_prefix prefix of the index files. suffix ".ri" will be automatically added
-     */
-    void save_to_file(std::string path_prefix) const
-    {
-        std::string path = std::string(path_prefix).append(".ri");
-
-        std::ofstream out(path);
-        serialize(out);
-        out.close();
-    }
-
-    /*
-     * load the structure from the path specified.
-     * \param path: full file name
-     */
-    void load_from_file(std::string path)
-    {
-        std::ifstream in(path);
-        load(in);
-        in.close();
+        bool has_samples;
+        in.read((char*) &has_samples, 1);
+        if (has_samples) samples.load(in);
     }
 
     uint64_t text_size() const
@@ -313,11 +320,11 @@ public:
      */    
     std::tuple<uint64_t, uint64_t, uint64_t> count_and_get_occ(const std::string& P) const
     {
-        assert(samples.size() != 0);
+        assert(has_sa_samples());
         std::pair<uint64_t, uint64_t> range = full_range();
 
         // k = SA[r]
-        uint64_t k = samples[r - 1];
+        uint64_t k = samples[mode == _run_heads ? 0 : (r - 1)];
 
         std::pair<uint64_t, uint64_t> range1;
         uint64_t m = P.size();
@@ -328,17 +335,19 @@ public:
 
             // if suffix can be left-extended with char
             if (range1.first <= range1.second) {
-                if (bwt[range.second] == c) {
+                if (bwt[mode == _run_heads ? range.first : range.second] == c) {
                     // last c is at the start&end of range. Then, we have this sample by induction!
                     assert(k > 0);
                     k--;
                 } else {
                     // find last c in range (there must be one because range1 is not empty)
                     // and get its sample (must be sampled because it is at the start/end of a run)
-                    uint64_t rnk = bwt.rank(range.second, c);
+                    uint64_t rnk = bwt.rank(mode == _run_heads ? range.first : range.second, c);
 
                     // this is the rank of the first/last c
-                    rnk--;
+                    if constexpr (mode == _run_ends) {
+                        rnk--;
+                    }
 
                     // jump to the corresponding BWT position
                     uint64_t j = bwt.select(rnk, c);

@@ -36,6 +36,7 @@
 #include <unistd.h>
 #include <vector>
 #include <bit>
+#include <random>
 
 #include <malloc_count.h>
 
@@ -253,11 +254,15 @@ std::string random_alphanumeric_string(uint64_t length)
 {
     static std::string possible_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<uint8_t> char_idx_distrib(0, possible_chars.size() - 1);
+    
     std::string str_rand;
     str_rand.reserve(length);
 
     for (uint64_t i = 0; i < length; i++) {
-        str_rand.push_back(possible_chars[std::rand() % possible_chars.size()]);
+        str_rand.push_back(possible_chars[char_idx_distrib(gen)]);
     }
 
     return str_rand;
@@ -399,10 +404,21 @@ pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, fnc_t value_at)
     return left;
 }
 
-enum exp_search_dir { LEFT,
-    RIGHT };
+enum direction : uint8_t {
+    NO_DIR = 0,
+    LEFT = 1,
+    RIGHT = 2
+};
 
-template <typename pos_t, exp_search_dir search_dir, typename fnc_t>
+template <direction dir>
+static constexpr direction flip()
+{
+    if constexpr (dir == LEFT) return RIGHT;
+    if constexpr (dir == RIGHT) return LEFT;
+    return NO_DIR;
+}
+
+template <typename pos_t, direction search_dir, typename fnc_t>
 pos_t exp_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t cur_step_size = 1;
@@ -530,4 +546,16 @@ template <typename T>
 inline static uint8_t byte_width(T val)
 {
     return std::max<uint8_t>(1, div_ceil<uint8_t>(std::bit_width(uint64_t{val}), 8));
+}
+
+template <typename container_t>
+static void log_contents(container_t container)
+{
+    if (container.empty()) return;
+
+    for (uint64_t i = 0; i < container.size() - 1; i++) {
+        std::cout << container[i] << ", ";
+    }
+
+    std::cout << container[container.size() - 1] << std::endl;
 }

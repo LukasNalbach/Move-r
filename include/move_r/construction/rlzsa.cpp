@@ -384,7 +384,7 @@ void move_r<support, sym_t, pos_t>::construction::build_rlzsa_factorization()
     idx_revr_t<sad_t, irr_pos_t>& idx_revR = get_idx_revR<sad_t, irr_pos_t>();
 
     uint8_t width_sr = byte_width(size_R) * 8;
-    uint8_t width_lp = byte_width(n) * 8;
+    uint8_t width_lp = byte_width(2 * n) * 8;
 
     if constexpr (space) {
         for (uint16_t i = 0; i < p; i++) {
@@ -424,11 +424,11 @@ void move_r<support, sym_t, pos_t>::construction::build_rlzsa_factorization()
 
         if constexpr (space) {
             PT_file_bufs[i_p].push_back(1);
-            LP_file_bufs[i_p].push_back(SA<bigbwt, sa_sint_t>(i_p, b));
+            LP_file_bufs[i_p].push_back(SAd<bigbwt, sa_sint_t>(i_p, b));
         } else {
             _PT[i_p].resize(pt_size);
             _PT[i_p][0] = 1;
-            _LP[i_p].emplace_back(SA<bigbwt, sa_sint_t>(i_p, b));
+            _LP[i_p].emplace_back(i_p == 0 ? 2 * n - 1 : SAd<bigbwt, sa_sint_t>(i_p, b));
         }
 
         auto query = idx_revR.query();
@@ -444,10 +444,10 @@ void move_r<support, sym_t, pos_t>::construction::build_rlzsa_factorization()
             if (query.length() <= 1) {
                 if constexpr (space) {
                     PT_file_bufs[i_p].push_back(1);
-                    LP_file_bufs[i_p].push_back(SA<bigbwt, sa_sint_t>(i_p, i));
+                    LP_file_bufs[i_p].push_back(SAd<bigbwt, sa_sint_t>(i_p, i));
                 } else {
                     _PT[i_p][j] = 1;
-                    _LP[i_p].emplace_back(SA<bigbwt, sa_sint_t>(i_p, i));
+                    _LP[i_p].emplace_back(SAd<bigbwt, sa_sint_t>(i_p, i));
                 }
 
                 i++;

@@ -275,6 +275,20 @@ public:
     }
 
     /**
+     * @brief logs the contents of all vectos
+     */
+    void log_contents() const
+    {
+        if (empty()) return;
+
+        for (uint64_t i = 0; i < size() - 1; i++) {
+            std::cout << operator[](i) << ", ";
+        }
+
+        std::cout << operator[](size() - 1) << std::endl;
+    }
+
+    /**
      * @brief serializes the sd_array to an output stream
      * @param out output stream
      */

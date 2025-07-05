@@ -25,7 +25,7 @@
  */
 
 #include <gtest/gtest.h>
-#include <move_r/move_r.hpp>
+#include <move_r/move_rb.hpp>
 
 std::random_device rd;
 std::mt19937 gen(rd());
@@ -42,13 +42,6 @@ std::lognormal_distribution<double> a_distrib(2.0, 3.0);
 uint32_t input_size;
 uint8_t alphabet_size;
 std::string input;
-std::string input_reverted;
-std::string bwt;
-std::string bwt_retrieved;
-std::vector<uint8_t> map_uchar;
-std::vector<uint8_t> unmap_uchar;
-std::vector<int32_t> suffix_array;
-std::vector<uint32_t> suffix_array_retrieved;
 uint32_t max_pattern_length;
 uint32_t num_queries;
 
@@ -89,78 +82,11 @@ void test_move_r()
 
     // build move-r and choose a random number of threads and balancing parameter, but always use libsais,
     // because there are bugs in Big-BWT that come through during fuzzing but not really in practice
-    move_r<support, char, uint32_t> index(input, {
+    move_rb<support, char, uint32_t> index(input, {
         .mode = _suffix_array,
         .num_threads = num_threads_distrib(gen),
         .a = std::min<uint16_t>(2 + a_distrib(gen), 32767)
     });
-
-    // revert the index and compare the output with the input string
-    input_reverted = index.revert_range({ .num_threads = num_threads_distrib(gen) });
-
-    #pragma omp parallel for num_threads(max_num_threads)
-    for (uint32_t i = 0; i < input_size; i++)
-        EXPECT_EQ(input[i], input_reverted[i]);
-
-    // retrieve the suffix array and compare it with the correct suffix array; if the input contains 0,
-    // then temporarily remap the characters of the input string s.t. it does not contain 0
-    if (contains(alphabet, (uint8_t)0)) {
-        map_uchar.resize(256, 0);
-        unmap_uchar.resize(256, 0);
-        uint8_t next_uchar = 1;
-
-        for (uint16_t i = 0; i < 256; i++) {
-            if (contains(alphabet, (uint8_t)i)) {
-                map_uchar[i] = next_uchar;
-                unmap_uchar[next_uchar] = i;
-                next_uchar++;
-            }
-        }
-
-        for (uint32_t i = 0; i < input_size; i++)
-            input[i] = uchar_to_char(map_uchar[char_to_uchar(input[i])]);
-    }
-
-    input.push_back(uchar_to_char((uint8_t)0));
-    no_init_resize(suffix_array, input_size + 1);
-    libsais_omp((uint8_t*)&input[0], &suffix_array[0], input_size + 1, 0, NULL, max_num_threads);
-
-    if (contains(alphabet, (uint8_t)0)) {
-        for (uint32_t i = 0; i < input_size; i++)
-            input[i] = uchar_to_char(unmap_uchar[char_to_uchar(input[i])]);
-        map_uchar.clear();
-        unmap_uchar.clear();
-    }
-
-    suffix_array_retrieved = index.SA_range({ .num_threads = num_threads_distrib(gen) });
-
-    #pragma omp parallel for num_threads(max_num_threads)
-    for (uint32_t i = 0; i <= input_size; i++)
-        EXPECT_EQ(suffix_array[i], suffix_array_retrieved[i]);
-
-    // compute each suffix array value separately and check if it is correct
-    #pragma omp parallel for num_threads(max_num_threads)
-    for (uint32_t i = 0; i <= input_size; i++)
-        EXPECT_EQ(index.SA(i), suffix_array[i]);
-
-    // retrieve the bwt and compare it with the correct bwt
-    no_init_resize(bwt, input_size + 1);
-    
-    #pragma omp parallel for num_threads(max_num_threads)
-    for (uint32_t i = 0; i <= input_size; i++) {
-        bwt[i] = suffix_array[i] == 0 ? 0 : input[suffix_array[i] - 1];
-    }
-
-    bwt_retrieved = index.BWT_range({ .num_threads = num_threads_distrib(gen) });
-
-    #pragma omp parallel for num_threads(max_num_threads)
-    for (uint32_t i = 0; i <= input_size; i++)
-        EXPECT_EQ(bwt[i], bwt_retrieved[i]);
-
-    // compute each bwt character separately and check if it is correct
-    #pragma omp parallel for num_threads(max_num_threads)
-    for (uint32_t i = 0; i <= input_size; i++)
-        EXPECT_EQ(index.BWT(i), bwt[i]);
 
     // generate patterns from the input and test count- and locate queries
     std::uniform_int_distribution<uint32_t> pattern_pos_distrib(0, input_size - 1);
@@ -200,31 +126,38 @@ void test_move_r()
 
                 if (match) correct_occurrences.emplace_back(i);
             }
-            
-            EXPECT_EQ(index.count(pattern), correct_occurrences.size());
-            occurrences = index.locate(pattern);
-            ips4o::sort(occurrences.begin(), occurrences.end());
-            EXPECT_EQ(occurrences, correct_occurrences);
-            occurrences.clear();
-            
+
+            uint32_t start_pos = std::uniform_int_distribution<uint32_t>(0, pattern_length - 1)(gen);
+            std::vector<direction> dirs;
+            dirs.reserve(pattern_length);
+            for (uint32_t i = 0; i <= start_pos; i++) dirs.emplace_back(LEFT);
+            for (uint32_t i = start_pos + 1; i < pattern_length; i++) dirs.emplace_back(RIGHT);
+            std::shuffle(dirs.begin(), dirs.end(), gen);
             auto query = index.query();
-            for (int32_t i = pattern.size() - 1; i >= 0; i--)
-                query.prepend(pattern[i]);
+            uint32_t pos_prev_sym = start_pos;
+            uint32_t pos_next_sym = start_pos + 1;
+
+            for (uint32_t i = 0; i < pattern_length; i++) {
+                if (dirs[i] == LEFT) {
+                    EXPECT_TRUE(query.prepend(pattern[pos_prev_sym]));
+                    pos_prev_sym--;
+                } else {
+                    EXPECT_TRUE(query.append(pattern[pos_next_sym]));
+                    pos_next_sym++;
+                }
+            }
+            
             EXPECT_EQ(query.num_occ(), correct_occurrences.size());
 
-            if constexpr (support == _locate_lzendsa) {
-                occurrences = query.locate();
-            } else {
-                for (int32_t i = 0; i < query.num_occ(); i++) {
-                    if (prob_distrib(gen) < 1 / (double) query.num_occ()) {
-                        std::vector<uint32_t> remaining_occurrences = query.locate();
-                        occurrences.insert(occurrences.end(),
-                            remaining_occurrences.begin(), remaining_occurrences.end());
-                        break;
-                    }
-    
-                    occurrences.emplace_back(query.next_occ());
+            for (uint32_t i = 0; i < query.num_occ(); i++) {
+                if (prob_distrib(gen) < 1 / (double) query.num_occ()) {
+                    std::vector<uint32_t> remaining_occurrences = query.locate();
+                    occurrences.insert(occurrences.end(),
+                        remaining_occurrences.begin(), remaining_occurrences.end());
+                    break;
                 }
+
+                occurrences.emplace_back(query.next_occ());
             }
 
             ips4o::sort(occurrences.begin(), occurrences.end());
@@ -242,14 +175,10 @@ TEST(test_move_r, fuzzy_test)
     auto start_time = now();
 
     while (time_diff_min(start_time, now()) < 60) {
-        double val = prob_distrib(gen);
-
-        if (val < 1.0 / 3.0) {
-            test_move_r<_locate_move>();
-        } else if (val < 2.0 / 3.0) {
-            test_move_r<_locate_rlzsa>();
+        if (prob_distrib(gen) < 0.5) {
+          test_move_r<_locate_move>();
         } else {
-            test_move_r<_locate_lzendsa>();
+            test_move_r<_locate_rlzsa>();
         }
     }
 }

@@ -41,12 +41,12 @@ class r_index_rlzsa {
 
 protected:
     rlzsa_encoding<int_t> rlzsa_enc;
-    custom_r_index::index r_idx;
+    custom_r_index::index<_run_heads> r_idx;
 
 public:
     r_index_rlzsa() = default;
 
-    r_index_rlzsa(std::string& input, bool use_bigbwt = false = true, bool log = false)
+    r_index_rlzsa(std::string& input, bool use_bigbwt = false = true, bool use_r_index_samples = false, bool log = false)
     {
         auto time_start = now();
         auto time = time_start;
@@ -58,7 +58,7 @@ public:
         // build r-index
         if (log) time = now();
         if (log) std::cout << "building r-index" << std::flush;
-        r_idx = custom_r_index::index(bwt, sa, false);
+        r_idx = custom_r_index::index<_run_heads>(bwt, sa, use_r_index_samples);
         bwt.clear();
         bwt.shrink_to_fit();
         if (log) time = log_runtime(time);
@@ -79,7 +79,7 @@ public:
         if (log) std::cout << "building rlzsa:" << std::endl;
         uint64_t r = r_idx.number_of_runs();
         uint64_t reference_size = std::min<uint64_t>(n / 3, 5.2 * r);
-        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, log);
+        rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, !use_r_index_samples, log);
 
         if (log) {
             std::cout << "r-index-rlzsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
@@ -88,7 +88,7 @@ public:
     }
 
     // return a referrlzsa_ence to the r-index
-    const custom_r_index::index& r_index() const
+    const custom_r_index::index<_run_heads>& r_index() const
     {
         return r_idx;
     }
@@ -102,9 +102,17 @@ public:
     template <typename out_t>
     std::vector<out_t> locate(const std::string &pattern) const
     {
-        auto [beg, end] = r_idx.count(pattern);
-        if (end < beg) return {};
-        std::vector<out_t> Occ = rlzsa_enc.template extract<out_t>(beg, end);
+        std::vector<out_t> Occ;
+
+        if (r_idx.has_sa_samples()) {
+            auto [beg, end, sa_beg] = r_idx.count_and_get_occ(pattern);
+            if (end < beg) return {};
+            Occ = rlzsa_enc.template extract<out_t>(beg, end, int64_t{sa_beg});
+        } else {
+            auto [beg, end] = r_idx.count(pattern);
+            if (end < beg) return {};
+            Occ = rlzsa_enc.template extract<out_t>(beg, end);
+        }
 
         #ifndef NDEBUG
         for (auto occ : Occ) {
@@ -113,7 +121,6 @@ public:
         #endif
 
         return Occ;
-        
     }
 
     std::pair<uint64_t, uint64_t> count(std::string &pattern) const

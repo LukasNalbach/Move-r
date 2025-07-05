@@ -49,7 +49,7 @@ void help(std::string msg)
     std::cout << "usage: move-rb-build [options] <input_file>" << std::endl;
     std::cout << "   -c <mode>           construction mode: sa or bigbwt (default: sa)" << std::endl;
     std::cout << "   -o <base_name>      names the index file base_name.move-rb (default: input_file)" << std::endl;
-    std::cout << "   -s <support>        support: count, locate_move, locate_rlzsa or locate_lzendsa" << std::endl;
+    std::cout << "   -s <support>        support: count, locate_move or locate_rlzsa" << std::endl;
     std::cout << "                       (default: locate_move)" << std::endl;
     std::cout << "   -p <integer>        number of threads to use during the construction of the index" << std::endl;
     std::cout << "                       (default: all threads)" << std::endl;
@@ -91,8 +91,6 @@ void parse_args(char** argv, int argc, int& ptr)
             support = _locate_move;
         } else if (support_str == "locate_rlzsa") {
             support = _locate_rlzsa;
-        } else if (support_str == "locate_lzendsa") {
-            support = _locate_lzendsa;
         } else help("error: unknown mode provided with -s option");
     } else if (s == "-a") {
         if (ptr >= argc - 1) help("error: missing parameter after -a option");
@@ -184,12 +182,6 @@ int main(int argc, char** argv)
             build<uint32_t, _locate_rlzsa>();
         } else {
             build<uint64_t, _locate_rlzsa>();
-        }
-    } else if (support == _locate_lzendsa) {
-        if (n < UINT_MAX) {
-            build<uint32_t, _locate_lzendsa>();
-        } else {
-            build<uint64_t, _locate_lzendsa>();
         }
     }
 

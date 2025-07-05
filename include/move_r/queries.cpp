@@ -33,14 +33,19 @@ template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::setup_phi_m1_move_pair(pos_t& x, pos_t& s, pos_t& s_) const
     requires(has_locate_move)
 {
-    // the index of the pair in M_Phi^{-1} creating the output interval with starting position s = SA[M_LF.p[x]]
-    pos_t x_s_ = SA_Phi_m1(x);
+    if constexpr (support == _locate_move) {
+        // the index of the pair in M_Phi^{-1} creating the output interval with starting position s = SA[M_LF.p[x]]
+        pos_t x_s_ = SA_Phi_m1(x);
 
-    // set s_ to the index of the input interval in M_Phi^{-1} containing s
-    s_ = M_Phi_m1().idx(x_s_);
+        // set s_ to the index of the input interval in M_Phi^{-1} containing s
+        s_ = M_Phi_m1().idx(x_s_);
 
-    // compute s
-    s = M_Phi_m1().p(s_) + M_Phi_m1().offs(x_s_);
+        // compute s
+        s = M_Phi_m1().p(s_) + M_Phi_m1().offs(x_s_);
+    } else {
+        s = SA_s(x);
+        s_ = bin_search_max_leq<pos_t>(s, 0, r__ - 1, [&](pos_t x){ return M_Phi_m1().p(x); });
+    }
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -67,16 +72,27 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
 
         return s;
     } else if constexpr (has_rlzsa) {
+        // index of the input interval in M_LF containing i.
+        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
+
+        // position in the suffix array of the current suffix s
+        pos_t j = M_LF().p(x);
+
+        // the current suffix (s = SA[j])
+        pos_t s = SA_s(x);
+
+        if (j == i) {
+            return s;
+        }
+
+        j++;
         pos_t x_p, x_lp, x_cp, x_r, s_np;
 
-        // variable to store SA[i] in
-        pos_t s;
-
-        // initialize the rlzsa context to position i
-        init_rlzsa(i, s, x_p, x_lp, x_cp, x_r, s_np);
+        // initialize the rlzsa context to position j
+        init_rlzsa(j, x_p, x_lp, x_cp, x_r, s_np);
 
         // compute SA[i]
-        next_rlzsa(i, s, x_p, x_lp, x_cp, x_r, s_np);
+        skip_rlzsa_right(j, i, s, x_p, x_lp, x_cp, x_r, s_np);
 
         return s;
     } else if constexpr (has_locate_move) {
@@ -130,30 +146,14 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
 template <move_r_support support, typename sym_t, typename pos_t>
 bool move_r<support, sym_t, pos_t>::query_context::prepend(sym_t sym)
 {
-    pos_t b_tmp = b;
-    pos_t e_tmp = e;
-    pos_t b__tmp = b_;
-    pos_t e__tmp = e_;
-    pos_t hat_b_ap_y_tmp = hat_b_ap_y;
-    int64_t y_tmp = y;
-    pos_t hat_e_ap_z_tmp = hat_e_ap_z;
-    int64_t z_tmp = z;
+    query_context ctx_old = *this;
 
     if (idx->backward_search_step(sym, b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z)) {
         l++;
         i = b;
-
         return true;
     } else {
-        b = b_tmp;
-        e = e_tmp;
-        b_ = b__tmp;
-        e_ = e__tmp;
-        hat_b_ap_y = hat_b_ap_y_tmp;
-        y = y_tmp;
-        hat_e_ap_z = hat_e_ap_z_tmp;
-        z = z_tmp;
-
+        *this = ctx_old;
         return false;
     }
 }
@@ -413,7 +413,7 @@ void move_r<support, sym_t, pos_t>::init_phi_m1(
 
 template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::init_rlzsa(
-    pos_t& i,
+    pos_t i,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
     requires(has_rlzsa)
 {
@@ -470,44 +470,26 @@ void move_r<support, sym_t, pos_t>::init_rlzsa(
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::init_rlzsa(
-    pos_t& i, pos_t& s,
-    pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
+void move_r<support, sym_t, pos_t>::turn_rlzsa_left(
+    pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_p) const
     requires(has_rlzsa)
 {
-    // index of the input interval in M_LF containing i.
-    pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
+    if (PT(x_p)) {
+        s_p--;
 
-    while (SA_s(x) == n) {
-        x--;
-    }
-
-    s = SA_s(x);
-    pos_t j = M_LF().p(x);
-
-    if (j == i) [[unlikely]] {
-        init_rlzsa(i, x_p, x_lp, x_cp, x_r, s_np);
-
-        if (!PT(x_p)) {
-            pos_t sad_i = R(x_r);
-
-            // set s <- SA[i-1] = SA[i]-SA^d[i]
-            if (sad_i < n) {
-                s += n - sad_i;
-            } else {
-                s -= sad_i - n;
-            }
+        if (x_cp > 0) [[likely]] {
+            x_cp--;
+            x_r = SR(x_cp) + CPL(x_cp) - 1;
         }
     } else {
-        j++;
-        init_rlzsa(j, x_p, x_lp, x_cp, x_r, s_np);
-        skip_rlzsa_right(j, i, s, x_p, x_lp, x_cp, x_r, s_np);
+        s_p -= CPL(x_cp);
+        x_lp--;
     }
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::skip_rlzsa_right(
-    pos_t& i, pos_t& e, pos_t& s,
+    pos_t& i, pos_t e, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
     requires(has_rlzsa)
 {
@@ -533,7 +515,8 @@ void move_r<support, sym_t, pos_t>::skip_rlzsa_right(
         // decode all literal phrases before the next copy-phrase
         while (i < e && PT(x_p)) {
             // decode the x_lp-th literal phrase
-            s = LP(x_lp);
+            s += LP(x_lp);
+            s -= n;
             i++;
             x_p++;
             x_lp++;
@@ -549,6 +532,56 @@ void move_r<support, sym_t, pos_t>::skip_rlzsa_right(
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support, sym_t, pos_t>::prev_rlzsa(
+    pos_t& i, pos_t& s,
+    pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_cp) const
+    requires(has_rlzsa)
+{
+    if (PT(x_p)) {
+        // literal phrase
+        s += n;
+        s -= LP(x_lp);
+        i--;
+        x_p--;
+        x_lp--;
+
+        if (i > 0) [[likely]] {
+            if (PT(x_p)) {
+                // the previous phrase is a literal phrase
+                s_cp--;
+            } else {
+                // the previous phrase is a copy-phrase
+                s_cp -= CPL(x_cp);
+            }
+        }
+    } else {
+        // copy-prhase
+        s += n;
+        s -= R(x_r);
+        i--;
+        x_r--;
+
+        // i lies within the previous phrase
+        if (s_cp > 0 && i < s_cp) [[unlikely]] {
+            x_p--;
+            
+            if (x_cp > 0) [[likely]] {
+                x_cp--;
+                x_r = SR(x_cp) + CPL(x_cp) - 1;
+            }
+
+            if (PT(x_p)) {
+                // the next phrase is a literal phrase
+                s_cp--;
+            } else {
+                // the next phrase is a copy-phrase
+                s_cp -= CPL(x_cp);
+            }
+        }
+    }
+}
+
+template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::next_rlzsa(
     pos_t& i, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const
@@ -556,7 +589,8 @@ void move_r<support, sym_t, pos_t>::next_rlzsa(
 {
     if (PT(x_p)) {
         // literal phrase
-        s = LP(x_lp);
+        s += LP(x_lp);
+        s -= n;
         i++;
         x_p++;
         x_lp++;
@@ -596,6 +630,55 @@ void move_r<support, sym_t, pos_t>::next_rlzsa(
 
 template <move_r_support support, typename sym_t, typename pos_t>
 template <typename report_fnc_t>
+void move_r<support, sym_t, pos_t>::report_rlzsa_left(
+    pos_t& i, pos_t& b, pos_t& s,
+    pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_cp,
+    report_fnc_t report) const
+    requires(has_rlzsa)
+{
+    while (true) {
+        // decode all copy-phrases after the previous literal phrase
+        while (!PT(x_p)) {
+            // decode the x_cp-th copy-phrase
+            while (i >= s_cp) {
+                s += n;
+                s -= R(x_r);
+                i--;
+                report(i, s);
+                if (i == b) [[unlikely]] return;
+                x_r--;
+            }
+
+            if (x_cp > 0) [[likely]] {
+                x_cp--;
+                x_r = SR(x_cp) + CPL(x_cp) - 1;
+            }
+
+            x_p--;
+            s_cp -= PT(x_p) ? 1 : CPL(x_cp);
+        }
+
+        // decode all literal phrases after the previous copy-phrase
+        while (PT(x_p)) {
+            // decode the x_lp-th literal phrase
+            s += n;
+            s -= LP(x_lp);
+            i--;
+            report(i, s);
+            if (i == b) [[unlikely]] return;
+            x_p--;
+            x_lp--;
+            s_cp--;
+        }
+
+        // set s_cp to the starting position of the last (the x_lp-th)
+        // literal phrase before the current (the x_cp-th) copy-phrase
+        s_cp -= CPL(x_cp) - 1;
+    }
+}
+
+template <move_r_support support, typename sym_t, typename pos_t>
+template <typename report_fnc_t>
 void move_r<support, sym_t, pos_t>::report_rlzsa_right(
     pos_t& i, pos_t& e, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
@@ -610,11 +693,7 @@ void move_r<support, sym_t, pos_t>::report_rlzsa_right(
                 s += R(x_r);
                 s -= n;
                 report(i, s);
-
-                if (i == e) [[unlikely]] {
-                    return;
-                }
-
+                if (i == e) [[unlikely]] return;
                 i++;
                 x_r++;
             }
@@ -628,13 +707,10 @@ void move_r<support, sym_t, pos_t>::report_rlzsa_right(
         // decode all literal phrases before the next copy-phrase
         while (PT(x_p)) {
             // decode the x_lp-th literal phrase
-            s = LP(x_lp);
+            s += LP(x_lp);
+            s -= n;
             report(i, s);
-
-            if (i == e) [[unlikely]] {
-                return;
-            }
-
+            if (i == e) [[unlikely]] return;
             i++;
             x_p++;
             x_lp++;
@@ -792,6 +868,10 @@ void move_r<support, sym_t, pos_t>::revert_range(report_fnc_t report, retrieve_p
             (uint16_t)omp_get_max_threads(), // use at most all threads
             params.num_threads // use at most the specified number of threads
         }));
+    
+    if (r == n - 1) {
+        report(r, 0);
+    }
 
     #pragma omp parallel num_threads(p)
     {
@@ -823,8 +903,10 @@ void move_r<support, sym_t, pos_t>::revert_range(report_fnc_t report, retrieve_p
             j--;
         }
 
-        // Report T[r] = T[j] = L[i] = L'[x]
-        report(j, unmap_symbol(L_(x)));
+        if (j >= l) {
+            // Report T[r] = T[j] = L[i] = L'[x]
+            report(j, unmap_symbol(L_(x)));
+        }
 
         // report T[l,r-1] from right to left
         while (j > j_l) {
@@ -938,9 +1020,11 @@ void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_param
             // the input interval of M_LF containing i
             pos_t x = bin_search_max_leq<pos_t>(b, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
 
-            // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
-            while (SA_Phi_m1(x) == r__) {
-                x--;
+            if constexpr (support == _locate_move) {
+                // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
+                while (SA_Phi_m1(x) == r__) {
+                    x--;
+                }
             }
 
             // current position in the suffix array, initially the starting position of the x-th interval of M_LF
@@ -970,16 +1054,30 @@ void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_param
                 report(i, s);
             }
         } else if constexpr (has_rlzsa) {
+            // index of the input interval in M_LF containing i.
+            pos_t x = bin_search_max_leq<pos_t>(b, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
+
+            // position in the suffix array of the current suffix s
+            pos_t j = M_LF().p(x);
+
+            // the current suffix (s = SA[j])
+            pos_t s = SA_s(x);
+
+            if (j == b) {
+                report(b, s);
+            }
+
+            j++;
             pos_t x_p, x_lp, x_cp, x_r, s_np;
 
-            // current suffix array value
-            pos_t s;
+            // initialize the rlzsa context to position j
+            init_rlzsa(j, x_p, x_lp, x_cp, x_r, s_np);
 
-            // initialize the rlzsa context to position b
-            init_rlzsa(b, s, x_p, x_lp, x_cp, x_r, s_np);
+            // advance the rlzsa context to position b
+            skip_rlzsa_right(j, b, s, x_p, x_lp, x_cp, x_r, s_np);
 
             // decode and report SA[b..e]
-            report_rlzsa_right(b, e, s, x_p, x_lp, x_cp, x_r, s_np, report);
+            report_rlzsa_right(j, e, s, x_p, x_lp, x_cp, x_r, s_np, report);
         }
     }
 }

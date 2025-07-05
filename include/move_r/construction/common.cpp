@@ -345,7 +345,7 @@ void move_r<support, sym_t, pos_t>::construction::build_rlbwt_c()
         T_vec.shrink_to_fit();
     }
 
-    if (support == _count && support != _count_bi && mode != _bwt) {
+    if ((support == _count || support == _count_bi) && mode != _bwt) {
         SA.clear();
         SA.shrink_to_fit();
     }
@@ -528,11 +528,56 @@ void move_r<support, sym_t, pos_t>::construction::build_mlf()
 
 template <move_r_support support, typename sym_t, typename pos_t>
 template <bool bigbwt, typename sa_sint_t>
-void move_r<support, sym_t, pos_t>::construction::build_iphim1_sa()
+void move_r<support, sym_t, pos_t>::construction::build_sas_from_sa()
+{
+    if (log) {
+        time = now();
+        std::cout << "building SA_s and SA_s'" << std::flush;
+    }
+
+    if constexpr (bigbwt) {
+        for (uint16_t i = 0; i < p; i++) {
+            SA_file_bufs.emplace_back(sdsl::int_vector_buffer<40>(
+                prefix_tmp_files + ".sa", std::ios::in,
+                128 * 1024, 40, true));
+        }
+    }
+
+    idx._SA_s = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
+    idx._SA_s_ = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
+
+    idx._SA_s.resize_no_init(r_);
+    idx._SA_s_.resize_no_init(r_);
+
+    #pragma omp parallel for num_threads(p)
+    for (uint64_t i = 0; i < r_; i++) {
+        idx._SA_s.template set_parallel<0, pos_t>(i,
+            SA<bigbwt, sa_sint_t>(omp_get_thread_num(), idx._M_LF.p(i)));
+
+        idx._SA_s_.template set_parallel<0, pos_t>(i,
+            SA<bigbwt, sa_sint_t>(omp_get_thread_num(), idx._M_LF.p(i + 1) - 1));
+    }
+
+    if (log) {
+        if (mf_idx != NULL)
+            *mf_idx << " time_build_sa_s_sa_s_=" << time_diff_ns(time, now());
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_support support, typename sym_t, typename pos_t>
+template <bool bigbwt, typename sa_sint_t>
+void move_r<support, sym_t, pos_t>::construction::build_iphim1_sas_from_sa()
 {
     if (log) {
         time = now();
         std::cout << "building I_Phi^{-1}" << std::flush;
+
+        if constexpr (support == _locate_move)
+            std::cout << " and SA_s" << std::flush;
+
+        if constexpr (is_bidirectional)
+            std::cout << " and SA_s'" << std::flush;
     }
 
     if constexpr (bigbwt) {
@@ -544,6 +589,18 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sa()
     }
 
     no_init_resize(I_Phi_m1, r);
+
+    if constexpr (support == _locate_move) {
+        no_init_resize(SA_s, r_);
+    } else {
+        idx._SA_s = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
+        idx._SA_s.resize_no_init(r_);
+
+        if constexpr (is_bidirectional) {
+            idx._SA_s_ = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
+            idx._SA_s_.resize_no_init(r_);
+        }
+    }
 
     I_Phi_m1[0] = std::make_pair(
         SA<bigbwt, sa_sint_t>(0, n - 1),
@@ -561,27 +618,46 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sa()
 
         // start position of the current BWT run.
         pos_t j = n_p[i_p];
+        
+        // Index of the current input interval in M_LF, initially the index of the input interval of M_LF containing b
+        pos_t x = bin_search_max_leq<pos_t>(j, 0, r_ - 1, [&](pos_t y) { return idx._M_LF.p(y); });
 
-        if (rp_diff > 0) {
-            if (r_p[i_p] != 0) {
-                I_Phi_m1[b_r] = std::make_pair(
+        for (pos_t i = 0; i < rp_diff; i++) {
+            if (j != 0) [[likely]] {
+                I_Phi_m1[b_r + i] = std::make_pair(
                     SA<bigbwt, sa_sint_t>(i_p, j - 1),
                     SA<bigbwt, sa_sint_t>(i_p, j));
             }
 
-            j += run_len(i_p, 0);
+            pos_t k = j;
+            j += run_len(i_p, i);
+            bool first_interval = true;
 
-            for (pos_t i = 1; i < rp_diff; i++) {
-                I_Phi_m1[b_r + i] = std::make_pair(
-                    SA<bigbwt, sa_sint_t>(i_p, j - 1),
-                    SA<bigbwt, sa_sint_t>(i_p, j));
+            while (k < j) {
+                if constexpr (support == _locate_move) {
+                    if (first_interval) {
+                        SA_s[x] = SA<bigbwt, sa_sint_t>(i_p, k);
+                        first_interval = false;
+                    } else {
+                        SA_s[x] = n;
+                    }
+                } else {
+                    idx._SA_s.template set_parallel<0, pos_t>(x,
+                        SA<bigbwt, sa_sint_t>(i_p, k));
+                }
 
-                j += run_len(i_p, i);
+                x++;
+                k = idx._M_LF.p(x);
+
+                if constexpr (is_bidirectional) {
+                    idx._SA_s_.template set_parallel<0, pos_t>(x - 1,
+                        SA<bigbwt, sa_sint_t>(i_p, k - 1));
+                }
             }
         }
     }
 
-    if (!build_sa_and_l && !has_rlzsa && !has_lzendsa ) {
+    if (!build_sa_and_l && !has_rlzsa && !has_lzendsa && support != _locate_move_bi_fwd && support != _locate_rlzsa_bi_fwd) {
         std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
 
         SA.clear();
@@ -596,25 +672,21 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sa()
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-template <bool build_sas>
 void move_r<support, sym_t, pos_t>::construction::build_l__sas()
 {
+    bool build_sas = p == 1 && (support == _locate_move || support == _locate_rlzsa || support == _locate_lzendsa);
+
     if (log) {
         time = now();
         std::cout << "building L'" << (std::string)(build_sas ? " and SA_s" : "") << std::flush;
     }
 
-    if constexpr (build_sas) {
-        if constexpr (has_locate_move) {
+    if (build_sas) {
+        if constexpr (support == _locate_move) {
             no_init_resize(SA_s, r_);
         } else {
             idx._SA_s = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
             idx._SA_s.resize_no_init(r_);
-        }
-
-        if constexpr (support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd) {
-            idx._SA_s_ = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
-            idx._SA_s_.resize_no_init(r_);
         }
     }
 
@@ -641,18 +713,11 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
         for (pos_t i = 0; i < rp_diff; i++) {
             idx._M_LF.template set_L_(j, run_sym(i_p, i));
 
-            if constexpr (build_sas) {
-                if constexpr (has_locate_move) {
+            if (build_sas) {
+                if constexpr (support == _locate_move) {
                     SA_s[j] = I_Phi_m1[b_r + i].second;
                 } else {
                     idx._SA_s.template set_parallel<0, pos_t>(j, I_Phi_m1[b_r + i].second);
-                }
-
-                if constexpr (support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd) {
-                    idx._SA_s_.template set_parallel<0, pos_t>(j,
-                        (idx._M_LF.p(j + 1) == l_ + run_len(i_p, i)) ? 
-                            I_Phi_m1[(b_r + i + 1) % r_].first : n
-                    );
                 }
             }
 
@@ -664,18 +729,11 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
             // iterate over all input intervals in M_LF within the i-th bwt run in thread i_p's section that have been
             // created by the balancing algorithm
             while (idx._M_LF.p(j) < l_) {
-                if constexpr (build_sas) {
-                    if constexpr (has_locate_move) {
+                if (build_sas) {
+                    if constexpr (support == _locate_move) {
                         SA_s[j] = n;
                     } else {
                         idx._SA_s.template set_parallel<0, pos_t>(j, n);
-                    }
-
-                    if constexpr (support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd) {
-                        idx._SA_s_.template set_parallel<0, pos_t>(j,
-                            idx._M_LF.p(j + 1) == l_ ?
-                                I_Phi_m1[(b_r + i + 1) % r_].first : n
-                        );
                     }
                 }
 
@@ -1043,7 +1101,7 @@ void move_r<support, sym_t, pos_t>::construction::build_saphim1()
 template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::construction::build_de()
 {
-    if constexpr (supports_locate) {
+    if constexpr (supports_locate && !is_bidirectional) {
         idx.p_r = std::min<pos_t>(256, std::max<pos_t>(1, r / 100));
     }
 
@@ -1051,8 +1109,11 @@ void move_r<support, sym_t, pos_t>::construction::build_de()
 
     #pragma omp parallel for num_threads(p)
     for (uint16_t i = 0; i < idx.p_r - 1; i++) {
-        pos_t x = bin_search_min_geq<pos_t>((i + 1) * ((n - 1) / idx.p_r), 0, r - 1, [&](pos_t x) { return (((int64_t)SA_s[pi_[x]]) - 1) % n; });
-        idx._D_e[i] = std::make_pair(pi_[x], (pos_t)((((int64_t)SA_s[pi_[x]]) - 1) % n));
+        pos_t x = bin_search_min_geq<pos_t>(
+            (i + 1) * ((n - 1) / idx.p_r), 0, r - 1,
+            [&](pos_t x) { return (((int64_t) SA_s[pi_[x]]) - 1) % n; });
+
+        idx._D_e[i] = std::make_pair(pi_[x], (pos_t) ((((int64_t) SA_s[pi_[x]]) - 1) % n));
     }
 
     SA_s.clear();
