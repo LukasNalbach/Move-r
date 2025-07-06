@@ -111,6 +111,33 @@ protected:
         auto time = now();
         auto time_start = time;
         bool log = params.log;
+        uint64_t baseline_mem_usage = malloc_count_current();
+        std::string prefix_tmp_files = std::filesystem::temp_directory_path().string() +
+                "/" + random_alphanumeric_string(10);
+        std::string input_file_name;
+
+        if (bigbwt && params.file_input) {
+            input_file_name = input;
+        } else if (!bigbwt && params.file_input) {
+            if (log) std::cout << "reading input file from disk" << std::flush;
+
+            input_file_name = input;
+            no_init_resize(input, n);
+            std::ifstream input_ifile(input_file_name);
+            read_from_file(input_ifile, input.data(), n);
+            input_ifile.close();
+
+            if (log) time = log_runtime(time);
+        } else if (bigbwt && !params.file_input) {
+            if (log) std::cout << "writing input file to disk" << std::flush;
+
+            input_file_name = prefix_tmp_files + ".input";
+            std::ofstream input_ofile(input_file_name);
+            write_to_file(input_ofile, input.data(), n);
+            input_ofile.close();
+
+            if (log) time = log_runtime(time);
+        }
 
         if (log) std::cout << "preprocessing T" << std::flush;
 
@@ -121,7 +148,7 @@ protected:
             std::vector<sdsl::int_vector_buffer<8>> T_buf;
 
             for (uint16_t i = 0; i < p; i++) {
-                T_buf.emplace_back(sdsl::int_vector_buffer<8>(input, std::ios::in, 128 * 1024, 8, true));
+                T_buf.emplace_back(sdsl::int_vector_buffer<8>(input_file_name, std::ios::in, 128 * 1024, 8, true));
             }
 
             #pragma omp parallel for num_threads(p)
@@ -177,7 +204,7 @@ protected:
             std::vector<sdsl::int_vector_buffer<8>> T_buf;
 
             for (uint16_t i = 0; i < p; i++) {
-                T_buf.emplace_back(sdsl::int_vector_buffer<8>(input, std::ios::in, 128 * 1024, 8, true));
+                T_buf.emplace_back(sdsl::int_vector_buffer<8>(input_file_name, std::ios::in, 128 * 1024, 8, true));
             }
 
             #pragma omp parallel for num_threads(p)
@@ -205,19 +232,27 @@ protected:
 
         if (log) time = log_runtime(time);
 
+        std::string idx_fwd_file_name;
+
         std::string sa_fwd_file_name;
         std::vector<sa_sint_t> SA_fwd;
         std::vector<sdsl::int_vector_buffer<40>> SA_fwd_file_bufs;
 
+        uint64_t peak_memory_usage = 0;
+        params.peak_memory_usage = &peak_memory_usage;
+
         if constexpr (bigbwt) {
-            reverse(input, p, false, log);
+            reverse(input_file_name, p, false, log);
 
             if (log) {
                 std::cout << std::endl;
                 std::cout << "building backward index:" << std::endl;
             }
 
-            idx_bwd = move_r_bwd_t(input, params);
+            move_r_params new_params = params;
+            new_params.file_input = true;
+            idx_bwd = move_r_bwd_t(input_file_name, new_params);
+            idx_bwd.set_alphabet_maps(map_int, map_ext);
 
             if (log) {
                 std::cout << std::endl;
@@ -225,132 +260,77 @@ protected:
                 time = now();
             }
 
-            std::string idx_bwd_file_name = random_alphanumeric_string(10);
+            std::string idx_bwd_file_name = prefix_tmp_files + ".move_r_bwd";
             std::ofstream idx_bwd_ofile(idx_bwd_file_name);
-            idx_bwd.set_alphabet_maps(map_int, map_ext);
             idx_bwd.serialize(idx_bwd_ofile);
-            _S_MLF_p_bwd.serialize(idx_bwd_ofile);
-            _SA_sR_m1.serialize(idx_bwd_ofile);
-            _SA_eR_m1.serialize(idx_bwd_ofile);
             idx_bwd = move_r_bwd_t();
-            _S_MLF_p_bwd = sd_array<pos_t>();
-            _SA_sR_m1 = interleaved_byte_aligned_vectors<pos_t, pos_t>();
-            _SA_eR_m1 = interleaved_byte_aligned_vectors<pos_t, pos_t>();
             idx_bwd_ofile.close();
             
             if (log) time = log_runtime(time);
 
-            reverse(input, p, false, log);
+            reverse(input_file_name, p, false, log);
             
             if (log) {
                 std::cout << std::endl;
                 std::cout << "building forward index:" << std::endl;
             }
 
-            params.sa_file_name = &sa_fwd_file_name;
-            idx_fwd = move_r_fwd_t(input, params);
+            new_params.sa_file_name = &sa_fwd_file_name;
+            idx_fwd = move_r_fwd_t(input_file_name, new_params);
             idx_fwd.set_alphabet_maps(map_int, map_ext);
 
             if (log) {
                 std::cout << std::endl;
-                std::cout << "loading backward index from disk" << std::flush;
                 time = now();
             }
 
-            std::ifstream idx_bwd_ifile(idx_bwd_file_name);
-            idx_bwd.load(idx_bwd_ifile);
-            _S_MLF_p_bwd.load(idx_bwd_ifile);
-            _SA_sR_m1.load(idx_bwd_ifile);
-            _SA_eR_m1.load(idx_bwd_ifile);
-            idx_bwd_ifile.close();
-            
-            if (log) time = log_runtime(time);
-        } else {
-            reverse(input, p, true, log);
-            idx_bwd = move_r_bwd_t(input, params);
-            idx_bwd.set_alphabet_maps(map_int, map_ext);
-            reverse(input, p, true, log);
-            params.sa_vector = reinterpret_cast<void*>(&SA_fwd);
-            idx_fwd = move_r_fwd_t(input, params);
-            idx_fwd.set_alphabet_maps(map_int, map_ext);
-        }
-        
-        if (log) {
-            time = now();
-            std::cout << std::endl;
-            std::cout << "unmapping T from its internal alphabet" << std::flush;
-        }
+            if constexpr (support != _count) {
+                if (log) std::cout << "storing forward index to disk" << std::flush;
 
-        if (params.mode == _bigbwt) {
-            for (i_sym_t c = 255; c >= 2; c--) {
-                map_ext[c] = map_ext[c - 2];
-            }
-
-            map_ext[0] = 0;
-            map_ext[1] = 0;
-        }
-
-        if constexpr (bigbwt) {
-            std::vector<sdsl::int_vector_buffer<8>> T_buf;
-
-            for (uint16_t i = 0; i < p; i++) {
-                T_buf.emplace_back(sdsl::int_vector_buffer<8>(input, std::ios::in, 128 * 1024, 8, true));
-            }
-
-            #pragma omp parallel for num_threads(p)
-            for (uint64_t i = 0; i < n - 1; i++) {
-                T_buf[omp_get_thread_num()][i] = *reinterpret_cast<i_sym_t*>(&map_ext[T_buf[omp_get_thread_num()][i]]);
-            }
-        } else {
-            #pragma omp parallel for num_threads(p)
-            for (uint64_t i = 0; i < n - 1; i++) {
-                input[i] = map_ext[*reinterpret_cast<i_sym_t*>(&input[i])];
-            }
-        }
-
-        if (log) {
-            time = log_runtime(time);
-            std::cout << "building S_MLF_p_fwd" << std::flush;
-        }
-        
-        _S_MLF_p_fwd = build_sampling(
-            idx_fwd.M_LF().num_intervals(), n, sample_rate_input_intervals,
-            [&](pos_t i){return idx_fwd.M_LF().p(i);});
-
-        if (log) {
-            time = log_runtime(time);
-            std::cout << "building S_MLF_p_bwd" << std::flush;
-        }
-
-        _S_MLF_p_bwd = build_sampling(
-            idx_bwd.M_LF().num_intervals(), n, sample_rate_input_intervals,
-            [&](pos_t i){return idx_bwd.M_LF().p(i);});
-
-        if (log) time = log_runtime(time);
-
-        if constexpr (support != _count) {
-            if constexpr (support == _locate_move) {
-                if (log) std::cout << "building S_MPhi_p" << std::flush;
-
-                _S_MPhi_p = build_sampling(
-                    idx_fwd.M_Phi().num_intervals(), n, sample_rate_input_intervals,
-                    [&](pos_t i){return idx_fwd.M_Phi().p(i);});
-
-                if (log) {
-                    time = log_runtime(time);
-                    std::cout << "building S_MPhi^{-1}_p" << std::flush;
-                }
-
-                _S_MPhi_m1_p = build_sampling(
-                    idx_fwd.M_Phi_m1().num_intervals(), n, sample_rate_input_intervals,
-                    [&](pos_t i){return idx_fwd.M_Phi_m1().p(i);});
+                idx_fwd_file_name = prefix_tmp_files + ".move_r_fwd";
+                std::ofstream idx_fwd_ofile(idx_fwd_file_name);
+                idx_fwd.serialize(idx_fwd_ofile);
+                idx_fwd = move_r_fwd_t();
+                idx_fwd_ofile.close();
 
                 if (log) time = log_runtime(time);
             }
 
+            if (log) std::cout << "loading backward index from disk" << std::flush;
+
+            std::ifstream idx_bwd_ifile(idx_bwd_file_name);
+            idx_bwd.load(idx_bwd_ifile);
+            idx_bwd_ifile.close();
+            std::filesystem::remove(idx_bwd_file_name);
+            
+            if (log) time = log_runtime(time);
+        } else {
+            reverse(input, p, true, log);
+
+            move_r_params new_params = params;
+            new_params.file_input = false;
+            idx_bwd = move_r_bwd_t(input, new_params);
+            idx_bwd.set_alphabet_maps(map_int, map_ext);
+
             if (log) {
-                std::cout << "building H" << std::flush;
+                std::cout << std::endl;
+                time = now();
             }
+
+            reverse(input, p, true, log);
+            new_params.sa_vector = reinterpret_cast<void*>(&SA_fwd);
+            idx_fwd = move_r_fwd_t(input, new_params);
+            idx_fwd.set_alphabet_maps(map_int, map_ext);
+
+            if (log) {
+                std::cout << std::endl;
+                time = now();
+            }
+        }
+
+
+        if constexpr (support != _count) {
+            if (log) std::cout << "building H_SA" << std::flush;
 
             enum sample_type : uint8_t {
                 _run_start,
@@ -364,15 +344,15 @@ protected:
             };
 
             pos_t r_bwd = idx_bwd.M_LF().num_intervals();
-            emhash6::HashMap<pos_t, entry_t, std::identity> H;
-            H.reserve(2 * r_bwd);
+            emhash6::HashMap<pos_t, entry_t, std::identity> H_SA;
+            H_SA.reserve(2 * r_bwd);
 
             for (pos_t i = 0; i < r_bwd; i++) {
                 if (idx_bwd.M_LF().p(i + 1) - idx_bwd.M_LF().p(i) == 1) {
-                    H.emplace((n - idx_bwd.SA_s(i) - 1),  entry_t {.x = i, .type = _run_start_and_end });
+                    H_SA.emplace((n - idx_bwd.SA_s(i) - 1),  entry_t {.x = i, .type = _run_start_and_end });
                 } else {
-                    H.emplace((n - idx_bwd.SA_s(i) - 1),  entry_t {.x = i, .type = _run_start });
-                    H.emplace((n - idx_bwd.SA_s_(i) - 1), entry_t {.x = i, .type = _run_end   });
+                    H_SA.emplace((n - idx_bwd.SA_s(i) - 1),  entry_t {.x = i, .type = _run_start });
+                    H_SA.emplace((n - idx_bwd.SA_s_(i) - 1), entry_t {.x = i, .type = _run_end   });
                 }
             }
             
@@ -409,9 +389,9 @@ protected:
                     SA_fwd_i = SA_fwd[i];
                 }
 
-                auto it = H.find(SA_fwd_i);
+                auto it = H_SA.find(SA_fwd_i);
 
-                if (it != H.end()) {
+                if (it != H_SA.end()) {
                     if (it->second.type == _run_start || it->second.type == _run_start_and_end) [[likely]] {
                         _SA_sR_m1.template set_parallel<0, pos_t>(it->second.x, i);
                     }
@@ -422,13 +402,109 @@ protected:
                 }
             }
 
+            H_SA.clear();
+            H_SA.shrink_to_fit();
+
+            if constexpr (bigbwt) {
+                SA_fwd_file_bufs.clear();
+                SA_fwd_file_bufs.shrink_to_fit();
+                std::filesystem::remove(sa_fwd_file_name);
+            }
+
             if (log) time = log_runtime(time);
+
+            if constexpr (bigbwt) {
+                if (log) std::cout << "loading forward index from disk" << std::flush;
+
+                std::ifstream idx_fwd_ifile(idx_fwd_file_name);
+                idx_fwd.load(idx_fwd_ifile);
+                idx_fwd_ifile.close();
+                std::filesystem::remove(idx_fwd_file_name);
+                
+                if (log) time = log_runtime(time);
+            }
+
+            if constexpr (support == _locate_move) {
+                if (log) std::cout << "building S_MPhi_p" << std::flush;
+
+                _S_MPhi_p = build_sampling(
+                    idx_fwd.M_Phi().num_intervals(), n, sample_rate_input_intervals,
+                    [&](pos_t i){return idx_fwd.M_Phi().p(i);});
+
+                if (log) {
+                    time = log_runtime(time);
+                    std::cout << "building S_MPhi^{-1}_p" << std::flush;
+                }
+
+                _S_MPhi_m1_p = build_sampling(
+                    idx_fwd.M_Phi_m1().num_intervals(), n, sample_rate_input_intervals,
+                    [&](pos_t i){return idx_fwd.M_Phi_m1().p(i);});
+
+                if (log) time = log_runtime(time);
+            }
+        }
+
+        if (log) std::cout << "building S_MLF_p_fwd" << std::flush;
+        
+        _S_MLF_p_fwd = build_sampling(
+            idx_fwd.M_LF().num_intervals(), n, sample_rate_input_intervals,
+            [&](pos_t i){return idx_fwd.M_LF().p(i);});
+
+        if (log) {
+            time = log_runtime(time);
+            std::cout << "building S_MLF_p_bwd" << std::flush;
+        }
+
+        _S_MLF_p_bwd = build_sampling(
+            idx_bwd.M_LF().num_intervals(), n, sample_rate_input_intervals,
+            [&](pos_t i){return idx_bwd.M_LF().p(i);});
+
+        if (!bigbwt && params.file_input) {
+            input = input_file_name;
+        } else if (bigbwt && !params.file_input) {
+            std::filesystem::remove(input_file_name);
         }
 
         if (log) {
+            time = log_runtime(time);
+            std::cout << "unmapping T from its internal alphabet" << std::flush;
+        }
+
+        if (params.mode == _bigbwt) {
+            for (i_sym_t c = 255; c >= 2; c--) {
+                map_ext[c] = map_ext[c - 2];
+            }
+
+            map_ext[0] = 0;
+            map_ext[1] = 0;
+        }
+
+        if constexpr (bigbwt) {
+            std::vector<sdsl::int_vector_buffer<8>> T_buf;
+
+            for (uint16_t i = 0; i < p; i++) {
+                T_buf.emplace_back(sdsl::int_vector_buffer<8>(input_file_name, std::ios::in, 128 * 1024, 8, true));
+            }
+
+            #pragma omp parallel for num_threads(p)
+            for (uint64_t i = 0; i < n - 1; i++) {
+                T_buf[omp_get_thread_num()][i] = *reinterpret_cast<i_sym_t*>(&map_ext[T_buf[omp_get_thread_num()][i]]);
+            }
+        } else {
+            #pragma omp parallel for num_threads(p)
+            for (uint64_t i = 0; i < n - 1; i++) {
+                input[i] = map_ext[*reinterpret_cast<i_sym_t*>(&input[i])];
+            }
+        }
+
+        if (log) {
+            time = log_runtime(time);
+            peak_memory_usage = std::max(peak_memory_usage, malloc_count_peak() - baseline_mem_usage);
             std::cout << std::endl;
             std::cout << "overall construction time: " << format_time(time_diff_ns(time_start, now())) << std::endl;
+            std::cout << "overall peak memory usage: " << format_size(peak_memory_usage) << std::endl;
             log_data_structure_sizes();
+            std::cout << std::endl;
         }
     }
 
@@ -517,13 +593,13 @@ public:
             n = input.size() + 1;
         }
 
-        if (params.file_input) {
-            build<true, int32_t>(input, params);
+        if (params.mode == _suffix_array) {
+            build<false, int32_t>(input, params);
         } else {
             if (n <= std::numeric_limits<int32_t>::max()) {
-                build<false, int32_t>(input, params);
+                build<true, int32_t>(input, params);
             } else {
-                build<false, int64_t>(input, params);
+                build<true, int64_t>(input, params);
             }
         }
     }

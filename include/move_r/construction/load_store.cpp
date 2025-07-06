@@ -123,7 +123,7 @@ void move_r<support, sym_t, pos_t>::construction::store_iphim1()
 {
     if (log) {
         time = now();
-        std::cout << "storing M_LF and L' to disk" << std::flush;
+        std::cout << "storing I_Phi^{-1} to disk" << std::flush;
     }
 
     std::ofstream file_iphim1(prefix_tmp_files + ".iphim1");
@@ -144,7 +144,7 @@ void move_r<support, sym_t, pos_t>::construction::load_iphim1()
 {
     if (log) {
         time = now();
-        std::cout << "loading M_LF and L' from disk" << std::flush;
+        std::cout << "loading I_Phi^{-1} from disk" << std::flush;
     }
 
     std::ifstream file_iphim1(prefix_tmp_files + ".iphim1");
@@ -292,6 +292,43 @@ void move_r<support, sym_t, pos_t>::construction::load_sas_idx()
     idx._SA_s.load(file_sas);
     file_sas.close();
     std::filesystem::remove(prefix_tmp_files + ".sas");
+
+    if (log) {
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support, sym_t, pos_t>::construction::store_sas__idx()
+{
+    if (log) {
+        time = now();
+        std::cout << "storing SA_s' to disk" << std::flush;
+    }
+
+    std::ofstream file_sas_(prefix_tmp_files + ".sas_");
+    idx._SA_s_.serialize(file_sas_);
+    idx._SA_s_.clear();
+    idx._SA_s_.shrink_to_fit();
+    file_sas_.close();
+
+    if (log) {
+        time = log_runtime(time);
+    }
+}
+
+template <move_r_support support, typename sym_t, typename pos_t>
+void move_r<support, sym_t, pos_t>::construction::load_sas__idx()
+{
+    if (log) {
+        time = now();
+        std::cout << "loading SA_s' from disk" << std::flush;
+    }
+
+    std::ifstream file_sas_(prefix_tmp_files + ".sas_");
+    idx._SA_s_.load(file_sas_);
+    file_sas_.close();
+    std::filesystem::remove(prefix_tmp_files + ".sas_");
 
     if (log) {
         time = log_runtime(time);

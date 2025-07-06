@@ -396,8 +396,8 @@ public:
         
         if (log) {
             time = log_runtime(time);
-            std::cout << "z: " << z << std::endl;
-            std::cout << "n/z: " << n / (double) z << std::endl;
+            std::cout << "z: " << z << ", ";
+            std::cout << "n/z: " << n / (double) z << ", ";
             std::cout << "z_l/z: " << z_l / (double) z << std::endl;
             std::cout << "peak memory usage: " << format_size(malloc_count_peak()) << std::endl;
         }

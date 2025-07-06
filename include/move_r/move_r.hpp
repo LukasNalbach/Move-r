@@ -86,21 +86,23 @@ static std::string move_r_support_suffix(move_r_support support)
  * @brief move-r construction parameters
  */
 struct move_r_params {
-    bool file_input = false; // true <=> the input is a file
-    move_r_construction_mode mode = _suffix_array; // cosntruction mode to use (default: sa)
+    bool file_input = false; // true <=> the input is a file, and input must be the path to the file
+    move_r_construction_mode mode = _suffix_array; // cosntruction mode to use
     uint16_t num_threads = omp_get_max_threads(); // maximum number of threads to use during the construction
     uint16_t a = 8; // balancing parameter, 2 <= a
-    /* alphabet size of the input (only for int_alphabet = true); if set to 0, a hash map is used to map the symbols
-       in the input to a compact alphabet; else (alphabet_size != 0), the input must already have a compact alphabet,
-       and no hashmap is used */
+    /* alphabet size of the input; if set to 0, the symbols in the input are maped to a compact alphabet; else
+       (alphabet_size != 0), the input must already have a compact alphabet, and the symbols are not remapped */
     uint64_t alphabet_size = 0;
     uint16_t delta = 0; // SA-sampling rate (only for _locate_rlzsa_bin_search); if set to 0, the SA-sampling will be ~10% of the index size
     bool log = false; // controls, whether to print log messages
     std::ostream* mf_idx = NULL; // measurement file for the index construciton
     std::ostream* mf_mds = NULL; // measurement file for the move data structure construction
     std::string name_text_file; // name of the input file (used only for measurement output)
+    
+    // ############################# INTERNAL (DON'T USE) #############################
     void* sa_vector = nullptr; // pointer to the suffix array (used only for bidirectional forward indexes)
     std::string* sa_file_name = nullptr; // name of the suffix array file (used only for bidirectional forward indexes)
+    uint64_t* peak_memory_usage = nullptr; // variable to store the peak memory usage in (only for bidirectional indexes)
 };
 
 /**

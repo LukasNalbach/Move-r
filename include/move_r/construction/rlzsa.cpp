@@ -619,8 +619,8 @@ void move_r<support, sym_t, pos_t>::construction::build_rlzsa_factorization()
 
     if (log) {
         time = log_runtime(time);
-        std::cout << "z: " << idx.z << std::endl;
-        std::cout << "z_l/z: " << idx.z_l / (double)idx.z << std::endl;
+        std::cout << "z: " << idx.z << ", ";
+        std::cout << "z_l/z: " << idx.z_l / (double)idx.z << ", ";
         std::cout << "z/r: " << idx.z / (double)r << std::endl;
     }
 }

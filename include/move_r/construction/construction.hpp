@@ -534,7 +534,7 @@ public:
         std::cout << std::endl;
         std::cout << "construction time: " << format_time(time_construction) << std::endl;
         std::cout << "peak memory usage: " << format_size(peak_mem_usage) << std::endl;
-        idx.log_data_structure_sizes();
+        if (!is_bidirectional) idx.log_data_structure_sizes();
 
         if (mf_idx != NULL) {
             *mf_idx << " time_construction=" << time_construction;
@@ -631,6 +631,13 @@ public:
         }
 
         if (log) log_finished();
+        
+        if (params.peak_memory_usage != nullptr) {
+            *params.peak_memory_usage = std::max({
+                *params.peak_memory_usage,
+                bigbwt_peak_mem_usage,
+                malloc_count_peak() - baseline_mem_usage});
+        }
     }
 
     /**
@@ -665,6 +672,13 @@ public:
         }
 
         if (log) log_finished();
+        
+        if (params.peak_memory_usage != nullptr) {
+            *params.peak_memory_usage = std::max({
+                *params.peak_memory_usage,
+                bigbwt_peak_mem_usage,
+                malloc_count_peak() - baseline_mem_usage});
+        }
     }
 
     /**
@@ -850,7 +864,10 @@ public:
                     }
                 } else if constexpr (has_rlzsa || has_lzendsa) {
                     if constexpr (supports_bwsearch) {
-                        if (_space) store_sas_idx();
+                        if (_space && support != _locate_bi_bwd) {
+                            store_sas_idx();
+                            if (is_bidirectional) store_sas__idx();
+                        }
                         if constexpr (byte_alphabet) build_l_prev_next();
                         else build_rsl_();
                         if (_space) {
@@ -872,7 +889,10 @@ public:
                     }
 
                     if constexpr (supports_bwsearch) {
-                        if (_space) load_sas_idx();
+                        if (_space) {
+                            load_sas_idx();
+                            if (is_bidirectional) load_sas__idx();
+                        }
                         if (_space) load_mlf();
                         if (_space) {
                             if constexpr (byte_alphabet) load_l_prev_next();
@@ -887,10 +907,8 @@ public:
                     *reinterpret_cast<std::vector<sa_sint_t>*>(sa_vector) = std::move(get_sa<sa_sint_t>());
                 }
             } else {
-                if (_space) store_sas_idx();
                 if constexpr (byte_alphabet) build_l_prev_next();
                 else build_rsl_();
-                if (_space) load_sas_idx();
             }
         } else {
             build_l__sas();
@@ -964,6 +982,7 @@ public:
                 } else if constexpr (has_rlzsa || has_lzendsa) {
                     if constexpr (supports_bwsearch) {
                         store_sas_idx();
+                        if (is_bidirectional) store_sas__idx();
                         build_l_prev_next();
                         store_l_prev_next();
                         store_mlf();
@@ -987,14 +1006,13 @@ public:
                         load_mlf();
                         load_l_prev_next();
                         load_sas_idx();
+                        if (is_bidirectional) load_sas__idx();
                     }
                 } else if constexpr (support == _locate_bi_bwd) {
                     build_l_prev_next();
                 }
             } else {
-                store_sas_idx();
                 build_l_prev_next();
-                load_sas_idx();
             }
 
             if (has_rlzsa || has_lzendsa || p > 1 ||
@@ -1227,6 +1245,16 @@ public:
      * @brief loads SA_s from disk
      */
     void load_sas_idx();
+
+    /**
+     * @brief stores SA_s' to disk
+     */
+    void store_sas__idx();
+
+    /**
+     * @brief loads SA_s' from disk
+     */
+    void load_sas__idx();
 
     /**
      * @brief stores RS_L' to disk
