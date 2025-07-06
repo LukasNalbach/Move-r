@@ -571,10 +571,7 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sas_from_sa()
 {
     if (log) {
         time = now();
-        std::cout << "building I_Phi^{-1}" << std::flush;
-
-        if constexpr (support == _locate_move)
-            std::cout << " and SA_s" << std::flush;
+        std::cout << "building I_Phi^{-1} and SA_s" << std::flush;
 
         if constexpr (is_bidirectional)
             std::cout << " and SA_s'" << std::flush;
