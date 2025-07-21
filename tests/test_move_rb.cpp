@@ -133,7 +133,7 @@ void test_move_r()
             for (uint32_t i = 0; i <= start_pos; i++) dirs.emplace_back(LEFT);
             for (uint32_t i = start_pos + 1; i < pattern_length; i++) dirs.emplace_back(RIGHT);
             std::shuffle(dirs.begin(), dirs.end(), gen);
-            auto query = index.query();
+            auto query = index.locate_query();
             uint32_t pos_prev_sym = start_pos;
             uint32_t pos_next_sym = start_pos + 1;
 

@@ -194,6 +194,24 @@ uint64_t patterns_length(std::string header)
     return std::atoi(header.substr(start_pos).substr(0, end_pos).c_str());
 }
 
+uint64_t num_direction_switches(std::string header)
+{
+    uint64_t start_pos = header.find("switches=");
+
+    if (start_pos == std::string::npos or start_pos + 9 >= header.size()) {
+        print_header_error();
+    }
+
+    start_pos += 9;
+    uint64_t end_pos = header.substr(start_pos).find(" ");
+
+    if (end_pos == std::string::npos) {
+        print_header_error();
+    }
+
+    return std::atoi(header.substr(start_pos).substr(0, end_pos).c_str());
+}
+
 void read_from_file(std::istream& in, const char* data, uint64_t size)
 {
     uint64_t size_left = size;

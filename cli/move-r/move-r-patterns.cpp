@@ -39,7 +39,7 @@ void help(std::string msg)
     std::cout << "usage: move-r-patterns <file> <length> <number> <patterns file> <forbidden>" << std::endl;
     std::cout << "       randomly extracts <number> substrings of length <length> from <file>," << std::endl;
     std::cout << "       avoiding substrings containing characters in <forbidden>." << std::endl;
-    std::cout << "       The output file, <patterns file> has a first line of the form:" << std::endl;
+    std::cout << "       The output file <patterns file> has a first line of the form:" << std::endl;
     std::cout << "       # number=<number> length=<length> file=<file> forbidden=<forbidden>" << std::endl;
     std::cout << "       and then the <number> patterns come successively without any separator" << std::endl;
     exit(0);
@@ -82,6 +82,9 @@ int main(int argc, char* argv[])
     input_file.seekg(0, std::ios::beg);
 
     std::cout << "generating " << num_patterns << " patterns of length " << pattern_length << std::flush;
+    std::uniform_int_distribution<uint64_t> pattern_pos_distrib(0, input_size - pattern_length - 1);
+    std::random_device rd;
+    std::mt19937 gen(rd());
     uint64_t pos_random;
     std::string pattern;
     no_init_resize(pattern, pattern_length);
@@ -90,7 +93,7 @@ int main(int argc, char* argv[])
 
     for (int64_t i = 0; i < num_patterns; i++) {
         do {
-            pos_random = std::rand() % (input_size - pattern_length);
+            pos_random = pattern_pos_distrib(gen);
             input_file.seekg(pos_random, std::ios::beg);
             read_from_file(input_file, pattern.c_str(), pattern_length);
             found_forbidden = false;

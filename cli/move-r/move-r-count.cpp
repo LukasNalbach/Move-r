@@ -127,18 +127,13 @@ void measure_count()
     }
 
     patterns_file.close();
-
-    if (num_occurrences == 0) {
-        std::cout << "found no occurrences" << std::endl;
-    } else {
-        std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
-        std::cout << "number of patterns: " << num_patterns << std::endl;
-        std::cout << "pattern length: " << pattern_length << std::endl;
-        std::cout << "total number of occurrences: " << num_occurrences << std::endl;
-        std::cout << "count time: " << format_time(time_count) << std::endl;
-        std::cout << "            " << format_time(time_count / num_patterns) << "/pattern" << std::endl;
-        std::cout << "            " << format_time(time_count / (num_patterns * pattern_length)) << "/character" << std::endl;
-    }
+    std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
+    std::cout << "number of patterns: " << num_patterns << std::endl;
+    std::cout << "pattern length: " << pattern_length << std::endl;
+    std::cout << "total number of occurrences: " << num_occurrences << std::endl;
+    std::cout << "count time: " << format_time(time_count) << std::endl;
+    std::cout << "            " << format_time(time_count / num_patterns) << "/pattern" << std::endl;
+    std::cout << "            " << format_time(time_count / (num_patterns * pattern_length)) << "/character" << std::endl;
 
     if (mf.is_open()) {
         mf << "RESULT";

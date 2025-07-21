@@ -143,59 +143,30 @@ void measure_locate()
         num_occurrences += occurrences.size();
 
         if (check_correctness) {
-            ips4o::sort(occurrences.begin(), occurrences.end());
-            is_sorted = true;
-
-            if (occurrences.size() != (count = index.count(pattern))) {
-                std::cout << "error: wrong number of located occurrences: " << occurrences.size() << "/" << count << std::endl;
-            }
-
-            for (pos_t occurrence : occurrences) {
-                equal = true;
-
-                for (pos_t pos = 0; pos < pattern_length; pos++) {
-                    if (input[occurrence + pos] != pattern[pos]) {
-                        equal = false;
-                        break;
-                    }
-                }
-
-                if (!equal) {
-                    std::cout << "error: wrong occurrence: " << occurrence << " (" << num_occurrences << " occurrences) " << std::endl;
-
-                    for (pos_t pos = 0; pos < pattern_length; pos++)
-                        std::cout << input[occurrence + pos];
-
-                    std::cout << std::endl << std::endl << "/" << std::endl << std::endl;
-
-                    for (pos_t pos = 0; pos < pattern_length; pos++)
-                        std::cout << pattern[pos];
-                        
-                    std::cout << std::endl;
-                    break;
+            for (pos_t occ : occurrences) {
+                if (input.substr(occ, pattern_length) != pattern) {
+                    std::cout << "error: wrong occurrence: " << occ << " of pattern '" << pattern << "'" << std::endl;
+                    exit(-1);
                 }
             }
         }
 
         if (output_occurrences) {
-            if (!is_sorted) ips4o::sort(occurrences.begin(), occurrences.end());
-            output_file.write((char*) &occurrences[0], occurrences.size());
+            ips4o::sort(occurrences.begin(), occurrences.end());
+            for (pos_t occ : occurrences) output_file << occ << " ";
+            output_file << std::endl;
         }
 
         occurrences.clear();
     }
 
-    if (num_occurrences == 0) {
-        std::cout << "found no occurrences" << std::endl;
-    } else {
-        std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
-        std::cout << "number of patterns: " << num_patterns << std::endl;
-        std::cout << "pattern length: " << pattern_length << std::endl;
-        std::cout << "total number of occurrences: " << num_occurrences << std::endl;
-        std::cout << "locate time: " << format_time(time_locate) << std::endl;
-        std::cout << "             " << format_time(time_locate / num_patterns) << "/pattern" << std::endl;
-        std::cout << "             " << format_time(time_locate / num_occurrences) << "/occurrence" << std::endl;
-    }
+    std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
+    std::cout << "number of patterns: " << num_patterns << std::endl;
+    std::cout << "pattern length: " << pattern_length << std::endl;
+    std::cout << "total number of occurrences: " << num_occurrences << std::endl;
+    std::cout << "locate time: " << format_time(time_locate) << std::endl;
+    std::cout << "             " << format_time(time_locate / num_patterns) << "/pattern" << std::endl;
+    std::cout << "             " << format_time(time_locate / num_occurrences) << "/occurrence" << std::endl;
 
     if (mf.is_open()) {
         mf << "RESULT";
@@ -282,8 +253,4 @@ int main(int argc, char** argv)
             measure_locate<uint32_t, _locate_lzendsa>();
         }
     }
-
-    patterns_file.close();
-    if (output_occurrences)
-        output_file.close();
 }
