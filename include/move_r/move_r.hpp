@@ -313,6 +313,8 @@ public:
 
     void set_alphabet_maps(map_int_t& map_int, map_ext_t& map_ext) requires(is_bidirectional)
     {
+        symbols_remapped = true;
+        
         _map_int = map_int;
         _map_ext = map_ext;
     }
@@ -1035,7 +1037,7 @@ public:
     /**
      * @brief stores the variables needed to perform count- and locate-queries
      */
-    struct query_context {
+    struct query_context_t {
     protected:
         pos_t l; // length of the currently matched pattern
         pos_t b, e, b_, e_, hat_b_ap_y, hat_e_ap_z; // variables for backward search
@@ -1052,7 +1054,7 @@ public:
          * @brief constructs a new query context for the index idx
          * @param idx an index
          */
-        query_context(const move_r<support, sym_t, pos_t>& idx)
+        query_context_t(const move_r<support, sym_t, pos_t>& idx)
         {
             this->idx = &idx;
             reset();
@@ -1135,11 +1137,11 @@ public:
 
     /**
      * @brief returns a query context for the index
-     * @return query_context
+     * @return query_context_t
      */
-    inline query_context query() const
+    inline query_context_t query() const
     {
-        return query_context(*this);
+        return query_context_t(*this);
     }
 
     /**

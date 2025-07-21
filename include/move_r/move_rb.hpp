@@ -29,6 +29,11 @@
 #include <hash_table6.hpp>
 #include <move_r/move_r.hpp>
 
+enum move_rb_query_support_t {
+    COUNT = 0,
+    LOCATE = 1
+};
+
 /**
  * @brief bi-directional move-r index, size O(r*(a/(a-1)))
  * @tparam support type of locate support (_locate_move or _locate_rlzsa)
@@ -233,7 +238,6 @@ protected:
         if (log) time = log_runtime(time);
 
         std::string idx_fwd_file_name;
-
         std::string sa_fwd_file_name;
         std::vector<sa_sint_t> SA_fwd;
         std::vector<sdsl::int_vector_buffer<40>> SA_fwd_file_bufs;
@@ -242,40 +246,12 @@ protected:
         params.peak_memory_usage = &peak_memory_usage;
 
         if constexpr (bigbwt) {
-            reverse(input_file_name, p, false, log);
-
-            if (log) {
-                std::cout << std::endl;
-                std::cout << "building backward index:" << std::endl;
-            }
+            if (log) std::cout << "building forward index:" << std::endl;
 
             move_r_params new_params = params;
             new_params.file_input = true;
-            idx_bwd = move_r_bwd_t(input_file_name, new_params);
-            idx_bwd.set_alphabet_maps(map_int, map_ext);
-
-            if (log) {
-                std::cout << std::endl;
-                std::cout << "storing backward index to disk" << std::flush;
-                time = now();
-            }
-
-            std::string idx_bwd_file_name = prefix_tmp_files + ".move_r_bwd";
-            std::ofstream idx_bwd_ofile(idx_bwd_file_name);
-            idx_bwd.serialize(idx_bwd_ofile);
-            idx_bwd = move_r_bwd_t();
-            idx_bwd_ofile.close();
-            
-            if (log) time = log_runtime(time);
-
-            reverse(input_file_name, p, false, log);
-            
-            if (log) {
-                std::cout << std::endl;
-                std::cout << "building forward index:" << std::endl;
-            }
-
             new_params.sa_file_name = &sa_fwd_file_name;
+
             idx_fwd = move_r_fwd_t(input_file_name, new_params);
             idx_fwd.set_alphabet_maps(map_int, map_ext);
 
@@ -284,31 +260,44 @@ protected:
                 time = now();
             }
 
-            if constexpr (support != _count) {
-                if (log) std::cout << "storing forward index to disk" << std::flush;
+            if (log) std::cout << "storing forward index to disk" << std::flush;
 
-                idx_fwd_file_name = prefix_tmp_files + ".move_r_fwd";
-                std::ofstream idx_fwd_ofile(idx_fwd_file_name);
-                idx_fwd.serialize(idx_fwd_ofile);
-                idx_fwd = move_r_fwd_t();
-                idx_fwd_ofile.close();
+            idx_fwd_file_name = prefix_tmp_files + ".move_r_fwd";
+            std::ofstream idx_fwd_ofile(idx_fwd_file_name);
+            idx_fwd.serialize(idx_fwd_ofile);
+            idx_fwd = move_r_fwd_t();
+            idx_fwd_ofile.close();
 
-                if (log) time = log_runtime(time);
+            if (log) time = log_runtime(time);
+
+            reverse(input_file_name, p, false, log);
+
+            if (log) std::cout << "building backward index:" << std::endl;
+
+            idx_bwd = move_r_bwd_t(input_file_name, new_params);
+            idx_bwd.set_alphabet_maps(map_int, map_ext);
+
+            if (log) {
+                std::cout << std::endl;
+                time = now();
             }
 
-            if (log) std::cout << "loading backward index from disk" << std::flush;
-
-            std::ifstream idx_bwd_ifile(idx_bwd_file_name);
-            idx_bwd.load(idx_bwd_ifile);
-            idx_bwd_ifile.close();
-            std::filesystem::remove(idx_bwd_file_name);
-            
-            if (log) time = log_runtime(time);
+            reverse(input_file_name, p, false, log);
         } else {
+            move_r_params new_params = params;
+            new_params.sa_vector = reinterpret_cast<void*>(&SA_fwd);
+            new_params.file_input = false;
+            
+            idx_fwd = move_r_fwd_t(input, new_params);
+            idx_fwd.set_alphabet_maps(map_int, map_ext);
+
+            if (log) {
+                std::cout << std::endl;
+                time = now();
+            }
+
             reverse(input, p, true, log);
 
-            move_r_params new_params = params;
-            new_params.file_input = false;
             idx_bwd = move_r_bwd_t(input, new_params);
             idx_bwd.set_alphabet_maps(map_int, map_ext);
 
@@ -318,16 +307,7 @@ protected:
             }
 
             reverse(input, p, true, log);
-            new_params.sa_vector = reinterpret_cast<void*>(&SA_fwd);
-            idx_fwd = move_r_fwd_t(input, new_params);
-            idx_fwd.set_alphabet_maps(map_int, map_ext);
-
-            if (log) {
-                std::cout << std::endl;
-                time = now();
-            }
         }
-
 
         if constexpr (support != _count) {
             if (log) std::cout << "building H_SA" << std::flush;
@@ -721,10 +701,15 @@ public:
     /**
      * @brief stores the variables needed to perform bidirectional pattern search and locate queries
      */
-    struct query_context {
-    protected:
-        // ############################# VARIABLES FOR THE SEARCH PHASE #############################
+    template <move_rb_query_support_t query_support>
+    struct query_context_t {
+        static_assert(!(support == _count && query_support == LOCATE));
 
+    protected:
+        const move_rb<support, sym_t, pos_t>* idx; // index to query
+
+        // ############################# VARIABLES FOR THE SEARCH PHASE #############################
+        
         direction last_dir; // last performed pattern extend direction
         pos_t m; // length of the currently matched pattern
         pos_t b, e; // [b, e] = SA-interval in T of the currently matched pattern
@@ -740,43 +725,39 @@ public:
             RUN_END = 2
         };
 
-        sample_t s_1, s_2; // s_1/2 = RUN_START/RUN_END <=> the usable SA-sample of type 1/2 is at a run start/end in the forward index
-        sample_t s_1_R, s_2_R; // s_1/2_R = RUN_START/RUN_END <=> the usable SA-sample of type 1/2 is at a run start/end in the backward index
-        pos_t o_1, o_2; // o_1/2 = offset from the left/right of the SA-interval of the usable SA-sample of type 1/2 in the forward index
-        pos_t o_1_R, o_2_R; // o_1/2_R = offset from the left/right of the SA-interval of the usable SA-sample of type 1/2 in the backward index
-        pos_t i_1, i_2; // i_1/2 = number of iterations since s_1/2 has been set
-        pos_t i_1_R, i_2_R; // i_1/2_R = number of iterations since s_1/2_R has been set
-        pos_t x_1, x_2; // x_1/2 = index of the (sub-)run in L', whose start/end is the position of the usable SA-sample of type 1/2
-        pos_t x_1_R, x_2_R; // x_1/2_R = index of the (sub-)run in L' of T^R, whose start/end is the position of the usable SA-sample of type 1/2
+        struct sample_info_t {
+            sample_t t; // RUN_START/RUN_END <=> the SA-sample is at a run start/end
+            pos_t o; // offset from the left/right of the SA-interval of the SA-sample
+            pos_t i; // number of iterations since s has been set
+            pos_t x; // index of the (sub-)run in L', whose start/end is the position of the SA-sample
+        };
+
+        sample_info_t s_b, s_e;
+        sample_info_t s_b_R, s_e_R;
 
         // ############################# VARIABLES FOR THE LOCATE PHASE #############################
-        
+    
         direction locate_dir = NO_DIR; // current locate direction
         pos_t occ_rem; // number of remaining occurrences to locate
         pos_t c; // initial position in the suffix array
         pos_t SA_c; // initial suffix SA[c] in the suffix array interval
         pos_t i; // current position in the suffix array interval
         pos_t SA_i; // current suffix SA[i] in the suffix array interval
-
-        struct empty {};
-
-        std::conditional_t<support == _locate_move, pos_t, empty> s_; // index of the input inteval of M_Phi/M_Phi^{-1} containing SA_i
+        pos_t s_; // index of the input inteval of M_Phi/M_Phi^{-1} containing SA_i
 
         struct rlzsa_ctx_t {
             pos_t x_p, x_lp, x_cp, x_r, s_p; // variables for decoding the rlzsa
         };
 
-        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, empty> rlz_l; // rlzsa context for position i
-        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, empty> rlz_r; // rlzsa context for position c
-
-        const move_rb<support, sym_t, pos_t>* idx; // index to query
+        rlzsa_ctx_t rlz_l; // rlzsa context for decoding to the left
+        rlzsa_ctx_t rlz_r; // rlzsa context for decoding to the right
 
     public:
         /**
          * @brief constructs a new query context for the index idx
          * @param idx an index
          */
-        query_context(const move_rb<support, sym_t, pos_t>& idx)
+        query_context_t(const move_rb<support, sym_t, pos_t>& idx)
         {
             this->idx = &idx;
             reset();
@@ -799,28 +780,18 @@ public:
             b_R_ = 0;
             e_R_ = idx->idx_bwd.M_LF().num_intervals() - 1;
 
-            s_1 = RUN_START;
-            s_2 = RUN_END;
-            s_1_R = RUN_START;
-            s_2_R = RUN_END;
-            o_1 = 0;
-            o_2 = 0;
-            o_1_R = 0;
-            o_2_R = 0;
-            i_1 = 0;
-            i_2 = 0;
-            i_1_R = 0;
-            i_2_R = 0;
-            x_1 = 0;
-            x_2 = e_;
-            x_1_R = 0;
-            x_2_R = e_R_;
+            if constexpr (query_support == LOCATE) {
+                s_b = { .t = RUN_START, .o = 0, .i = 0, .x = 0 };
+                s_e = { .t = RUN_END, .o = 0, .i = 0, .x = e_ };
+                s_b_R = { .t = RUN_START, .o = 0, .i = 0, .x = 0 };
+                s_e_R = { .t = RUN_END, .o = 0, .i = 0, .x = e_R_ };
+            }
         }
 
         /**
          * @brief resets the context to the beginning of the locate phase
          */
-        void reset_locate()
+        void reset_locate() requires (query_support == LOCATE)
         {
             occ_rem = e - b + 1;
             locate_dir = NO_DIR;
@@ -848,7 +819,7 @@ public:
          * @brief returns the number of remaining (not yet reported) occurrences of the currently matched pattern
          * @return number of remaining occurrences
          */
-        inline pos_t num_occ_rem() const
+        inline pos_t num_occ_rem() const requires (query_support == LOCATE)
         {
             return occ_rem;
         }
@@ -901,11 +872,11 @@ public:
             i_sym_t i_sym = idx->idx_fwd.map_symbol(sym);
 
             // If i_sym does not occur in L', then P[i..m] does not occur in T
-            if (i_sym == 0) {
+            if (i_sym == 0) [[unlikely]] {
                 return false;
             }
 
-            query_context ctx_old = *this;
+            query_context_t ctx_old = *this;
             bool result;
 
             if constexpr (dir == LEFT) {
@@ -913,29 +884,28 @@ public:
                     i_sym,
                     b, e, b_R, e_R,
                     b_, e_,
-                    s_1, s_2, s_1_R, s_2_R,
-                    o_1, o_2, o_1_R, o_2_R,
-                    i_1, i_2,
-                    x_1, x_2
+                    s_b, s_e,
+                    s_b_R, s_e_R
                 );
             } else {
                 result = extend<RIGHT>(
                     i_sym,
                     b_R, e_R, b, e,
                     b_R_, e_R_,
-                    s_1_R, s_2_R, s_1, s_2,
-                    o_1_R, o_2_R, o_1, o_2,
-                    i_1_R, i_2_R,
-                    x_1_R, x_2_R
+                    s_b_R, s_e_R,
+                    s_b, s_e
                 );
             }
 
-            if (result) {
+            if (result) [[likely]] {
                 m++;
-                i = 0;
-                occ_rem = e - b + 1;
-                locate_dir = NO_DIR;
                 last_dir = dir;
+
+                if constexpr (query_support == LOCATE) {
+                    i = 0;
+                    occ_rem = e - b + 1;
+                    locate_dir = NO_DIR;
+                }
             } else {
                 *this = ctx_old;
             }
@@ -956,16 +926,10 @@ public:
          * @param e_r Right interval limit of the suffix array interval of P(!dir) in T(!dir).
          * @param b_ index of the input interval in M_LF of T(dir) containing b.
          * @param e_ index of the input interval in M_LF of T(dir) containing e.
-         * @param s_1
-         * @param s_2
-         * @param s_1_R
-         * @param s_2_R
-         * @param o_1
-         * @param o_2
-         * @param i_1
-         * @param i_2
-         * @param x_1
-         * @param x_2
+         * @param s_b
+         * @param s_e
+         * @param s_b_R
+         * @param s_e_R
          * @return whether the extended pattern occurs in the input
          */
         template <direction dir>
@@ -973,10 +937,8 @@ public:
             i_sym_t i_sym,
             pos_t& b, pos_t& e, pos_t& b_R, pos_t& e_R,
             pos_t& b_, pos_t& e_,
-            sample_t& s_1, sample_t& s_2, sample_t& s_1_R, sample_t& s_2_R,
-            pos_t& o_1, pos_t& o_2, pos_t& o_1_R, pos_t& o_2_R,
-            pos_t& i_1, pos_t& i_2,
-            pos_t& x_1, pos_t& x_2
+            sample_info_t& s_b, sample_info_t& s_e,
+            sample_info_t& s_b_R, sample_info_t& s_e_R
         ) const {
             const auto& idx_dir = idx->index<dir>();
 
@@ -985,40 +947,32 @@ public:
                     b_ = input_interval(b, idx->S_MLF_p<dir>(), [&](pos_t x){return idx_dir.M_LF().p(x);});
                 }
 
-                if (b == idx_dir.M_LF().p(b_)) {
-                    s_1 = RUN_START;
-                    o_1 = 0;
-                    i_1 = 0;
-                    x_1 = b_;
-                } else if (b == idx_dir.M_LF().p(b_ + 1) - 1) {
-                    s_1 = RUN_END;
-                    o_1 = 0;
-                    i_1 = 0;
-                    x_1 = b_;
+                if constexpr (query_support == LOCATE) {
+                    if (b == idx_dir.M_LF().p(b_)) {
+                        s_b = { .t = RUN_START, .o = 0, .i = 0, .x = b_ };
+                    } else if (b == idx_dir.M_LF().p(b_ + 1) - 1) {
+                        s_b = { .t = RUN_END, .o = 0, .i = 0, .x = b_ };
+                    }
                 }
 
                 if (!(idx_dir.M_LF().p(e_) <= e && e < idx_dir.M_LF().p(e_ + 1))) {
                     e_ = input_interval(e, idx->S_MLF_p<dir>(), [&](pos_t x){return idx_dir.M_LF().p(x);});
                 }
 
-                if (e == idx_dir.M_LF().p(e_)) {
-                    s_2 = RUN_START;
-                    o_2 = 0;
-                    i_2 = 0;
-                    x_2 = e_;
-                } else if (e == idx_dir.M_LF().p(e_ + 1) - 1) {
-                    s_2 = RUN_END;
-                    o_2 = 0;
-                    i_2 = 0;
-                    x_2 = e_;
+                if constexpr (query_support == LOCATE) {
+                    if (e == idx_dir.M_LF().p(e_)) {
+                        s_e = { .t = RUN_START, .o = 0, .i = 0, .x = e_ };
+                    } else if (e == idx_dir.M_LF().p(e_ + 1) - 1) {
+                        s_e = { .t = RUN_END, .o = 0, .i = 0, .x = e_ };
+                    }
                 }
             }
             
             int64_t next[256];
             int64_t prev[256];
 
-            std::fill_n(next, 256, std::numeric_limits<int64_t>::max());
-            std::fill_n(prev, 256, std::numeric_limits<int64_t>::min());
+            std::fill_n(next, i_sym, std::numeric_limits<int64_t>::max());
+            std::fill_n(prev, i_sym, std::numeric_limits<int64_t>::min());
 
             pos_t b_old = b;
             pos_t e_old = e;
@@ -1036,7 +990,7 @@ public:
                 int64_t beg = b_;
                 int64_t end = std::min<pos_t>(blk * blk_size, e_);
 
-                if (end != e_) {
+                if (end != e_) [[likely]] {
                     pos_t blk_beg = blk * idx->sigma;
                     pos_t max_sym = i_sym;
 
@@ -1055,7 +1009,7 @@ public:
                 int64_t beg = std::max<pos_t>(blk * blk_size, b_);
                 int64_t end = e_;
 
-                if (beg != b_) {
+                if (beg != b_) [[likely]] {
                     pos_t blk_beg = blk * idx->sigma;
                     pos_t max_sym = i_sym;
 
@@ -1078,43 +1032,45 @@ public:
 
             if (b_ != b__old) {
                 b = idx_dir.M_LF().p(b_);
-                s_1 = RUN_START;
-                o_1 = 0;
-                x_1 = b_;
-                i_1 = 1;
-            } else if (s_1 == RUN_START) {
-                i_1++;
-            } else if (s_1 == RUN_END) {
-                pos_t p_1 = b + o_1;
-                pos_t y_1 = idx_dir.M_LF().p(b_ + 1);
-
-                if (p_1 < y_1) {
-                    i_1++;
-                } else {
-                    o_1 = y_1 - b - 1;
-                    x_1 = b_;
-                    i_1 = 1;
-                }
             }
 
             if (e_ != e__old) {
                 e = idx_dir.M_LF().p(e_ + 1) - 1;
-                s_2 = RUN_END;
-                o_2 = 0;
-                x_2 = e_;
-                i_2 = 1;
-            } else if (s_2 == RUN_END) {
-                i_2++;
-            } else if (s_2 == RUN_START) {
-                pos_t p_2 = e - o_2;
-                pos_t y_2 = idx_dir.M_LF().p(e_);
+            }
 
-                if (y_2 <= p_2) {
-                    i_2++;
-                } else {
-                    o_2 = e - y_2;
-                    x_2 = e_;
-                    i_2 = 1;
+            if constexpr (query_support == LOCATE) {
+                if (b_ != b__old) {
+                    s_b = { .t = RUN_START, .o = 0, .i = 1, .x = b_ };
+                } else if (s_b.t == RUN_START) {
+                    s_b.i++;
+                } else if (s_b.t == RUN_END) {
+                    pos_t p_1 = b + s_b.o;
+                    pos_t y_1 = idx_dir.M_LF().p(b_ + 1);
+
+                    if (p_1 < y_1) {
+                        s_b.i++;
+                    } else {
+                        s_b.o = y_1 - b - 1;
+                        s_b.x = b_;
+                        s_b.i = 1;
+                    }
+                }
+
+                if (e_ != e__old) {
+                    s_e = { .t = RUN_END, .o = 0, .i = 1, .x = e_ };
+                } else if (s_e.t == RUN_END) {
+                    s_e.i++;
+                } else if (s_e.t == RUN_START) {
+                    pos_t p_2 = e - s_e.o;
+                    pos_t y_2 = idx_dir.M_LF().p(e_);
+
+                    if (y_2 <= p_2) {
+                        s_e.i++;
+                    } else {
+                        s_e.o = e - y_2;
+                        s_e.x = e_;
+                        s_e.i = 1;
+                    }
                 }
             }
 
@@ -1167,43 +1123,45 @@ public:
 
             e_R = b_R + (e - b);
 
-            if (e - b != e_prime - b_prime) {
-                if (b_prime == b_old) {
-                    s_1 = RUN_END;
-                    o_1 = idx_dir.M_LF().p(b__prime + 1) - 1 - b_prime;
-                    x_1 = b__prime;
-                    i_1 = 1;
+            if constexpr (query_support == LOCATE) {
+                if (e - b != e_prime - b_prime) {
+                    if (b_prime == b_old) {
+                        s_b.t = RUN_END;
+                        s_b.o = idx_dir.M_LF().p(b__prime + 1) - 1 - b_prime;
+                        s_b.x = b__prime;
+                        s_b.i = 1;
+                    }
+
+                    if (e_prime == e_old) {
+                        s_e.t = RUN_START;
+                        s_e.o = e_prime - idx_dir.M_LF().p(e__prime);
+                        s_e.x = e__prime;
+                        s_e.i = 1;
+                    }
                 }
 
-                if (e_prime == e_old) {
-                    s_2 = RUN_START;
-                    o_2 = e_prime - idx_dir.M_LF().p(e__prime);
-                    x_2 = e__prime;
-                    i_2 = 1;
+                if (s_b_R.t != NO_SAMPLE) {
+                    pos_t p_1 = b_R_old + s_b_R.o;
+
+                    if (!(b_R <= p_1 && p_1 <= e_R)) {
+                        s_b_R.t = NO_SAMPLE;
+                    } else {
+                        s_b_R.o -= b_R - b_R_old;
+                    }
                 }
+
+                if (s_e_R.t != NO_SAMPLE) {
+                    pos_t p_2 = e_R_old - s_e_R.o;
+
+                    if (!(b_R <= p_2 && p_2 <= e_R)) {
+                        s_e_R.t = NO_SAMPLE;
+                    } else {
+                        s_e_R.o -= e_R_old - e_R;
+                    }
+                }
+
+                assert(s_b.t || s_e.t || s_b_R.t || s_e_R.t);
             }
-
-            if (s_1_R) {
-                pos_t p_1 = b_R_old + o_1_R;
-
-                if (!(b_R <= p_1 && p_1 <= e_R)) {
-                    s_1_R = NO_SAMPLE;
-                } else {
-                    o_1_R -= b_R - b_R_old;
-                }
-            }
-
-            if (s_2_R) {
-                pos_t p_2 = e_R_old - o_2_R;
-
-                if (!(b_R <= p_2 && p_2 <= e_R)) {
-                    s_2_R = NO_SAMPLE;
-                } else {
-                    o_2_R -= e_R_old - e_R;
-                }
-            }
-
-            assert(s_1 || s_2 || s_1_R || s_2_R);
 
             return true;
         }
@@ -1234,42 +1192,42 @@ public:
         }
 
     protected:
-        inline pos_t first_occ()
+        inline pos_t first_occ() requires (query_support == LOCATE)
         {
-            if (s_1) {
-                i = b + o_1;
-                SA_i = (s_1 == RUN_START ? idx->idx_fwd.SA_s(x_1) : idx->idx_fwd.SA_s_(x_1)) - i_1;
-            } else if (s_2) {
-                i = e - o_2;
-                SA_i = (s_2 == RUN_START ? idx->idx_fwd.SA_s(x_2) : idx->idx_fwd.SA_s_(x_2)) - i_2;
-            } else if (s_1_R) {
-                if (s_1_R == RUN_START) {
-                    i = idx->_SA_sR_m1[x_1_R];
-                    SA_i = idx->n - idx->idx_bwd.SA_s(x_1_R) - 1 + i_1_R - m;
+            if (s_b.t) {
+                i = b + s_b.o;
+                SA_i = (s_b.t == RUN_START ? idx->idx_fwd.SA_s(s_b.x) : idx->idx_fwd.SA_s_(s_b.x)) - s_b.i;
+            } else if (s_e.t) {
+                i = e - s_e.o;
+                SA_i = (s_e.t == RUN_START ? idx->idx_fwd.SA_s(s_e.x) : idx->idx_fwd.SA_s_(s_e.x)) - s_e.i;
+            } else if (s_b_R.t) {
+                if (s_b_R.t == RUN_START) {
+                    i = idx->_SA_sR_m1[s_b_R.x];
+                    SA_i = idx->n - idx->idx_bwd.SA_s(s_b_R.x) - 1 + s_b_R.i - m;
                 } else {
-                    i = idx->_SA_eR_m1[x_1_R];
-                    SA_i = idx->n - idx->idx_bwd.SA_s_(x_1_R) - 1 + i_1_R - m;
+                    i = idx->_SA_eR_m1[s_b_R.x];
+                    SA_i = idx->n - idx->idx_bwd.SA_s_(s_b_R.x) - 1 + s_b_R.i - m;
                 }
 
                 pos_t i_ = input_interval(i, idx->_S_MLF_p_fwd,
                     [&](pos_t x){return idx->idx_fwd.M_LF().p(x);});
 
-                for (pos_t j = 0; j < m - i_1_R; j++) {
+                for (pos_t j = 0; j < m - s_b_R.i; j++) {
                     idx->idx_fwd.M_LF().move(i, i_);
                 }
-            } else /* if (s_2_R) */ {
-                if (s_2_R == RUN_START) {
-                    i = idx->_SA_sR_m1[x_2_R];
-                    SA_i = idx->n - idx->idx_bwd.SA_s(x_2_R) - 1 + i_2_R - m;
+            } else /* if (s_e_R.t) */ {
+                if (s_e_R.t == RUN_START) {
+                    i = idx->_SA_sR_m1[s_e_R.x];
+                    SA_i = idx->n - idx->idx_bwd.SA_s(s_e_R.x) - 1 + s_e_R.i - m;
                 } else {
-                    i = idx->_SA_eR_m1[x_2_R];
-                    SA_i = idx->n - idx->idx_bwd.SA_s_(x_2_R) - 1 + i_2_R - m;
+                    i = idx->_SA_eR_m1[s_e_R.x];
+                    SA_i = idx->n - idx->idx_bwd.SA_s_(s_e_R.x) - 1 + s_e_R.i - m;
                 }
 
                 pos_t i_ = input_interval(i, idx->_S_MLF_p_fwd,
                     [&](pos_t x){return idx->idx_fwd.M_LF().p(x);});
 
-                for (pos_t j = 0; j < m - i_2_R; j++) {
+                for (pos_t j = 0; j < m - s_e_R.i; j++) {
                     idx->idx_fwd.M_LF().move(i, i_);
                 }
             }
@@ -1316,7 +1274,7 @@ public:
          * @brief reports the next occurrence of the currently matched pattern
          * @return next occurrence
          */
-        inline pos_t next_occ()
+        inline pos_t next_occ() requires (query_support == LOCATE)
         {
             if (locate_dir == NO_DIR) [[unlikely]] {
                 return first_occ();
@@ -1367,7 +1325,7 @@ public:
          * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
          * @param Occ vector to append the occurrences to
          */
-        inline void locate(std::vector<pos_t>& Occ)
+        inline void locate(std::vector<pos_t>& Occ) requires (query_support == LOCATE)
         {
             Occ.reserve(Occ.size() + occ_rem);
 
@@ -1427,7 +1385,7 @@ public:
          * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
          * @return vector containing the occurrences
          */
-        std::vector<pos_t> locate()
+        std::vector<pos_t> locate() requires (query_support == LOCATE)
         {
             std::vector<pos_t> Occ;
             locate(Occ);
@@ -1437,11 +1395,20 @@ public:
 
     /**
      * @brief returns a query context for the index
-     * @return query_context
+     * @return query_context_t
      */
-    inline query_context query() const
+    inline query_context_t<COUNT> count_query() const
     {
-        return query_context(*this);
+        return query_context_t<COUNT>(*this);
+    }
+
+    /**
+     * @brief returns a query context for the index
+     * @return query_context_t
+     */
+    inline query_context_t<LOCATE> locate_query() const requires (support != _count)
+    {
+        return query_context_t<LOCATE>(*this);
     }
 
     // ############################# SERIALIZATION METHODS #############################
@@ -1452,6 +1419,14 @@ public:
      */
     void serialize(std::ostream& out) const
     {
+        bool is_64_bit = std::is_same_v<pos_t, uint64_t>;
+        out.write((char*) &is_64_bit, 1);
+        move_r_support _support = support;
+        out.write((char*) &_support, sizeof(move_r_support));
+
+        out.write((char*) &n, sizeof(pos_t));
+        out.write((char*) &sigma, sizeof(pos_t));
+
         idx_fwd.serialize(out);
         idx_bwd.serialize(out);
 
@@ -1471,6 +1446,21 @@ public:
      */
     void load(std::istream& in)
     {
+        bool is_64_bit;
+        in.read((char*) &is_64_bit, 1);
+
+        if (is_64_bit != std::is_same_v<pos_t, uint64_t>) {
+            std::cout << "error: cannot load a" << (is_64_bit ? "64" : "32") << "-bit"
+                      << " index into a " << (is_64_bit ? "32" : "64") << "-bit index-object" << std::flush;
+            return;
+        }
+
+        move_r_support _support;
+        in.read((char*) &_support, sizeof(move_r_support));
+
+        in.read((char*) &n, sizeof(pos_t));
+        in.read((char*) &sigma, sizeof(pos_t));
+
         idx_fwd.load(in);
         idx_bwd.load(in);
 

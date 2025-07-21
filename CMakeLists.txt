@@ -101,11 +101,15 @@ option(MOVE_R_BUILD_BENCH "Build program for benchmarking internal data structur
 
 if(MOVE_R_BUILD_CLI)
   add_executable(move-r-build cli/move-r/move-r-build.cpp)
-  add_executable(move-rb-build cli/move-r/move-rb-build.cpp)
   add_executable(move-r-revert cli/move-r/move-r-revert.cpp)
   add_executable(move-r-count cli/move-r/move-r-count.cpp)
   add_executable(move-r-locate cli/move-r/move-r-locate.cpp)
   add_executable(move-r-patterns cli/move-r/move-r-patterns.cpp)
+
+  add_executable(move-rb-build cli/move-rb/move-rb-build.cpp)
+  add_executable(move-rb-count cli/move-rb/move-rb-count.cpp)
+  add_executable(move-rb-locate cli/move-rb/move-rb-locate.cpp)
+  add_executable(move-rb-patterns cli/move-rb/move-rb-patterns.cpp)
 
   target_link_libraries(move-r-build PRIVATE move_r)
   target_link_libraries(move-rb-build PRIVATE move_r)
@@ -114,9 +118,14 @@ if(MOVE_R_BUILD_CLI)
   target_link_libraries(move-r-locate PRIVATE move_r)
   target_link_libraries(move-r-patterns PRIVATE move_r)
 
+  target_link_libraries(move-rb-build PRIVATE move_r)
+  target_link_libraries(move-rb-count PRIVATE move_r)
+  target_link_libraries(move-rb-locate PRIVATE move_r)
+  target_link_libraries(move-rb-patterns PRIVATE move_r)
+
   set_target_properties(
-    move-r-build move-rb-build move-r-revert
-    move-r-count move-r-locate move-r-patterns
+    move-r-build move-r-revert move-r-count move-r-locate move-r-patterns
+    move-rb-build move-rb-count move-rb-locate move-rb-patterns
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/"
   )
 endif()

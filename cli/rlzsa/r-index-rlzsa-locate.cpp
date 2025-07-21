@@ -86,7 +86,7 @@ void locate(std::ifstream& index_file, std::ifstream& patterns_file, std::string
         
         if (!input_file.empty()) {
             for (int_t occ : occurrences) {
-                if (input.substr(occ, pattern.size()) != pattern) {
+                if (input.substr(occ, pattern_length) != pattern) {
                     std::cout << "error: wrong occurrence: " << occ << " of pattern '" << pattern << "'" << std::endl;
                     exit(-1);
                 }

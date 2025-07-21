@@ -144,9 +144,9 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-bool move_r<support, sym_t, pos_t>::query_context::prepend(sym_t sym)
+bool move_r<support, sym_t, pos_t>::query_context_t::prepend(sym_t sym)
 {
-    query_context ctx_old = *this;
+    query_context_t ctx_old = *this;
 
     if (idx->backward_search_step(sym, b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z)) {
         l++;
@@ -159,7 +159,7 @@ bool move_r<support, sym_t, pos_t>::query_context::prepend(sym_t sym)
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-pos_t move_r<support, sym_t, pos_t>::query_context::next_occ()
+pos_t move_r<support, sym_t, pos_t>::query_context_t::next_occ()
     requires(supports_multiple_locate && !has_lzendsa)
 {
     if constexpr (has_rlzsa) {
@@ -193,14 +193,14 @@ pos_t move_r<support, sym_t, pos_t>::query_context::next_occ()
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-pos_t move_r<support, sym_t, pos_t>::query_context::one_occ() const
+pos_t move_r<support, sym_t, pos_t>::query_context_t::one_occ() const
     requires(supports_locate)
 {
     return idx->SA_s(hat_b_ap_y) - (y + 1);
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-std::vector<pos_t> move_r<support, sym_t, pos_t>::query_context::locate()
+std::vector<pos_t> move_r<support, sym_t, pos_t>::query_context_t::locate()
     requires(supports_multiple_locate)
 {
     std::vector<pos_t> Occ;
