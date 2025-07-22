@@ -214,7 +214,7 @@ void move_data_structure<pos_t>::construction::balance_v5_seq_par()
     }
 
     if (log) {
-        if (mf != NULL) {
+        if (mf != nullptr) {
             *mf << " time_balance_phase_1=" << time_diff_ns(time);
             if (p == 1)
                 *mf << " time_balance_phase_2=0" << time_diff_ns(time);
@@ -309,7 +309,7 @@ void move_data_structure<pos_t>::construction::balance_v5_seq_par()
         Q_v5_.shrink_to_fit();
 
         if (log) {
-            if (mf != NULL)
+            if (mf != nullptr)
                 *mf << " time_balance_phase_2=" << time_diff_ns(time);
             time = log_runtime(time);
         }

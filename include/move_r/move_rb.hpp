@@ -1203,10 +1203,10 @@ public:
             } else if (s_b_R.t) {
                 if (s_b_R.t == RUN_START) {
                     i = idx->_SA_sR_m1[s_b_R.x];
-                    SA_i = idx->n - idx->idx_bwd.SA_s(s_b_R.x) - 1 + s_b_R.i - m;
+                    SA_i = idx->n - idx->idx_bwd.SA_s(s_b_R.x) - (m - s_b_R.i + 1);
                 } else {
                     i = idx->_SA_eR_m1[s_b_R.x];
-                    SA_i = idx->n - idx->idx_bwd.SA_s_(s_b_R.x) - 1 + s_b_R.i - m;
+                    SA_i = idx->n - idx->idx_bwd.SA_s_(s_b_R.x) - (m - s_b_R.i + 1);
                 }
 
                 pos_t i_ = input_interval(i, idx->_S_MLF_p_fwd,
@@ -1218,10 +1218,10 @@ public:
             } else /* if (s_e_R.t) */ {
                 if (s_e_R.t == RUN_START) {
                     i = idx->_SA_sR_m1[s_e_R.x];
-                    SA_i = idx->n - idx->idx_bwd.SA_s(s_e_R.x) - 1 + s_e_R.i - m;
+                    SA_i = idx->n - idx->idx_bwd.SA_s(s_e_R.x) - (m - s_e_R.i + 1);
                 } else {
                     i = idx->_SA_eR_m1[s_e_R.x];
-                    SA_i = idx->n - idx->idx_bwd.SA_s_(s_e_R.x) - 1 + s_e_R.i - m;
+                    SA_i = idx->n - idx->idx_bwd.SA_s_(s_e_R.x) - (m - s_e_R.i + 1);
                 }
 
                 pos_t i_ = input_interval(i, idx->_S_MLF_p_fwd,
@@ -1231,6 +1231,8 @@ public:
                     idx->idx_fwd.M_LF().move(i, i_);
                 }
             }
+
+            assert(b <= i && i <= e);
 
             c = i;
             SA_c = SA_i;

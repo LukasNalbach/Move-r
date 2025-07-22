@@ -48,8 +48,8 @@ public:
         void copy_from_other(const doubly_linked_list_node& other)
         {
             this->v = other.v;
-            this->pr = NULL;
-            this->sc = NULL;
+            this->pr = nullptr;
+            this->sc = nullptr;
         }
 
         /**
@@ -63,12 +63,12 @@ public:
             this->sc = other.sc;
 
             other.v = T();
-            other.pr = NULL;
-            other.sc = NULL;
+            other.pr = nullptr;
+            other.sc = nullptr;
 
-            if (pr != NULL)
+            if (pr != nullptr)
                 pr->sc = this;
-            if (sc != NULL)
+            if (sc != nullptr)
                 sc->pr = this;
         }
 
@@ -86,7 +86,7 @@ public:
         doubly_linked_list_node(T v)
         {
             this->v = v;
-            pr = sc = NULL;
+            pr = sc = nullptr;
         };
 
         /**
@@ -103,8 +103,8 @@ public:
     };
 
 protected:
-    doubly_linked_list_node* hd = NULL; // first node
-    doubly_linked_list_node* tl = NULL; // last node
+    doubly_linked_list_node* hd = nullptr; // first node
+    doubly_linked_list_node* tl = nullptr; // last node
     uint64_t s = 0; // size
 
     /**
@@ -118,7 +118,7 @@ protected:
             doubly_linked_list_node* cur = other.hd;
             push_back(cur->v);
 
-            while (cur->sc != NULL) {
+            while (cur->sc != nullptr) {
                 push_back(cur->v);
                 cur = cur->sc;
             }
@@ -135,9 +135,9 @@ protected:
         this->tl = other.tl;
         this->s = other.s;
 
-        other.hd = NULL;
-        other.tl = NULL;
-        other.s = NULL;
+        other.hd = nullptr;
+        other.tl = nullptr;
+        other.s = nullptr;
     }
 
 public:
@@ -153,7 +153,7 @@ public:
     ~doubly_linked_list()
     {
         delete_nodes();
-        hd = tl = NULL;
+        hd = tl = nullptr;
     }
 
     /**
@@ -407,11 +407,11 @@ public:
             tl = n->pr;
         }
 
-        if (n->pr != NULL) {
+        if (n->pr != nullptr) {
             n->pr->sc = n->sc;
         }
 
-        if (n->sc != NULL) {
+        if (n->sc != nullptr) {
             n->sc->pr = n->pr;
         }
     }
@@ -421,7 +421,7 @@ public:
      */
     inline void disconnect_nodes()
     {
-        hd = tl = NULL;
+        hd = tl = nullptr;
         s = 0;
     }
 
@@ -438,7 +438,7 @@ public:
                 delete n->pr;
             }
 
-            hd = tl = NULL;
+            hd = tl = nullptr;
             s = 0;
         }
     }
@@ -468,8 +468,8 @@ public:
          */
         ~dll_it()
         {
-            l = NULL;
-            cur = NULL;
+            l = nullptr;
+            cur = nullptr;
         }
 
         /**
@@ -478,7 +478,7 @@ public:
          */
         inline bool has_next() const
         {
-            return cur->sc != NULL;
+            return cur->sc != nullptr;
         }
 
         /**
@@ -487,7 +487,7 @@ public:
          */
         inline bool has_prev() const
         {
-            return cur->pr != NULL;
+            return cur->pr != nullptr;
         }
 
         /**

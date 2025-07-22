@@ -436,6 +436,13 @@ static constexpr direction flip()
     return NO_DIR;
 }
 
+static direction flip(direction dir)
+{
+    if (dir == LEFT) return RIGHT;
+    if (dir == RIGHT) return LEFT;
+    return NO_DIR;
+}
+
 template <typename pos_t, direction search_dir, typename fnc_t>
 pos_t exp_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
@@ -576,4 +583,69 @@ static void log_contents(container_t container)
     }
 
     std::cout << container[container.size() - 1] << std::endl;
+}
+
+template <typename inp_t>
+inp_t random_repetitive_input(
+    uint32_t min_size, uint32_t max_size,
+    typename inp_t::value_type min_sym = std::numeric_limits<typename inp_t::value_type>::min(),
+    typename inp_t::value_type max_sym = std::numeric_limits<typename inp_t::value_type>::max()
+) {
+    std::random_device rd;
+    std::mt19937 mt(rd());
+    std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
+    std::uniform_int_distribution<uint32_t> input_size_distrib(min_size, max_size);
+    std::uniform_int_distribution<typename inp_t::value_type> sym_distrib(min_sym, max_sym);
+
+    uint32_t target_input_size = input_size_distrib(mt);
+    enum construction_operation { new_symbol = 0, repetition = 1, run = 2 };
+    double repetition_repetitiveness = prob_distrib(mt);
+    double run_repetitiveness = prob_distrib(mt);
+
+    std::uniform_int_distribution<uint32_t> repetition_length_distrib(
+        1, (repetition_repetitiveness * target_input_size) / 100);
+
+    std::uniform_int_distribution<uint32_t> run_length_distrib(
+        1, (run_repetitiveness * target_input_size) / 200);
+
+    std::discrete_distribution<uint8_t> next_operation_distrib({
+        2 - (repetition_repetitiveness + run_repetitiveness),
+        repetition_repetitiveness,
+        run_repetitiveness });
+
+    inp_t input;
+    no_init_resize(input, target_input_size);
+    input.clear();
+    input.push_back(sym_distrib(mt));
+
+    while (input.size() < target_input_size) {
+        switch (next_operation_distrib(mt)) {
+        case new_symbol: {
+            input.push_back(sym_distrib(mt));
+            break;
+        }
+        case repetition: {
+            uint32_t repetition_length = std::min<uint32_t>(
+                target_input_size - input.size(), repetition_length_distrib(mt));
+            uint32_t repstition_source = std::uniform_int_distribution<uint32_t>(0, input.size() - 1)(mt);
+
+            for (uint32_t i = 0; i < repetition_length; i++)
+                input.push_back(input[repstition_source + i]);
+
+            break;
+        }
+        case run: {
+            uint32_t run_length = std::min<uint32_t>(
+                target_input_size - input.size(), run_length_distrib(mt));
+            typename inp_t::value_type run_sym = sym_distrib(mt);
+
+            for (uint32_t i = 0; i < run_length; i++)
+                input.push_back(run_sym);
+
+            break;
+        }
+        }
+    }
+
+    return input;
 }

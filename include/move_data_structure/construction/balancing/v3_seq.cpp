@@ -74,7 +74,7 @@ inline typename move_data_structure<pos_t>::construction::tout_node_t_v2v3v4* mo
             lin_node_t_v2v3v4* ln_Z = &tn_NEW->v;
             pos_t i__ = 1;
 
-            while (ln_Z->pr != NULL && ln_Z->pr->v.first >= tn_Y->v.v.second) {
+            while (ln_Z->pr != nullptr && ln_Z->pr->v.first >= tn_Y->v.v.second) {
                 ln_Z = ln_Z->pr;
                 i__++;
             }
@@ -85,7 +85,7 @@ inline typename move_data_structure<pos_t>::construction::tout_node_t_v2v3v4* mo
                that might get a-heavy in the process. */
             lin_node_t_v2v3v4* ln_ZpA = is_a_heavy_v2v3v4(&ln_Z, &i__, tn_Y);
 
-            if (ln_ZpA != NULL) {
+            if (ln_ZpA != nullptr) {
                 balance_upto_v3_seq(ln_ZpA, tn_Y, q_u, p_cur, i_);
             }
         }
@@ -123,7 +123,7 @@ void move_data_structure<pos_t>::construction::balance_v3_seq()
         ln_IpA = is_a_heavy_v2v3v4(&ln_I, &i_, tn_J.current(), tn_Jp1.current());
 
         // If [q_j, q_j + d_j) is a-heavy, balance it and all output intervals starting before it becoming might get a-heavy in the process.
-        if (ln_IpA != NULL) {
+        if (ln_IpA != nullptr) {
             tn_J.set(balance_upto_v3_seq(ln_IpA, tn_J.current(), tn_J.current()->v.v.second, ln_I->v.first, &i_));
             continue;
         }
@@ -138,7 +138,7 @@ void move_data_structure<pos_t>::construction::balance_v3_seq()
             tn_Jp1.next();
 
             while (ln_I->v.first < tn_J.current()->v.v.second) {
-                if (ln_I->sc == NULL) {
+                if (ln_I->sc == nullptr) {
                     stop = true;
                     break;
                 }
@@ -151,7 +151,7 @@ void move_data_structure<pos_t>::construction::balance_v3_seq()
     }
 
     if (log) {
-        if (mf != NULL) {
+        if (mf != nullptr) {
             *mf << " time_balance_phase_1=" << time_diff_ns(time)
                 << " time_balance_phase_2=" << 0;
         }

@@ -32,7 +32,7 @@
 template <typename pos_t>
 inline pos_t move_data_structure<pos_t>::construction::interval_length_v2v3_seq(lin_node_t_v2v3v4* ln)
 {
-    return (ln->sc != NULL ? ln->sc->v.first : n) - ln->v.first;
+    return (ln->sc != nullptr ? ln->sc->v.first : n) - ln->v.first;
 }
 
 template <typename pos_t>
@@ -45,13 +45,13 @@ inline typename move_data_structure<pos_t>::construction::lin_node_t_v2v3v4* mov
     // [l,r] = [q_j, q_j + d_j)
 
     // r + 1
-    pos_t rp1 = tn_J_ == NULL ? tn_J->v.v.second + interval_length_v2v3_seq(&tn_J->v)
+    pos_t rp1 = tn_J_ == nullptr ? tn_J->v.v.second + interval_length_v2v3_seq(&tn_J->v)
                               : tn_J_->v.v.second;
 
     /* If |[l,r]| < 2a, there cannot be at least 2a input intervals
     connected to [l,r] in the permutation graph. */
     if (rp1 - tn_J->v.v.second < two_a)
-        return NULL;
+        return nullptr;
 
     // Temporarily store the initial value i'' of i'
     pos_t i__ = *i_;
@@ -62,14 +62,14 @@ inline typename move_data_structure<pos_t>::construction::lin_node_t_v2v3v4* mov
         if (*i_ > a)
             break;
             
-        if ((*ln_IpI_)->sc == NULL)
-            return NULL;
+        if ((*ln_IpI_)->sc == nullptr)
+            return nullptr;
 
         *ln_IpI_ = (*ln_IpI_)->sc;
         (*i_)++;
 
         if ((*ln_IpI_)->v.first >= rp1)
-            return NULL;
+            return nullptr;
     }
 
     /* Temporarily store a pointer to (p_{i''},q_{i''}) in L_in_v2v3v4[i_p] (this
@@ -89,14 +89,14 @@ inline typename move_data_structure<pos_t>::construction::lin_node_t_v2v3v4* mov
             return ln_IpA;
         }
 
-        if ((*ln_IpI_)->sc == NULL)
-            return NULL;
+        if ((*ln_IpI_)->sc == nullptr)
+            return nullptr;
 
         *ln_IpI_ = (*ln_IpI_)->sc;
         (*i_)++;
 
         if ((*ln_IpI_)->v.first >= rp1)
-            return NULL;
+            return nullptr;
     }
 }
 
@@ -112,7 +112,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
     build_pi_for_I();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_pi=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("building L_in");
@@ -171,8 +171,8 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
         if (!L_in_v2v3v4[i].empty()) {
             L_in_v2v3v4[i].set_head(&nodes_v2v3v4[x[i]].v);
             L_in_v2v3v4[i].set_tail(&nodes_v2v3v4[x[i + 1] - 1].v);
-            L_in_v2v3v4[i].head()->pr = NULL;
-            L_in_v2v3v4[i].tail()->sc = NULL;
+            L_in_v2v3v4[i].head()->pr = nullptr;
+            L_in_v2v3v4[i].tail()->sc = nullptr;
         }
     }
 
@@ -186,7 +186,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
     }
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_lin=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("building T_out");
@@ -218,7 +218,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
     u.shrink_to_fit();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_tout=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("splitting too long intervals");
@@ -250,7 +250,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
             L_in_v2v3v4[i_].insert_after_node(&tn->v, ln);
             T_out_v2v3v4[i].insert_node(tn);
 
-            if (tn->v.sc == NULL) {
+            if (tn->v.sc == nullptr) {
                 if (i_ < p - 1) {
                     uint16_t i__ = i_ + 1;
 
@@ -284,7 +284,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
             T_out_v2v3v4[i_].insert_node(tn);
             L_in_v2v3v4[i].push_front_node(&tn->v);
 
-            if (tn->v.sc == NULL) {
+            if (tn->v.sc == nullptr) {
                 if (i < p - 1) {
                     uint16_t i__ = i + 1;
 
@@ -330,7 +330,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
                 Q_i[i].pop();
 
                 // check if [p_i, p_i + d_i) still is too long
-                if (ln_I->sc != NULL && ln_I->sc->v.first - ln_I->v.first > l_max) {
+                if (ln_I->sc != nullptr && ln_I->sc->v.first - ln_I->v.first > l_max) {
                     // find i_p' in [0,p-1], so that s[i_p'] <= q_j < s[i_p'+1]
                     uint16_t i_p_ = bin_search_max_leq<pos_t>(ln_I->v.second, 0, p - 1, [&](pos_t x) { return s[x]; });
 
@@ -357,7 +357,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
                         }
 
                         Q_o[i_p_][i_p].emplace(tn_J);
-                    } while (ln_I->sc != NULL && ln_I->sc->v.first - ln_I->v.first > l_max);
+                    } while (ln_I->sc != nullptr && ln_I->sc->v.first - ln_I->v.first > l_max);
                 }
             }
         }
@@ -387,7 +387,7 @@ void move_data_structure<pos_t>::construction::build_lin_tout_v2v3v4()
     Q_o.clear();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_split_too_long_input_intervals=" << time_diff_ns(time);
         time = log_runtime(time);
     }
@@ -415,7 +415,7 @@ void move_data_structure<pos_t>::construction::build_dp_dq_v2v3v4()
 
     if (log) {
         float k__k = std::round(100.0 * k_ / k) / 100.0;
-        if (mf != NULL) {
+        if (mf != nullptr) {
             *mf << " k=" << k;
             *mf << " k_=" << k_;
         }
@@ -473,7 +473,7 @@ void move_data_structure<pos_t>::construction::build_dp_dq_v2v3v4()
     nodes_v2v3v4.shrink_to_fit();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_dp_dq=" << time_diff_ns(time);
         time = log_runtime(time);
     }

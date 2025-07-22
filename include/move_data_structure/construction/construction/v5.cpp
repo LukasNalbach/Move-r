@@ -39,7 +39,7 @@ void move_data_structure<pos_t>::construction::build_tin_tout_v5()
     calculate_seperation_positions_for_I();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_pi=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("building T_out");
@@ -67,7 +67,7 @@ void move_data_structure<pos_t>::construction::build_tin_tout_v5()
     pi.shrink_to_fit();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_tout=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("building T_in");
@@ -124,7 +124,7 @@ void move_data_structure<pos_t>::construction::build_tin_tout_v5()
     }
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_tin=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("splitting too long intervals");
@@ -172,7 +172,7 @@ void move_data_structure<pos_t>::construction::build_tin_tout_v5()
     T_out_temp_v5.shrink_to_fit();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_split_too_long_input_intervals=" << time_diff_ns(time);
         time = log_runtime(time);
     }
@@ -197,7 +197,7 @@ void move_data_structure<pos_t>::construction::build_dp_dq_v5()
 
     if (log) {
         float k__k = std::round(100.0 * k_ / k) / 100.0;
-        if (mf != NULL) {
+        if (mf != nullptr) {
             *mf << " k=" << k;
             *mf << " k_=" << k_;
         }
@@ -234,7 +234,7 @@ void move_data_structure<pos_t>::construction::build_dp_dq_v5()
     T_in_v5.shrink_to_fit();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_dp_dq=" << time_diff_ns(time);
         time = log_runtime(time);
     }

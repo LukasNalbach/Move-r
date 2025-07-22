@@ -64,8 +64,8 @@ public:
     bool build_sa_and_l = false; // controls whether the index should be built from the suffix array and the bwt
     bool delete_T = false; // controls whether T should be deleted when not needed anymore
     bool log = false; // controls, whether to print log messages
-    std::ostream* mf_idx = NULL; // file to write measurement data of the index construction to
-    std::ostream* mf_mds = NULL; // file to write measurement data of the move data structure construction to
+    std::ostream* mf_idx = nullptr; // file to write measurement data of the index construction to
+    std::ostream* mf_mds = nullptr; // file to write measurement data of the move data structure construction to
     std::string name_text_file = ""; // name of the text file (only for measurement output)
     std::string prefix_tmp_files = ""; // prefix of temporary files
     std::chrono::steady_clock::time_point time; // time of the start of the last build phase
@@ -536,7 +536,7 @@ public:
         std::cout << "peak memory usage: " << format_size(peak_mem_usage) << std::endl;
         if (!is_bidirectional) idx.log_data_structure_sizes();
 
-        if (mf_idx != NULL) {
+        if (mf_idx != nullptr) {
             *mf_idx << " time_construction=" << time_construction;
             *mf_idx << " peak_mem_usage=" << peak_mem_usage;
             idx.log_data_structure_sizes(*mf_idx);
@@ -550,7 +550,7 @@ public:
     void log_statistics()
     {
         double n_r = std::round(100.0 * (n / (double)r)) / 100.0;
-        if (mf_idx != NULL) {
+        if (mf_idx != nullptr) {
             *mf_idx << " n=" << n;
             *mf_idx << " sigma=" << std::to_string(idx.sigma);
             *mf_idx << " r=" << r;

@@ -95,9 +95,9 @@ struct move_r_params {
     uint64_t alphabet_size = 0;
     uint16_t delta = 0; // SA-sampling rate (only for _locate_rlzsa_bin_search); if set to 0, the SA-sampling will be ~10% of the index size
     bool log = false; // controls, whether to print log messages
-    std::ostream* mf_idx = NULL; // measurement file for the index construciton
-    std::ostream* mf_mds = NULL; // measurement file for the move data structure construction
-    std::string name_text_file; // name of the input file (used only for measurement output)
+    std::ostream* mf_idx = nullptr; // measurement file for the index construciton
+    std::ostream* mf_mds = nullptr; // measurement file for the move data structure construction
+    std::string name_text_file = ""; // name of the input file (used only for measurement output)
     
     // ############################# INTERNAL (DON'T USE) #############################
     void* sa_vector = nullptr; // pointer to the suffix array (used only for bidirectional forward indexes)

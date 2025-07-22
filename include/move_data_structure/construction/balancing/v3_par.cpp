@@ -71,7 +71,7 @@ inline typename move_data_structure<pos_t>::construction::tout_node_t_v2v3v4* mo
                 lin_node_t_v2v3v4* ln_Z = &tn_NEW->v;
                 pos_t i__ = 1;
                 
-                while (ln_Z->pr != NULL && ln_Z->pr->v.first >= q_y) {
+                while (ln_Z->pr != nullptr && ln_Z->pr->v.first >= q_y) {
                     ln_Z = ln_Z->pr;
                     i__++;
                 }
@@ -82,7 +82,7 @@ inline typename move_data_structure<pos_t>::construction::tout_node_t_v2v3v4* mo
                    becoming a-heavy in the process. */
                 lin_node_t_v2v3v4* ln_ZpA = is_a_heavy_v2v3v4(&ln_Z, &i__, tn_Y, tn_Yp1);
 
-                if (ln_ZpA != NULL) {
+                if (ln_ZpA != nullptr) {
                     balance_upto_v3_par(ln_ZpA, tn_Y, tn_Yp1, q_u, p_cur, i_);
                 }
             }
@@ -128,7 +128,7 @@ void move_data_structure<pos_t>::construction::balance_v3_par()
             ln_IpA = is_a_heavy_v2v3v4(&ln_I, &i_, tn_J.current(), tn_Jp1.current());
 
             // If [q_j, q_j + d_j) is a-heavy, balance it and all output intervals starting before it becoming a-heavy in the process.
-            if (ln_IpA != NULL) {
+            if (ln_IpA != nullptr) {
                 tn_J.set(balance_upto_v3_par(ln_IpA, tn_J.current(), tn_Jp1.current(), tn_J.current()->v.v.second, ln_I->v.first, &i_));
                 continue;
             }
@@ -144,7 +144,7 @@ void move_data_structure<pos_t>::construction::balance_v3_par()
                 tn_Jp1.next();
 
                 while (ln_I->v.first < tn_J.current()->v.v.second) {
-                    if (ln_I->sc == NULL) {
+                    if (ln_I->sc == nullptr) {
                         stop = true;
                         break;
                     }
@@ -159,7 +159,7 @@ void move_data_structure<pos_t>::construction::balance_v3_par()
     }
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_balance_phase_1=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("balancing (phase 2)");
@@ -221,7 +221,7 @@ void move_data_structure<pos_t>::construction::balance_v3_par()
                     ln_Z = ln_I;
                     i_ = 1;
 
-                    while (ln_Z->pr != NULL && ln_Z->pr->v.first >= q_y) {
+                    while (ln_Z->pr != nullptr && ln_Z->pr->v.first >= q_y) {
                         ln_Z = ln_Z->pr;
                         i_++;
                     }
@@ -232,7 +232,7 @@ void move_data_structure<pos_t>::construction::balance_v3_par()
                        that might get a-heavy in the process. */
                     ln_ZpA = is_a_heavy_v2v3v4(&ln_Z, &i_, tn_Y, tn_Yp1);
 
-                    if (ln_ZpA != NULL) {
+                    if (ln_ZpA != nullptr) {
                         balance_upto_v3_par(ln_ZpA, tn_Y, tn_Yp1, s[i_p + 1], s[i_p + 1], &i_);
                     }
                 }
@@ -247,7 +247,7 @@ void move_data_structure<pos_t>::construction::balance_v3_par()
     Q_v3_.shrink_to_fit();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_balance_phase_2=" << time_diff_ns(time);
         time = log_runtime(time);
     }

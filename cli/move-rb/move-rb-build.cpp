@@ -120,8 +120,8 @@ void build()
         .num_threads = p,
         .a = a,
         .log = true,
-        .mf_idx = mf_idx.is_open() ? &mf_idx : NULL,
-        .mf_mds = mf_mds.is_open() ? &mf_mds : NULL,
+        .mf_idx = mf_idx.is_open() ? &mf_idx : nullptr,
+        .mf_mds = mf_mds.is_open() ? &mf_mds : nullptr,
         .name_text_file = name_text_file
     });
 

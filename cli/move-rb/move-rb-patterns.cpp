@@ -32,6 +32,8 @@
 #include <misc/utils.hpp>
 #include <vector>
 
+#include <ips4o.hpp>
+
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
@@ -92,13 +94,18 @@ int main(int argc, char* argv[])
         << " with " << num_switches << " random direction switches, each" << std::flush;
     std::uniform_int_distribution<uint64_t> pattern_pos_distrib(0, input_size - pattern_length - 1);
     std::uniform_int_distribution<uint32_t> start_pos_distrib(0, pattern_length - 1);
+    std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
     std::random_device rd;
     std::mt19937 gen(rd());
-    uint64_t pos_random;
+    uint64_t pattern_pos;
     std::string pattern;
     no_init_resize(pattern, pattern_length);
+    std::vector<uint64_t> pattern_positions;
+    no_init_resize(pattern_positions, pattern_length - 1);
+    std::iota(pattern_positions.begin(), pattern_positions.end(), 1);
     std::vector<uint64_t> switch_positions;
-    no_init_resize(switch_positions, num_switches);
+    no_init_resize(switch_positions, num_switches + 1);
+    switch_positions[num_switches] = pattern_length;
     std::vector<direction> dirs;
     dirs.reserve(pattern_length);
     uint64_t start_pos;
@@ -107,8 +114,8 @@ int main(int argc, char* argv[])
 
     for (int64_t i = 0; i < num_patterns; i++) {
         do {
-            pos_random = pattern_pos_distrib(gen);
-            input_file.seekg(pos_random, std::ios::beg);
+            pattern_pos = pattern_pos_distrib(gen);
+            input_file.seekg(pattern_pos, std::ios::beg);
             read_from_file(input_file, pattern.c_str(), pattern_length);
             found_forbidden = false;
 
@@ -122,10 +129,19 @@ int main(int argc, char* argv[])
             }
         } while (found_forbidden);
 
-        start_pos = start_pos_distrib(gen);
-        for (uint64_t i = 0; i <= start_pos; i++) dirs.emplace_back(LEFT);
-        for (uint64_t i = start_pos + 1; i < pattern_length; i++) dirs.emplace_back(RIGHT);
-        std::shuffle(dirs.begin(), dirs.end(), gen);
+        std::shuffle(pattern_positions.begin(), pattern_positions.end(), gen);
+        std::copy(pattern_positions.begin(), pattern_positions.begin() + num_switches, switch_positions.begin());
+        ips4o::sort(switch_positions.begin(), switch_positions.end());
+        direction dir = prob_distrib(gen) < 0.5 ? LEFT : RIGHT;
+        if (num_switches >= 1) for (uint32_t i = 0; i < switch_positions.front(); i++) dirs.emplace_back(dir);
+        else for (uint32_t i = 0; i < pattern_length; i++) dirs.emplace_back(dir);
+        
+        for (uint32_t i = 1; i <= num_switches; i++) {
+            dir = flip(dir);
+            for (uint32_t j = switch_positions[i - 1]; j < switch_positions[i]; j++) dirs.emplace_back(dir);
+        }
+        
+        start_pos = std::count(dirs.begin(), dirs.end(), LEFT) - 1;
 
         output_file.write(pattern.c_str(), pattern_length);
         output_file.write((char*) &start_pos, sizeof(uint64_t));

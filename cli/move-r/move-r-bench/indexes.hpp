@@ -240,7 +240,7 @@ template <>
 void build_index<r_index>(r_index& index, uint16_t num_threads)
 {
     std::streambuf* cout_rdbuf = cout.rdbuf();
-    std::cout.rdbuf(NULL);
+    std::cout.rdbuf(nullptr);
     std::string name_text_file = "r-index-" + random_alphanumeric_string(10);
     std::ofstream text_file(name_text_file);
     write_to_file(text_file, input.c_str(), input_size - 1);
@@ -410,7 +410,7 @@ template <>
 void build_index<r_index_f<>>(r_index_f<>& index, uint16_t)
 {
     std::streambuf* cout_rdbuf = cout.rdbuf();
-    std::cout.rdbuf(NULL);
+    std::cout.rdbuf(nullptr);
     std::string name_text_file = "r-index-f-" + random_alphanumeric_string(10);
     std::ofstream text_file(name_text_file);
     write_to_file(text_file, input.c_str(), input_size - 1);

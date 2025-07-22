@@ -56,7 +56,7 @@ void move_data_structure<pos_t>::construction::balance_v2_seq()
 
         /* If [q_j, q_j + d_j) is a-heavy, balance it and all output intervals starting before
         it that might get a-heavy in the process. */
-        if (ln_IpA != NULL) {
+        if (ln_IpA != nullptr) {
             nodes_te.push_back(te_node_t_v2(te_pair_t_v2 { ln_IpA, it_J.current() }));
         }
 
@@ -72,7 +72,7 @@ void move_data_structure<pos_t>::construction::balance_v2_seq()
             it_Jp1.next();
 
             while (ln_I->v.first < it_J.current()->v.v.second) {
-                if (ln_I->sc == NULL) {
+                if (ln_I->sc == nullptr) {
                     stop = true;
                     break;
                 }
@@ -88,7 +88,7 @@ void move_data_structure<pos_t>::construction::balance_v2_seq()
     }
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_te=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("balancing");
@@ -123,7 +123,7 @@ void move_data_structure<pos_t>::construction::balance_v2_seq()
         i_ = 1;
         ln_Ip2A = is_a_heavy_v2v3v4(&ln_IpA, &i_, tn_NEW);
 
-        ln_ZpA = NULL;
+        ln_ZpA = nullptr;
         /* If p_j + d \in [q_j, q_j + d) or [q_j + d, q_j + d_j), [q_j + d, q_j + d_j) is the only
         possibly new a-heavy output interval. */
         if (p_j + d < q_j || q_j + d_j <= p_j + d) {
@@ -150,29 +150,29 @@ void move_data_structure<pos_t>::construction::balance_v2_seq()
             // find (p_z,q_z)
             ln_Z = &tn_NEW->v;
             i_ = 1;
-            while (i_ < two_a && ln_Z->pr != NULL && ln_Z->pr->v.first >= q_y) {
+            while (i_ < two_a && ln_Z->pr != nullptr && ln_Z->pr->v.first >= q_y) {
                 ln_Z = ln_Z->pr;
                 i_++;
             }
 
             // check if case 2.1 holds
-            if (p_j + d < q_j || ln_Z->pr == NULL || ln_Z->pr->v.first < q_y) {
+            if (p_j + d < q_j || ln_Z->pr == nullptr || ln_Z->pr->v.first < q_y) {
                 ln_Z = &tn_NEW->v;
                 pos_t i__ = i_;
 
                 // check if [q_y, q_y + d_y) is a-heavy
                 ln_ZpA = is_a_heavy_v2v3v4(&ln_Z, &i_, tn_Y);
 
-                if (ln_ZpA != NULL && i__ > a + 1 && ln_Z->sc != NULL &&
+                if (ln_ZpA != nullptr && i__ > a + 1 && ln_Z->sc != nullptr &&
                     ln_Z->sc->v.first < q_y + interval_length_v2v3_seq(&tn_Y->v)
                 ) {
-                    ln_ZpA = NULL;
+                    ln_ZpA = nullptr;
                 }
             }
         }
 
-        if (ln_ZpA != NULL) {
-            if (ln_Ip2A != NULL) {
+        if (ln_ZpA != nullptr) {
+            if (ln_Ip2A != nullptr) {
                 // [q_j + d, q_j + d_j) and [q_y, q_y + d_y) are both new a-heavy output intervals
                 if (ln_ZpA->v.first < ln_Ip2A->v.first) {
                     // and [q_y, q_y + d_y) ends before [q_j + d, q_j + d_j)
@@ -207,7 +207,7 @@ void move_data_structure<pos_t>::construction::balance_v2_seq()
                 }
             }
         } else {
-            if (ln_Ip2A != NULL) {
+            if (ln_Ip2A != nullptr) {
                 // [q_j + d, q_j + d_j) is the only new a-heavy output interval
                 min->v = te_pair_t_v2 { ln_Ip2A, tn_NEW };
             } else {
@@ -222,7 +222,7 @@ void move_data_structure<pos_t>::construction::balance_v2_seq()
     }
 
     if (log) {
-        if (mf != NULL) {
+        if (mf != nullptr) {
             *mf << " time_balance_phase_1=" << time_diff_ns(time)
                 << " time_balance_phase_2=" << 0;
         }

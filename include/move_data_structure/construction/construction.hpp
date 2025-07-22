@@ -132,7 +132,7 @@ public:
         bool delete_i,
         uint8_t width_l_,
         mds_params params,
-        std::vector<pos_t>* pi_mphi = NULL)
+        std::vector<pos_t>* pi_mphi = nullptr)
         : mds(mds)
         , I(I)
     {
@@ -198,7 +198,7 @@ public:
         }
         #endif
 
-        if (pi_mphi == NULL) {
+        if (pi_mphi == nullptr) {
             pi.clear();
             pi.shrink_to_fit();
         } else {
@@ -211,11 +211,11 @@ public:
         if (log) {
             log_message("move data structure built");
             log_runtime(time_start);
-            if (mf != NULL)
+            if (mf != nullptr)
                 *mf << " time_total=" << time_diff_ns(time_start, time);
         }
 
-        this->mf = NULL;
+        this->mf = nullptr;
     }
 
     /**
@@ -395,13 +395,13 @@ public:
      * @param i_ 1 <= i_ <= 2a
      * @param tn_J (p_j,q_j)
      * @param tn_J_ (p_{j'},q_{j'}), with q_j + d_j = q_{j'}
-     * @return (p_{i+a},q_{i+a}) if [q_j, q_j + d_j) is a-heavy, else NULL
+     * @return (p_{i+a},q_{i+a}) if [q_j, q_j + d_j) is a-heavy, else nullptr
      */
     inline lin_node_t_v2v3v4* is_a_heavy_v2v3v4(
         lin_node_t_v2v3v4** ln_IpI_,
         pos_t* i_,
         tout_node_t_v2v3v4* tn_J,
-        tout_node_t_v2v3v4* tn_J_ = NULL);
+        tout_node_t_v2v3v4* tn_J_ = nullptr);
 
     // ############################# V2 #############################
 

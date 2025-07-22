@@ -47,7 +47,7 @@ void move_r<support, sym_t, pos_t>::construction::store_rlbwt()
     file_rlbwt.close();
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_store_rlbwt=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -72,7 +72,7 @@ void move_r<support, sym_t, pos_t>::construction::load_rlbwt()
     std::filesystem::remove(prefix_tmp_files + ".rlbwt");
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_load_rlbwt=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -92,7 +92,7 @@ void move_r<support, sym_t, pos_t>::construction::store_mlf()
     file_mlf.close();
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_store_mlf=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -112,7 +112,7 @@ void move_r<support, sym_t, pos_t>::construction::load_mlf()
     std::filesystem::remove(prefix_tmp_files + ".mlf");
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_load_mlf=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -133,7 +133,7 @@ void move_r<support, sym_t, pos_t>::construction::store_iphim1()
     file_iphim1.close();
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_store_iphim1=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -154,7 +154,7 @@ void move_r<support, sym_t, pos_t>::construction::load_iphim1()
     std::filesystem::remove(prefix_tmp_files + ".iphim1");
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_load_iphim1=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -174,7 +174,7 @@ void move_r<support, sym_t, pos_t>::construction::store_mphi()
     file_mphi.close();
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_store_mphi=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -194,7 +194,7 @@ void move_r<support, sym_t, pos_t>::construction::load_mphi()
     std::filesystem::remove(prefix_tmp_files + ".mphi");
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_load_mphi=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
