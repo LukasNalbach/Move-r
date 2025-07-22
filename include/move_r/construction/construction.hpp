@@ -1015,9 +1015,7 @@ public:
                 build_l_prev_next();
             }
 
-            if (has_rlzsa || has_lzendsa || p > 1 ||
-                support == _locate_move_bi_fwd || support == _locate_rlzsa_bi_fwd
-            ) {
+            if (has_rlzsa || has_lzendsa || p > 1 || is_bidirectional) {
                 SA_file_bufs.clear();
                 SA_file_bufs.shrink_to_fit();
 
