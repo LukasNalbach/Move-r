@@ -90,10 +90,10 @@ protected:
      */
     void reset()
     {
-        rank_0_support.set_vector(NULL);
-        rank_1_support.set_vector(NULL);
-        select_0_support.set_vector(NULL);
-        select_1_support.set_vector(NULL);
+        rank_0_support.set_vector(nullptr);
+        rank_1_support.set_vector(nullptr);
+        select_0_support.set_vector(nullptr);
+        select_1_support.set_vector(nullptr);
 
         ones = 0;
         zeros = 0;

@@ -323,7 +323,7 @@ void move_data_structure<pos_t>::construction::build_didx_doffs_v2v3v4v5()
     u.shrink_to_fit();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_didx_doffs=" << time_diff_ns(time);
         time = log_runtime(time);
     }

@@ -123,7 +123,7 @@ void test_move_r()
 
     input.push_back(uchar_to_char((uint8_t)0));
     no_init_resize(suffix_array, input_size + 1);
-    libsais_omp((uint8_t*)&input[0], &suffix_array[0], input_size + 1, 0, NULL, max_num_threads);
+    libsais_omp((uint8_t*)&input[0], &suffix_array[0], input_size + 1, 0, nullptr, max_num_threads);
 
     if (contains(alphabet, (uint8_t)0)) {
         for (uint32_t i = 0; i < input_size; i++)

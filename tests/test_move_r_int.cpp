@@ -166,7 +166,7 @@ void test_move_r_int()
 
         for (uint32_t cur_query = 0; cur_query < num_queries; cur_query++) {
             pattern_pos = pattern_pos_distrib(gen_thr);
-            pattern_length = std::min<uint32_t>(input_size - pattern_pos, pattern_length_distrib(gen));
+            pattern_length = std::min<uint32_t>(input_size - pattern_pos, pattern_length_distrib(gen_thr));
             no_init_resize(pattern, pattern_length);
 
             for (uint32_t i = 0; i < pattern_length; i++)
@@ -200,7 +200,7 @@ void test_move_r_int()
                 occurrences = query.locate();
             } else {
                 for (int32_t i = 0; i < query.num_occ(); i++) {
-                    if (prob_distrib(gen) < 1 / (double) query.num_occ()) {
+                    if (prob_distrib(gen_thr) < 1 / (double) query.num_occ()) {
                         std::vector<uint32_t> remaining_occurrences = query.locate();
                         occurrences.insert(occurrences.end(),
                             remaining_occurrences.begin(), remaining_occurrences.end());

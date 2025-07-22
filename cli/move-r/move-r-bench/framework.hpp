@@ -387,13 +387,13 @@ void bench_a()
         if (max_num_threads == 1) {
             libsais((uint8_t*)&input[0], &SA[0], input_size, 0, nullptr);
         } else {
-            libsais_omp((uint8_t*)&input[0], &SA[0], input_size, 0, NULL, max_num_threads);
+            libsais_omp((uint8_t*)&input[0], &SA[0], input_size, 0, nullptr, max_num_threads);
         }
     } else {
         if (max_num_threads == 1) {
             libsais64((uint8_t*)&input[0], &SA[0], input_size, 0, nullptr);
         } else {
-            libsais64_omp((uint8_t*)&input[0], &SA[0], input_size, 0, NULL, max_num_threads);
+            libsais64_omp((uint8_t*)&input[0], &SA[0], input_size, 0, nullptr, max_num_threads);
         }
     }
 

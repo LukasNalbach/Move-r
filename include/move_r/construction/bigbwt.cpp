@@ -69,7 +69,7 @@ void move_r<support, sym_t, pos_t>::construction::bigbwt(bool delete_T)
     }
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_pfp=" << time_diff_ns(time, now());
         std::cout << std::endl;
         time = log_runtime(time);
@@ -116,7 +116,7 @@ void move_r<support, sym_t, pos_t>::construction::read_iphim1_bigbwt()
     std::filesystem::remove(prefix_tmp_files + ".esa");
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_read_iphi=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }

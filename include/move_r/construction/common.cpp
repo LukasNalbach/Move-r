@@ -199,7 +199,7 @@ void move_r<support, sym_t, pos_t>::construction::preprocess_t(bool in_memory, b
     }
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_preprocess_t=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -383,7 +383,7 @@ void move_r<support, sym_t, pos_t>::construction::build_rlbwt_c()
     process_c();
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_build_rlbwt=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -479,7 +479,7 @@ void move_r<support, sym_t, pos_t>::construction::build_ilf()
     C.shrink_to_fit();
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_build_ilf=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -489,7 +489,7 @@ template <move_r_support support, typename sym_t, typename pos_t>
 void move_r<support, sym_t, pos_t>::construction::build_mlf()
 {
     if (log) {
-        if (mf_mds != NULL) {
+        if (mf_mds != nullptr) {
             *mf_mds << "RESULT"
                     << " algo=build_mlf"
                     << " text=" << name_text_file
@@ -516,9 +516,9 @@ void move_r<support, sym_t, pos_t>::construction::build_mlf()
     idx.r_ = r_;
 
     if (log) {
-        if (mf_mds != NULL)
+        if (mf_mds != nullptr)
             *mf_mds << std::endl;
-        if (mf_idx != NULL) {
+        if (mf_idx != nullptr) {
             *mf_idx << " time_build_mlf=" << time_diff_ns(time, now())
                     << " r_=" << r_;
         }
@@ -559,7 +559,7 @@ void move_r<support, sym_t, pos_t>::construction::build_sas_from_sa()
     }
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_build_sa_s_sa_s_=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -662,7 +662,7 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sas_from_sa()
     }
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_build_iphi=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -755,7 +755,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
     }
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_build_l__sas=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -800,9 +800,9 @@ void move_r<support, sym_t, pos_t>::construction::sort_iphim1()
     }
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_sort_iphi=" << time_diff_ns(time, now());
-        if (mf_mds != NULL) {
+        if (mf_mds != nullptr) {
             *mf_mds << "RESULT"
                     << " algo=build_mphi"
                     << " text=" << name_text_file
@@ -832,9 +832,9 @@ void move_r<support, sym_t, pos_t>::construction::sort_iphi()
     }
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_sort_iphi=" << time_diff_ns(time, now());
-        if (mf_mds != NULL) {
+        if (mf_mds != nullptr) {
             *mf_mds << "RESULT"
                     << " algo=build_mphi"
                     << " text=" << name_text_file
@@ -867,9 +867,9 @@ void move_r<support, sym_t, pos_t>::construction::build_mphim1()
     idx.r__ = r__;
 
     if (log) {
-        if (mf_mds != NULL)
+        if (mf_mds != nullptr)
             *mf_mds << std::endl;
-        if (mf_idx != NULL) {
+        if (mf_idx != nullptr) {
             *mf_idx << " time_build_mphim1=" << time_diff_ns(time, now());
             *mf_idx << " r__=" << r__;
         }
@@ -899,9 +899,9 @@ void move_r<support, sym_t, pos_t>::construction::build_mphi()
     idx.r___ = r___;
 
     if (log) {
-        if (mf_mds != NULL)
+        if (mf_mds != nullptr)
             *mf_mds << std::endl;
-        if (mf_idx != NULL) {
+        if (mf_idx != nullptr) {
             *mf_idx << " time_build_mphi=" << time_diff_ns(time, now());
             *mf_idx << " r___=" << r___;
         }
@@ -1089,7 +1089,7 @@ void move_r<support, sym_t, pos_t>::construction::build_saphim1()
     pi_mphi.shrink_to_fit();
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_build_saphim1=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -1131,7 +1131,7 @@ void move_r<support, sym_t, pos_t>::construction::build_rsl_()
     idx._RS_L_ = rsl_t([&](pos_t i) { return idx.L_(i); }, idx.sigma, 0, r_ - 1);
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_build_rsl_=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
@@ -1197,7 +1197,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l_prev_next()
     }
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_build_l_prev_next=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }

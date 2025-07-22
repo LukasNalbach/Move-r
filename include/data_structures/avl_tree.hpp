@@ -63,20 +63,20 @@ public:
         {
             this->v = other.v;
 
-            if (other.lc != NULL) {
+            if (other.lc != nullptr) {
                 this->lc = new avl_node(this);
                 this->lc->copy_from_other(*(other.lc));
                 this->lc->p = this;
             } else {
-                this->lc = NULL;
+                this->lc = nullptr;
             }
             
-            if (other.rc != NULL) {
+            if (other.rc != nullptr) {
                 this->rc = new avl_node(this);
                 this->rc->copy_from_other(*(other.rc));
                 this->rc->p = this;
             } else {
-                this->rc = NULL;
+                this->rc = nullptr;
             }
 
             this->h = std::max(ht(this->lc), ht(this->rc)) + 1;
@@ -95,17 +95,17 @@ public:
             this->h = other.h;
 
             other.v = T();
-            other.p = NULL;
-            other.lc = NULL;
-            other.rc = NULL;
+            other.p = nullptr;
+            other.lc = nullptr;
+            other.rc = nullptr;
             other.h = 0;
 
-            if (lc != NULL)
+            if (lc != nullptr)
                 lc->p = this;
-            if (rc != NULL)
+            if (rc != nullptr)
                 rc->p = this;
 
-            if (p != NULL) {
+            if (p != nullptr) {
                 if (&other == p->lc) {
                     p->lc = this;
                 } else {
@@ -115,13 +115,13 @@ public:
         }
 
         /**
-         * @brief returns the hight of the node n if n != NULL, else returns 0
+         * @brief returns the hight of the node n if n != nullptr, else returns 0
          * @param n an avl_node in the avl_tree
          * @return height of n
          */
         inline static uint8_t ht(avl_node* n)
         {
-            return n != NULL ? n->h : 0;
+            return n != nullptr ? n->h : 0;
         }
 
         /**
@@ -130,7 +130,7 @@ public:
          */
         inline void delete_subtree()
         {
-            this->p = NULL;
+            this->p = nullptr;
             delete this;
         }
 
@@ -148,7 +148,7 @@ public:
         avl_node(T v)
         {
             this->v = v;
-            lc = rc = p = NULL;
+            lc = rc = p = nullptr;
             h = 0;
         }
 
@@ -159,13 +159,13 @@ public:
         inline avl_node* nxt()
         {
             avl_node* cur = this;
-            if (cur->rc != NULL) {
+            if (cur->rc != nullptr) {
                 cur = cur->rc;
-                while (cur->lc != NULL) {
+                while (cur->lc != nullptr) {
                     cur = cur->lc;
                 }
             } else {
-                while (cur->p != NULL && cur == cur->p->rc) {
+                while (cur->p != nullptr && cur == cur->p->rc) {
                     cur = cur->p;
                 }
                 cur = cur->p;
@@ -180,13 +180,13 @@ public:
         inline avl_node* prv()
         {
             avl_node* cur = this;
-            if (cur->lc != NULL) {
+            if (cur->lc != nullptr) {
                 cur = cur->lc;
-                while (cur->rc != NULL) {
+                while (cur->rc != nullptr) {
                     cur = cur->rc;
                 }
             } else {
-                while (cur->p != NULL && cur == cur->p->lc) {
+                while (cur->p != nullptr && cur == cur->p->lc) {
                     cur = cur->p;
                 }
                 cur = cur->p;
@@ -200,14 +200,14 @@ public:
          */
         bool is_leaf() const
         {
-            return lc == NULL && rc == NULL;
+            return lc == nullptr && rc == nullptr;
         }
     };
 
 protected:
-    avl_node* r = NULL; // root of the avl_tree
-    avl_node* fst = NULL; // first node (node with the smallest value)
-    avl_node* lst = NULL; // last node (node with the greatest value)
+    avl_node* r = nullptr; // root of the avl_tree
+    avl_node* fst = nullptr; // first node (node with the smallest value)
+    avl_node* lst = nullptr; // last node (node with the greatest value)
     uint64_t s = 0; // size
     uint8_t h = 0; // height
 
@@ -218,7 +218,7 @@ protected:
     inline static bool geq(const T& v1, const T& v2) { return !lt(v1, v2); }; // comparison function "greater than or equal to" on values of type T
 
     /**
-     * @brief returns the hight of the node n if n != NULL, else returns 0
+     * @brief returns the hight of the node n if n != nullptr, else returns 0
      * @param n an avl_node in the avl_tree
      * @return height of n
      */
@@ -248,13 +248,13 @@ protected:
         avl_node* y = x->rc;
         x->rc = y->lc;
 
-        if (y->lc != NULL) {
+        if (y->lc != nullptr) {
             y->lc->p = x;
         }
 
         y->p = x->p;
 
-        if (x->p == NULL) {
+        if (x->p == nullptr) {
             r = y;
         } else if (x == x->p->lc) {
             x->p->lc = y;
@@ -278,13 +278,13 @@ protected:
         avl_node* x = y->lc;
         y->lc = x->rc;
 
-        if (x->rc != NULL) {
+        if (x->rc != nullptr) {
             x->rc->p = y;
         }
         
         x->p = y->p;
 
-        if (y->p == NULL) {
+        if (y->p == nullptr) {
             r = x;
         } else if (y == y->p->lc) {
             y->p->lc = x;
@@ -352,7 +352,7 @@ protected:
      */
     inline static avl_node* min(avl_node* n)
     {
-        while (n->lc != NULL) {
+        while (n->lc != nullptr) {
             n = n->lc;
         }
         return n;
@@ -365,7 +365,7 @@ protected:
      */
     inline static avl_node* max(avl_node* n)
     {
-        while (n->rc != NULL) {
+        while (n->rc != nullptr) {
             n = n->rc;
         }
         return n;
@@ -379,21 +379,21 @@ protected:
     inline void remove_node_in(avl_node* n_rem, avl_node* n)
     {
         avl_node* n_rem_p = n_rem->p;
-        if (n_rem->lc == NULL) {
+        if (n_rem->lc == nullptr) {
             s--;
 
-            if (n_rem->rc == NULL) {
-                if (n_rem->p != NULL) {
+            if (n_rem->rc == nullptr) {
+                if (n_rem->p != nullptr) {
                     if (n_rem == n_rem->p->lc) {
-                        n_rem->p->lc = NULL;
+                        n_rem->p->lc = nullptr;
                     } else {
-                        n_rem->p->rc = NULL;
+                        n_rem->p->rc = nullptr;
                     }
                 } else {
-                    r = NULL;
+                    r = nullptr;
                 }
             } else {
-                if (n_rem->p != NULL) {
+                if (n_rem->p != nullptr) {
                     if (n_rem == n_rem->p->lc) {
                         n_rem->p->lc = n_rem->rc;
                     } else {
@@ -401,15 +401,15 @@ protected:
                     }
                     n_rem->rc->p = n_rem->p;
                 } else {
-                    n_rem->rc->p = NULL;
+                    n_rem->rc->p = nullptr;
                     r = n_rem->rc;
                 }
-                n_rem->rc = NULL;
+                n_rem->rc = nullptr;
             }
-        } else if (n_rem->rc == NULL) {
+        } else if (n_rem->rc == nullptr) {
             s--;
 
-            if (n_rem->p != NULL) {
+            if (n_rem->p != nullptr) {
                 if (n_rem == n_rem->p->lc) {
                     n_rem->p->lc = n_rem->lc;
                 } else {
@@ -417,18 +417,18 @@ protected:
                 }
                 n_rem->lc->p = n_rem->p;
             } else {
-                n_rem->lc->p = NULL;
+                n_rem->lc->p = nullptr;
                 r = n_rem->lc;
             }
 
-            n_rem->lc = NULL;
+            n_rem->lc = nullptr;
         } else {
             avl_node* n_min = min(n_rem->rc);
             avl_node n_tmp = *n_min;
 
             n_min->p = n_rem->p;
 
-            if (n_rem->p != NULL) {
+            if (n_rem->p != nullptr) {
                 if (n_rem == n_rem->p->lc) {
                     n_rem->p->lc = n_min;
                 } else {
@@ -440,7 +440,7 @@ protected:
             n_rem->lc->p = n_min;
             n_min->h = n_rem->h;
 
-            if (n_min->rc != NULL) {
+            if (n_min->rc != nullptr) {
                 n_min->rc->p = n_rem;
             }
 
@@ -455,12 +455,12 @@ protected:
             }
 
             n_rem->rc = n_tmp.rc;
-            n_rem->lc = NULL;
+            n_rem->lc = nullptr;
             n_rem->h = n_tmp.h;
 
             remove_node_in(n_rem, n_min->rc);
         }
-        if (n_rem_p != NULL) {
+        if (n_rem_p != nullptr) {
             balance_from_to(n_rem_p, n);
         }
     }
@@ -478,13 +478,13 @@ protected:
     {
         if (r == l) {
             avl_node* n_l = at(l);
-            n_l->rc = n_l->lc = NULL;
+            n_l->rc = n_l->lc = nullptr;
             n_l->h = 0;
             return n_l;
         } else if (r == l + 1) {
             avl_node* n_l = at(l);
             avl_node* n_r = at(r);
-            n_r->rc = n_l->lc = n_l->rc = NULL;
+            n_r->rc = n_l->lc = n_l->rc = nullptr;
             n_r->lc = n_l;
             n_r->h = 1;
             n_l->p = n_r;
@@ -527,7 +527,7 @@ protected:
             this->h = other.h;
             this->r = new avl_node();
             *(this->r) = *(other.r);
-            this->r->p = NULL;
+            this->r->p = nullptr;
             this->fst = min(r);
             this->lst = max(r);
         }
@@ -545,9 +545,9 @@ protected:
         this->s = other.s;
         this->h = other.h;
 
-        other.r = NULL;
-        other.fst = NULL;
-        other.lst = NULL;
+        other.r = nullptr;
+        other.fst = nullptr;
+        other.lst = nullptr;
         other.s = 0;
         other.h = 0;
     }
@@ -564,9 +564,9 @@ public:
      */
     ~avl_tree()
     {
-        if (r != NULL)
+        if (r != nullptr)
             r->delete_subtree();
-        fst = lst = r = NULL;
+        fst = lst = r = nullptr;
     }
 
     /**
@@ -603,7 +603,7 @@ public:
     {
         if (!empty()) {
             r->delete_subtree();
-            fst = lst = r = NULL;
+            fst = lst = r = nullptr;
             h = s = 0;
         }
     }
@@ -613,7 +613,7 @@ public:
      */
     inline void disconnect_nodes()
     {
-        fst = lst = r = NULL;
+        fst = lst = r = nullptr;
         h = s = 0;
     }
 
@@ -629,7 +629,7 @@ public:
     {
         if (empty() && l >= 0 && r >= l) {
             this->r = build_subtree(l, r, at, omp_in_parallel() ? max_tasks : 1);
-            this->r->p = NULL;
+            this->r->p = nullptr;
             this->fst = at(l);
             this->lst = at(r);
             h = this->r->h;
@@ -639,7 +639,7 @@ public:
 
     /**
      * @brief returns the node with the smallest value in the avl_tree
-     * @return the node with the smallest value in the avl_tree if the avl_tree is not empty, else NULL
+     * @return the node with the smallest value in the avl_tree if the avl_tree is not empty, else nullptr
      */
     inline avl_node* min() const
     {
@@ -648,12 +648,12 @@ public:
 
     /**
      * @brief returns the node with the second smallest value in the avl_tree
-     * @return the node with the second smallest value in the avl_tree if the avl_tree has at least 2 nodes, else NULL
+     * @return the node with the second smallest value in the avl_tree if the avl_tree has at least 2 nodes, else nullptr
      */
     inline avl_node* second_smallest() const
     {
-        if (fst->rc != NULL) {
-            if (fst->rc->lc != NULL) {
+        if (fst->rc != nullptr) {
+            if (fst->rc->lc != nullptr) {
                 return fst->rc->lc;
             } else {
                 return fst->rc;
@@ -665,7 +665,7 @@ public:
 
     /**
      * @brief returns the node with the greatest value in the avl_tree
-     * @return the node with the greatest value in the avl_tree if the avl_tree is not empty, else NULL
+     * @return the node with the greatest value in the avl_tree if the avl_tree is not empty, else nullptr
      */
     inline avl_node* max() const
     {
@@ -674,12 +674,12 @@ public:
 
     /**
      * @brief returns the node with the second largest value in the avl_tree
-     * @return the node with the second largest value in the avl_tree if the avl_tree has at least 2 nodes, else NULL
+     * @return the node with the second largest value in the avl_tree if the avl_tree has at least 2 nodes, else nullptr
      */
     inline avl_node* second_largest() const
     {
-        if (lst->lc != NULL) {
-            if (lst->lc->rc != NULL) {
+        if (lst->lc != nullptr) {
+            if (lst->lc->rc != nullptr) {
                 return lst->lc->rc;
             } else {
                 return lst->lc;
@@ -824,7 +824,7 @@ public:
     inline avl_node* remove_node(avl_node* n)
     {
         if (s == 1) {
-            r = fst = lst = NULL;
+            r = fst = lst = nullptr;
             h = s = 0;
         } else {
             if (n == fst) {
@@ -849,8 +849,8 @@ public:
     {
         avl_node* n = find(v);
 
-        if (n == NULL || !eq(n->v, v))
-            return NULL;
+        if (n == nullptr || !eq(n->v, v))
+            return nullptr;
 
         return remove_node(n);
     }
@@ -870,22 +870,22 @@ public:
      * @param v value
      * @param n an avl_node in the avl_tree, at which the search starts
      * @return the node with a value equal to v or a leaf at which a node with value v can be inserted
-     *         if the avl_tree is not empty, else NULL
+     *         if the avl_tree is not empty, else nullptr
      */
     inline avl_node* find(T&& v, avl_node* n) const
     {
         if (empty())
-            return NULL;
+            return nullptr;
 
         while (true) {
             if (gt(v, n->v)) {
-                if (n->rc != NULL) {
+                if (n->rc != nullptr) {
                     n = n->rc;
                 } else {
                     break;
                 }
             } else if (lt(v, n->v)) {
-                if (n->lc != NULL) {
+                if (n->lc != nullptr) {
                     n = n->lc;
                 } else {
                     break;
@@ -903,7 +903,7 @@ public:
      * @param v value
      * @param n an avl_node in the avl_tree, at which the search starts
      * @return the node with a value equal to v or a leaf at which a node with value v can be inserted
-     *         if the avl_tree is not empty, else NULL
+     *         if the avl_tree is not empty, else nullptr
      */
     inline avl_node* find(T& v, avl_node* n) const
     {
@@ -914,7 +914,7 @@ public:
      * @brief searches for a node with value v in the avl_tree until it was found or a leaf has been reached
      * @param v value
      * @return avl_node* the node with a value equal to v or a leaf at which a node with value v can be inserted
-     *         if the avl_tree is not empty, else NULL
+     *         if the avl_tree is not empty, else nullptr
      */
     inline avl_node* find(T&& v) const
     {
@@ -925,7 +925,7 @@ public:
      * @brief searches for a node with value v in the avl_tree until it was found or a leaf has been reached
      * @param v value
      * @return avl_node* the node with a value equal to v or a leaf at which a node with value v can be inserted
-     *         if the avl_tree is not empty, else NULL
+     *         if the avl_tree is not empty, else nullptr
      */
     inline avl_node* find(T& v) const
     {
@@ -949,26 +949,26 @@ public:
      * @brief returns the node with the smallest value greater than or equal to v
      * @param v value
      * @return avl_node* the node with the smallest value greater than or equal to v, if it exists
-     *         if not all nodes' values are smaller than v, else NULL
+     *         if not all nodes' values are smaller than v, else nullptr
      */
     inline avl_node* min_geq(T&& v) const
     {
         if (empty())
-            return NULL;
+            return nullptr;
 
         avl_node* n = r;
-        avl_node* min = NULL;
+        avl_node* min = nullptr;
 
         while (true) {
             if (lt(n->v, v)) {
-                if (n->rc != NULL) {
+                if (n->rc != nullptr) {
                     n = n->rc;
                 } else {
                     break;
                 }
             } else if (eq(n->v, v)) {
                 return n;
-            } else if (n->lc != NULL) {
+            } else if (n->lc != nullptr) {
                 if (lt(n->lc->v, v)) {
                     min = n;
                 }
@@ -990,7 +990,7 @@ public:
      * @brief returns the node with the smallest value greater than or equal to v
      * @param v value
      * @return avl_node* the node with the smallest value greater than or equal to v, if it exists
-     *         if not all nodes' values are smaller than v, else NULL
+     *         if not all nodes' values are smaller than v, else nullptr
      */
     inline avl_node* min_geq(T& v) const
     {
@@ -1001,26 +1001,26 @@ public:
      * @brief returns the node with the greatest value less than or equal to v
      * @param v value
      * @return avl_node* the node with the greatest value less than or equal to v, if it exists
-     *         if not all nodes' values are greater than v, else NULL
+     *         if not all nodes' values are greater than v, else nullptr
      */
     inline avl_node* max_leq(T&& v) const
     {
         if (empty())
-            return NULL;
+            return nullptr;
 
         avl_node* n = r;
-        avl_node* max = NULL;
+        avl_node* max = nullptr;
 
         while (true) {
             if (gt(n->v, v)) {
-                if (n->lc != NULL) {
+                if (n->lc != nullptr) {
                     n = n->lc;
                 } else {
                     break;
                 }
             } else if (eq(n->v, v)) {
                 return n;
-            } else if (n->rc != NULL) {
+            } else if (n->rc != nullptr) {
                 if (gt(n->rc->v, v)) {
                     max = n;
                 }
@@ -1042,7 +1042,7 @@ public:
      * @brief returns the node with the greatest value less than or equal to v
      * @param v value
      * @return avl_node* the node with the greatest value less than or equal to v, if it exists
-     *         if not all nodes' values are greater than v, else NULL
+     *         if not all nodes' values are greater than v, else nullptr
      */
     inline avl_node* max_leq(T& v) const
     {
@@ -1074,8 +1074,8 @@ public:
          */
         ~avl_it()
         {
-            t = NULL;
-            cur = NULL;
+            t = nullptr;
+            cur = nullptr;
         }
 
         /**

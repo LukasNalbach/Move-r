@@ -127,12 +127,30 @@ void test_move_r()
                 if (match) correct_occurrences.emplace_back(i);
             }
 
-            uint32_t start_pos = std::uniform_int_distribution<uint32_t>(0, pattern_length - 1)(gen);
             std::vector<direction> dirs;
-            dirs.reserve(pattern_length);
-            for (uint32_t i = 0; i <= start_pos; i++) dirs.emplace_back(LEFT);
-            for (uint32_t i = start_pos + 1; i < pattern_length; i++) dirs.emplace_back(RIGHT);
-            std::shuffle(dirs.begin(), dirs.end(), gen);
+
+            {
+                uint32_t num_switches = std::uniform_int_distribution<uint32_t>(0, pattern_length - 1)(gen_thr);
+                std::vector<uint32_t> switch_positions;
+                switch_positions.reserve(pattern_length + 1);
+                no_init_resize(switch_positions, pattern_length);
+                std::iota(switch_positions.begin(), switch_positions.end(), 0);
+                std::shuffle(switch_positions.begin(), switch_positions.end(), gen_thr);
+                ips4o::sort(switch_positions.begin(), switch_positions.begin() + num_switches);
+                switch_positions.resize(num_switches);
+                switch_positions.emplace_back(pattern_length);
+                dirs.reserve(pattern_length);
+                direction dir = prob_distrib(gen_thr) < 0.5 ? LEFT : RIGHT;
+                if (num_switches >= 1) for (uint32_t i = 0; i < switch_positions[0]; i++) dirs.emplace_back(dir);
+                else for (uint32_t i = 0; i < pattern_length; i++) dirs.emplace_back(dir);
+                
+                for (uint32_t i = 1; i <= num_switches; i++) {
+                    dir = flip(dir);
+                    for (uint32_t j = switch_positions[i - 1]; j < switch_positions[i]; j++) dirs.emplace_back(dir);
+                }
+            }
+
+            uint32_t start_pos = std::count(dirs.begin(), dirs.end(), LEFT) - 1;
             auto query = index.locate_query();
             uint32_t pos_prev_sym = start_pos;
             uint32_t pos_next_sym = start_pos + 1;
@@ -150,7 +168,7 @@ void test_move_r()
             EXPECT_EQ(query.num_occ(), correct_occurrences.size());
 
             for (uint32_t i = 0; i < query.num_occ(); i++) {
-                if (prob_distrib(gen) < 1 / (double) query.num_occ()) {
+                if (prob_distrib(gen_thr) < 1 / (double) query.num_occ()) {
                     std::vector<uint32_t> remaining_occurrences = query.locate();
                     occurrences.insert(occurrences.end(),
                         remaining_occurrences.begin(), remaining_occurrences.end());

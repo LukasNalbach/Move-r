@@ -49,7 +49,7 @@ void move_data_structure<pos_t>::construction::balance_v1_seq()
         // Count the number of input intervals connected to it in the permutation graph.
         e = 0;
 
-        while (node_cur_2 != NULL) {
+        while (node_cur_2 != nullptr) {
             if (node_cur_2->v.first < q_next) {
                 e++;
 
@@ -69,7 +69,7 @@ void move_data_structure<pos_t>::construction::balance_v1_seq()
     }
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_te=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("balancing");
@@ -129,7 +129,7 @@ void move_data_structure<pos_t>::construction::balance_v1_seq()
 
             // Count the number of input intervals connected to it in the permutation graph.
             e = 0;
-            while (node_cur != NULL) {
+            while (node_cur != nullptr) {
                 if (node_cur->v.first <= std::get<1>(tup)) {
                     e++;
 
@@ -155,7 +155,7 @@ void move_data_structure<pos_t>::construction::balance_v1_seq()
         time = log_runtime(time);
         float k__k = std::round(100.0 * k_ / k) / 100.0;
 
-        if (mf != NULL) {
+        if (mf != nullptr) {
             *mf << " k=" << k;
             *mf << " k_=" << k_;
             *mf << " time_balance=" << time_diff_ns(time);

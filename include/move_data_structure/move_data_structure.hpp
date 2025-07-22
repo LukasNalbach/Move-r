@@ -35,7 +35,7 @@ struct mds_params {
     uint16_t num_threads = omp_get_max_threads(); // the number of threads to use during the construction
     uint16_t a = 8; // balancing parameter, restricts the number of intervals in the resulting move data structure to k*(a/(a-1))
     bool log = false; // controls whether to print log messages during the construction
-    std::ostream* mf = NULL; // measurement file to write runtime data to
+    std::ostream* mf = nullptr; // measurement file to write runtime data to
 };
 
 /**
@@ -76,7 +76,7 @@ public:
      * @param params construction parameters
      * @param pi_mphi vector to move pi into after the construction
      */
-    move_data_structure(pair_arr_t&& I, pos_t n, mds_params params = {}, std::vector<pos_t>* pi_mphi = NULL)
+    move_data_structure(pair_arr_t&& I, pos_t n, mds_params params = {}, std::vector<pos_t>* pi_mphi = nullptr)
     {
         construction(*this, I, n, true, 0, params, pi_mphi);
     }
@@ -88,7 +88,7 @@ public:
      * @param params construction parameters
      * @param pi_mphi vector to move pi into after the construction
      */
-    move_data_structure(pair_arr_t& I, pos_t n, mds_params params = {}, std::vector<pos_t>* pi_mphi = NULL)
+    move_data_structure(pair_arr_t& I, pos_t n, mds_params params = {}, std::vector<pos_t>* pi_mphi = nullptr)
     {
         construction(*this, I, n, false, 0, params, pi_mphi);
     }

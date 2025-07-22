@@ -41,7 +41,7 @@ void move_data_structure<pos_t>::construction::build_tin_tout_v1()
     T_in_v1.insert(pair_t { n, n });
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_tin=" << time_diff_ns(time);
         time = log_runtime(time);
         log_message("building T_out");
@@ -70,7 +70,7 @@ void move_data_structure<pos_t>::construction::build_tin_tout_v1()
     }
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_tout=" << time_diff_ns(time);
         time = log_runtime(time);
     }
@@ -98,7 +98,7 @@ void move_data_structure<pos_t>::construction::build_dp_dq_v1()
     T_in_v1.delete_nodes();
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_write_dp_dq=" << time_diff_ns(time);
         time = log_runtime(time);
     }
@@ -121,7 +121,7 @@ void move_data_structure<pos_t>::construction::build_didx_doffs_v1()
     }
 
     if (log) {
-        if (mf != NULL)
+        if (mf != nullptr)
             *mf << " time_build_didx_doffs=" << time_diff_ns(time);
         time = log_runtime(time);
     }

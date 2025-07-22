@@ -60,9 +60,9 @@ void move_r<support, sym_t, pos_t>::construction::build_sa()
         no_init_resize(SA, n + fs);
 
         if constexpr (std::is_same_v<sa_sint_t, int32_t>) {
-            libsais_omp(&T<uint8_t>(0), SA.data(), n, fs, NULL, p);
+            libsais_omp(&T<uint8_t>(0), SA.data(), n, fs, nullptr, p);
         } else {
-            libsais64_omp(&T<uint8_t>(0), SA.data(), n, fs, NULL, p);
+            libsais64_omp(&T<uint8_t>(0), SA.data(), n, fs, nullptr, p);
         }
     } else {
         if (idx.symbols_remapped) {
@@ -125,7 +125,7 @@ void move_r<support, sym_t, pos_t>::construction::build_sa()
     SA.resize(n);
 
     if (log) {
-        if (mf_idx != NULL)
+        if (mf_idx != nullptr)
             *mf_idx << " time_build_sa=" << time_diff_ns(time, now());
         time = log_runtime(time);
     }
