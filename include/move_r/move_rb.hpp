@@ -255,6 +255,10 @@ protected:
             idx_fwd = move_r_fwd_t(input_file_name, new_params);
             idx_fwd.set_alphabet_maps(map_int, map_ext);
 
+            std::string old_sa_fwd_file_name = sa_fwd_file_name;
+            sa_fwd_file_name = prefix_tmp_files + ".sa_fwd";
+            std::filesystem::rename(old_sa_fwd_file_name, sa_fwd_file_name);
+
             if (log) {
                 std::cout << std::endl;
                 time = now();
