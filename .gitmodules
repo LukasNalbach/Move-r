@@ -1,56 +1,59 @@
 [submodule "external/concurrentqueue"]
 	path = external/concurrentqueue
-	url = git@github.com:cameron314/concurrentqueue.git
+	url = https://github.com:cameron314/concurrentqueue.git
 [submodule "external/ips4o"]
 	path = external/ips4o
-	url = git@github.com:ips4o/ips4o.git
+	url = https://github.com:ips4o/ips4o.git
 [submodule "external/libsais"]
 	path = external/libsais
-	url = git@github.com:IlyaGrebnov/libsais.git
+	url = https://github.com:IlyaGrebnov/libsais.git
 [submodule "external/rcomp"]
 	path = external/rcomp
-	url = git@github.com:kampersanda/rcomp.git
+	url = https://github.com:kampersanda/rcomp.git
 [submodule "external/OnlineRlbwt"]
 	path = external/OnlineRlbwt
-	url = git@github.com:itomomoti/OnlineRlbwt.git
+	url = https://github.com:itomomoti/OnlineRlbwt.git
 [submodule "external/r-index-f"]
 	path = external/r-index-f
-	url = git@github.com:drnatebrown/r-index-f.git
+	url = https://github.com:drnatebrown/r-index-f.git
 [submodule "external/pfp-thresholds"]
 	path = external/pfp-thresholds
-	url = git@github.com:maxrossi91/pfp-thresholds.git
+	url = https://github.com:maxrossi91/pfp-thresholds.git
 [submodule "external/gsa-is"]
 	path = external/gsa-is
-	url = git@github.com:felipelouza/gsa-is.git
+	url = https://github.com:felipelouza/gsa-is.git
 [submodule "external/malloc_count"]
 	path = external/malloc_count
-	url = git@github.com:ByteHamster-etc/malloc_count.git
+	url = https://github.com:ByteHamster-etc/malloc_count.git
 	branch = aligned_alloc
 [submodule "external/block_RLBWT"]
 	path = external/block_RLBWT
-	url = git@github.com:saskeli/block_RLBWT.git
+	url = https://github.com:saskeli/block_RLBWT.git
 	branch = new_ops
 [submodule "external/grlBWT"]
 	path = external/grlBWT
-	url = git@github.com:ddiazdom/grlBWT.git
+	url = https://github.com:ddiazdom/grlBWT.git
 [submodule "external/r-index"]
 	path = external/r-index
-	url = git@github.com:alshai/r-index.git
+	url = https://github.com:alshai/r-index.git
 [submodule "external/gtl"]
 	path = external/gtl
-	url = git@github.com:greg7mdp/gtl.git
+	url = https://github.com:greg7mdp/gtl.git
 [submodule "external/sparse-map"]
 	path = external/sparse-map
-	url = git@github.com:Tessil/sparse-map.git
+	url = https://github.com:Tessil/sparse-map.git
 [submodule "external/emhash"]
 	path = external/emhash
-	url = git@github.com:ktprime/emhash.git
+	url = https://github.com:ktprime/emhash.git
 [submodule "external/sux"]
 	path = external/sux
-	url = git@github.com:vigna/sux.git
+	url = https://github.com:vigna/sux.git
 [submodule "external/ordered"]
 	path = external/ordered
 	url = https://github.com/pdinklag/ordered
 [submodule "external/unordered_dense"]
 	path = external/unordered_dense
-	url = git@github.com:martinus/unordered_dense.git
+	url = https://github.com:martinus/unordered_dense.git
+[submodule "external/googletest"]
+	path = external/googletest
+	url = https://github.com/google/googletest.git

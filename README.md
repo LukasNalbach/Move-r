@@ -16,9 +16,9 @@ This [2] ([drops.dagstuhl.de](https://drops.dagstuhl.de/entities/document/10.423
 - [sux](https://github.com/vigna/sux)
 
 ## CLI Build Instructions
-This implementation has been tested on Ubuntu 22.04 with GCC 11.4.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed. [Big-BWT](https://gitlab.com/manzai/Big-BWT) and [SDSL](https://github.com/simongog/sdsl-lite) have to be built and installed manually.
+This implementation has been tested on Ubuntu 24.04 with GCC 13.3.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed. [Big-BWT](https://gitlab.com/manzai/Big-BWT) and [SDSL](https://github.com/simongog/sdsl-lite) have to be built and installed manually.
 ```shell
-clone https://github.com/LukasNalbach/Move-r.git
+clone --recurse-submodules https://github.com/LukasNalbach/Move-r.git
 mkdir build
 cd build
 cmake ..
