@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION "3.10.2")
 set(CMAKE_CXX_STANDARD 20)
 
-set(GOOGLETEST_VERSION 1.9.0)
-
 find_package(Git REQUIRED)
 
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/external/libsais/LICENSE")
@@ -52,8 +50,23 @@ target_include_directories(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/
 target_link_libraries(malloc_count INTERFACE dl)
 
 # sdsl
-include_directories("~/include")
-link_directories("~/lib")
+set(INCLUDE_DIRS "$ENV{HOME}/include" "$ENV{HOME}/local/include" "/usr/include" "/usr/local/include")
+set(LIB_DIRS "$ENV{HOME}/lib" "$ENV{HOME}/local/lib /usr/lib" "/usr/local/lib")
+find_path(SDSL_INCLUDE_DIR NAMES sdsl PATHS ${INCLUDE_DIRS})
+find_library(SDSL_LIBRARY NAMES sdsl PATHS ${LIB_DIRS})
+find_library(DIVSUFSORT_LIBRARY NAMES divsufsort PATHS ${LIB_DIRS})
+find_library(DIVSUFSORT64_LIBRARY NAMES divsufsort64 PATHS ${LIB_DIRS})
+
+if(NOT SDSL_INCLUDE_DIR OR NOT SDSL_LIBRARY)
+  message(FATAL_ERROR "SDSL library not found")
+endif()
+
+add_library(sdsl STATIC IMPORTED GLOBAL)
+add_library(divsufsort STATIC IMPORTED GLOBAL)
+add_library(divsufsort64 STATIC IMPORTED GLOBAL)
+set_target_properties(sdsl PROPERTIES IMPORTED_LOCATION "${SDSL_LIBRARY}" INTERFACE_INCLUDE_DIRECTORIES "${SDSL_INCLUDE_DIR}")
+set_target_properties(divsufsort PROPERTIES IMPORTED_LOCATION "${DIVSUFSORT_LIBRARY}" INTERFACE_INCLUDE_DIRECTORIES "${SDSL_INCLUDE_DIR}")
+set_target_properties(divsufsort64 PROPERTIES IMPORTED_LOCATION "${DIVSUFSORT64_LIBRARY}" INTERFACE_INCLUDE_DIRECTORIES "${SDSL_INCLUDE_DIR}")
 
 # gtl
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/gtl/")
@@ -303,19 +316,19 @@ endif()
 ############################# move-r tests #############################
 
 if(MOVE_R_BUILD_TESTS)
+  add_subdirectory("${CMAKE_SOURCE_DIR}/external/googletest/")
+  include(GoogleTest)
   enable_testing()
-  find_package(GTest REQUIRED)
-  target_link_libraries(GTest::gtest INTERFACE GTest::gtest_main)
 
   add_executable(test-move_r "${CMAKE_SOURCE_DIR}/tests/test_move_r.cpp")
   add_executable(test-move_r_int "${CMAKE_SOURCE_DIR}/tests/test_move_r_int.cpp")
   add_executable(test-move_rb "${CMAKE_SOURCE_DIR}/tests/test_move_rb.cpp")
   add_executable(test-move_data_structure "${CMAKE_SOURCE_DIR}/tests/test_move_data_structure.cpp")
 
-  target_link_libraries(test-move_r PRIVATE GTest::gtest move_r)
-  target_link_libraries(test-move_r_int PRIVATE GTest::gtest move_r)
-  target_link_libraries(test-move_rb PRIVATE GTest::gtest move_r)
-  target_link_libraries(test-move_data_structure PRIVATE GTest::gtest move_r)
+  target_link_libraries(test-move_r PRIVATE gtest_main move_r)
+  target_link_libraries(test-move_r_int PRIVATE gtest_main move_r)
+  target_link_libraries(test-move_rb PRIVATE gtest_main move_r)
+  target_link_libraries(test-move_data_structure PRIVATE gtest_main move_r)
 
   set_target_properties(
     test-move_r test-move_r_int test-move_rb test-move_data_structure
