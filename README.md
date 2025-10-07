@@ -18,7 +18,7 @@ This [2] ([drops.dagstuhl.de](https://drops.dagstuhl.de/entities/document/10.423
 ## CLI Build Instructions
 This implementation has been tested on Ubuntu 24.04 with GCC 13.3.0, libtbb-dev, libomp-dev, python3-psutil and libz-dev installed. [Big-BWT](https://gitlab.com/manzai/Big-BWT) and [SDSL](https://github.com/simongog/sdsl-lite) have to be built and installed manually.
 ```shell
-clone --recurse-submodules https://github.com/LukasNalbach/Move-r.git
+git clone --recurse-submodules https://github.com/LukasNalbach/Move-r.git
 mkdir build
 cd build
 cmake ..
