@@ -75,6 +75,10 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
         // index of the input interval in M_LF containing i.
         pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
 
+        while (SA_s(x) == n) {
+            x--;
+        }
+
         // position in the suffix array of the current suffix s
         pos_t j = M_LF().p(x);
 
@@ -92,7 +96,7 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
         init_rlzsa(j, x_p, x_lp, x_cp, x_r, s_np);
 
         // compute SA[i]
-        skip_rlzsa_right(j, i, s, x_p, x_lp, x_cp, x_r, s_np);
+        skip_rlzsa_right(j, i + 1, s, x_p, x_lp, x_cp, x_r, s_np);
 
         return s;
     } else if constexpr (has_locate_move) {
@@ -520,13 +524,12 @@ void move_r<support, sym_t, pos_t>::skip_rlzsa_right(
             i++;
             x_p++;
             x_lp++;
-            s_np++;
-        }
 
-        if (i < e || PT(x_p)) [[likely]] {
-            // set s_np to the starting position of the next (the x_lp-th)
-            // literal phrase after the current (the x_cp-th) copy-phrase
-            s_np += CPL(x_cp) - 1;
+            if (PT(x_p)) [[likely]] {
+                s_np++;
+            } else {
+                s_np += PT(x_p) ? 1 : CPL(x_cp);
+            }
         }
     }
 }
@@ -631,7 +634,7 @@ void move_r<support, sym_t, pos_t>::next_rlzsa(
 template <move_r_support support, typename sym_t, typename pos_t>
 template <typename report_fnc_t>
 void move_r<support, sym_t, pos_t>::report_rlzsa_left(
-    pos_t& i, pos_t& b, pos_t& s,
+    pos_t& i, pos_t b, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_cp,
     report_fnc_t report) const
     requires(has_rlzsa)
@@ -680,7 +683,7 @@ void move_r<support, sym_t, pos_t>::report_rlzsa_left(
 template <move_r_support support, typename sym_t, typename pos_t>
 template <typename report_fnc_t>
 void move_r<support, sym_t, pos_t>::report_rlzsa_right(
-    pos_t& i, pos_t& e, pos_t& s,
+    pos_t& i, pos_t e, pos_t& s,
     pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
     report_fnc_t report) const
     requires(has_rlzsa)
@@ -1067,17 +1070,19 @@ void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_param
                 report(b, s);
             }
 
-            j++;
-            pos_t x_p, x_lp, x_cp, x_r, s_np;
+            if (j < e) [[likely]] {
+                j++;
+                pos_t x_p, x_lp, x_cp, x_r, s_np;
 
-            // initialize the rlzsa context to position j
-            init_rlzsa(j, x_p, x_lp, x_cp, x_r, s_np);
+                // initialize the rlzsa context to position j
+                init_rlzsa(j, x_p, x_lp, x_cp, x_r, s_np);
 
-            // advance the rlzsa context to position b
-            skip_rlzsa_right(j, b, s, x_p, x_lp, x_cp, x_r, s_np);
+                // advance the rlzsa context to position b
+                skip_rlzsa_right(j, b, s, x_p, x_lp, x_cp, x_r, s_np);
 
-            // decode and report SA[b..e]
-            report_rlzsa_right(j, e, s, x_p, x_lp, x_cp, x_r, s_np, report);
+                // decode and report SA[b..e]
+                report_rlzsa_right(j, e, s, x_p, x_lp, x_cp, x_r, s_np, report);
+            }            
         }
     }
 }

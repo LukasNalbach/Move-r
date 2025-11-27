@@ -156,7 +156,7 @@ void test_move_r_int()
     #pragma omp parallel num_threads(max_num_threads)
     {
         std::random_device rd_thr;
-        std::mt19937 gen_thr(rd());
+        std::mt19937 gen_thr(rd_thr());
         uint32_t pattern_pos;
         uint32_t pattern_length;
         std::vector<int32_t> pattern;

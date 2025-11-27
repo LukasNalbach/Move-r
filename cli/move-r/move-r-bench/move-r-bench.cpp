@@ -49,7 +49,7 @@ std::string path_input_file;
 std::string path_patterns_file_1;
 std::string path_patterns_file_2;
 std::string name_text_file;
-int ptr = 1;
+int arg_idx = 1;
 
 template <typename sa_sint_t>
 constexpr std::vector<sa_sint_t>& get_sa()
@@ -96,7 +96,6 @@ void help(std::string msg)
 template <typename pos_t>
 void bench_indexes()
 {
-    /*
     bench_index<pos_t, move_r<_locate_move, char, pos_t>, true, true>("move-r", "move_r");
     bench_index<pos_t, move_r<_locate_rlzsa, char, pos_t>, true, true>("move-rlzsa", "move_rlzsa");
 
@@ -105,27 +104,32 @@ void bench_indexes()
     measure_blockrlbwt("block_rlbwt_v", bd);
     measure_blockrlbwt("block_rlbwt_r", bd);
     cleanup_grlbwt(bd);
-    */
 
     bench_index<pos_t, r_index, false, false>("r-index", "r_index");
-    // bench_index<pos_t, r_index_rlzsa, true, true>("r-index-rlzsa", "r_index_rlzsa");
-    // bench_index<pos_t, r_index_f<>, true, false>("r-index-f", "r_index_f");
-    // bench_index<pos_t, rcomp_glfig, true, true>("rcomp-glfig", "rcomp_glfig");
-    // bench_index<pos_t, online_rlbwt, true, true>("online-rlbwt", "online_rlbwt");
+
+    if (std::is_same_v<pos_t, uint32_t> && input_size <= std::numeric_limits<int32_t>::max()) {
+        bench_index<pos_t, r_index_rlzsa<int32_t>, true, true>("r-index-rlzsa", "r_index_rlzsa");
+    } else {
+        bench_index<pos_t, r_index_rlzsa<int64_t>, true, true>("r-index-rlzsa", "r_index_rlzsa");
+    }
+
+    bench_index<pos_t, r_index_f<>, true, false>("r-index-f", "r_index_f");
+    bench_index<pos_t, rcomp_glfig, true, true>("rcomp-glfig", "rcomp_glfig");
+    bench_index<pos_t, online_rlbwt, true, true>("online-rlbwt", "online_rlbwt");
 }
 
-void parse_args(char** argv, int argc, int& ptr)
+void parse_args(char** argv, int argc)
 {
-    std::string s = argv[ptr];
-    ptr++;
+    std::string s = argv[arg_idx];
+    arg_idx++;
 
     if (s == "-m") {
-        if (ptr >= argc - 1) help("error: missing parameter after -m option");
-        path_mf = argv[ptr++];
+        if (arg_idx >= argc - 1) help("error: missing parameter after -m option");
+        path_mf = argv[arg_idx++];
         mf.open(path_mf, std::filesystem::exists(path_mf) ? std::ios::app : std::ios::out);
         if (!mf.good()) help("error: cannot open nor create measurement file");
     } else if (s == "-c") {
-        if (ptr >= argc - 1) help("error: missing parameter after -c option");
+        if (arg_idx >= argc - 1) help("error: missing parameter after -c option");
         check_correctness = true;
     } else {
         help("error: unrecognized '" + s + "' option");
@@ -191,11 +195,11 @@ int main_bench_a(int argc, char** argv)
 int main_bench_indexes(int argc, char** argv)
 {
     if (argc < 4) help("");
-    while (ptr < argc - 3) parse_args(argv, argc, ptr);
+    while (arg_idx < argc - 3) parse_args(argv, argc);
 
-    path_input_file = argv[ptr];
-    path_patterns_file_1 = argv[ptr + 1];
-    path_patterns_file_2 = argv[ptr + 2];
+    path_input_file = argv[arg_idx];
+    path_patterns_file_1 = argv[arg_idx + 1];
+    path_patterns_file_2 = argv[arg_idx + 2];
     max_num_threads = 1;
 
     input_file.open(path_input_file);

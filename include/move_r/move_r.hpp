@@ -147,12 +147,11 @@ public:
         support == _locate_bi_bwd;
         
     static constexpr bool supports_locate = support != _count && support != _count_bi; // true <=> the index supports locate
-    // true <=> the index supports locating multiple occurrences
-    static constexpr bool supports_multiple_locate = supports_locate && support != _locate_one && support != _locate_bi_bwd;
-    static constexpr bool supports_bwsearch = support != _locate_rlzsa_bin_search;
-    static constexpr bool has_rlzsa = support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd || support == _locate_rlzsa_bin_search;
-    static constexpr bool has_lzendsa = support == _locate_lzendsa;
-    static constexpr bool has_locate_move = support == _locate_move || support == _locate_move_bi_fwd;
+    static constexpr bool supports_multiple_locate = supports_locate && support != _locate_one && support != _locate_bi_bwd; // true <=> the index supports locating multiple occurrences
+    static constexpr bool supports_bwsearch = support != _locate_rlzsa_bin_search; // true <=> the index uses backward search for answering count queries
+    static constexpr bool has_rlzsa = support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd || support == _locate_rlzsa_bin_search; // true <=> the index has an rlzsa
+    static constexpr bool has_lzendsa = support == _locate_lzendsa; // true <=> the index has an lzendsa
+    static constexpr bool has_locate_move = support == _locate_move || support == _locate_move_bi_fwd; // true the index uses move data structures for Phi/Phi^{-1}
     static constexpr bool str_input = std::is_same_v<sym_t, char>; // true <=> the input is a string
     static constexpr bool int_input = !str_input; // true <=> the input is an iteger vector
     static constexpr bool byte_alphabet = sizeof(sym_t) == 1; // true <=> the input uses a byte alphabet
@@ -1282,7 +1281,7 @@ public:
      */
     template <typename report_fnc_t>
     inline void report_rlzsa_left(
-        pos_t& i, pos_t& b, pos_t& s,
+        pos_t& i, pos_t b, pos_t& s,
         pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
         report_fnc_t report) const requires(has_rlzsa);
 
@@ -1300,7 +1299,7 @@ public:
      */
     template <typename report_fnc_t>
     inline void report_rlzsa_right(
-        pos_t& i, pos_t& e, pos_t& s,
+        pos_t& i, pos_t e, pos_t& s,
         pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
         report_fnc_t report) const requires(has_rlzsa);
 

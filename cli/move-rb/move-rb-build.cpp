@@ -28,10 +28,10 @@
 #include <iostream>
 #include <move_r/move_rb.hpp>
 
-int ptr = 1;
+int arg_idx = 1;
 uint64_t n;
 uint16_t a = 8;
-uint16_t p = 1;
+uint16_t p = omp_get_max_threads();
 std::string path_prefix_index_file;
 move_r_construction_mode mode = _suffix_array;
 move_r_support support = _locate_move;
@@ -61,28 +61,28 @@ void help(std::string msg)
     exit(0);
 }
 
-void parse_args(char** argv, int argc, int& ptr)
+void parse_args(char** argv, int argc)
 {
-    std::string s = argv[ptr];
-    ptr++;
+    std::string s = argv[arg_idx];
+    arg_idx++;
 
     if (s == "-o") {
-        if (ptr >= argc - 1) help("error: missing parameter after -o option");
-        path_prefix_index_file = argv[ptr++];
+        if (arg_idx >= argc - 1) help("error: missing parameter after -o option");
+        path_prefix_index_file = argv[arg_idx++];
     } else if (s == "-p") {
-        if (ptr >= argc - 1) help("error: missing parameter after -p option");
-        p = atoi(argv[ptr++]);
+        if (arg_idx >= argc - 1) help("error: missing parameter after -p option");
+        p = atoi(argv[arg_idx++]);
         if (p < 1) help("error: p < 1");
         if (p > omp_get_max_threads()) help("error: p > maximum number of threads");
     } else if (s == "-c") {
-        if (ptr >= argc - 1) help("error: missing parameter after -p option");
-        std::string construction_mode_str = argv[ptr++];
+        if (arg_idx >= argc - 1) help("error: missing parameter after -p option");
+        std::string construction_mode_str = argv[arg_idx++];
         if (construction_mode_str == "sa") mode = _suffix_array;
         else if (construction_mode_str == "bigbwt") mode = _bigbwt;
         else help("error: invalid option for -c");
     } else if (s == "-s") {
-        if (ptr >= argc - 1) help("error: missing parameter after -s option");
-        std::string support_str = argv[ptr++];
+        if (arg_idx >= argc - 1) help("error: missing parameter after -s option");
+        std::string support_str = argv[arg_idx++];
         if (support_str == "count") {
             support = _count;
         } else if (support_str == "locate_one") {
@@ -93,17 +93,17 @@ void parse_args(char** argv, int argc, int& ptr)
             support = _locate_rlzsa;
         } else help("error: unknown mode provided with -s option");
     } else if (s == "-a") {
-        if (ptr >= argc - 1) help("error: missing parameter after -a option");
-        a = atoi(argv[ptr++]);
+        if (arg_idx >= argc - 1) help("error: missing parameter after -a option");
+        a = atoi(argv[arg_idx++]);
         if (a < 2) help("error: a < 2");
     } else if (s == "-m_idx") {
-        if (ptr >= argc - 1) help("error: missing parameter after -m_idx option");
-        std::string path_mf_idx = argv[ptr++];
+        if (arg_idx >= argc - 1) help("error: missing parameter after -m_idx option");
+        std::string path_mf_idx = argv[arg_idx++];
         mf_idx.open(path_mf_idx, std::filesystem::exists(path_mf_idx) ? std::ios::app : std::ios::out);
         if (!mf_idx.good()) help("error: cannot open nor create <m_file_idx>");
     } else if (s == "-m_mds") {
-        if (ptr >= argc - 1) help("error: missing parameter after -m_mds option");
-        std::string path_mf_mds = argv[ptr++];
+        if (arg_idx >= argc - 1) help("error: missing parameter after -m_mds option");
+        std::string path_mf_mds = argv[arg_idx++];
         mf_mds.open(path_mf_mds, std::filesystem::exists(path_mf_mds) ? std::ios::app : std::ios::out);
         if (!mf_mds.good()) help("error: cannot open nor create <m_file_mds>");
     } else {
@@ -134,17 +134,13 @@ void build()
 int main(int argc, char** argv)
 {
     if (argc < 2) help("");
-    while (ptr < argc - 1) parse_args(argv, argc, ptr);
-    path_input_file = argv[ptr];
+    while (arg_idx < argc - 1) parse_args(argv, argc);
+    path_input_file = argv[arg_idx];
     if (path_prefix_index_file == "") path_prefix_index_file = path_input_file;
 
     std::cout << std::setprecision(4);
     name_text_file = path_input_file.substr(path_input_file.find_last_of("/\\") + 1);
     path_index_file = path_prefix_index_file.append(".move-rb");
-
-    std::cout << "building move-rb of " << path_input_file;
-    std::cout << " using " << format_threads(p) << " and a = " << a << std::endl;
-    std::cout << "the index will be saved to " << path_index_file << std::endl << std::endl;
 
     index_file.open(path_index_file);
     if (!index_file.good()) help("error: invalid input, could not create <index_file>");
@@ -156,6 +152,10 @@ int main(int argc, char** argv)
     } else {
         p = std::max<uint16_t>(1, std::min<uint64_t>({ uint64_t{omp_get_max_threads()}, n / 1000, p }));
     }
+
+    std::cout << "building move-rb of " << path_input_file;
+    std::cout << " using " << format_threads(p) << " and a = " << a << std::endl;
+    std::cout << "the index will be saved to " << path_index_file << std::endl << std::endl;
 
     if (mf_idx.is_open()) {
         mf_idx << "RESULT"

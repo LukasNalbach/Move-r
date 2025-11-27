@@ -47,13 +47,10 @@ void help(std::string msg)
 
 int main(int argc, char* argv[])
 {
-    if (argc < 5 || 6 < argc)
-        help("invalid input: wrong number of arguments");
-
+    if (argc < 5 || 6 < argc) help("invalid input: wrong number of arguments");
     std::ifstream input_file(argv[1]);
-    if (!input_file.good())
-        help("invalid input: could not read <file>");
-
+    if (!input_file.good()) help("invalid input: could not read <file>");
+    
     std::cout << std::setprecision(4);
     input_file.seekg(0, std::ios::end);
     int64_t input_size = input_file.tellg();

@@ -26,7 +26,7 @@
 
 #include <filesystem>
 #include <iostream>
-#include <move_r/move_r.hpp>
+#include <move_r/move_rb.hpp>
 
 int arg_idx = 1;
 uint16_t p = omp_get_max_threads();
@@ -41,8 +41,8 @@ std::ofstream mf;
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
-    std::cout << "move-r-revert: reconstruct the original file from the index." << std::endl << std::endl;
-    std::cout << "usage: move-r-revert [options] <index_file> <output_file>" << std::endl;
+    std::cout << "move-rb-revert: reconstruct the original file from the index." << std::endl << std::endl;
+    std::cout << "usage: move-rb-revert [options] <index_file> <output_file>" << std::endl;
     std::cout << "   -im                        revert in memory; faster, but stores the whole" << std::endl;
     std::cout << "                              output in memory" << std::endl;
     std::cout << "   -p <integer>               number of threads to use while reverting" << std::endl;
@@ -83,7 +83,7 @@ void measure_revert()
     std::cout << std::setprecision(4);
     std::cout << "loading the index" << std::flush;
     auto t1 = now();
-    using idx_t = move_r<support, char, pos_t>;
+    using idx_t = move_rb<support, char, pos_t>;
     idx_t index;
     index.load(index_file);
     log_runtime(t1);
@@ -93,12 +93,12 @@ void measure_revert()
     std::cout << std::endl;
     std::chrono::steady_clock::time_point t2, t3, t4;
     std::string input;
-    p = std::min({ (uint16_t) omp_get_max_threads(), index.max_revert_threads(), p });
+    p = std::min({ (uint16_t) omp_get_max_threads(), index.forward_index().max_revert_threads(), p });
 
     if (revert_in_memory) {
         std::cout << "reverting the index in memory using " << format_threads(p) << std::flush;
         t2 = now();
-        input = index.revert_range({ .num_threads = p });
+        input = index.forward_index().revert_range({ .num_threads = p });
         t3 = now();
         log_runtime(t2, t3);
         std::cout << "writing the input to the file " << std::flush;
@@ -109,7 +109,7 @@ void measure_revert()
         std::cout << "reverting the index using " << format_threads(p) << std::flush;
         output_file.close();
         t2 = now();
-        index.revert_range(path_outputfile, { .num_threads = p });
+        index.forward_index().revert_range(path_outputfile, { .num_threads = p });
         t4 = now();
         log_runtime(t2, t4);
     }
@@ -118,23 +118,24 @@ void measure_revert()
 
     if (mf.is_open()) {
         mf << "RESULT";
-        mf << " algo=revert_move_r_" << move_r_support_suffix(support);
+        mf << " algo=count_move_rb_" << move_r_support_suffix(support);
         mf << " text=" << name_text_file;
-        mf << " a=" << index.balancing_parameter();
-        mf << " n=" << index.input_size();
-        mf << " sigma=" << std::to_string(index.alphabet_size());
-        mf << " r=" << index.num_bwt_runs();
-        mf << " r_=" << index.M_LF().num_intervals();
+        mf << " a=" << index.forward_index().balancing_parameter();
+        mf << " n=" << index.forward_index().input_size();
+        mf << " sigma=" << std::to_string(index.forward_index().alphabet_size());
+        mf << " r=" << index.forward_index().num_bwt_runs();
+        mf << " r_rev=" << index.backward_index().num_bwt_runs();
+        mf << " r_=" << index.forward_index().M_LF().num_intervals();
+        mf << " r_rev_=" << index.backward_index().M_LF().num_intervals();
 
         if constexpr (idx_t::supports_multiple_locate) {
             if constexpr (idx_t::has_locate_move) {
-                mf << " r__=" << index.M_Phi_m1().num_intervals();
+                mf << " r__=" << index.forward_index().M_Phi_m1().num_intervals();
+                mf << " r___=" << index.forward_index().M_Phi().num_intervals();
             } else if constexpr (idx_t::has_rlzsa) {
-                mf << " z=" << index.num_phrases_rlzsa();
-                mf << " z_l=" << index.num_literal_phrases_rlzsa();
-                mf << " z_c=" << index.num_copy_phrases_rlzsa();
-            } if constexpr (idx_t::has_lzendsa) {
-                mf << " z=" << index.num_phrases_lzendsa();
+                mf << " z=" << index.forward_index().num_phrases_rlzsa();
+                mf << " z_l=" << index.forward_index().num_literal_phrases_rlzsa();
+                mf << " z_c=" << index.forward_index().num_copy_phrases_rlzsa();
             }
         }
 
@@ -170,12 +171,6 @@ int main(int argc, char** argv)
             measure_revert<uint64_t, _count>();
         } else {
             measure_revert<uint32_t, _count>();
-        }
-    } else if (_support == _locate_one) {
-        if (is_64_bit) {
-            measure_revert<uint64_t, _locate_one>();
-        } else {
-            measure_revert<uint32_t, _locate_one>();
         }
     } else if (_support == _locate_move) {
         if (is_64_bit) {
