@@ -27,7 +27,9 @@
 #pragma once
 
 #include <hash_table6.hpp>
+#include <tsl/sparse_set.h>
 #include <move_r/move_r.hpp>
+#include <misc/search_schemes.hpp>
 
 enum move_rb_query_support_t {
     COUNT = 0,
@@ -42,7 +44,7 @@ enum move_rb_query_support_t {
  */
 template <move_r_support support = _locate_move, typename sym_t = char, typename pos_t = uint32_t>
 class move_rb {
-protected:
+    public:
     static_assert(support != _locate_one);
 
     using move_r_fwd_t = constexpr_switch_t< // forward move_r index type
@@ -55,17 +57,29 @@ protected:
         constexpr_case<support == _locate_rlzsa,   move_r<_locate_bi_bwd, sym_t, pos_t>>,
      /* constexpr_case<support == _count, */       move_r<_count_bi,      sym_t, pos_t>>;
 
+    static constexpr bool supports_locate = move_r_fwd_t::supports_locate; // true <=> the index supports locate
+    static constexpr bool supports_multiple_locate = move_r_fwd_t::supports_multiple_locate; // true <=> the index supports locating multiple occurrences
+    static constexpr bool supports_bwsearch = move_r_fwd_t::supports_bwsearch; // true <=> the index uses backward search for answering count queries
+    static constexpr bool has_rlzsa = support == move_r_fwd_t::has_rlzsa; // true <=> the index has an rlzsa
+    static constexpr bool has_lzendsa = support == move_r_fwd_t::has_lzendsa; // true <=> the index has an lzendsa
+    static constexpr bool has_locate_move = move_r_fwd_t::has_locate_move; // true the index uses move data structures for Phi/Phi^{-1}
+    static constexpr bool str_input = move_r_fwd_t::str_input; // true <=> the input is a string
+    static constexpr bool int_input = move_r_fwd_t::int_input; // true <=> the input is an iteger vector
+    static constexpr bool byte_alphabet = move_r_fwd_t::byte_alphabet; // true <=> the input uses a byte alphabet
+    static constexpr bool int_alphabet = move_r_fwd_t::int_alphabet; // true <=> the input uses an integer alphabet
+    static constexpr pos_t max_scan_l_ = move_r_fwd_t::max_scan_l_; // maximum distance to scan over L' to find the first and last occurrences of sym in L'[\hat{b},\hat{e}]
+    static constexpr pos_t sample_rate_input_intervals = 4; // sample rate of the sd-arrays storing input interval starting positions
+
+    static_assert(byte_alphabet);
+
+    using map_int_t = move_r_fwd_t::map_int_t; // type of map_int
+    using map_ext_t = move_r_fwd_t::map_ext_t; // type of map_ext
     using i_sym_t = move_r_fwd_t::i_sym_t; // internal (unsigned) symbol type
     using inp_t = move_r_fwd_t::inp_t; // input container type
 
-    static_assert(move_r_fwd_t::byte_alphabet);
-
-    static constexpr bool str_input = move_r_fwd_t::str_input;
-    static constexpr pos_t max_scan_l_ = move_r_fwd_t::max_scan_l_;
-    static constexpr pos_t sample_rate_input_intervals = 4;
-
     // ############################# INDEX DATA STRUCTURES #############################
 
+protected:
     pos_t n = 0;
     pos_t sigma = 0;
 
@@ -492,6 +506,13 @@ protected:
         }
     }
 
+    /**
+     * @brief reverses T either in-memory or on disk
+     * @param T string storing either T (if in_memory = true) or the name of the file containing T, else
+     * @param p the number of threads to use
+     * @param in_memory true <=> T is stored in-memory
+     * @param log true <=> print log messages
+     */
     void reverse(std::string& T, uint16_t p, bool in_memory, bool log = false) {
         auto time = now();
         if (log) std::cout << "reversing T" << std::flush;
@@ -522,13 +543,16 @@ protected:
         if (log) log_runtime(time);
     }
 
+    /**
+     * @brief computes an sd-array marking every sample_rate-th sample of all num_sample samples in the range [0, max_value)
+     * @param num_values overall number of values
+     * @param max_value maximum value
+     * @param sample_rate sample rate
+     * @param sample function, where sample(i) returns the ith sample
+     */
     template <typename fnc_t>
-    sd_array<pos_t> build_sampling(
-        pos_t num_values,
-        pos_t max_value,
-        pos_t sample_rate,
-        fnc_t sample
-    ) {
+    sd_array<pos_t> build_sampling(pos_t num_values, pos_t max_value, pos_t sample_rate, fnc_t sample)
+    {
         pos_t num_samples = div_ceil(num_values, sample_rate);
         sdsl::sd_vector_builder builder(max_value + 1, num_samples + 1);
 
@@ -540,6 +564,12 @@ protected:
         return sd_array<pos_t>(sdsl::sd_vector<>(builder));
     }
 
+    /**
+     * @brief computes the index of the input interval containing position i
+     * @param i position in [0, n)
+     * @param sd_arr an sd-array marking exactly the starting positions of each x-th input interval of some move data structure
+     * @param interval_start function, where interval_start(i) returns the starting position of the ith input interval of the same move data structure
+     */
     template <typename fnc_t>
     inline static pos_t input_interval(pos_t i, const sd_array<pos_t>& sd_arr, fnc_t interval_start)
     {
@@ -591,6 +621,27 @@ public:
     // ############################# MISC PUBLIC METHODS #############################
 
     /**
+     * @brief maps a symbol to its corresponding symbol in the internal effective alphabet
+     * @param sym symbol
+     * @return its corresponding symbol in the internal effective alphabet
+     */
+    inline i_sym_t map_symbol(sym_t sym) const
+    {
+        return idx_fwd.map_symbol(sym);
+    }
+
+    /**
+     * @brief maps a symbol that occurs in the internal effective alphabet to its corresponding
+     *        symbol in the input
+     * @param sym a symbol that occurs in the internal effective alphabet
+     * @return its corresponding symbol in the input
+     */
+    inline sym_t unmap_symbol(i_sym_t sym) const
+    {
+        return idx_fwd.unmap_symbol(sym);
+    }
+
+    /**
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
      */
@@ -609,6 +660,7 @@ public:
 
     /**
      * @brief logs the index data structure sizes to cout
+     * @param print_index_size true <=> also prints the overall index size
      */
     void log_data_structure_sizes(bool print_index_size = true) const
     {
@@ -678,6 +730,7 @@ public:
      */
     void log_data_structure_sizes(std::ostream& out) const
     {
+
     }
 
     // ############################# PUBLIC ACCESS METHODS #############################
@@ -702,87 +755,140 @@ public:
 
     // ############################# QUERY METHODS #############################
 
+    struct locate_context_t;
+    struct extend_context_t;
+
+    enum sample_t : uint8_t {
+        NO_SAMPLE = 0,
+        RUN_START = 1,
+        RUN_END = 2
+    };
+
+    struct __attribute__((packed)) sample_info_pack_t {
+        sample_t t; // RUN_START/RUN_END <=> the SA-sample is at a run start/end
+        pos_t o; // offset from the left/right of the SA-interval of the SA-sample
+        pos_t i; // number of iterations since s_idx has been set
+        pos_t x; // index of the (sub-)run in L', whose start/end is the position of the SA-sample
+    };
+
     /**
      * @brief stores the variables needed to perform bidirectional pattern search and locate queries
      */
     template <move_rb_query_support_t query_support>
-    struct query_context_t {
+    struct search_context_t {
         static_assert(!(support == _count && query_support == LOCATE));
 
-    protected:
-        const move_rb<support, sym_t, pos_t>* idx; // index to query
+        friend class locate_context_t;
 
+    protected:
         // ############################# VARIABLES FOR THE SEARCH PHASE #############################
         
-        direction last_dir; // last performed pattern extend direction
-        pos_t m; // length of the currently matched pattern
-        pos_t b, e; // [b, e] = SA-interval in T of the currently matched pattern
-        pos_t b_R, e_R; // [b, e] = SA-interval in T^R of the currently matched pattern
+        direction dir_lst; // last performed P extend direction
+        sym_t sym_lst; // last-added symbol
+        pos_t m; // length of the currently matched P
+        pos_t b, e; // [b, e] = SA-interval in T of the currently matched P
+        pos_t b_R, e_R; // [b_R, e_R] = SA-interval in T^R of the currently matched P^R
         pos_t b_, e_; // indices of the input intervals in M_LF containing b and e
         pos_t b_R_, e_R_; // indices of the input intervals in M_LF^R containing b_R and e_R
 
         // ############################# VARIABLES FOR MAINTAINING SA-SAMPLE INFORMATION DURING SEARCH #############################
 
-        enum sample_t : uint8_t {
-            NO_SAMPLE = 0,
-            RUN_START = 1,
-            RUN_END = 2
-        };
+        using sample_info_t = std::conditional_t<query_support == LOCATE, sample_info_pack_t, empty_t>;
+        
+        sample_info_t s_b, s_e; // sample info for the beginning/end of the SA-interval in T of the currently matched P
+        sample_info_t s_b_R, s_e_R; // sample info for the beginning/end of the SA-interval in T^R of the currently matched P^R
 
-        struct sample_info_t {
-            sample_t t; // RUN_START/RUN_END <=> the SA-sample is at a run start/end
-            pos_t o; // offset from the left/right of the SA-interval of the SA-sample
-            pos_t i; // number of iterations since s has been set
-            pos_t x; // index of the (sub-)run in L', whose start/end is the position of the SA-sample
-        };
-
-        sample_info_t s_b, s_e;
-        sample_info_t s_b_R, s_e_R;
-
-        // ############################# VARIABLES FOR THE LOCATE PHASE #############################
-    
-        direction locate_dir = NO_DIR; // current locate direction
-        pos_t occ_rem; // number of remaining occurrences to locate
-        pos_t c; // initial position in the suffix array
-        pos_t SA_c; // initial suffix SA[c] in the suffix array interval
-        pos_t i; // current position in the suffix array interval
-        pos_t SA_i; // current suffix SA[i] in the suffix array interval
-        pos_t s_; // index of the input inteval of M_Phi/M_Phi^{-1} containing SA_i
-
-        struct rlzsa_ctx_t {
-            pos_t x_p, x_lp, x_cp, x_r, s_p; // variables for decoding the rlzsa
-        };
-
-        rlzsa_ctx_t rlz_l; // rlzsa context for decoding to the left
-        rlzsa_ctx_t rlz_r; // rlzsa context for decoding to the right
+        template <direction dir> inline pos_t& beg() {if constexpr (dir == LEFT) {return b;} else {return b_R;}}
+        template <direction dir> inline pos_t& end() {if constexpr (dir == LEFT) {return e;} else {return e_R;}}
+        template <direction dir> inline pos_t& beg_run() {if constexpr (dir == LEFT) {return b_;} else {return b_R_;}}
+        template <direction dir> inline pos_t& end_run() {if constexpr (dir == LEFT) {return e_;} else {return e_R_;}}
+        template <direction dir> inline sample_info_t& smpl_beg() requires(query_support == LOCATE) {if constexpr (dir == LEFT) {return s_b;} else {return s_b_R;}}
+        template <direction dir> inline sample_info_t& smpl_end() requires(query_support == LOCATE) {if constexpr (dir == LEFT) {return s_e;} else {return s_e_R;}}
 
     public:
+        search_context_t() {}
+
+        /**
+         * @brief constructs a new search context with last-added symbol sym
+         * @param sym the last-added symbol
+         */
+        search_context_t(sym_t sym)
+        {
+            sym_lst = sym;
+        }
+        
         /**
          * @brief constructs a new query context for the index idx
          * @param idx an index
          */
-        query_context_t(const move_rb<support, sym_t, pos_t>& idx)
+        search_context_t(const move_rb<support, sym_t, pos_t>& idx)
         {
-            this->idx = &idx;
-            reset();
+            reset(idx);
         }
 
         /**
-         * @brief resets the query context to an empty pattern
+         * @brief equality operator on search contexts
+         * @param other the other search context to test equality with
+         * @return whether the other context other is equal to this search context; it is considered equal
+         *         if it represents the same pattern (SA-interval); other context variables may vary
          */
-        inline void reset()
+        bool operator==(const search_context_t& other) const
         {
-            last_dir = NO_DIR;
+            return b == other.b && e == other.e;
+        }
+
+        /**
+         * @brief hash function used to identify search contexts; the hash is computed only from the beginning of the forward-SA-interval,
+         *        because the SA-intervals of each two patterns of the same length are either identical or disjoint
+         */
+        struct hash {
+            /**
+             * @brief function returning a hash for a given search context
+             * @param ctx the given search context
+             * @return the hash computed from just the beginning of the interval
+             */
+            inline std::size_t operator()(const search_context_t& ctx) const noexcept
+            {
+                return pos_hash<pos_t>(ctx.b);
+            }
+        };
+
+
+        /**
+         * @brief returns the last-added symbol
+         * @return the last-added symbol
+         */
+        inline sym_t last_added_symbol() const
+        {
+            return sym_lst;
+        }
+
+        /**
+         * @brief returns a locate context for this search context
+         * @return a locate context for this search context
+         */
+        locate_context_t locate_phase() const requires (query_support == LOCATE)
+        {
+            return locate_context_t(*this);
+        }
+
+        /**
+         * @brief resets the query context to an empty P
+         * @param idx the index to query
+         */
+        inline void reset(const move_rb<support, sym_t, pos_t>& idx)
+        {
+            dir_lst = NO_DIR;
             m = 0;
 
             b = 0;
-            e = idx->idx_fwd.input_size();
+            e = idx.idx_fwd.input_size();
             b_R = 0;
             e_R = e;
             b_ = 0;
-            e_ = idx->idx_fwd.M_LF().num_intervals() - 1;
+            e_ = idx.idx_fwd.M_LF().num_intervals() - 1;
             b_R_ = 0;
-            e_R_ = idx->idx_bwd.M_LF().num_intervals() - 1;
+            e_R_ = idx.idx_bwd.M_LF().num_intervals() - 1;
 
             if constexpr (query_support == LOCATE) {
                 s_b = { .t = RUN_START, .o = 0, .i = 0, .x = 0 };
@@ -793,17 +899,8 @@ public:
         }
 
         /**
-         * @brief resets the context to the beginning of the locate phase
-         */
-        void reset_locate() requires (query_support == LOCATE)
-        {
-            occ_rem = e - b + 1;
-            locate_dir = NO_DIR;
-        }
-
-        /**
-         * @brief returns the length of the currently matched pattern
-         * @return length of the currently matched pattern
+         * @brief returns the length of the currently matched P
+         * @return length of the currently matched P
          */
         inline pos_t length() const
         {
@@ -811,7 +908,16 @@ public:
         }
 
         /**
-         * @brief returns the overall number of occurrences of the currently matched pattern
+         * @brief returns whether the context is valid (not empty)
+         * @return whether the context is valid (not empty)
+         */
+        inline bool is_valid() const
+        {
+            return e >= b;
+        }
+        
+        /**
+         * @brief returns the overall number of occurrences of the currently matched P
          * @return overall number of occurrences
          */
         inline pos_t num_occ() const
@@ -820,16 +926,7 @@ public:
         }
 
         /**
-         * @brief returns the number of remaining (not yet reported) occurrences of the currently matched pattern
-         * @return number of remaining occurrences
-         */
-        inline pos_t num_occ_rem() const requires (query_support == LOCATE)
-        {
-            return occ_rem;
-        }
-
-        /**
-         * @brief returns the suffix array interval of the currently matched pattern
+         * @brief returns the SA-interval in T/T^R of the currently matched P/P^R
          * @tparam dir text direction
          * @return suffix array interval in the forward text
          */
@@ -844,7 +941,7 @@ public:
         }
 
         /**
-         * @brief returns the suffix array interval of the currently matched pattern in the forward text
+         * @brief returns the SA-interval in T of the currently matched P
          * @return suffix array interval in the forward text
          */
         inline std::pair<pos_t, pos_t> forward_sa_interval() const
@@ -853,7 +950,7 @@ public:
         }
 
         /**
-         * @brief returns the suffix array interval of the currently matched pattern in the backward text
+         * @brief returns the SA-interval in T^R of the currently matched P^R
          * @return suffix array interval in the backward text
          */
         inline std::pair<pos_t, pos_t> backward_sa_interval() const
@@ -861,31 +958,57 @@ public:
             return std::make_pair(b_R, e_R);
         }
 
-    protected:
         /**
-         * @brief extends the currently matched pattern with P; if the extended pattern occurs in the input, true is
-         * returned and the query context is adjusted to store the information for the extended pattern; else,
+         * @brief prepends sym to the currently matched P; if symP occurs in the input, true is
+         * returned and the query context is adjusted to store the information for symP; else,
+         * false is returned and the query context is not modified
+         * @param idx the index to query
+         * @param sym the symbol to prepend to P
+         * @return whether symP occurs in the input
+         */
+        inline bool prepend(const move_rb<support, sym_t, pos_t>& idx, sym_t sym)
+        {
+            return extend<LEFT>(idx, sym);
+        }
+
+        /**
+         * @brief appends sym to the currently matched P; if Psym occurs in the input, true is
+         * returned and the query context is adjusted to store the information for Psym; else,
+         * false is returned and the query context is not modified
+         * @param idx the index to query
+         * @param sym the symbol to append to P
+         * @return whether Psym occurs in the input
+         */
+        inline bool append(const move_rb<support, sym_t, pos_t>& idx, sym_t sym)
+        {
+            return extend<RIGHT>(idx, sym);
+        }
+
+        /**
+         * @brief extends the currently matched P with sym; if the extended P occurs in the input, true is
+         * returned and the query context is adjusted to store the information for the extended P; else,
          * false is returned and the query context is not modified
          * @tparam dir extend direction
-         * @param sym
-         * @return whether the extended pattern occurs in the input
+         * @param idx the index to query
+         * @param sym the symbol to extend the pattern with
+         * @return whether the extended P occurs in the input
          */
         template <direction dir>
-        bool extend(sym_t sym)
+        inline bool extend(const move_rb<support, sym_t, pos_t>& idx, sym_t sym)
         {
-            i_sym_t i_sym = idx->idx_fwd.map_symbol(sym);
+            i_sym_t i_sym = idx.idx_fwd.map_symbol(sym);
 
             // If i_sym does not occur in L', then P[i..m] does not occur in T
             if (i_sym == 0) [[unlikely]] {
                 return false;
             }
 
-            query_context_t ctx_old = *this;
+            search_context_t ctx_old = *this;
             bool result;
 
             if constexpr (dir == LEFT) {
                 result = extend<LEFT>(
-                    i_sym,
+                    idx, i_sym,
                     b, e, b_R, e_R,
                     b_, e_,
                     s_b, s_e,
@@ -893,7 +1016,7 @@ public:
                 );
             } else {
                 result = extend<RIGHT>(
-                    i_sym,
+                    idx, i_sym,
                     b_R, e_R, b, e,
                     b_R_, e_R_,
                     s_b_R, s_e_R,
@@ -903,13 +1026,7 @@ public:
 
             if (result) [[likely]] {
                 m++;
-                last_dir = dir;
-
-                if constexpr (query_support == LOCATE) {
-                    i = 0;
-                    occ_rem = e - b + 1;
-                    locate_dir = NO_DIR;
-                }
+                dir_lst = dir;
             } else {
                 *this = ctx_old;
             }
@@ -918,37 +1035,149 @@ public:
         }
 
         /**
-         * @brief extends the currently matched pattern with sym; if the extended pattern occurs in the input, true is
-         * returned and the query context is adjusted to store the context for the extended pattern; else,
-         * false is returned and the query context is not modified; let S be a string, then S(LEFT) = S and S(RIGHT) = S^R
-         * and !LEFT = RIGHT = !!RIGHT
+         * @brief prepares the context to be prepended
+         * @param idx the index to query
+         * @param ext_ctx 
+         * @return extend context prepared for prepending the search context with every possible character in O(sigma) time
+         */
+        extend_context_t prepare_prepend(const move_rb<support, sym_t, pos_t>& idx) {
+            return prepare_extend<LEFT>(idx);
+        }
+
+        /**
+         * @brief prepares the context to be appended
+         * @param idx the index to query
+         * @param ext_ctx 
+         * @return extend context prepared for appending the search context with every possible character in O(sigma) time
+         */
+        extend_context_t prepare_append(const move_rb<support, sym_t, pos_t>& idx) {
+            return prepare_extend<RIGHT>(idx);
+        }
+
+        /**
+         * @brief prepares the context to be extended
          * @tparam dir extend direction
-         * @param sym next symbol to match
-         * @param b Left interval limit of the suffix array interval of P(dir) in T(dir).
-         * @param e Right interval limit of the suffix array interval of P(dir) in T(dir).
-         * @param b_r Left interval limit of the suffix array interval of P(!dir) in T(!dir).
-         * @param e_r Right interval limit of the suffix array interval of P(!dir) in T(!dir).
-         * @param b_ index of the input interval in M_LF of T(dir) containing b.
-         * @param e_ index of the input interval in M_LF of T(dir) containing e.
-         * @param s_b
-         * @param s_e
-         * @param s_b_R
-         * @param s_e_R
-         * @return whether the extended pattern occurs in the input
+         * @param idx the index to query
+         * @param ext_ctx 
+         * @return extend context prepared for extending the search context with every possible character in O(sigma) time
          */
         template <direction dir>
-        bool extend(
-            i_sym_t i_sym,
-            pos_t& b, pos_t& e, pos_t& b_R, pos_t& e_R,
-            pos_t& b_, pos_t& e_,
-            sample_info_t& s_b, sample_info_t& s_e,
-            sample_info_t& s_b_R, sample_info_t& s_e_R
-        ) const {
-            const auto& idx_dir = idx->index<dir>();
+        extend_context_t prepare_extend(const move_rb<support, sym_t, pos_t>& idx) {
+            extend_context_t ext_ctx;
 
-            if (last_dir != NO_DIR && dir != last_dir) {
-                if (!(idx_dir.M_LF().p(b_) <= b && b < idx_dir.M_LF().p(b_ + 1))) {
-                    b_ = input_interval(b, idx->S_MLF_p<dir>(), [&](pos_t x){return idx_dir.M_LF().p(x);});
+            if constexpr (dir == LEFT) {
+                prepare_extend<LEFT>(idx, ext_ctx, b, e, b_, e_, s_b, s_e);
+            } else {
+                prepare_extend<RIGHT>(idx, ext_ctx, b_R, e_R, b_R_, e_R_, s_b_R, s_e_R);
+            }
+
+            return ext_ctx;
+        }
+
+        /**
+         * @brief prepends the context with the next character
+         * @param idx the index to query
+         * @param ext_ctx extend context to prepare
+         */
+        search_context_t prepend_next(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx) {
+            return extend_next<LEFT>(idx, ext_ctx);
+        }
+        
+        /**
+         * @brief appends the context with the next character
+         * @param idx the index to query
+         * @param ext_ctx extend context to prepare
+         */
+        search_context_t append_next(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx) {
+            return extend_next<RIGHT>(idx, ext_ctx);
+        }
+
+    protected:
+        /**
+         * @brief builds the array prev[0..max_sym] and next[0..max_sym],
+         *        where prev[c] = select_c(L', rank_c(L', e_)) and
+         *        next[c] = select_c(L', rank_c(L', b_ + 1) + 1)
+         * @tparam dir extend direction
+         * @param idx the index to query
+         * @param prev output prev array
+         * @param next output next array
+         * @param max_sym maximum symbol to consider
+         * @param b_ index of the input interval in M_LF of T(dir) containing b
+         * @param e_ index of the input interval in M_LF of T(dir) containing e
+         */
+        template<direction dir>
+        inline void build_prev_next(
+            const move_rb<support, sym_t, pos_t>& idx,
+            std::array<int64_t, 256>& prev, std::array<int64_t, 256>& next,
+            i_sym_t max_sym, pos_t b_, pos_t e_
+        ) const {
+            const auto& idx_dir = idx.index<dir>();
+            pos_t blk_size = idx_dir.L_block_size();
+            pos_t max = max_sym;
+
+            std::fill_n(next.begin(), max_sym + 1, std::numeric_limits<int64_t>::max());
+            std::fill_n(prev.begin(), max_sym + 1, std::numeric_limits<int64_t>::min());
+
+            // TODO: add optimized algorithm for small [b_, e_] intervals
+
+            pos_t blk = div_ceil<pos_t>(b_, blk_size);
+            int64_t beg = b_;
+            int64_t end = std::min<pos_t>(blk * blk_size, e_);
+
+            if (end != e_) [[likely]] {
+                pos_t blk_beg = blk * idx.sigma;
+
+                for (pos_t i = 0; i <= max; i++) {
+                    next[i] = idx_dir.L_next(blk_beg + i);
+                }
+            }
+
+            for (int64_t i = end; i >= beg; i--) {
+                next[idx_dir.L_(i)] = i;
+            }
+
+            blk = e_ / blk_size;
+            beg = std::max<pos_t>(blk * blk_size, b_);
+            end = e_;
+
+            if (beg != b_) [[likely]] {
+                pos_t blk_beg = blk * idx.sigma;
+
+                for (pos_t i = 0; i <= max; i++) {
+                    prev[i] = idx_dir.L_prev(blk_beg + i);
+                }
+            }
+
+            for (int64_t i = beg; i <= end; i++) {
+                prev[idx_dir.L_(i)] = i;
+            }
+        }
+
+        /**
+         * @brief update the input interval indexes b_ and e_, and adjusts dir-SA-interval samples
+         * @tparam dir extend direction
+         * @param idx the index to query
+         * @param b Left interval limit of the suffix array interval of P(dir) in T(dir)
+         * @param e Right interval limit of the suffix array interval of P(dir) in T(dir)
+         * @param b_r Left interval limit of the suffix array interval of P(!dir) in T(!dir)
+         * @param e_r Right interval limit of the suffix array interval of P(!dir) in T(!dir)
+         * @param b_ index of the input interval in M_LF of T(dir) containing b
+         * @param e_ index of the input interval in M_LF of T(dir) containing e
+         * @param s_b SA-sample information at the beginning of the dir-SA-interval
+         * @param s_e SA-sample information at the end of the dir-SA-interval
+         */
+        template <direction dir>
+        inline void update_input_intervals_and_samples(
+            const move_rb<support, sym_t, pos_t>& idx,
+            const pos_t& b, const pos_t& e,
+            pos_t& b_, pos_t& e_,
+            sample_info_t& s_b, sample_info_t& s_e
+        ) const {
+            const auto& idx_dir = idx.index<dir>();
+
+            if (dir_lst != NO_DIR && dir != dir_lst) {
+                if (b_ >= idx_dir.M_LF().num_intervals() || !(idx_dir.M_LF().p(b_) <= b && b < idx_dir.M_LF().p(b_ + 1))) {
+                    b_ = input_interval(b, idx.S_MLF_p<dir>(), [&](pos_t x){return idx_dir.M_LF().p(x);});
                 }
 
                 if constexpr (query_support == LOCATE) {
@@ -959,8 +1188,8 @@ public:
                     }
                 }
 
-                if (!(idx_dir.M_LF().p(e_) <= e && e < idx_dir.M_LF().p(e_ + 1))) {
-                    e_ = input_interval(e, idx->S_MLF_p<dir>(), [&](pos_t x){return idx_dir.M_LF().p(x);});
+                if (e_ >= idx_dir.M_LF().num_intervals() || !(idx_dir.M_LF().p(e_) <= e && e < idx_dir.M_LF().p(e_ + 1))) {
+                    e_ = input_interval(e, idx.S_MLF_p<dir>(), [&](pos_t x){return idx_dir.M_LF().p(x);});
                 }
 
                 if constexpr (query_support == LOCATE) {
@@ -971,13 +1200,45 @@ public:
                     }
                 }
             }
+        }
+
+        /**
+         * @brief extends the currently matched P with sym; if the extended P occurs in the input, true is
+         * returned and the query context is adjusted to store the context for the extended P; else,
+         * false is returned and the query context is not modified; let S be a string, then S(LEFT) = S and S(RIGHT) = S^R
+         * and !LEFT = RIGHT = !!RIGHT
+         * @tparam dir extend direction
+         * @param idx the index to query
+         * @param i_sym next (internal) symbol to match
+         * @param b Left interval limit of the suffix array interval of P(dir) in T(dir)
+         * @param e Right interval limit of the suffix array interval of P(dir) in T(dir)
+         * @param b_r Left interval limit of the suffix array interval of P(!dir) in T(!dir)
+         * @param e_r Right interval limit of the suffix array interval of P(!dir) in T(!dir)
+         * @param b_ index of the input interval in M_LF of T(dir) containing b
+         * @param e_ index of the input interval in M_LF of T(dir) containing e
+         * @param s_b SA-sample information at the beginning of the dir-SA-interval
+         * @param s_e SA-sample information at the end of the dir-SA-interval
+         * @param s_b_R SA-sample information at the beginning of the !dir-SA-interval
+         * @param s_e_R SA-sample information at the end of the !dir-SA-interval
+         * @return whether the extended P occurs in the input
+         */
+        template <direction dir>
+        bool extend(
+            const move_rb<support, sym_t, pos_t>& idx,
+            i_sym_t i_sym,
+            pos_t& b, pos_t& e, pos_t& b_R, pos_t& e_R,
+            pos_t& b_, pos_t& e_,
+            sample_info_t& s_b, sample_info_t& s_e,
+            sample_info_t& s_b_R, sample_info_t& s_e_R
+        ) const {
+            const auto& idx_dir = idx.index<dir>();
+
+            update_input_intervals_and_samples<dir>(idx, b, e, b_, e_, s_b, s_e);
+
+            std::array<int64_t, 256> prev;
+            std::array<int64_t, 256> next;
+            build_prev_next<dir>(idx, prev, next, i_sym, b_, e_);
             
-            int64_t next[256];
-            int64_t prev[256];
-
-            std::fill_n(next, i_sym, std::numeric_limits<int64_t>::max());
-            std::fill_n(prev, i_sym, std::numeric_limits<int64_t>::min());
-
             pos_t b_old = b;
             pos_t e_old = e;
 
@@ -987,47 +1248,7 @@ public:
             pos_t b_R_old = b_R;
             pos_t e_R_old = e_R;
 
-            pos_t blk_size = idx_dir.L_block_size();
-
-            {
-                pos_t blk = div_ceil<pos_t>(b_, blk_size);
-                int64_t beg = b_;
-                int64_t end = std::min<pos_t>(blk * blk_size, e_);
-
-                if (end != e_) [[likely]] {
-                    pos_t blk_beg = blk * idx->sigma;
-                    pos_t max_sym = i_sym;
-
-                    for (pos_t i = 0; i <= max_sym; i++) {
-                        next[i] = idx_dir.L_next(blk_beg + i);
-                    }
-                }
-
-                for (int64_t i = end; i >= beg; i--) {
-                    next[idx_dir.L_(i)] = i;
-                }
-            }
-
-            {
-                pos_t blk = e_ / blk_size;
-                int64_t beg = std::max<pos_t>(blk * blk_size, b_);
-                int64_t end = e_;
-
-                if (beg != b_) [[likely]] {
-                    pos_t blk_beg = blk * idx->sigma;
-                    pos_t max_sym = i_sym;
-
-                    for (pos_t i = 0; i <= max_sym; i++) {
-                        prev[i] = idx_dir.L_prev(blk_beg + i);
-                    }
-                }
-
-                for (int64_t i = beg; i <= end; i++) {
-                    prev[idx_dir.L_(i)] = i;
-                }
-            }
-
-            if (next[i_sym] > prev[i_sym]) [[unlikely]] {
+            if (next[i_sym] > prev[i_sym] || prev[i_sym] >= idx_dir.M_LF().num_intervals()) [[unlikely]] {
                 return false;
             }
 
@@ -1085,7 +1306,7 @@ public:
             pos_t e__prime = e_;
 
             for (i_sym_t i = 0; i < i_sym; i++) {
-                if (next[i] <= prev[i] && prev[i] != idx_dir.M_LF().num_intervals()) {
+                if (next[i] <= prev[i] && prev[i] < idx_dir.M_LF().num_intervals()) {
                     pos_t x = next[i];
                     pos_t y = prev[i];
 
@@ -1096,7 +1317,7 @@ public:
                     }
                 }
             }
-
+        
             if (idx_dir.L_(b__old) < i_sym) {
                 b_R -= b_old - idx_dir.M_LF().p(b__old);
             }
@@ -1130,37 +1351,43 @@ public:
             if constexpr (query_support == LOCATE) {
                 if (e - b != e_prime - b_prime) {
                     if (b_prime == b_old) {
-                        s_b.t = RUN_END;
-                        s_b.o = idx_dir.M_LF().p(b__prime + 1) - 1 - b_prime;
-                        s_b.x = b__prime;
-                        s_b.i = 1;
+                        s_b = {
+                            .t = RUN_END,
+                            .o = idx_dir.M_LF().p(b__prime + 1) - 1 - b_prime,
+                            .i = 1,
+                            .x = b__prime
+                        };
                     }
 
                     if (e_prime == e_old) {
-                        s_e.t = RUN_START;
-                        s_e.o = e_prime - idx_dir.M_LF().p(e__prime);
-                        s_e.x = e__prime;
-                        s_e.i = 1;
+                        s_e = {
+                            .t = RUN_START,
+                            .o = e_prime - idx_dir.M_LF().p(e__prime),
+                            .i = 1,
+                            .x = e__prime
+                        };
                     }
                 }
 
-                if (s_b_R.t != NO_SAMPLE) {
-                    pos_t p_1 = b_R_old + s_b_R.o;
+                if (e - b != e_old - b_old) {
+                    if (s_b_R.t != NO_SAMPLE) {
+                        pos_t p_1 = b_R_old + s_b_R.o;
 
-                    if (!(b_R <= p_1 && p_1 <= e_R)) {
-                        s_b_R.t = NO_SAMPLE;
-                    } else {
-                        s_b_R.o -= b_R - b_R_old;
+                        if (!(b_R <= p_1 && p_1 <= e_R)) {
+                            s_b_R.t = NO_SAMPLE;
+                        } else {
+                            s_b_R.o -= b_R - b_R_old;
+                        }
                     }
-                }
 
-                if (s_e_R.t != NO_SAMPLE) {
-                    pos_t p_2 = e_R_old - s_e_R.o;
+                    if (s_e_R.t != NO_SAMPLE) {
+                        pos_t p_2 = e_R_old - s_e_R.o;
 
-                    if (!(b_R <= p_2 && p_2 <= e_R)) {
-                        s_e_R.t = NO_SAMPLE;
-                    } else {
-                        s_e_R.o -= e_R_old - e_R;
+                        if (!(b_R <= p_2 && p_2 <= e_R)) {
+                            s_e_R.t = NO_SAMPLE;
+                        } else {
+                            s_e_R.o -= e_R_old - e_R;
+                        }
                     }
                 }
 
@@ -1170,103 +1397,344 @@ public:
             return true;
         }
 
+        /**
+         * @brief prepares the context to be extended
+         * @tparam dir extend direction
+         * @param idx the index to query
+         * @param ext_ctx extend context to prepare
+         * @param b Left interval limit of the suffix array interval of P(dir) in T(dir)
+         * @param e Right interval limit of the suffix array interval of P(dir) in T(dir)
+         * @param b_ index of the input interval in M_LF of T(dir) containing b
+         * @param e_ index of the input interval in M_LF of T(dir) containing e
+         * @param s_b SA-sample information at the beginning of the dir-SA-interval
+         * @param s_e SA-sample information at the end of the dir-SA-interval
+         */
+        template <direction dir>
+        void prepare_extend(
+            const move_rb<support, sym_t, pos_t>& idx,
+            extend_context_t& ext_ctx,
+            const pos_t b, const pos_t e, pos_t& b_, pos_t& e_,
+            sample_info_t& s_b, sample_info_t& s_e
+        ) {
+            static constexpr direction rev_dir = flip<dir>();
+
+            update_input_intervals_and_samples<dir>(idx, b, e, b_, e_, s_b, s_e);
+            build_prev_next<dir>(idx, ext_ctx.prev, ext_ctx.next, idx.sigma, b_, e_);
+
+            ext_ctx.b_R_nxt = beg<rev_dir>() + (ext_ctx.next[0] <= ext_ctx.prev[0] &&
+                                                ext_ctx.prev[0] != idx.index<dir>().M_LF().num_intervals());
+            
+            ext_ctx.sym_nxt = 0;
+            ext_ctx.template next_symbol<dir>(idx);
+        }
+
     public:
         /**
-         * @brief prepends sym to the currently matched pattern P; if symP occurs in the input, true is
-         * returned and the query context is adjusted to store the information for the pattern symP; else,
-         * false is returned and the query context is not modified
-         * @param sym
-         * @return whether symP occurs in the input
+         * @brief extends the context with the next character
+         * @tparam dir extend direction
+         * @param idx the index to query
+         * @param ext_ctx extend context to prepare
          */
-        bool prepend(sym_t sym)
+        template <direction dir>
+        search_context_t extend_next(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx) {
+            const auto& idx_dir = idx.index<dir>();
+            static constexpr direction rev_dir = flip<dir>();
+
+            pos_t b_old, e_old;
+
+            if constexpr (dir == LEFT) {
+                b_old = b;
+                e_old = e;
+            } else {
+                b_old = b_R;
+                e_old = e_R;
+            }
+
+            search_context_t ctx(idx.unmap_symbol(ext_ctx.sym_nxt));
+
+            ctx.beg_run<dir>() = ext_ctx.next[ext_ctx.sym_nxt];
+            ctx.end_run<dir>() = ext_ctx.prev[ext_ctx.sym_nxt];
+
+            if (idx_dir.L_(beg_run<dir>()) == ext_ctx.sym_nxt) [[unlikely]] {
+                ctx.beg<dir>() = beg<dir>();
+                
+                if constexpr (query_support == LOCATE) {
+                    if (smpl_beg<dir>().t == RUN_START) {
+                        ctx.smpl_beg<dir>() = smpl_beg<dir>();
+                        ctx.smpl_beg<dir>().i++;
+                    } else if (smpl_beg<dir>().t == RUN_END) {
+                        pos_t p_1 = beg<dir>() + smpl_beg<dir>().o;
+                        pos_t y_1 = idx_dir.M_LF().p(beg_run<dir>() + 1);
+
+                        if (p_1 < y_1) {
+                            ctx.smpl_beg<dir>() = smpl_beg<dir>();
+                            ctx.smpl_beg<dir>().i++;
+                        } else {
+                            ctx.smpl_beg<dir>() = {
+                                .t = RUN_END,
+                                .o = y_1 - beg<dir>() - 1,
+                                .i = 1,
+                                .x = beg_run<dir>()
+                            };
+                        }
+                    } else {
+                        ctx.smpl_beg<dir>().t = NO_SAMPLE;
+                    }
+                }
+            } else {
+                ctx.beg<dir>() = idx_dir.M_LF().p(ctx.beg_run<dir>());
+                if constexpr (query_support == LOCATE) ctx.smpl_beg<dir>() = { .t = RUN_START, .o = 0, .i = 1, .x = ctx.beg_run<dir>() };
+            }
+
+            if (idx_dir.L_(end_run<dir>()) == ext_ctx.sym_nxt) [[unlikely]] {
+                ctx.end<dir>() = end<dir>();
+                
+                if constexpr (query_support == LOCATE) {
+                    if (smpl_end<dir>().t == RUN_END) {
+                        ctx.smpl_end<dir>() = smpl_end<dir>();
+                        ctx.smpl_end<dir>().i++;
+                    } else if (smpl_end<dir>().t == RUN_START) {
+                        pos_t p_2 = end<dir>() - smpl_end<dir>().o;
+                        pos_t y_2 = idx_dir.M_LF().p(end_run<dir>());
+
+                        if (y_2 <= p_2) {
+                            ctx.smpl_end<dir>() = smpl_end<dir>();
+                            ctx.smpl_end<dir>().i++;
+                        } else {
+                            ctx.smpl_end<dir>() = {
+                                .t = RUN_START,
+                                .o = end<dir>() - y_2,
+                                .i = 1,
+                                .x = end_run<dir>()
+                            };
+                        }
+                    } else {
+                        ctx.smpl_end<dir>().t = NO_SAMPLE;
+                    }
+                }
+            } else {
+                ctx.end<dir>() = idx_dir.M_LF().p(ctx.end_run<dir>() + 1) - 1;
+                if constexpr (query_support == LOCATE) ctx.smpl_end<dir>() = { .t = RUN_END, .o = 0, .i = 1, .x = ctx.end_run<dir>() };
+            }
+            
+            pos_t b_prime = ctx.beg<dir>();
+            pos_t e_prime = ctx.end<dir>();
+            
+            pos_t b__prime = ctx.beg_run<dir>();
+            pos_t e__prime = ctx.end_run<dir>();
+
+            if (ctx.beg_run<dir>() == ctx.end_run<dir>()) {
+                if (ctx.beg<dir>() == ctx.end<dir>()) {
+                    idx_dir.M_LF().move(ctx.beg<dir>(), ctx.beg_run<dir>());
+                    ctx.end<dir>() = ctx.beg<dir>();
+                    ctx.end_run<dir>() = ctx.beg_run<dir>();
+                } else {
+                    pos_t diff_eb = ctx.end<dir>() - ctx.beg<dir>();
+                    idx_dir.M_LF().move(ctx.beg<dir>(), ctx.beg_run<dir>());
+                    ctx.end<dir>() = ctx.beg<dir>() + diff_eb;
+                    ctx.end_run<dir>() = ctx.beg_run<dir>();
+
+                    while (ctx.end<dir>() >= idx_dir.M_LF().p(ctx.end_run<dir>() + 1)) {
+                        ctx.end_run<dir>()++;
+                    }
+                }
+            } else {
+                idx_dir.M_LF().move(ctx.beg<dir>(), ctx.beg_run<dir>());
+                idx_dir.M_LF().move(ctx.end<dir>(), ctx.end_run<dir>());
+            }
+
+            ctx.beg<rev_dir>() = ext_ctx.b_R_nxt;
+            ctx.end<rev_dir>() = ext_ctx.b_R_nxt + (ctx.end<dir>() - ctx.beg<dir>());
+
+            if constexpr (query_support == LOCATE) {
+                if (ctx.end<dir>() - ctx.beg<dir>() != e_prime - b_prime) [[likely]] {
+                    if (b_prime == b_old) {
+                        ctx.smpl_beg<dir>() = {
+                            .t = RUN_END,
+                            .o = idx_dir.M_LF().p(b__prime + 1) - 1 - b_prime,
+                            .i = 1,
+                            .x = b__prime
+                        };
+                    }
+
+                    if (e_prime == e_old) {
+                        ctx.smpl_end<dir>() = {
+                            .t = RUN_START,
+                            .o = e_prime - idx_dir.M_LF().p(e__prime),
+                            .i = 1,
+                            .x = e__prime
+                        };
+                    }
+                }
+
+                if (ctx.end<dir>() - ctx.beg<dir>() != e_old - b_old) [[likely]] {
+                    if (smpl_beg<rev_dir>().t != NO_SAMPLE) {
+                        pos_t p_1 = beg<rev_dir>() + smpl_beg<rev_dir>().o;
+
+                        if (!(ctx.beg<rev_dir>() <= p_1 && p_1 <= ctx.end<rev_dir>())) {
+                            ctx.smpl_beg<rev_dir>().t = NO_SAMPLE;
+                        } else {
+                            ctx.smpl_beg<rev_dir>() = smpl_beg<rev_dir>();
+                            ctx.smpl_beg<rev_dir>().o -= ctx.beg<rev_dir>() - beg<rev_dir>();
+                        }
+                    } else {
+                        ctx.smpl_beg<rev_dir>().t = NO_SAMPLE;
+                    }
+
+                    if (smpl_end<rev_dir>().t != NO_SAMPLE) {
+                        pos_t p_2 = end<rev_dir>() - smpl_end<rev_dir>().o;
+
+                        if (!(ctx.beg<rev_dir>() <= p_2 && p_2 <= ctx.end<rev_dir>())) {
+                            ctx.smpl_end<rev_dir>().t = NO_SAMPLE;
+                        } else {
+                            ctx.smpl_end<rev_dir>() = smpl_end<rev_dir>();
+                            ctx.smpl_end<rev_dir>().o -= end<rev_dir>() - ctx.end<rev_dir>();
+                        }
+                    } else {
+                        ctx.smpl_end<rev_dir>().t = NO_SAMPLE;
+                    }
+                } else {
+                    ctx.smpl_beg<rev_dir>() = smpl_beg<rev_dir>();
+                    ctx.smpl_end<rev_dir>() = smpl_end<rev_dir>();
+                }
+
+                assert(ctx.s_b.t || ctx.s_e.t || ctx.s_b_R.t || ctx.s_e_R.t);
+            }
+            
+            ext_ctx.b_R_nxt = ctx.end<rev_dir>() + 1;
+            ctx.dir_lst = dir;
+            ctx.m = m + 1;
+            ext_ctx.template next_symbol<dir>(idx);
+
+            return ctx;
+        }
+    };
+
+    /**
+     * @brief structure storing the information for locating all occurrences of a search context
+     */
+    struct locate_context_t {
+        protected:
+        direction dir; // current locate direction
+        pos_t occ_rem; // number of remaining occurrences to locate
+        pos_t c; // initial position in the suffix array
+        pos_t SA_c; // initial suffix SA[c] in the suffix array interval
+        pos_t i; // current position in the suffix array interval
+        pos_t SA_i; // current suffix SA[i] in the suffix array interval
+        
+        // index of the input inteval of M_Phi/M_Phi^{-1} containing SA_i
+        std::conditional_t<support == _locate_move, pos_t, empty_t> s_; 
+
+        struct rlzsa_ctx_t {
+            pos_t x_p, x_lp, x_cp, x_r, s_p; // variables for decoding the rlzsa
+        };
+
+        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, empty_t> rlz_l; // rlzsa context for decoding to the left
+        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, empty_t> rlz_r; // rlzsa context for decoding to the right
+
+    public:
+        /**
+         * @brief constructs an empty locate context
+         */
+        locate_context_t() {}
+
+        /**
+         * @brief constructs a new locate context for a given search context
+         * @param ctx a search context
+         */
+        locate_context_t(const search_context_t<LOCATE>& ctx)
         {
-            return extend<LEFT>(sym);
+            occ_rem = ctx.num_occ();
+            dir = NO_DIR;
         }
 
         /**
-         * @brief appends sym to the currently matched pattern P; if Psym occurs in the input, true is
-         * returned and the query context is adjusted to store the information for the pattern Psym; else,
-         * false is returned and the query context is not modified
-         * @param sym
-         * @return whether Psym occurs in the input
+         * @brief returns the number of remaining (not yet reported) occurrences of the currently matched P
+         * @return number of remaining occurrences
          */
-        bool append(sym_t sym)
+        inline pos_t num_occ_rem() const
         {
-            return extend<RIGHT>(sym);
+            return occ_rem;
         }
 
     protected:
-        inline pos_t first_occ() requires (query_support == LOCATE)
+        /**
+         * @brief computes a first occurrence (SA[i]) of P, and adjusts the locate context accordingly
+         * @param idx the index to query
+         * @param ctx the search context associated with this locate context
+         * @return an occurrence (SA[i]) of P
+         */
+        inline pos_t first_occ(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx)
         {
-            if (s_b.t) {
-                i = b + s_b.o;
-                SA_i = (s_b.t == RUN_START ? idx->idx_fwd.SA_s(s_b.x) : idx->idx_fwd.SA_s_(s_b.x)) - s_b.i;
-            } else if (s_e.t) {
-                i = e - s_e.o;
-                SA_i = (s_e.t == RUN_START ? idx->idx_fwd.SA_s(s_e.x) : idx->idx_fwd.SA_s_(s_e.x)) - s_e.i;
-            } else if (s_b_R.t) {
-                if (s_b_R.t == RUN_START) {
-                    i = idx->_SA_sR_m1[s_b_R.x];
-                    SA_i = idx->n - idx->idx_bwd.SA_s(s_b_R.x) - (m - s_b_R.i + 1);
+            if (ctx.s_b.t) {
+                i = ctx.b + ctx.s_b.o;
+                SA_i = (ctx.s_b.t == RUN_START ? idx.idx_fwd.SA_s(ctx.s_b.x) : idx.idx_fwd.SA_s_(ctx.s_b.x)) - ctx.s_b.i;
+            } else if (ctx.s_e.t) {
+                i = ctx.e - ctx.s_e.o;
+                SA_i = (ctx.s_e.t == RUN_START ? idx.idx_fwd.SA_s(ctx.s_e.x) : idx.idx_fwd.SA_s_(ctx.s_e.x)) - ctx.s_e.i;
+            } else if (ctx.s_b_R.t) {
+                if (ctx.s_b_R.t == RUN_START) {
+                    i = idx._SA_sR_m1[ctx.s_b_R.x];
+                    SA_i = idx.n - idx.idx_bwd.SA_s(ctx.s_b_R.x) - (ctx.m - ctx.s_b_R.i + 1);
                 } else {
-                    i = idx->_SA_eR_m1[s_b_R.x];
-                    SA_i = idx->n - idx->idx_bwd.SA_s_(s_b_R.x) - (m - s_b_R.i + 1);
+                    i = idx._SA_eR_m1[ctx.s_b_R.x];
+                    SA_i = idx.n - idx.idx_bwd.SA_s_(ctx.s_b_R.x) - (ctx.m - ctx.s_b_R.i + 1);
                 }
 
-                pos_t i_ = input_interval(i, idx->_S_MLF_p_fwd,
-                    [&](pos_t x){return idx->idx_fwd.M_LF().p(x);});
+                pos_t i_ = input_interval(i, idx._S_MLF_p_fwd,
+                    [&](pos_t x){return idx.idx_fwd.M_LF().p(x);});
 
-                for (pos_t j = 0; j < m - s_b_R.i; j++) {
-                    idx->idx_fwd.M_LF().move(i, i_);
+                for (pos_t j = 0; j < ctx.m - ctx.s_b_R.i; j++) {
+                    idx.idx_fwd.M_LF().move(i, i_);
                 }
-            } else /* if (s_e_R.t) */ {
-                if (s_e_R.t == RUN_START) {
-                    i = idx->_SA_sR_m1[s_e_R.x];
-                    SA_i = idx->n - idx->idx_bwd.SA_s(s_e_R.x) - (m - s_e_R.i + 1);
+            } else /* if (ctx.s_e_R.t) */ {
+                if (ctx.s_e_R.t == RUN_START) {
+                    i = idx._SA_sR_m1[ctx.s_e_R.x];
+                    SA_i = idx.n - idx.idx_bwd.SA_s(ctx.s_e_R.x) - (ctx.m - ctx.s_e_R.i + 1);
                 } else {
-                    i = idx->_SA_eR_m1[s_e_R.x];
-                    SA_i = idx->n - idx->idx_bwd.SA_s_(s_e_R.x) - (m - s_e_R.i + 1);
+                    i = idx._SA_eR_m1[ctx.s_e_R.x];
+                    SA_i = idx.n - idx.idx_bwd.SA_s_(ctx.s_e_R.x) - (ctx.m - ctx.s_e_R.i + 1);
                 }
 
-                pos_t i_ = input_interval(i, idx->_S_MLF_p_fwd,
-                    [&](pos_t x){return idx->idx_fwd.M_LF().p(x);});
+                pos_t i_ = input_interval(i, idx._S_MLF_p_fwd,
+                    [&](pos_t x){return idx.idx_fwd.M_LF().p(x);});
 
-                for (pos_t j = 0; j < m - s_e_R.i; j++) {
-                    idx->idx_fwd.M_LF().move(i, i_);
+                for (pos_t j = 0; j < ctx.m - ctx.s_e_R.i; j++) {
+                    idx.idx_fwd.M_LF().move(i, i_);
                 }
             }
 
-            assert(b <= i && i <= e);
+            assert(ctx.b <= i && i <= ctx.e);
 
             c = i;
             SA_c = SA_i;
 
             if (occ_rem > 1) [[likely]] {
-                locate_dir = i > b ? LEFT : RIGHT;
+                dir = i > ctx.b ? LEFT : RIGHT;
 
                 if constexpr (support == _locate_move) {
-                    if (locate_dir == LEFT) {
-                        s_ = input_interval(SA_i, idx->_S_MPhi_p,
-                            [&](pos_t x){return idx->idx_fwd.M_Phi().p(x);});
+                    if (dir == LEFT) {
+                        s_ = input_interval(SA_i, idx._S_MPhi_p,
+                            [&](pos_t x){return idx.idx_fwd.M_Phi().p(x);});
                     } else {
-                        s_ = input_interval(SA_i, idx->_S_MPhi_m1_p,
-                            [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
+                        s_ = input_interval(SA_i, idx._S_MPhi_m1_p,
+                            [&](pos_t x){return idx.idx_fwd.M_Phi_m1().p(x);});
                     }
                 } else if constexpr (support == _locate_rlzsa) {
-                    if (locate_dir == LEFT) {
-                        idx->idx_fwd.init_rlzsa(i, rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p);
+                    if (dir == LEFT) {
+                        idx.idx_fwd.init_rlzsa(i, rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p);
 
-                        if (c < e) [[likely]] {
+                        if (c < ctx.e) [[likely]] {
                             rlz_r = rlz_l;
                             pos_t tmp_1 = c;
                             pos_t tmp_2;
-                            idx->idx_fwd.next_rlzsa(tmp_1, tmp_2, rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p);
+                            idx.idx_fwd.next_rlzsa(tmp_1, tmp_2, rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p);
                         }
 
-                        idx->idx_fwd.turn_rlzsa_left(rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p);
+                        idx.idx_fwd.turn_rlzsa_left(rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p);
                     } else {
                         i++;
-                        idx->idx_fwd.init_rlzsa(i, rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p);
+                        idx.idx_fwd.init_rlzsa(i, rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p);
                     }
                 }
             }
@@ -1277,48 +1745,48 @@ public:
 
     public:
         /**
-         * @brief reports the next occurrence of the currently matched pattern
+         * @brief reports the next occurrence of the currently matched P
          * @return next occurrence
          */
-        inline pos_t next_occ() requires (query_support == LOCATE)
+        inline pos_t next_occ(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx)
         {
-            if (locate_dir == NO_DIR) [[unlikely]] {
-                return first_occ();
+            if (dir == NO_DIR) [[unlikely]] {
+                return first_occ(idx, ctx);
             }
 
             pos_t occ;
 
             if constexpr (support == _locate_move) {
-                if (locate_dir == LEFT) {
-                    idx->idx_fwd.M_Phi().move(SA_i, s_);
+                if (dir == LEFT) {
+                    idx.idx_fwd.M_Phi().move(SA_i, s_);
                     occ = SA_i;
                     i--;
 
-                    if (i == b) [[unlikely]] {
+                    if (i == ctx.b) [[unlikely]] {
                         i = c;
                         SA_i = SA_c;
-                        locate_dir = RIGHT;
+                        dir = RIGHT;
 
-                        s_ = input_interval(SA_i, idx->_S_MPhi_m1_p,
-                            [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
+                        s_ = input_interval(SA_i, idx._S_MPhi_m1_p,
+                            [&](pos_t x){return idx.idx_fwd.M_Phi_m1().p(x);});
                     }
-                } else /* if (locate_dir == RIGHT) */ {
-                    idx->idx_fwd.M_Phi_m1().move(SA_i, s_);
+                } else /* if (dir == RIGHT) */ {
+                    idx.idx_fwd.M_Phi_m1().move(SA_i, s_);
                     occ = SA_i;
                     i++;
                 }
             } else if constexpr (support == _locate_rlzsa) {
-                if (locate_dir == LEFT) {
-                    idx->idx_fwd.prev_rlzsa(i, SA_i, rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p);
+                if (dir == LEFT) {
+                    idx.idx_fwd.prev_rlzsa(i, SA_i, rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p);
                     occ = SA_i;
 
-                    if (i == b && c < e) [[unlikely]] {
+                    if (i == ctx.b && c < ctx.e) [[unlikely]] {
                         i = c + 1;
-                        locate_dir = RIGHT;
+                        dir = RIGHT;
                         SA_i = SA_c;
                     }
-                } else /* if (locate_dir == RIGHT) */ {
-                    idx->idx_fwd.next_rlzsa(i, SA_i, rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p);
+                } else /* if (dir == RIGHT) */ {
+                    idx.idx_fwd.next_rlzsa(i, SA_i, rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p);
                     occ = SA_i;
                 }
             }
@@ -1328,56 +1796,59 @@ public:
         }
 
         /**
-         * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
+         * @brief locates the remaining (not yet reported) occurrences of the currently matched P
          * @param Occ vector to append the occurrences to
          */
-        inline void locate(std::vector<pos_t>& Occ) requires (query_support == LOCATE)
-        {
+        inline void locate(
+            const move_rb<support, sym_t, pos_t>& idx,
+            const search_context_t<LOCATE>& ctx,
+            std::vector<pos_t>& Occ
+        ) {
             Occ.reserve(Occ.size() + occ_rem);
 
-            if (occ_rem == num_occ()) {
-                Occ.emplace_back(first_occ());
+            if (occ_rem == ctx.num_occ()) {
+                Occ.emplace_back(first_occ(idx, ctx));
             }
 
             if constexpr (support == _locate_move) {
-                if (locate_dir == LEFT) {
-                    while (i > b) {
-                        idx->idx_fwd.M_Phi().move(SA_i, s_);
+                if (dir == LEFT) {
+                    while (i > ctx.b) {
+                        idx.idx_fwd.M_Phi().move(SA_i, s_);
                         Occ.emplace_back(SA_i);
                         i--;
                     }
 
-                    if (c < e) {
+                    if (c < ctx.e) {
                         i = c;
                         SA_i = SA_c;
-                        s_ = input_interval(SA_i, idx->_S_MPhi_m1_p,
-                            [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
+                        s_ = input_interval(SA_i, idx._S_MPhi_m1_p,
+                            [&](pos_t x){return idx.idx_fwd.M_Phi_m1().p(x);});
                     }
                 }
 
-                if (c < e) {
-                    while (i < e) {
-                        idx->idx_fwd.M_Phi_m1().move(SA_i, s_);
+                if (c < ctx.e) {
+                    while (i < ctx.e) {
+                        idx.idx_fwd.M_Phi_m1().move(SA_i, s_);
                         Occ.emplace_back(SA_i);
                         i++;
                     }
                 }
             } else if constexpr (support == _locate_rlzsa) {
-                if (locate_dir == LEFT) {
-                    idx->idx_fwd.report_rlzsa_left(i, b, SA_i,
+                if (dir == LEFT) {
+                    idx.idx_fwd.report_rlzsa_left(i, ctx.b, SA_i,
                         rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p,
                         [&](pos_t, pos_t occ){Occ.emplace_back(occ);}
                     );
 
-                    if (c < e) [[likely]] {
+                    if (c < ctx.e) [[likely]] {
                         i = c + 1;
-                        locate_dir = RIGHT;
+                        dir = RIGHT;
                         SA_i = SA_c;
                     }
                 }
 
-                if (c < e) [[likely]] {
-                    idx->idx_fwd.report_rlzsa_right(i, e, SA_i,
+                if (c < ctx.e) [[likely]] {
+                    idx.idx_fwd.report_rlzsa_right(i, ctx.e, SA_i,
                         rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p,
                         [&](pos_t, pos_t occ){Occ.emplace_back(occ);}
                     );
@@ -1388,35 +1859,386 @@ public:
         }
 
         /**
-         * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
+         * @brief locates the remaining (not yet reported) occurrences of the currently matched P
          * @return vector containing the occurrences
          */
-        std::vector<pos_t> locate() requires (query_support == LOCATE)
+        std::vector<pos_t> locate(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx)
         {
             std::vector<pos_t> Occ;
-            locate(Occ);
+            locate(idx, ctx, Occ);
             return Occ;
+        }
+    };
+    
+    /**
+     * @brief stores the variables needed to extend a search_context with all passible characters in O(sigma) time
+     */
+    struct extend_context_t {
+        friend class search_context_t<COUNT>;
+        friend class search_context_t<LOCATE>;
+
+        protected:
+        std::array<int64_t, 256> prev; // the prev array for all extensions
+        std::array<int64_t, 256> next; // the next array for all extensions
+
+        i_sym_t sym_nxt; // next symbol to extend the context with
+        pos_t b_R_nxt; // current left interval limit of the suffix array interval of P(!dir) extended with sym_nxt in T(!dir)
+
+        public:
+        /**
+         * @brief returns the next symbol to extend the context with
+         * @param idx the index to query
+         * @return the next symbol to extend the context with
+         */
+        sym_t current_symbol(const move_rb<support, sym_t, pos_t>& idx) const {
+            return idx.unmap_symbol(sym_nxt);
+        }
+
+        /**
+         * @brief returns whether there is a symbol left to extend the context with
+         * @param idx the index to query
+         * @return whether there is a symbol left to extend the context with
+         */
+        bool can_extend(const move_rb<support, sym_t, pos_t>& idx) const {
+            return sym_nxt < idx.sigma;
+        }
+
+        protected:
+        /**
+         * @brief advances sym_nxt to the next symbol the pattern can be extended with (or sigma, if it cannot be extended further)
+         * @tparam dir direction the context should be extended with
+         * @param idx the index to query
+         */
+        template <direction dir>
+        void next_symbol(const move_rb<support, sym_t, pos_t>& idx) {
+            do {
+                sym_nxt++;
+            } while (sym_nxt < idx.sigma && (
+                     next[sym_nxt] > prev[sym_nxt] ||
+                     prev[sym_nxt] == idx.index<dir>().M_LF().num_intervals()));
         }
     };
 
     /**
      * @brief returns a query context for the index
-     * @return query_context_t
+     * @return search_context_t
      */
-    inline query_context_t<COUNT> count_query() const
+    template <move_rb_query_support_t query_support>
+    inline search_context_t<query_support> search() const
     {
-        return query_context_t<COUNT>(*this);
+        return search_context_t<query_support>(*this);
     }
 
     /**
-     * @brief returns a query context for the index
-     * @return query_context_t
+     * @brief searches for a substring P[part_len,r) of a P
+     * @param P the pattern to search
+     * @param part_len left substring boundary
+     * @param r right substring boundary
+     * @return search context of P[part_len,r)
      */
-    inline query_context_t<LOCATE> locate_query() const requires (support != _count)
+    template <move_rb_query_support_t query_support>
+    inline search_context_t<query_support> search(const inp_t& P, pos_t part_len = 0, pos_t r = std::numeric_limits<pos_t>::max()) const
     {
-        return query_context_t<LOCATE>(*this);
+        r = std::min<pos_t>(r, P.size() - 1);
+        auto ctx = search<query_support>();
+
+        for (int64_t i = r; i >= part_len; i--) {
+            if (!ctx.prepend(*this, P[i])) {
+                return search<query_support>();
+            }
+        }
+
+        return ctx;
     }
 
+    // ############################# APPROXIMATE PATTERN MATCHING #############################
+    
+    /**
+     * @brief counts a pattern with at most k_max mismatches
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k_max)
+     * @return number of occurrences of P in T with at most k_max mismatches
+     */
+    pos_t count_with_mismatches(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        auto ctxts = execute_search_scheme<COUNT>(P, scheme);
+        pos_t count = 0;
+
+        for (auto ctx: ctxts) {
+            count += ctx.num_occ();
+        }
+        
+        return count;
+    }
+
+    /**
+     * @brief locaes a pattern with at most k_max mismatches
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k_max)
+     * @param Occ vector to append all occurrences of P in T with at most k_max mismatches to
+     */
+    void locate_with_mismatches(const inp_t& P, const search_scheme_t& scheme, std::vector<pos_t>& Occ) const
+    {
+        auto ctxts = execute_search_scheme<LOCATE>(P, scheme);
+        pos_t count = 0;
+
+        for (auto ctx: ctxts) {
+            count += ctx.num_occ();
+        }
+
+        Occ.reserve(Occ.size() + count);
+
+        for (auto ctx: ctxts) {
+            ctx.locate_phase().locate(*this, ctx, Occ);
+        }
+    }
+
+    /**
+     * @brief locaes a pattern with at most k_max mismatches
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k_max)
+     * @return occurrences of P in T with at most k_max mismatches
+     */
+    std::vector<pos_t> locate_with_mismatches(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        std::vector<pos_t> Occ;
+        locate_with_mismatches(P, scheme, Occ);
+        return Occ;
+    }
+    
+    // type of hashset to store search contexts in
+    template <move_rb_query_support_t query_support>
+    using search_context_set_t = tsl::sparse_set<search_context_t<query_support>, typename search_context_t<query_support>::hash>;
+
+    /**
+     * @brief searches for a pattern P of length m with at most k_max mismatches in the regions P[0, m1) and P[m2, m)
+     * @param P the pattern to search
+     * @param m1 first divide position
+     * @param m2 second divide position
+     * @param k_max maximum number of mismatches
+     * @return all search contexts of P in T with at most k_max mismatches in the regions P[0, m1) and P[m2, m)
+     */
+    template <move_rb_query_support_t query_support>
+    search_context_set_t<query_support> seed_and_extend(const inp_t& P, pos_t m1, pos_t m2, pos_t k_max) const
+    {
+        const pos_t m = P.size();
+        search_context_set_t<query_support> ctxts;
+
+        if (m == 0) return ctxts;
+        if (k_max == 0) [[unlikely]] {
+            auto ctx = search<query_support>(P, 0, m - 1);
+            if (ctx.is_valid()) ctxts.emplace(ctx);
+            return ctxts;
+        }
+
+        auto init_ctx = search<query_support>(P, m1, m2 - 1);
+        if (!init_ctx.is_valid()) return ctxts;
+
+        std::vector<std::tuple<search_context_t<query_support>, direction, pos_t>> nav_stack;
+
+        uint64_t max_depth = m1 + m - m2;
+        nav_stack.reserve(max_depth);
+
+        extend_seed<query_support>(P, m, k_max, m1, RIGHT, ctxts, nav_stack, init_ctx);
+
+        return ctxts;
+    }
+
+    protected:
+
+    /**
+     * @brief extends the search context init_ctx of P[part_len, k_max + len(init_ctx)) to the left and right,
+     *        allowing at most k_max mismatches, and adds all resulting search contexts to ctxts
+     * @param P the pattern to search
+     * @param m the length m = |P| of the pattern
+     * @param k_max maximum number of mismatches
+     * @param part_len beginning of the matched part in P
+     * @param init_dir direction to start matching
+     * @param ctxts hashset storing all found search contexts
+     * @param nav_stack navigation stack
+     * @param init_ctx search context to extend
+     */
+    template <move_rb_query_support_t query_support>
+    void extend_seed(
+        const inp_t& P, pos_t m, pos_t k_max, pos_t part_len, direction init_dir,
+        search_context_set_t<query_support>& ctxts,
+        std::vector<std::tuple<search_context_t<query_support>, direction, pos_t>>& nav_stack,
+        search_context_t<query_support> init_ctx
+    ) const {
+        if (!init_ctx.is_valid()) return;
+        nav_stack.emplace_back(init_ctx, init_dir, k_max);
+
+        while (!nav_stack.empty()) {
+            auto [ctx, dir, k_cur] = nav_stack.back(); nav_stack.pop_back();
+            pos_t len = ctx.length();
+
+            if (dir == RIGHT) {
+                pos_t r_cur = part_len + len;
+                sym_t sym = P[r_cur];
+
+                if (k_cur == 0) {
+                    if (!ctx.append(*this, sym)) continue;
+                    auto dir_nxt = (r_cur >= m - 1) ? LEFT : RIGHT;
+
+                    if (part_len == 0 && dir_nxt == LEFT) {
+                        ctxts.emplace(ctx);
+                    } else {
+                        nav_stack.emplace_back(ctx, dir_nxt, k_cur);
+                    }
+                } else {
+                    auto ext_ctx = ctx.prepare_append(*this);
+                    auto dir_nxt = (part_len + ctx.length() + 1 >= m) ? LEFT : RIGHT;
+
+                    while (ext_ctx.can_extend(*this)) {
+                        auto ctx_nxt = ctx.append_next(*this, ext_ctx);
+                        pos_t k_nxt = k_cur - (sym != ctx_nxt.last_added_symbol());
+
+                        if (part_len == 0 && dir_nxt == LEFT) {
+                            ctxts.emplace(ctx_nxt);
+                        } else {
+                            nav_stack.emplace_back(ctx_nxt, dir_nxt, k_nxt);
+                        }
+                    }
+                }
+            } else {
+                pos_t l_cur = m - len - 1;
+                sym_t sym = P[l_cur];
+
+                if (k_cur == 0) {
+                    if (!ctx.prepend(*this, sym)) continue;
+
+                    if (l_cur == 0) {
+                        ctxts.emplace(ctx);
+                    } else {
+                        nav_stack.emplace_back(ctx, LEFT, k_cur);
+                    }
+                } else {
+                    auto ext_ctx = ctx.prepare_prepend(*this);
+
+                    while (ext_ctx.can_extend(*this)) {
+                        auto ctx_nxt = ctx.prepend_next(*this, ext_ctx);
+
+                        if (ctx_nxt.length() == m) {
+                            ctxts.emplace(ctx_nxt);
+                        } else {
+                            pos_t k_nxt = k_cur - (sym != ctx_nxt.last_added_symbol());
+                            nav_stack.emplace_back(ctx_nxt, LEFT, k_nxt);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    template <move_rb_query_support_t query_support>
+    using search_state_t = std::tuple<
+        search_context_t<query_support>, // ctx
+        uint8_t, // k
+        uint8_t, // p_idx
+        pos_t // pos
+    >;
+
+    /**
+     * @brief executes a given search scheme for a pattern
+     * @param scheme the search scheme to use
+     * @return all search contexts of P in T with at most k_max mismatches (assuming the schearch scheme covers all error configurations)
+     */
+    template <move_rb_query_support_t query_support>
+    search_context_set_t<query_support> execute_search_scheme(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        search_context_set_t<query_support> ctxts;
+        pos_t m = P.size();
+        if (m == 0) return ctxts;
+        uint8_t k_max = scheme.k_max;
+        const distance_metric_t& dist_metr = scheme.dist_metr;
+
+        if (k_max == 0) [[unlikely]] {
+            auto ctx = search<query_support>(P, 0, m - 1);
+            if (ctx.is_valid()) ctxts.emplace(ctx);
+            return ctxts;
+        }
+        
+        uint8_t parts = scheme.parts;
+        assert(parts <= m);
+        std::vector<search_state_t<query_support>> nav_stack;
+        auto init_ctx = search<query_support>();
+        pos_t part_len = m / parts;
+
+        for (uint8_t s_idx = 0; s_idx < scheme.searches.size(); s_idx++) {
+            const search_t& search = scheme.searches[s_idx];
+            pos_t init_beg = search[0].part * part_len;
+            pos_t init_end = (search[0].part + 1) == parts ? m : ((search[0].part + 1) * part_len);
+            direction init_dir = search[1].part < search[0].part ? LEFT : RIGHT;
+            pos_t init_pos = init_dir == LEFT ? init_end - 1 : init_beg;
+            nav_stack.emplace_back(search_state_t{init_ctx, 0, 0, init_pos});
+            
+            while (!nav_stack.empty()) {
+                auto [ctx, k, p_idx, pos] = nav_stack.back();
+                nav_stack.pop_back();
+
+                pos_t part = search[p_idx].part;
+                pos_t beg = part * part_len;
+                pos_t end = (part + 1) == parts ? m : ((part + 1) * part_len);
+                direction dir = p_idx == 0 ? init_dir : (part < search[p_idx - 1].part ? LEFT : RIGHT);
+
+                uint8_t p_idx_nxt = p_idx;
+                pos_t pos_nxt = pos + (dir == LEFT ? -1 : 1);
+                pos_t beg_nxt = beg;
+                pos_t end_nxt = end;
+                direction dir_nxt = dir;
+                pos_t ext_rem;
+
+                if (!(beg <= pos_nxt && pos_nxt < end)) [[unlikely]] {
+                    p_idx_nxt = p_idx + 1;
+
+                    if (p_idx_nxt < parts) {
+                        pos_t part_nxt = search[p_idx_nxt].part;
+                        dir_nxt = part_nxt < part ? LEFT : RIGHT;
+                        beg_nxt = part_nxt * part_len;
+                        end_nxt = (part_nxt + 1) == parts ? m : ((part_nxt + 1) * part_len);
+                        pos_nxt = dir_nxt == LEFT ? end_nxt - 1 : beg_nxt;
+                        ext_rem = end_nxt - beg_nxt;
+                    } else {
+                        ext_rem = std::numeric_limits<pos_t>::max();
+                    }
+                } else {
+                    ext_rem = dir == LEFT ? pos - beg : (end - pos - 1);
+                }
+                
+                if (k < k_max && k < search[p_idx].k_max) {
+                    auto ext_ctx = dir == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
+
+                    while (ext_ctx.can_extend(*this)) {
+                        auto ctx_nxt = dir == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
+                        bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
+                        uint8_t k_nxt = k + is_mismatch;
+
+                        if (p_idx_nxt == parts) {
+                            ctxts.emplace(ctx_nxt);
+                        } else if (search[p_idx_nxt].k_min <= k_nxt + ext_rem) {
+                            nav_stack.emplace_back(search_state_t{ctx_nxt, k_nxt, p_idx_nxt, pos_nxt});
+                        }
+                    }
+                } else {
+                    uint8_t k_nxt = k;
+
+                    if ((p_idx_nxt == parts || search[p_idx_nxt].k_min <= k_nxt + ext_rem) &&
+                        (dir == LEFT ? ctx.prepend(*this, P[pos]) : ctx.append(*this, P[pos])))
+                    {
+                        if (p_idx_nxt == parts) {
+                            ctxts.emplace(ctx);
+                        } else {
+                            nav_stack.emplace_back(search_state_t{ctx, k_nxt, p_idx_nxt, pos_nxt});
+                        }
+                    }
+                }
+            }
+        }
+
+        return ctxts;
+    }
+
+    public:
     // ############################# SERIALIZATION METHODS #############################
 
     /**
@@ -1454,7 +2276,7 @@ public:
     {
         bool is_64_bit;
         in.read((char*) &is_64_bit, 1);
-
+        
         if (is_64_bit != std::is_same_v<pos_t, uint64_t>) {
             std::cout << "error: cannot load a" << (is_64_bit ? "64" : "32") << "-bit"
                       << " index into a " << (is_64_bit ? "32" : "64") << "-bit index-object" << std::flush;

@@ -28,7 +28,7 @@
 #include <iostream>
 #include <move_r/move_r.hpp>
 
-int ptr = 1;
+int arg_idx = 1;
 bool output_occurrences = false;
 bool check_correctness = false;
 std::string input;
@@ -59,28 +59,28 @@ void help(std::string msg)
     exit(0);
 }
 
-void parse_args(char** argv, int argc, int& ptr)
+void parse_args(char** argv, int argc)
 {
-    std::string s = argv[ptr];
-    ptr++;
+    std::string s = argv[arg_idx];
+    arg_idx++;
 
     if (s == "-c") {
         check_correctness = true;
     } else if (s == "-m") {
-        if (ptr >= argc - 1) help("error: missing parameter after -o option.");
-        std::string path_m_file = argv[ptr++];
+        if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
+        std::string path_m_file = argv[arg_idx++];
         mf.open(path_m_file, std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
         if (!mf.good()) help("error: cannot open nor create <m_file>");
-        name_text_file = argv[ptr++];
+        name_text_file = argv[arg_idx++];
     } else if (s == "-i") {
-        if (ptr >= argc - 1) help("error: missing parameter after -i option.");
-        path_input_file = argv[ptr++];
+        if (arg_idx >= argc - 1) help("error: missing parameter after -i option.");
+        path_input_file = argv[arg_idx++];
         input_file.open(path_input_file);
         if (!input_file.good()) help("error: cannot open <input_file>");
     } else if (s == "-o") {
-        if (ptr >= argc - 1) help("error: missing parameter after -o option.");
+        if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
         output_occurrences = true;
-        path_output_file = argv[ptr++];
+        path_output_file = argv[arg_idx++];
     } else {
         help("error: unrecognized '" + s + "' option");
     }
@@ -203,10 +203,10 @@ void measure_locate()
 int main(int argc, char** argv)
 {
     if (argc < 3) help("");
-    while (ptr < argc - 2) parse_args(argv, argc, ptr);
+    while (arg_idx < argc - 2) parse_args(argv, argc);
 
-    path_index_file = argv[ptr];
-    path_patterns_file = argv[ptr + 1];
+    path_index_file = argv[arg_idx];
+    path_patterns_file = argv[arg_idx + 1];
 
     index_file.open(path_index_file);
     patterns_file.open(path_patterns_file);

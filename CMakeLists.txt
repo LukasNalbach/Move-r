@@ -120,25 +120,26 @@ if(MOVE_R_BUILD_CLI)
   add_executable(move-r-patterns cli/move-r/move-r-patterns.cpp)
 
   add_executable(move-rb-build cli/move-rb/move-rb-build.cpp)
+  add_executable(move-rb-revert cli/move-rb/move-rb-revert.cpp)
   add_executable(move-rb-count cli/move-rb/move-rb-count.cpp)
   add_executable(move-rb-locate cli/move-rb/move-rb-locate.cpp)
-  add_executable(move-rb-patterns cli/move-rb/move-rb-patterns.cpp)
+  add_executable(patterns-to-reads cli/patterns-to-reads.cpp)
 
   target_link_libraries(move-r-build PRIVATE move_r)
-  target_link_libraries(move-rb-build PRIVATE move_r)
   target_link_libraries(move-r-revert PRIVATE move_r)
   target_link_libraries(move-r-count PRIVATE move_r)
   target_link_libraries(move-r-locate PRIVATE move_r)
   target_link_libraries(move-r-patterns PRIVATE move_r)
 
   target_link_libraries(move-rb-build PRIVATE move_r)
+  target_link_libraries(move-rb-revert PRIVATE move_r)
   target_link_libraries(move-rb-count PRIVATE move_r)
   target_link_libraries(move-rb-locate PRIVATE move_r)
-  target_link_libraries(move-rb-patterns PRIVATE move_r)
+  target_link_libraries(patterns-to-reads PRIVATE move_r)
 
   set_target_properties(
     move-r-build move-r-revert move-r-count move-r-locate move-r-patterns
-    move-rb-build move-rb-count move-rb-locate move-rb-patterns
+    move-rb-build move-rb-revert move-rb-count move-rb-locate patterns-to-reads
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/"
   )
 endif()

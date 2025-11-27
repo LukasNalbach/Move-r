@@ -151,6 +151,12 @@ void log_message(std::string message)
     std::cout << message << std::flush;
 }
 
+void print_search_scheme_error()
+{
+    std::cout << "Error: malformed header in search scheme file" << std::endl;
+    exit(0);
+}
+
 void print_header_error()
 {
     std::cout << "Error: malformed header in patterns file" << std::endl;
@@ -158,58 +164,44 @@ void print_header_error()
     exit(0);
 }
 
-uint64_t number_of_patterns(std::string header)
+int64_t value_from_key(std::string str, std::string key)
 {
-    uint64_t start_pos = header.find("number=");
+    uint64_t start_pos = str.find(key);
 
-    if (start_pos == std::string::npos or start_pos + 7 >= header.size()) {
-        print_header_error();
+    if (start_pos == std::string::npos || start_pos + key.size() >= str.size()) {
+        return -1;
     }
 
-    start_pos += 7;
-    uint64_t end_pos = header.substr(start_pos).find(" ");
+    start_pos += key.size();
+    uint64_t end_pos = std::min(str.size(), str.substr(start_pos).find(" "));
 
     if (end_pos == std::string::npos) {
+        return -1;
+    }
+
+    return std::atoi(str.substr(start_pos).substr(0, end_pos).c_str());
+}
+
+uint64_t number_of_patterns(std::string header)
+{
+    int64_t num = value_from_key(header, "number=");
+
+    if (num == -1) {
         print_header_error();
     }
 
-    return std::atoi(header.substr(start_pos).substr(0, end_pos).c_str());
+    return num;
 }
 
 uint64_t patterns_length(std::string header)
 {
-    uint64_t start_pos = header.find("length=");
+    int64_t len = value_from_key(header, "length=");
 
-    if (start_pos == std::string::npos or start_pos + 7 >= header.size()) {
+    if (len == -1) {
         print_header_error();
     }
 
-    start_pos += 7;
-    uint64_t end_pos = header.substr(start_pos).find(" ");
-
-    if (end_pos == std::string::npos) {
-        print_header_error();
-    }
-
-    return std::atoi(header.substr(start_pos).substr(0, end_pos).c_str());
-}
-
-uint64_t num_direction_switches(std::string header)
-{
-    uint64_t start_pos = header.find("switches=");
-
-    if (start_pos == std::string::npos or start_pos + 9 >= header.size()) {
-        print_header_error();
-    }
-
-    start_pos += 9;
-    uint64_t end_pos = header.substr(start_pos).find(" ");
-
-    if (end_pos == std::string::npos) {
-        print_header_error();
-    }
-
-    return std::atoi(header.substr(start_pos).substr(0, end_pos).c_str());
+    return len;
 }
 
 void read_from_file(std::istream& in, const char* data, uint64_t size)
@@ -648,4 +640,43 @@ inp_t random_repetitive_input(
     }
 
     return input;
+}
+
+struct empty_t {};
+
+inline static uint32_t fmix32(uint32_t x) {
+    x ^= x >> 16;
+    x *= 0x85ebca6bU;
+    x ^= x >> 13;
+    x *= 0xc2b2ae35U;
+    x ^= x >> 16;
+    return x;
+}
+
+inline static uint64_t mix64(uint64_t x) {
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+}
+
+template <class pos_t>
+inline static std::size_t pos_hash(pos_t l) {
+    static_assert(std::is_same_v<pos_t, uint32_t> || std::is_same_v<pos_t, uint64_t>);
+
+    if constexpr (sizeof(pos_t) == 4) {
+        return (std::size_t) fmix32(l);
+    } else {
+        return mix64(l);
+    }
+}
+
+uint64_t hamming_dist(const std::string &str_1, const std::string &str_2) {
+    uint64_t dist = 0;
+
+    for (uint64_t i = 0; i < str_1.size(); i++) {
+        dist += (str_1[i] != str_2[i]);
+    }
+
+    return dist;
 }

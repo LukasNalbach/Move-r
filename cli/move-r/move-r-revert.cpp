@@ -28,8 +28,8 @@
 #include <iostream>
 #include <move_r/move_r.hpp>
 
-int ptr = 1;
-uint16_t p = 1;
+int arg_idx = 1;
+uint16_t p = omp_get_max_threads();
 bool revert_in_memory = false;
 std::string path_index_file;
 std::string path_outputfile;
@@ -54,22 +54,22 @@ void help(std::string msg)
     exit(0);
 }
 
-void parse_args(char** argv, int argc, int& ptr)
+void parse_args(char** argv, int argc)
 {
-    std::string s = argv[ptr];
-    ptr++;
+    std::string s = argv[arg_idx];
+    arg_idx++;
 
     if (s == "-m") {
-        if (ptr >= argc - 1) help("error: missing parameter after -m option");
-        std::string path_m_file = argv[ptr++];
+        if (arg_idx >= argc - 1) help("error: missing parameter after -m option");
+        std::string path_m_file = argv[arg_idx++];
         mf.open(path_m_file, std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
         if (!mf.good()) help("error: cannot open nor create <m_file>");
-        name_text_file = argv[ptr++];
+        name_text_file = argv[arg_idx++];
     } else if (s == "-im") {
         revert_in_memory = true;
     } else if (s == "-p") {
-        if (ptr >= argc - 1) help("error: missing parameter after -p option");
-        p = atoi(argv[ptr++]);
+        if (arg_idx >= argc - 1) help("error: missing parameter after -p option");
+        p = atoi(argv[arg_idx++]);
         if (p < 1) help("error: p < 1");
         if (p > omp_get_max_threads()) help("error: p > number of available threads");
     } else {
@@ -147,14 +147,11 @@ void measure_revert()
 
 int main(int argc, char** argv)
 {
-    if (argc < 3)
-        help("");
-        
-    while (ptr < argc - 2)
-        parse_args(argv, argc, ptr);
+    if (argc < 3) help("");
+    while (arg_idx < argc - 2) parse_args(argv, argc);
 
-    path_index_file = argv[ptr];
-    path_outputfile = argv[ptr + 1];
+    path_index_file = argv[arg_idx];
+    path_outputfile = argv[arg_idx + 1];
 
     index_file.open(path_index_file);
     output_file.open(path_outputfile);

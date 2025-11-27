@@ -46,7 +46,7 @@ protected:
 public:
     r_index_rlzsa() = default;
 
-    r_index_rlzsa(std::string& input, bool use_bigbwt = false = true, bool use_r_index_samples = false, bool log = false)
+    r_index_rlzsa(std::string& input, bool use_bigbwt = false, bool use_r_index_samples = false, bool log = false)
     {
         auto time_start = now();
         auto time = time_start;

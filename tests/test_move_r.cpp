@@ -123,7 +123,7 @@ void test_move_r()
 
     input.push_back(uchar_to_char((uint8_t)0));
     no_init_resize(suffix_array, input_size + 1);
-    libsais_omp((uint8_t*)&input[0], &suffix_array[0], input_size + 1, 0, nullptr, max_num_threads);
+    libsais_omp((uint8_t*)&input[0], &suffix_array[0], input_size + 1, 0, NULL, max_num_threads);
 
     if (contains(alphabet, (uint8_t)0)) {
         for (uint32_t i = 0; i < input_size; i++)
@@ -132,6 +132,7 @@ void test_move_r()
         unmap_uchar.clear();
     }
 
+    input.resize(input_size);
     suffix_array_retrieved = index.SA_range({ .num_threads = num_threads_distrib(gen) });
 
     #pragma omp parallel for num_threads(max_num_threads)
@@ -172,7 +173,7 @@ void test_move_r()
     #pragma omp parallel num_threads(max_num_threads)
     {
         std::random_device rd_thr;
-        std::mt19937 gen_thr(rd());
+        std::mt19937 gen_thr(rd_thr());
         uint32_t pattern_pos;
         uint32_t pattern_length;
         std::string pattern;
@@ -182,7 +183,7 @@ void test_move_r()
 
         for (uint32_t cur_query = 0; cur_query < num_queries; cur_query++) {
             pattern_pos = pattern_pos_distrib(gen_thr);
-            pattern_length = std::min<uint32_t>(input_size - pattern_pos, pattern_length_distrib(gen));
+            pattern_length = std::min<uint32_t>(input_size - pattern_pos, pattern_length_distrib(gen_thr));
             no_init_resize(pattern, pattern_length);
 
             for (uint32_t i = 0; i < pattern_length; i++)
@@ -206,7 +207,6 @@ void test_move_r()
             ips4o::sort(occurrences.begin(), occurrences.end());
             EXPECT_EQ(occurrences, correct_occurrences);
             occurrences.clear();
-            
             auto query = index.query();
             for (int32_t i = pattern.size() - 1; i >= 0; i--)
                 query.prepend(pattern[i]);
@@ -216,7 +216,7 @@ void test_move_r()
                 occurrences = query.locate();
             } else {
                 for (int32_t i = 0; i < query.num_occ(); i++) {
-                    if (prob_distrib(gen) < 1 / (double) query.num_occ()) {
+                    if (prob_distrib(gen_thr) < 1 / (double) query.num_occ()) {
                         std::vector<uint32_t> remaining_occurrences = query.locate();
                         occurrences.insert(occurrences.end(),
                             remaining_occurrences.begin(), remaining_occurrences.end());
