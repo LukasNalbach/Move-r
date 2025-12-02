@@ -30,96 +30,62 @@
 std::random_device rd;
 std::mt19937 gen(rd());
 uint16_t max_num_threads = omp_get_max_threads();
+char min_uchar = std::numeric_limits<char>::min();
+char max_uchar = std::numeric_limits<char>::max() - 2;
+uint64_t min_input_size = 1;
+uint64_t max_input_size = 200000;
 uint8_t mismatches_limit = 10;
 
-std::lognormal_distribution<double> avg_input_rep_length_distrib(4.0, 2.0);
 std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
-std::uniform_int_distribution<uint8_t> alphabet_size_distrib(1, 254);
-std::uniform_int_distribution<uint8_t> uchar_distrib(0, 255);
-std::uniform_int_distribution<uint32_t> input_size_distrib(1, 200000);
 std::uniform_int_distribution<uint16_t> num_threads_distrib(1, max_num_threads);
 std::lognormal_distribution<double> a_distrib(2.0, 3.0);
 
-uint32_t input_size;
-uint8_t alphabet_size;
-std::string input;
-uint32_t max_pattern_length;
-uint32_t num_queries;
-
-template <move_r_support support>
+template <typename pos_t, move_r_support support>
 void test_move_rb()
 {
-    // choose a random input length
-    input_size = input_size_distrib(gen);
-
-    // choose a random alphabet size
-    alphabet_size = alphabet_size_distrib(gen);
-
-    // choose a random alphabet
-    std::vector<uint8_t> alphabet;
-    alphabet.reserve(alphabet_size);
-    uint8_t uchar;
-
-    for (uint32_t i = 0; i < alphabet_size; i++) {
-        do {
-            uchar = uchar_distrib(gen);
-        } while (contains(alphabet, uchar));
-
-        alphabet.push_back(uchar);
-    }
-
-    // choose a random input based on the alphabet
-    std::uniform_int_distribution<uint8_t> char_idx_distrib(0, alphabet_size - 1);
-    double avg_input_rep_length = 1.0 + avg_input_rep_length_distrib(gen);
-    uint8_t cur_uchar = alphabet[char_idx_distrib(gen)];
-    input.reserve(input_size);
-
-    for (uint32_t i = 0; i < input_size; i++) {
-        if (prob_distrib(gen) < 1 / avg_input_rep_length)
-            cur_uchar = alphabet[char_idx_distrib(gen)];
-
-        input.push_back(uchar_to_char(cur_uchar));
-    }
+    // generate a random input
+    std::string input = random_repetitive_input<std::string>(min_input_size, max_input_size, min_uchar, max_uchar);
+    pos_t input_size = input.size();
 
     // build move-r and choose a random number of threads and balancing parameter, but always use libsais,
     // because there are bugs in Big-BWT that come through during fuzzing but not really in practice
-    move_rb<support, char, uint32_t> index(input, {
+    move_rb<support, char, pos_t> index(input, {
         .mode = _suffix_array,
         .num_threads = num_threads_distrib(gen),
         .a = std::min<uint16_t>(2 + a_distrib(gen), 32767)
     });
 
     // generate patterns from the input and test count- and locate queries
-    std::uniform_int_distribution<uint32_t> pattern_pos_distrib(0, input_size - 1);
-    max_pattern_length = std::min<uint32_t>(10000, std::max<uint32_t>(100, input_size / 1000));
-    std::uniform_int_distribution<uint32_t> pattern_length_distrib(1, max_pattern_length);
-    num_queries = std::min<uint32_t>(1000, std::max<uint32_t>(100, input_size / 1000));
-    num_queries = std::max<uint32_t>(1, num_queries / max_num_threads);
+    std::uniform_int_distribution<pos_t> pattern_pos_distrib(0, input_size - 1);
+    pos_t max_pattern_length = std::min<pos_t>(10000, std::max<pos_t>(100, input_size / 1000));
+    std::uniform_int_distribution<pos_t> pattern_length_distrib(1, max_pattern_length);
+    pos_t num_queries = std::min<pos_t>(1000, std::max<pos_t>(100, input_size / 1000));
+    num_queries = std::max<pos_t>(1, num_queries / max_num_threads);
 
     #pragma omp parallel num_threads(max_num_threads)
     {
         std::random_device rd_thr;
         std::mt19937 gen_thr(rd_thr());
-        uint32_t pattern_pos;
-        uint32_t pattern_length;
+        pos_t pattern_pos;
+        pos_t pattern_length;
         std::string pattern;
-        std::vector<uint32_t> correct_occurrences;
-        std::vector<uint32_t> occurrences;
+        std::vector<pos_t> correct_occurrences;
+        std::vector<pos_t> occurrences;
 
-        for (uint32_t cur_query = 0; cur_query < num_queries; cur_query++) {
+        for (pos_t cur_query = 0; cur_query < num_queries; cur_query++) {
             pattern_pos = pattern_pos_distrib(gen_thr);
-            pattern_length = std::min<uint32_t>(input_size - pattern_pos, pattern_length_distrib(gen_thr));
-            uint32_t max_mismatches = std::uniform_int_distribution<uint32_t>(0,
-                std::min<uint32_t>(mismatches_limit, pattern_length - 1))(gen_thr);
+            pattern_length = std::min<pos_t>(input_size - pattern_pos, pattern_length_distrib(gen_thr));
+            uint max_mismatches = std::uniform_int_distribution<pos_t>(0,
+                std::min<pos_t>(mismatches_limit, pattern_length - 1))(gen_thr);
             no_init_resize(pattern, pattern_length);
 
-            for (uint32_t i = 0; i < pattern_length; i++)
+            for (pos_t i = 0; i < pattern_length; i++)
                 pattern[i] = input[pattern_pos + i];
 
-            for (uint32_t i = 0; i <= input_size - pattern_length; i++) {
-                uint32_t mismatches = 0;
+            for (pos_t i = 0; i <= input_size - pattern_length; i++) {
+                pos_t mismatches = 0;
 
-                for (uint32_t j = 0; j < pattern_length; j++) {
+                for (pos_t j = 0; j < pattern_length; j++) {
                     if (input[i + j] != pattern[j]) mismatches++;
                     if (mismatches > max_mismatches) break;
                 }
@@ -146,9 +112,17 @@ TEST(test_move_rb, fuzzy_test)
 
     while (time_diff_min(start_time, now()) < 60) {
         if (prob_distrib(gen) < 0.5) {
-          test_move_rb<_locate_move>();
+            if (prob_distrib(gen) < 0.5) {
+                test_move_rb<uint32_t, _locate_move>();
+            } else {
+                test_move_rb<uint64_t, _locate_move>();
+            }
         } else {
-            test_move_rb<_locate_rlzsa>();
+            if (prob_distrib(gen) < 0.5) {
+                test_move_rb<uint32_t, _locate_rlzsa>();
+            } else {
+                test_move_rb<uint64_t, _locate_rlzsa>();
+            }
         }
     }
 }
