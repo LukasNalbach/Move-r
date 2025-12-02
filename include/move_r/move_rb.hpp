@@ -608,13 +608,13 @@ public:
         }
 
         if (params.mode == _suffix_array) {
-            build<false, int32_t>(input, params);
-        } else {
-            if (n <= std::numeric_limits<int32_t>::max()) {
-                build<true, int32_t>(input, params);
+            if (std::is_same_v<pos_t, uint32_t> && n <= std::numeric_limits<int32_t>::max()) {
+                build<false, int32_t>(input, params);
             } else {
-                build<true, int64_t>(input, params);
+                build<false, int64_t>(input, params);
             }
+        } else {
+            build<true, int32_t>(input, params);
         }
     }
 
@@ -1597,7 +1597,8 @@ public:
                     ctx.smpl_end<rev_dir>() = smpl_end<rev_dir>();
                 }
 
-                assert(ctx.s_b.t || ctx.s_e.t || ctx.s_b_R.t || ctx.s_e_R.t);
+                assert(ctx.s_b.t   != NO_SAMPLE || ctx.s_e.t   != NO_SAMPLE ||
+                       ctx.s_b_R.t != NO_SAMPLE || ctx.s_e_R.t != NO_SAMPLE);
             }
             
             ext_ctx.b_R_nxt = ctx.end<rev_dir>() + 1;
@@ -1665,13 +1666,13 @@ public:
          */
         inline pos_t first_occ(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx)
         {
-            if (ctx.s_b.t) {
+            if (ctx.s_b.t != NO_SAMPLE) {
                 i = ctx.b + ctx.s_b.o;
                 SA_i = (ctx.s_b.t == RUN_START ? idx.idx_fwd.SA_s(ctx.s_b.x) : idx.idx_fwd.SA_s_(ctx.s_b.x)) - ctx.s_b.i;
-            } else if (ctx.s_e.t) {
+            } else if (ctx.s_e.t != NO_SAMPLE) {
                 i = ctx.e - ctx.s_e.o;
                 SA_i = (ctx.s_e.t == RUN_START ? idx.idx_fwd.SA_s(ctx.s_e.x) : idx.idx_fwd.SA_s_(ctx.s_e.x)) - ctx.s_e.i;
-            } else if (ctx.s_b_R.t) {
+            } else if (ctx.s_b_R.t != NO_SAMPLE) {
                 if (ctx.s_b_R.t == RUN_START) {
                     i = idx._SA_sR_m1[ctx.s_b_R.x];
                     SA_i = idx.n - idx.idx_bwd.SA_s(ctx.s_b_R.x) - (ctx.m - ctx.s_b_R.i + 1);
@@ -1686,7 +1687,7 @@ public:
                 for (pos_t j = 0; j < ctx.m - ctx.s_b_R.i; j++) {
                     idx.idx_fwd.M_LF().move(i, i_);
                 }
-            } else /* if (ctx.s_e_R.t) */ {
+            } else /* if (ctx.s_e_R.t != NO_SAMPLE) */ {
                 if (ctx.s_e_R.t == RUN_START) {
                     i = idx._SA_sR_m1[ctx.s_e_R.x];
                     SA_i = idx.n - idx.idx_bwd.SA_s(ctx.s_e_R.x) - (ctx.m - ctx.s_e_R.i + 1);
@@ -2039,13 +2040,13 @@ public:
 
         std::vector<search_state_t> nav_stack;
         auto init_ctx = search<query_support>();
-        pos_t l = m / parts;
+        pos_t part_len = m / parts;
 
         for (uint8_t s_idx = 0; s_idx < scheme.searches.size(); s_idx++) {
             const search_t& search = scheme.searches[s_idx];
 
-            pos_t init_beg = search[0].part * l;
-            pos_t init_end = (search[0].part + 1) == parts ? m : ((search[0].part + 1) * l);
+            pos_t init_beg = search[0].part * part_len;
+            pos_t init_end = (search[0].part + 1) == parts ? m : ((search[0].part + 1) * part_len);
             direction init_dir = search[1].part < search[0].part ? LEFT : RIGHT;
             pos_t init_pos = init_dir == LEFT ? init_end - 1 : init_beg;
 
@@ -2056,8 +2057,8 @@ public:
                 nav_stack.pop_back();
                 
                 pos_t part = search[p_idx].part;
-                pos_t beg = part * l;
-                pos_t end = (part + 1) == parts ? m : ((part + 1) * l);
+                pos_t beg = part * part_len;
+                pos_t end = (part + 1) == parts ? m : ((part + 1) * part_len);
                 direction dir = p_idx == 0 ? init_dir : (part < search[p_idx - 1].part ? LEFT : RIGHT);
 
                 uint8_t p_idx_nxt = p_idx;
@@ -2073,8 +2074,8 @@ public:
                     if (p_idx_nxt < parts) {
                         pos_t part_nxt = search[p_idx_nxt].part;
                         dir_nxt = part_nxt < part ? LEFT : RIGHT;
-                        beg_nxt = part_nxt * l;
-                        end_nxt = (part_nxt + 1) == parts ? m : ((part_nxt + 1) * l);
+                        beg_nxt = part_nxt * part_len;
+                        end_nxt = (part_nxt + 1) == parts ? m : ((part_nxt + 1) * part_len);
                         pos_nxt = dir_nxt == LEFT ? end_nxt - 1 : beg_nxt;
                         ext_rem = end_nxt - beg_nxt;
                     } else {
