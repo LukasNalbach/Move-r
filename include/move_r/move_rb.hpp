@@ -853,7 +853,6 @@ public:
             }
         };
 
-
         /**
          * @brief returns the last-added symbol
          * @return the last-added symbol
@@ -1930,19 +1929,19 @@ public:
     }
 
     /**
-     * @brief searches for a substring P[part_len,r) of a P
+     * @brief searches for a substring P[l,r) of a P
      * @param P the pattern to search
-     * @param part_len left substring boundary
+     * @param l left substring boundary
      * @param r right substring boundary
-     * @return search context of P[part_len,r)
+     * @return search context of P[l,r)
      */
     template <move_rb_query_support_t query_support>
-    inline search_context_t<query_support> search(const inp_t& P, pos_t part_len = 0, pos_t r = std::numeric_limits<pos_t>::max()) const
+    inline search_context_t<query_support> search_substring(const inp_t& P, pos_t l = 0, pos_t r = std::numeric_limits<pos_t>::max()) const
     {
         r = std::min<pos_t>(r, P.size() - 1);
         auto ctx = search<query_support>();
 
-        for (int64_t i = r; i >= part_len; i--) {
+        for (int64_t i = r; i >= l; i--) {
             if (!ctx.prepend(*this, P[i])) {
                 return search<query_support>();
             }
@@ -1961,6 +1960,10 @@ public:
      */
     pos_t count_with_mismatches(const inp_t& P, const search_scheme_t& scheme) const
     {
+        if (scheme.k_max == 0) {
+            return forward_index().count(P);
+        }
+
         auto ctxts = execute_search_scheme<COUNT>(P, scheme);
         pos_t count = 0;
 
@@ -1975,10 +1978,14 @@ public:
      * @brief locaes a pattern with at most k_max mismatches
      * @param P the pattern to search
      * @param scheme the search scheme to use (provides k_max)
-     * @param Occ vector to append all occurrences of P in T with at most k_max mismatches to
+     * @return occurrences of P in T with at most k_max mismatches
      */
-    void locate_with_mismatches(const inp_t& P, const search_scheme_t& scheme, std::vector<pos_t>& Occ) const
+    std::vector<pos_t> locate_with_mismatches(const inp_t& P, const search_scheme_t& scheme) const
     {
+        if (scheme.k_max == 0) {
+            return forward_index().locate(P);
+        }
+
         auto ctxts = execute_search_scheme<LOCATE>(P, scheme);
         pos_t count = 0;
 
@@ -1986,157 +1993,19 @@ public:
             count += ctx.num_occ();
         }
 
+        std::vector<pos_t> Occ;
         Occ.reserve(Occ.size() + count);
 
         for (auto ctx: ctxts) {
             ctx.locate_phase().locate(*this, ctx, Occ);
         }
-    }
 
-    /**
-     * @brief locaes a pattern with at most k_max mismatches
-     * @param P the pattern to search
-     * @param scheme the search scheme to use (provides k_max)
-     * @return occurrences of P in T with at most k_max mismatches
-     */
-    std::vector<pos_t> locate_with_mismatches(const inp_t& P, const search_scheme_t& scheme) const
-    {
-        std::vector<pos_t> Occ;
-        locate_with_mismatches(P, scheme, Occ);
         return Occ;
     }
     
     // type of hashset to store search contexts in
     template <move_rb_query_support_t query_support>
     using search_context_set_t = tsl::sparse_set<search_context_t<query_support>, typename search_context_t<query_support>::hash>;
-
-    /**
-     * @brief searches for a pattern P of length m with at most k_max mismatches in the regions P[0, m1) and P[m2, m)
-     * @param P the pattern to search
-     * @param m1 first divide position
-     * @param m2 second divide position
-     * @param k_max maximum number of mismatches
-     * @return all search contexts of P in T with at most k_max mismatches in the regions P[0, m1) and P[m2, m)
-     */
-    template <move_rb_query_support_t query_support>
-    search_context_set_t<query_support> seed_and_extend(const inp_t& P, pos_t m1, pos_t m2, pos_t k_max) const
-    {
-        const pos_t m = P.size();
-        search_context_set_t<query_support> ctxts;
-
-        if (m == 0) return ctxts;
-        if (k_max == 0) [[unlikely]] {
-            auto ctx = search<query_support>(P, 0, m - 1);
-            if (ctx.is_valid()) ctxts.emplace(ctx);
-            return ctxts;
-        }
-
-        auto init_ctx = search<query_support>(P, m1, m2 - 1);
-        if (!init_ctx.is_valid()) return ctxts;
-
-        std::vector<std::tuple<search_context_t<query_support>, direction, pos_t>> nav_stack;
-
-        uint64_t max_depth = m1 + m - m2;
-        nav_stack.reserve(max_depth);
-
-        extend_seed<query_support>(P, m, k_max, m1, RIGHT, ctxts, nav_stack, init_ctx);
-
-        return ctxts;
-    }
-
-    protected:
-
-    /**
-     * @brief extends the search context init_ctx of P[part_len, k_max + len(init_ctx)) to the left and right,
-     *        allowing at most k_max mismatches, and adds all resulting search contexts to ctxts
-     * @param P the pattern to search
-     * @param m the length m = |P| of the pattern
-     * @param k_max maximum number of mismatches
-     * @param part_len beginning of the matched part in P
-     * @param init_dir direction to start matching
-     * @param ctxts hashset storing all found search contexts
-     * @param nav_stack navigation stack
-     * @param init_ctx search context to extend
-     */
-    template <move_rb_query_support_t query_support>
-    void extend_seed(
-        const inp_t& P, pos_t m, pos_t k_max, pos_t part_len, direction init_dir,
-        search_context_set_t<query_support>& ctxts,
-        std::vector<std::tuple<search_context_t<query_support>, direction, pos_t>>& nav_stack,
-        search_context_t<query_support> init_ctx
-    ) const {
-        if (!init_ctx.is_valid()) return;
-        nav_stack.emplace_back(init_ctx, init_dir, k_max);
-
-        while (!nav_stack.empty()) {
-            auto [ctx, dir, k_cur] = nav_stack.back(); nav_stack.pop_back();
-            pos_t len = ctx.length();
-
-            if (dir == RIGHT) {
-                pos_t r_cur = part_len + len;
-                sym_t sym = P[r_cur];
-
-                if (k_cur == 0) {
-                    if (!ctx.append(*this, sym)) continue;
-                    auto dir_nxt = (r_cur >= m - 1) ? LEFT : RIGHT;
-
-                    if (part_len == 0 && dir_nxt == LEFT) {
-                        ctxts.emplace(ctx);
-                    } else {
-                        nav_stack.emplace_back(ctx, dir_nxt, k_cur);
-                    }
-                } else {
-                    auto ext_ctx = ctx.prepare_append(*this);
-                    auto dir_nxt = (part_len + ctx.length() + 1 >= m) ? LEFT : RIGHT;
-
-                    while (ext_ctx.can_extend(*this)) {
-                        auto ctx_nxt = ctx.append_next(*this, ext_ctx);
-                        pos_t k_nxt = k_cur - (sym != ctx_nxt.last_added_symbol());
-
-                        if (part_len == 0 && dir_nxt == LEFT) {
-                            ctxts.emplace(ctx_nxt);
-                        } else {
-                            nav_stack.emplace_back(ctx_nxt, dir_nxt, k_nxt);
-                        }
-                    }
-                }
-            } else {
-                pos_t l_cur = m - len - 1;
-                sym_t sym = P[l_cur];
-
-                if (k_cur == 0) {
-                    if (!ctx.prepend(*this, sym)) continue;
-
-                    if (l_cur == 0) {
-                        ctxts.emplace(ctx);
-                    } else {
-                        nav_stack.emplace_back(ctx, LEFT, k_cur);
-                    }
-                } else {
-                    auto ext_ctx = ctx.prepare_prepend(*this);
-
-                    while (ext_ctx.can_extend(*this)) {
-                        auto ctx_nxt = ctx.prepend_next(*this, ext_ctx);
-
-                        if (ctx_nxt.length() == m) {
-                            ctxts.emplace(ctx_nxt);
-                        } else {
-                            pos_t k_nxt = k_cur - (sym != ctx_nxt.last_added_symbol());
-                            nav_stack.emplace_back(ctx_nxt, LEFT, k_nxt);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    template <move_rb_query_support_t query_support>
-    using search_state_t = std::tuple<
-        search_context_t<query_support>, // ctx
-        uint8_t, // k
-        uint8_t, // p_idx
-        pos_t // pos
-    >;
 
     /**
      * @brief executes a given search scheme for a pattern
@@ -2153,32 +2022,42 @@ public:
         const distance_metric_t& dist_metr = scheme.dist_metr;
 
         if (k_max == 0) [[unlikely]] {
-            auto ctx = search<query_support>(P, 0, m - 1);
+            auto ctx = search_substring<query_support>(P, 0, m - 1);
             if (ctx.is_valid()) ctxts.emplace(ctx);
             return ctxts;
         }
         
         uint8_t parts = scheme.parts;
         assert(parts <= m);
-        std::vector<search_state_t<query_support>> nav_stack;
+
+        using search_state_t = std::tuple<
+            search_context_t<query_support>, // ctx
+            uint8_t, // k
+            uint8_t, // p_idx
+            pos_t // pos
+        >;
+
+        std::vector<search_state_t> nav_stack;
         auto init_ctx = search<query_support>();
-        pos_t part_len = m / parts;
+        pos_t l = m / parts;
 
         for (uint8_t s_idx = 0; s_idx < scheme.searches.size(); s_idx++) {
             const search_t& search = scheme.searches[s_idx];
-            pos_t init_beg = search[0].part * part_len;
-            pos_t init_end = (search[0].part + 1) == parts ? m : ((search[0].part + 1) * part_len);
+
+            pos_t init_beg = search[0].part * l;
+            pos_t init_end = (search[0].part + 1) == parts ? m : ((search[0].part + 1) * l);
             direction init_dir = search[1].part < search[0].part ? LEFT : RIGHT;
             pos_t init_pos = init_dir == LEFT ? init_end - 1 : init_beg;
+
             nav_stack.emplace_back(search_state_t{init_ctx, 0, 0, init_pos});
             
             while (!nav_stack.empty()) {
                 auto [ctx, k, p_idx, pos] = nav_stack.back();
                 nav_stack.pop_back();
-
+                
                 pos_t part = search[p_idx].part;
-                pos_t beg = part * part_len;
-                pos_t end = (part + 1) == parts ? m : ((part + 1) * part_len);
+                pos_t beg = part * l;
+                pos_t end = (part + 1) == parts ? m : ((part + 1) * l);
                 direction dir = p_idx == 0 ? init_dir : (part < search[p_idx - 1].part ? LEFT : RIGHT);
 
                 uint8_t p_idx_nxt = p_idx;
@@ -2194,8 +2073,8 @@ public:
                     if (p_idx_nxt < parts) {
                         pos_t part_nxt = search[p_idx_nxt].part;
                         dir_nxt = part_nxt < part ? LEFT : RIGHT;
-                        beg_nxt = part_nxt * part_len;
-                        end_nxt = (part_nxt + 1) == parts ? m : ((part_nxt + 1) * part_len);
+                        beg_nxt = part_nxt * l;
+                        end_nxt = (part_nxt + 1) == parts ? m : ((part_nxt + 1) * l);
                         pos_nxt = dir_nxt == LEFT ? end_nxt - 1 : beg_nxt;
                         ext_rem = end_nxt - beg_nxt;
                     } else {
@@ -2238,7 +2117,6 @@ public:
         return ctxts;
     }
 
-    public:
     // ############################# SERIALIZATION METHODS #############################
 
     /**

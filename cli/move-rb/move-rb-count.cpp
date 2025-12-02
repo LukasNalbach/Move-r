@@ -32,7 +32,7 @@ static constexpr int min_args = 8;
 int arg_idx = 1;
 int64_t k = -1;
 distance_metric_t dist_metr = NO_METRIC;
-search_scheme_t search_scheme = {.dist_metr = NO_METRIC};
+search_scheme_t search_scheme;
 std::ofstream mf;
 std::string path_index_file;
 std::string path_patterns_file;
@@ -183,12 +183,12 @@ int main(int argc, char** argv)
     else if (str == "suffix_filter") search_scheme = suffix_filter_scheme(k, dist_metr);
     else if (str == "01")            search_scheme = zero_one_scheme(k, dist_metr);
     else if (std::filesystem::exists(str)) {
-    std::string file_content;
-    uint64_t file_size = std::filesystem::file_size(str);
-    no_init_resize(file_content, file_size);
-    std::ifstream ifile(str);
-    ifile.read(file_content.data(), file_size);
-    search_scheme = parse_search_scheme(file_content, dist_metr);
+        std::string file_content;
+        uint64_t file_size = std::filesystem::file_size(str);
+        no_init_resize(file_content, file_size);
+        std::ifstream ifile(str);
+        ifile.read(file_content.data(), file_size);
+        search_scheme = parse_search_scheme(file_content, dist_metr);
     } else help("error: invalid option after -s");
 
     if (k != search_scheme.k_max) help("error: provided search scheme and k value are not compatible");
