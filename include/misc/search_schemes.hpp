@@ -18,10 +18,10 @@ struct search_step_t {
 using search_t = std::vector<search_step_t>;
 
 struct search_scheme_t {
-    distance_metric_t dist_metr;
-    uint8_t k_max;
-    uint8_t parts;
-    std::vector<search_t> searches;
+    distance_metric_t dist_metr = NO_METRIC;
+    uint8_t k_max = 0;
+    uint8_t parts = 1;
+    std::vector<search_t> searches = {{{0, 0, 0}}};
 };
 
 static search_scheme_t pigeon_hole_scheme(uint8_t k_max, distance_metric_t dist_metr)
@@ -114,7 +114,7 @@ static search_scheme_t zero_one_scheme(uint8_t k_max, distance_metric_t dist_met
     };
 }
 
-std::vector<uint8_t> parse_bracket(std::string content, int64_t parts)
+static std::vector<uint8_t> parse_bracket(std::string content, int64_t parts)
 {
     std::replace(content.begin(), content.end(), ',', ' ');
     
@@ -161,7 +161,7 @@ static search_scheme_t parse_search_scheme(const std::string& str, distance_metr
             if (end == std::string::npos) break;
 
             std::string content = line.substr(pos + 1, end - pos - 1);
-            bracket_contents.push_back(parse_bracket(content, parts));
+            bracket_contents.emplace_back(parse_bracket(content, parts));
             
             pos = end + 1;
         }
@@ -185,7 +185,7 @@ static search_scheme_t parse_search_scheme(const std::string& str, distance_metr
             });
         }
 
-        searches.push_back(search);
+        searches.emplace_back(search);
     }
 
     return search_scheme_t {
