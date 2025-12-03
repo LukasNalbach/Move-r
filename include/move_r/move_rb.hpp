@@ -1929,28 +1929,6 @@ public:
         return search_context_t<query_support>(*this);
     }
 
-    /**
-     * @brief searches for a substring P[l,r) of a P
-     * @param P the pattern to search
-     * @param l left substring boundary
-     * @param r right substring boundary
-     * @return search context of P[l,r)
-     */
-    template <move_rb_query_support_t query_support>
-    inline search_context_t<query_support> search_substring(const inp_t& P, pos_t l = 0, pos_t r = std::numeric_limits<pos_t>::max()) const
-    {
-        r = std::min<pos_t>(r, P.size() - 1);
-        auto ctx = search<query_support>();
-
-        for (int64_t i = r; i >= l; i--) {
-            if (!ctx.prepend(*this, P[i])) {
-                return search<query_support>();
-            }
-        }
-
-        return ctx;
-    }
-
     // ############################# APPROXIMATE PATTERN MATCHING #############################
     
     /**
@@ -2021,12 +1999,6 @@ public:
         if (m == 0) return ctxts;
         uint8_t k_max = scheme.k_max;
         const distance_metric_t& dist_metr = scheme.dist_metr;
-
-        if (k_max == 0) [[unlikely]] {
-            auto ctx = search_substring<query_support>(P, 0, m - 1);
-            if (ctx.is_valid()) ctxts.emplace(ctx);
-            return ctxts;
-        }
         
         uint8_t parts = scheme.parts;
         assert(parts <= m);
@@ -2071,7 +2043,7 @@ public:
                 if (!(beg <= pos_nxt && pos_nxt < end)) [[unlikely]] {
                     p_idx_nxt = p_idx + 1;
 
-                    if (p_idx_nxt < parts) {
+                    if (p_idx_nxt < parts) [[likely]] {
                         pos_t part_nxt = search[p_idx_nxt].part;
                         dir_nxt = part_nxt < part ? LEFT : RIGHT;
                         beg_nxt = part_nxt * part_len;
@@ -2085,7 +2057,7 @@ public:
                     ext_rem = dir == LEFT ? pos - beg : (end - pos - 1);
                 }
                 
-                if (k < k_max && k < search[p_idx].k_max) {
+                if (k < k_max && k < search[p_idx].k_max) [[unlikely]] {
                     auto ext_ctx = dir == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
 
                     while (ext_ctx.can_extend(*this)) {
@@ -2093,7 +2065,7 @@ public:
                         bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
                         uint8_t k_nxt = k + is_mismatch;
 
-                        if (p_idx_nxt == parts) {
+                        if (p_idx_nxt == parts) [[unlikely]] {
                             ctxts.emplace(ctx_nxt);
                         } else if (search[p_idx_nxt].k_min <= k_nxt + ext_rem) {
                             nav_stack.emplace_back(search_state_t{ctx_nxt, k_nxt, p_idx_nxt, pos_nxt});
@@ -2103,9 +2075,9 @@ public:
                     uint8_t k_nxt = k;
 
                     if ((p_idx_nxt == parts || search[p_idx_nxt].k_min <= k_nxt + ext_rem) &&
-                        (dir == LEFT ? ctx.prepend(*this, P[pos]) : ctx.append(*this, P[pos])))
-                    {
-                        if (p_idx_nxt == parts) {
+                        (dir == LEFT ? ctx.prepend(*this, P[pos]) : ctx.append(*this, P[pos]))
+                    ) [[likely]] {
+                        if (p_idx_nxt == parts) [[unlikely]] {
                             ctxts.emplace(ctx);
                         } else {
                             nav_stack.emplace_back(search_state_t{ctx, k_nxt, p_idx_nxt, pos_nxt});

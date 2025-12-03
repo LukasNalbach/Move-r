@@ -37,12 +37,12 @@
 void help()
 {
     std::cout << "lzendsa-build: builds the Lzendsa-index from the input file." << std::endl << std::endl;
-    std::cout << "Usage: lzendsa-build [options] <text file>" << std::endl;
-    std::cout << "\t<text file>     path to the input file (should contain text)" << std::endl;
-    std::cout << "\t-o              path to the desired output file (the extension .lzendsa will be added automatically)" << std::endl;
-    std::cout << "\t-d              delta, if not provided the sample will be about 10\% of the index size" << std::endl;
-    std::cout << "\t-h              longest phrase length, leave blank or put -1 for unbounded phrase length" << std::endl;
-    std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
+    std::cout << "Usage: lzendsa-build [...] <text file>" << std::endl;
+    std::cout << "   <text file>     path to the input file (should contain text)" << std::endl;
+    std::cout << "   -o              path to the desired output file (the extension .lzendsa will be added automatically)" << std::endl;
+    std::cout << "   -d              delta, if not provided the sample will be about 10\% of the index size" << std::endl;
+    std::cout << "   -h              longest phrase length, leave blank or put -1 for unbounded phrase length" << std::endl;
+    std::cout << "   --bigbwt        use Big-BWT instead of libsais" << std::endl;
 }
 
 int main(int argc, char** argv)
@@ -55,16 +55,17 @@ int main(int argc, char** argv)
     allowed_value_options.insert("-h");
     allowed_literal_options.insert("--bigbwt");
 
-    CommandLineArguments parsed_args = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 1);
+    CommandLineArguments parsed_args = parse_args(argc, argv,
+        allowed_value_options, allowed_literal_options, 1);
 
     if (!parsed_args.success) {
         help();
         return -1;
     }
 
-    std::string o = parsed_args.last_parameter.at(0);
+    std::string o = parsed_args.last_param.at(0);
     o.append(".lzendsa");
-    std::string filepath = parsed_args.last_parameter.at(0);
+    std::string filepath = parsed_args.last_param.at(0);
     std::string file_name = filepath.substr(filepath.find_last_of("/\\") + 1);
     bool use_bigbwt = false;
     int64_t d = -1;
@@ -93,7 +94,7 @@ int main(int argc, char** argv)
     if (use_bigbwt) {
         input = filepath;
     } else {
-        std::ifstream ifs(parsed_args.last_parameter.at(0));
+        std::ifstream ifs(parsed_args.last_param.at(0));
         input = std::string(std::istreambuf_iterator<char>(ifs), {});
     }
 
@@ -127,13 +128,13 @@ int main(int argc, char** argv)
     std::ofstream out(o);
 
     if (n <= std::numeric_limits<int32_t>::max()) {
-        uint8_t long_integer_flag = 0;
-        out.write((char*) &long_integer_flag, sizeof(uint8_t));
+        bool is_64_bit = 0;
+        out.write((char*) &is_64_bit, sizeof(uint8_t));
         lzendsa_32.serialize(out);
         size_index += lzendsa_32.size_in_bytes();
     } else {
-        uint8_t long_integer_flag = 1;
-        out.write((char*) &long_integer_flag, sizeof(uint8_t));
+        bool is_64_bit = 1;
+        out.write((char*) &is_64_bit, sizeof(uint8_t));
         lzendsa_64.serialize(out);
         size_index += lzendsa_64.size_in_bytes();
     }

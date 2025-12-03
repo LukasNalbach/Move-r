@@ -35,9 +35,9 @@
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
-    std::cout << "patterns-to-reads: converts patterns in the Pizza&Chili" << std::endl;
+    std::cout << "patterns-to-fasta: converts patterns in Pizza&Chili" << std::endl;
     std::cout << "format to reads in the fasta format." << std::endl << std::endl;
-    std::cout << "usage: patterns-to-reads <patterns> <reads>" << std::endl;
+    std::cout << "usage: patterns-to-fasta <patterns> <reads>" << std::endl;
     std::cout << "       <patterns> is the file containing the input patterns" << std::endl;
     std::cout << "       <reads> is the output file to create" << std::endl;
     exit(0);

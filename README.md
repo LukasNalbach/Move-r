@@ -25,13 +25,21 @@ cmake ..
 cp -rf ../patched-files/* ..
 make
 ```
-This creates six executeables in the build/cli/ folder:
+This creates several executeables in the build/cli/ folder:
 - move-r-build
 - move-r-count
 - move-r-locate
 - move-r-revert
-- move-r-patterns
 - move-r-bench
+
+- move-rb-build
+- move-rb-count
+- move-rb-locate
+- move-rb-revert
+
+- gen-patterns
+- patterns-to-fasta
+- fasta-to-plain
 
 There is an explanation for each below.
 
@@ -216,7 +224,7 @@ int main()
 ## CLI-Usage
 ### move-r-build: builds move-r.
 ```
-usage: move-r-build [options] <input_file>
+usage: move-r-build [...] <input_file>
    -c <mode>           construction mode: sa or bigbwt (default: sa)
    -o <base_name>      names the index file base_name.move-r (default: input_file)
    -s <support>        support: count, locate_move, locate_rlzsa, locate_rlzsa_bin_search or locate_lzendsa
@@ -232,18 +240,19 @@ usage: move-r-build [options] <input_file>
 
 ### move-r-count: count all occurrences of the input patterns.
 ```
-usage: move-r-count <index_file> <patterns_file>
+usage: move-r-count [...] <index_file> <patterns_file>
    -m <m_file> <text_name>    m_file is the file to write measurement data to,
                               text_name should be the name of the original file
    -i <input_file>            input_file must be the file the index was built for
                               (only for locate_rlzsa_bin_search)
+                              write pattern counts to this file (in ASCII format; one line per pattern)
    <index_file>               index file (with extension .move-r)
    <patterns_file>            file in pizza&chili format containing the patterns.
 ```
 
 ### move-r-locate: locate all occurrences of the input patterns.
 ```
-usage: move-r-locate [options] <index_file> <patterns>
+usage: move-r-locate [...] <index_file> <patterns>
    -m <m_file> <text_name>    m_file is the file to write measurement data to,
                               text_name should be the name of the original file
    -i <input_file>            input_file must be the file the index was built for
@@ -256,7 +265,7 @@ usage: move-r-locate [options] <index_file> <patterns>
 
 ### move-r-revert: reconstruct the original file from the index.
 ```
-usage: move-r-revert [options] <index_file> <output_file>
+usage: move-r-revert [...] <index_file> <output_file>
    -im                        revert in memory; faster, but stores the whole
                               input in memory
    -p <integer>               number of threads to use while reverting
@@ -267,22 +276,12 @@ usage: move-r-revert [options] <index_file> <output_file>
    <output_file>              output file
 ```
 
-### move-r-patterns: generate patterns from a file.
-```
-usage: move-r-patterns <file> <length> <number> <patterns file> <forbidden>
-       randomly extracts <number> substrings of length <length> from <file>,
-       avoiding substrings containing characters in <forbidden>.
-       The output file, <patterns file> has a first line of the form:
-       # number=<number> length=<length> file=<file> forbidden=<forbidden>
-       and then the <number> patterns come successively without any separator
-```
-
 ### move-r-bench: benchmarks construction-, revert- and query-performance.
 ```
 move-r-bench: benchmarks construction- and query performance of move-r, block-rlbwt-2, block-rlbwt-v,
               block-rlbwt-r, r-index, r-index-f, rcomp-glfig and online-rlbwt;
               has to be executed from the base folder.
-usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2>
+usage 1: move-r-bench [...] <input_file> <patterns_file_1> <patterns_file_2>
    -c                 check for correctnes if possible; disables the -m option; will not print
                       runtime data if the runtime could be affected by checking for correctness
    -m <m_file>        writes measurement data to m_file
@@ -291,7 +290,7 @@ usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2>
                       to count and locate
    <patterns_file_2>  file containing patterns (pattern length << number of occurrences) from <input_file>
                       to locate
-usage 2: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>
+usage 2: move-r-bench -a [...] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>
                       constructs move_r using <num_threads> threads and measures count- and locate
                       performance of move_r for a=2, a=4, ..., a=8192.
    -m <m_file>        writes measurement data to m_file
@@ -301,6 +300,23 @@ usage 2: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file
    <patterns_file_2>  file containing patterns (pattern length << number of occurrences) from <input_file>
                       to locate
    <num_threads>   maximum number of threads to use
+```
+
+### gen-patterns: generate patterns in Pizza&Chili format from a file.
+```
+usage: gen-patterns <file> <length> <number> <patterns_file> [<forbidden>]
+   randomly extracts <number> substrings of length <length> from <file>,
+   avoiding substrings containing characters in <forbidden>.
+   The output file <patterns_file> has a first line of the form:
+   # number=<number> length=<length> file=<file> forbidden=<forbidden>
+   and then the <number> patterns come successively without any separator
+```
+
+### patterns-to-fasta: converts patterns in Pizza&Chili format to reads in the fasta format.
+```
+usage: patterns-to-fasta <patterns> <reads>
+       <patterns> is the file containing the input patterns
+       <reads> is the output file to create
 ```
 
 #### How to replicate the measurements

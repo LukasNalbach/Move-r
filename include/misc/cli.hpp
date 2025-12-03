@@ -13,7 +13,7 @@ struct Option {
 
 struct CommandLineArguments {
     std::string command;
-    std::vector<std::string> last_parameter;
+    std::vector<std::string> last_param;
     std::vector<Option> value_options;
     std::set<std::string> literal_options;
     bool success;
@@ -74,14 +74,14 @@ CommandLineArguments parse_args(
         return FAILURE;
     }
 
-    std::vector<std::string> last_parameter;
-    last_parameter.reserve(fixed_parameter_count);
+    std::vector<std::string> last_param;
+    last_param.reserve(fixed_parameter_count);
 
     while (i < argc) {
-        last_parameter.push_back(argv[i++]);
+        last_param.push_back(argv[i++]);
     }
 
-    return { command, last_parameter, value_options, literal_options, true };
+    return { command, last_param, value_options, literal_options, true };
 }
 
 std::string get_header_value(std::string header, std::string key)

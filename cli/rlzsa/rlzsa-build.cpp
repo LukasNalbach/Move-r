@@ -37,12 +37,12 @@
 void help()
 {
     std::cout << "rlzsa-build: builds the rlzsa-index from the input file." << std::endl << std::endl;
-    std::cout << "Usage: rlzsa-build [options] <text file>" << std::endl;
-    std::cout << "\t<text file>     path to the input file (should contain text)" << std::endl;
-    std::cout << "\t-o              path to the desired output file (the extension .rlzsa will be added automatically)" << std::endl;
-    std::cout << "\t-d              delta, if not provided the sample will be about 10\% of the index size" << std::endl;
-    std::cout << "\t--bigbwt        use Big-BWT instead of libsais" << std::endl;
-    std::cout << "\t--f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
+    std::cout << "Usage: rlzsa-build [...] <text file>" << std::endl;
+    std::cout << "   <text file>     path to the input file (should contain text)" << std::endl;
+    std::cout << "   -o              path to the desired output file (the extension .rlzsa will be added automatically)" << std::endl;
+    std::cout << "   -d              delta, if not provided the sample will be about 10\% of the index size" << std::endl;
+    std::cout << "   --bigbwt        use Big-BWT instead of libsais" << std::endl;
+    std::cout << "   --f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
 }
 
 int main(int argc, char** argv)
@@ -55,16 +55,17 @@ int main(int argc, char** argv)
     allowed_literal_options.insert("--f64");
     allowed_literal_options.insert("--bigbwt");
 
-    CommandLineArguments parsed_args = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 1);
+    CommandLineArguments parsed_args = parse_args(argc, argv,
+        allowed_value_options, allowed_literal_options, 1);
 
     if (!parsed_args.success) {
         help();
         return -1;
     }
 
-    std::string o = parsed_args.last_parameter.at(0);
+    std::string o = parsed_args.last_param.at(0);
     o.append(".rlzsa");
-    std::string filepath = parsed_args.last_parameter.at(0);
+    std::string filepath = parsed_args.last_param.at(0);
     std::string file_name = filepath.substr(filepath.find_last_of("/\\") + 1);
     bool use_bigbwt = false;
     bool use64 = false;
@@ -93,7 +94,7 @@ int main(int argc, char** argv)
     if (use_bigbwt) {
         input = filepath;
     } else {
-        std::ifstream ifs(parsed_args.last_parameter.at(0));
+        std::ifstream ifs(parsed_args.last_param.at(0));
         input = std::string(std::istreambuf_iterator<char>(ifs), {});
     }
 
@@ -127,13 +128,13 @@ int main(int argc, char** argv)
     std::ofstream out(o);
 
     if (n <= INT32_MAX && !use64) {
-        uint8_t long_integer_flag = 0;
-        out.write((char*) &long_integer_flag, sizeof(uint8_t));
+        bool is_64_bit = 0;
+        out.write((char*) &is_64_bit, sizeof(uint8_t));
         rlzsa_32.serialize(out);
         size_index += rlzsa_32.size_in_bytes();
     } else {
-        uint8_t long_integer_flag = 1;
-        out.write((char*) &long_integer_flag, sizeof(uint8_t));
+        bool is_64_bit = 1;
+        out.write((char*) &is_64_bit, sizeof(uint8_t));
         rlzsa_64.serialize(out);
         size_index += rlzsa_64.size_in_bytes();
     }

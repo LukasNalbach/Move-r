@@ -3,6 +3,12 @@
 #include <cstdint>
 #include <vector>
 
+static void print_search_scheme_error()
+{
+    std::cout << "Error: malformed header in search scheme file" << std::endl;
+    exit(0);
+}
+
 enum distance_metric_t : int8_t {
     NO_METRIC = -1,
     HAMMING_DISTANCE = 0,

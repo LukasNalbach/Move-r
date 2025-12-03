@@ -42,7 +42,7 @@ void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-rb-revert: reconstruct the original file from the index." << std::endl << std::endl;
-    std::cout << "usage: move-rb-revert [options] <index_file> <output_file>" << std::endl;
+    std::cout << "usage: move-rb-revert [...] <index_file> <output_file>" << std::endl;
     std::cout << "   -im                        revert in memory; faster, but stores the whole" << std::endl;
     std::cout << "                              output in memory" << std::endl;
     std::cout << "   -p <integer>               number of threads to use while reverting" << std::endl;

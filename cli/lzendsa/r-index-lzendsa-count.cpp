@@ -37,9 +37,9 @@
 void help()
 {
     std::cout << "r-index-lzendsa-count: counts all occurences of the provided patterns." << std::endl << std::endl;
-    std::cout << "Usage: r-index-lzendsa-count [options] <index file> <pattern file>" << std::endl;
-    std::cout << "\t<index file>    path to the computed index (file with extension .r-index-lzendsa)" << std::endl;
-    std::cout << "\t<pattern>       path to the pattern file in the pizza&chili format" << std::endl;
+    std::cout << "Usage: r-index-lzendsa-count [...] <index file> <pattern file>" << std::endl;
+    std::cout << "   <index file>    path to the computed index (file with extension .r-index-lzendsa)" << std::endl;
+    std::cout << "   <pattern>       path to the pattern file in the pizza&chili format" << std::endl;
 }
 
 template <typename int_t>
@@ -56,7 +56,8 @@ void count(std::ifstream& index_file, std::ifstream& patterns_file, std::string 
     std::getline(patterns_file, pattern_header);
     uint64_t pattern_length = get_pattern_length(pattern_header);
     uint64_t pattern_count = get_pattern_count(pattern_header);
-    std::cout << "Found " << pattern_count << " patterns of length " << pattern_length << "." << std::endl;
+    std::cout << "Found " << pattern_count << " patterns of length " <<
+        pattern_length << "." << std::endl;
     std::cout << "count: " << std::flush;
     int64_t occ_total = 0;
     uint64_t time_ns = 0;
@@ -74,7 +75,8 @@ void count(std::ifstream& index_file, std::ifstream& patterns_file, std::string 
         time_ns += time_diff_ns(t1, t2);
     }
 
-    std::cout << "counted " << pattern_count << " patterns (with " << occ_total << " occurences) in " << format_time(time_ns) << std::endl;
+    std::cout << "counted " << pattern_count << " patterns (with " <<
+        occ_total << " occurences) in " << format_time(time_ns) << std::endl;
     uint64_t size_index = index.size_in_bytes();
 
     std::cout << "RESULT"
@@ -94,22 +96,23 @@ int main(int argc, char** argv)
 {
     std::set<std::string> allowed_value_options;
     std::set<std::string> allowed_literal_options;
-    CommandLineArguments a = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 2);
+    CommandLineArguments a = parse_args(argc, argv,
+        allowed_value_options, allowed_literal_options, 2);
 
     if (!a.success) {
         help();
         return -1;
     }
 
-    std::string file_name = a.last_parameter.at(0);
+    std::string file_name = a.last_param.at(0);
     file_name = file_name.substr(file_name.find_last_of("/\\") + 1);
 
-    std::ifstream index_file(a.last_parameter.at(0));
-    std::ifstream patterns_file(a.last_parameter.at(1));
-    uint8_t long_integer_flag;
-    index_file.read((char*) &long_integer_flag, sizeof(uint8_t));
+    std::ifstream index_file(a.last_param.at(0));
+    std::ifstream patterns_file(a.last_param.at(1));
+    bool is_64_bit;
+    index_file.read((char*) &is_64_bit, sizeof(uint8_t));
 
-    if (long_integer_flag == 0) {
+    if (!is_64_bit) {
         count<int32_t>(index_file, patterns_file, file_name);
     } else {
         count<int64_t>(index_file, patterns_file, file_name);

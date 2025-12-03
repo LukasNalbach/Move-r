@@ -28,9 +28,10 @@
 #include <iostream>
 #include <move_r/move_rb.hpp>
 
-static constexpr int min_args = 8;
+static constexpr int min_args = 6;
 int arg_idx = 1;
 int64_t k = -1;
+std::string scheme_str;
 distance_metric_t dist_metr = NO_METRIC;
 search_scheme_t search_scheme;
 bool output_occurrences = false;
@@ -51,15 +52,17 @@ void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-rb-locate: locate all approximate occurrences of the input patterns." << std::endl << std::endl;
-    std::cout << "usage: move-rb-locate [options] -k <mismatches> -d <metric> -s <scheme> <index_file> <patterns_file>" << std::endl;
+    std::cout << "usage: move-rb-locate [...] -d <metric> -s <scheme> [-k <mismatches>] <index_file> <patterns_file>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
     std::cout << "   -i <input_file>            input_file must be the file the index was built for" << std::endl;
     std::cout << "                              (required for the -c option)" << std::endl;
     std::cout << "   -c                         checks correctness of each pattern occurrence on <input_file>" << std::endl;
-    std::cout << "   <mismatches>               maximum number of allowed mismatches" << std::endl;
     std::cout << "   <metric>                   distance metric to use (hamming or edit)" << std::endl;
     std::cout << "   <scheme>                   search scheme to use (pigeon_hole, suffix_filter, 01 or path to a file)" << std::endl;
+    std::cout << "   <mismatches>               maximum number of allowed mismatches; applies only to" << std::endl;
+    std::cout << "                              pigeon_hole suffix_filter and 01 search schemes" << std::endl;
+    std::cout << "   -o <output_file>           write pattern occurrences to this file (in ASCII format; one line per pattern)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in move-rb-patterns format containing the patterns." << std::endl;
     exit(0);
@@ -178,6 +181,8 @@ void measure_locate()
     std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
     std::cout << "number of patterns: " << num_patterns << std::endl;
     std::cout << "pattern length: " << pattern_length << std::endl;
+    std::cout << "maximum number of mismatches: " << k << std::endl;
+    std::cout << "search scheme: " << scheme_str << std::endl;
     std::cout << "total number of occurrences: " << num_occurrences << std::endl;
     std::cout << "locate time: " << format_time(time_locate) << std::endl;
     std::cout << "             " << format_time(time_locate / num_patterns) << "/pattern" << std::endl;
@@ -209,7 +214,7 @@ void measure_locate()
         mf << " pattern_length=" << pattern_length;
         index.log_data_structure_sizes(mf);
         mf << " num_patterns=" << num_patterns;
-        mf << " num_switches=" << num_occurrences;
+        mf << " max_mismatches=" << k;
         mf << " num_occurrences=" << num_occurrences;
         mf << " time_locate=" << time_locate;
         mf << std::endl;
@@ -223,33 +228,38 @@ int main(int argc, char** argv)
     while (arg_idx < argc - min_args) parse_args(argv, argc);
 
     std::string arg = argv[arg_idx++];
-    if (arg != "-k") help("");
-    k = atoi(argv[arg_idx++]);
-    if (k < 0) help("error: invalid k value");
-
-    arg = argv[arg_idx++];
     if (arg != "-d") help("");
-    std::string str = argv[arg_idx++];
-    if      (str == "hamming") dist_metr = HAMMING_DISTANCE;
-    else if (str == "edit")    dist_metr = EDIT_DISTANCE;
+    std::string dist_str = argv[arg_idx++];
+    if      (dist_str == "hamming") dist_metr = HAMMING_DISTANCE;
+    else if (dist_str == "edit")    dist_metr = EDIT_DISTANCE;
     else help("error: invalid option after -d");
 
     arg = argv[arg_idx++];
     if (arg != "-s") help("");
-    str = argv[arg_idx++];
-    if      (str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k, dist_metr);
-    else if (str == "suffix_filter") search_scheme = suffix_filter_scheme(k, dist_metr);
-    else if (str == "01")            search_scheme = zero_one_scheme(k, dist_metr);
-    else if (std::filesystem::exists(str)) {
-        std::string file_content;
-        uint64_t file_size = std::filesystem::file_size(str);
-        no_init_resize(file_content, file_size);
-        std::ifstream ifile(str);
-        ifile.read(file_content.data(), file_size);
-        search_scheme = parse_search_scheme(file_content, dist_metr);
-    } else help("error: invalid option after -s");
-
-    if (k != search_scheme.k_max) help("error: provided search scheme and k value are not compatible");
+    scheme_str = argv[arg_idx++];
+    bool is_default_scheme = scheme_str == "pigeon_hole" || scheme_str == "suffix_filter" || scheme_str == "01";
+    if (!is_default_scheme) {
+        if (std::filesystem::exists(scheme_str)) {
+            std::string file_content;
+            uint64_t file_size = std::filesystem::file_size(scheme_str);
+            no_init_resize(file_content, file_size);
+            std::ifstream ifile(scheme_str);
+            ifile.read(file_content.data(), file_size);
+            search_scheme = parse_search_scheme(file_content, dist_metr);
+        } else help("error: invalid option after -s");
+    }
+    
+    if (is_default_scheme) {
+        arg = argv[arg_idx++];
+        if (arg != "-k") help("");
+        k = atoi(argv[arg_idx++]);
+        if (k < 0) help("error: invalid k value");
+        if      (scheme_str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k, dist_metr);
+        else if (scheme_str == "suffix_filter") search_scheme = suffix_filter_scheme(k, dist_metr);
+        else if (scheme_str == "01")            search_scheme = zero_one_scheme(k, dist_metr);
+    } else {
+        k = search_scheme.k_max;
+    }
 
     path_index_file = argv[arg_idx];
     path_patterns_file = argv[arg_idx + 1];
@@ -272,8 +282,7 @@ int main(int argc, char** argv)
     index_file.seekg(0, std::ios::beg);
 
     if (_support == _count) {
-        std::cout << "error: this index does not support locate" << std::endl;
-        exit(0);
+        help("error: this index does not support locate");
     } else if (_support == _locate_move) {
         if (is_64_bit) {
             measure_locate<uint64_t, _locate_move>();

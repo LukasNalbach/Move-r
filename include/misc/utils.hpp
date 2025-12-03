@@ -42,19 +42,19 @@
 
 __extension__ typedef unsigned __int128 uint128_t;
 
-uint64_t ram_size()
+static uint64_t ram_size()
 {
     uint64_t pages = sysconf(_SC_PHYS_PAGES);
     uint64_t page_size = sysconf(_SC_PAGE_SIZE);
     return pages * page_size;
 }
 
-std::chrono::steady_clock::time_point now()
+static std::chrono::steady_clock::time_point now()
 {
     return std::chrono::steady_clock::now();
 }
 
-std::string format_time(uint64_t ns)
+static std::string format_time(uint64_t ns)
 {
     std::string time_str;
 
@@ -71,7 +71,7 @@ std::string format_time(uint64_t ns)
     return time_str;
 }
 
-std::string format_query_throughput(uint64_t num_queries, uint64_t ns)
+static std::string format_query_throughput(uint64_t num_queries, uint64_t ns)
 {
     std::string str;
     double queries_per_ns = num_queries / (double)ns;
@@ -89,7 +89,7 @@ std::string format_query_throughput(uint64_t num_queries, uint64_t ns)
     return str;
 }
 
-std::string format_size(uint64_t B)
+static std::string format_size(uint64_t B)
 {
     std::string size_str;
 
@@ -106,7 +106,7 @@ std::string format_size(uint64_t B)
     return size_str;
 }
 
-std::string format_threads(uint16_t p)
+static std::string format_threads(uint16_t p)
 {
     if (p == 1) {
         return "1 thread";
@@ -115,56 +115,50 @@ std::string format_threads(uint16_t p)
     }
 }
 
-uint64_t time_diff_min(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2)
+static uint64_t time_diff_min(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2)
 {
     return std::chrono::duration_cast<std::chrono::minutes>(t2 - t1).count();
 }
 
-uint64_t time_diff_ns(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2)
+static uint64_t time_diff_ns(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2)
 {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
 }
 
-uint64_t time_diff_min(std::chrono::steady_clock::time_point t)
+static uint64_t time_diff_min(std::chrono::steady_clock::time_point t)
 {
     return time_diff_min(t, std::chrono::steady_clock::now());
 }
 
-uint64_t time_diff_ns(std::chrono::steady_clock::time_point t)
+static uint64_t time_diff_ns(std::chrono::steady_clock::time_point t)
 {
     return time_diff_ns(t, std::chrono::steady_clock::now());
 }
 
-std::chrono::steady_clock::time_point log_runtime(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2)
+static std::chrono::steady_clock::time_point log_runtime(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2)
 {
     std::cout << ", in ~ " << format_time(time_diff_ns(t1, t2)) << std::endl;
     return std::chrono::steady_clock::now();
 }
 
-std::chrono::steady_clock::time_point log_runtime(std::chrono::steady_clock::time_point t)
+static std::chrono::steady_clock::time_point log_runtime(std::chrono::steady_clock::time_point t)
 {
     return log_runtime(t, std::chrono::steady_clock::now());
 }
 
-void log_message(std::string message)
+static void log_message(std::string message)
 {
     std::cout << message << std::flush;
 }
 
-void print_search_scheme_error()
-{
-    std::cout << "Error: malformed header in search scheme file" << std::endl;
-    exit(0);
-}
-
-void print_header_error()
+static void print_header_error()
 {
     std::cout << "Error: malformed header in patterns file" << std::endl;
     std::cout << "Take a look here for more info on the file format: http://pizzachili.dcc.uchile.cl/experiments.html" << std::endl;
     exit(0);
 }
 
-int64_t value_from_key(std::string str, std::string key)
+static int64_t value_from_key(std::string str, std::string key)
 {
     uint64_t start_pos = str.find(key);
 
@@ -182,7 +176,7 @@ int64_t value_from_key(std::string str, std::string key)
     return std::atoi(str.substr(start_pos).substr(0, end_pos).c_str());
 }
 
-uint64_t number_of_patterns(std::string header)
+static uint64_t number_of_patterns(std::string header)
 {
     int64_t num = value_from_key(header, "number=");
 
@@ -193,7 +187,7 @@ uint64_t number_of_patterns(std::string header)
     return num;
 }
 
-uint64_t patterns_length(std::string header)
+static uint64_t patterns_length(std::string header)
 {
     int64_t len = value_from_key(header, "length=");
 
@@ -204,7 +198,7 @@ uint64_t patterns_length(std::string header)
     return len;
 }
 
-void read_from_file(std::istream& in, const char* data, uint64_t size)
+static void read_from_file(std::istream& in, const char* data, uint64_t size)
 {
     uint64_t size_left = size;
     uint64_t bytes_to_read;
@@ -216,7 +210,7 @@ void read_from_file(std::istream& in, const char* data, uint64_t size)
     }
 }
 
-void write_to_file(std::ostream& out, const char* data, uint64_t size)
+static void write_to_file(std::ostream& out, const char* data, uint64_t size)
 {
     uint64_t size_left = size;
     uint64_t bytes_to_write;
@@ -228,24 +222,24 @@ void write_to_file(std::ostream& out, const char* data, uint64_t size)
     }
 }
 
-inline char uchar_to_char(uint8_t c)
+inline static char uchar_to_char(uint8_t c)
 {
     return *reinterpret_cast<char*>(&c);
 }
 
-inline uint8_t char_to_uchar(char c)
+inline static uint8_t char_to_uchar(char c)
 {
     return *reinterpret_cast<uint8_t*>(&c);
 }
 
 template <typename T>
-bool contains(std::vector<T> vec, T val)
+static bool contains(std::vector<T> vec, T val)
 {
     return std::find(vec.begin(), vec.end(), val) != vec.end();
 }
 
 template <typename T>
-void remove(std::vector<T> vec, T val)
+static void remove(std::vector<T> vec, T val)
 {
     while (contains(vec, val)) {
         vec.erase(std::find(vec.begin(), vec.end(), val));
@@ -253,14 +247,14 @@ void remove(std::vector<T> vec, T val)
 }
 
 template <typename T>
-bool is_subset_of(std::vector<T> first, std::vector<T> second)
+static bool is_subset_of(std::vector<T> first, std::vector<T> second)
 {
     std::sort(first.begin(), first.end());
     std::sort(second.begin(), second.end());
     return std::includes(second.begin(), second.end(), first.begin(), first.end());
 }
 
-std::string random_alphanumeric_string(uint64_t length)
+static std::string random_alphanumeric_string(uint64_t length)
 {
     static std::string possible_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
@@ -279,7 +273,7 @@ std::string random_alphanumeric_string(uint64_t length)
 }
 
 template <typename pos_t = uint32_t>
-std::string to_string(std::pair<pos_t, pos_t> pair)
+inline static std::string to_string(std::pair<pos_t, pos_t> pair)
 {
     std::string str = "(";
     str.append(std::to_string(pair.first));
@@ -319,31 +313,31 @@ public:
     void construct(U* ptr, Args&&... args) { }
 };
 
-void no_init_resize(std::string& str, size_t size)
+static void no_init_resize(std::string& str, size_t size)
 {
     (*reinterpret_cast<std::basic_string<char, std::char_traits<char>, default_init_allocator<char>>*>(&str)).resize(size);
 }
 
 template <typename T>
-void no_init_resize(std::vector<T>& vec, size_t size)
+static void no_init_resize(std::vector<T>& vec, size_t size)
 {
     (*reinterpret_cast<std::vector<no_init<T>>*>(&vec)).resize(size);
 }
 
 template <typename T1, typename T2>
-void no_init_resize(std::vector<std::pair<T1, T2>>& vec, size_t size)
+static void no_init_resize(std::vector<std::pair<T1, T2>>& vec, size_t size)
 {
     (*reinterpret_cast<std::vector<std::pair<no_init<T1>, no_init<T2>>>*>(&vec)).resize(size);
 }
 
 template <typename T>
-void no_init_resize(std::vector<std::tuple<T, T, T>>& vec, size_t size)
+static void no_init_resize(std::vector<std::tuple<T, T, T>>& vec, size_t size)
 {
     (*reinterpret_cast<std::vector<std::tuple<no_init<T>, no_init<T>, no_init<T>>>*>(&vec)).resize(size);
 }
 
 template <typename pos_t, typename fnc_t>
-pos_t bin_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
+inline static pos_t bin_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t middle;
 
@@ -361,7 +355,7 @@ pos_t bin_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 }
 
 template <typename pos_t, typename fnc_t>
-pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
+inline static pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t middle;
 
@@ -379,7 +373,7 @@ pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 }
 
 template <typename pos_t, typename fnc_t>
-pos_t bin_search_max_lt(pos_t value, pos_t left, pos_t right, fnc_t value_at)
+inline static pos_t bin_search_max_lt(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t middle;
 
@@ -397,7 +391,7 @@ pos_t bin_search_max_lt(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 }
 
 template <typename pos_t, typename fnc_t>
-pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, fnc_t value_at)
+inline static pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t middle;
 
@@ -421,14 +415,14 @@ enum direction : uint8_t {
 };
 
 template <direction dir>
-static constexpr direction flip()
+inline static constexpr direction flip()
 {
     if constexpr (dir == LEFT) return RIGHT;
     if constexpr (dir == RIGHT) return LEFT;
     return NO_DIR;
 }
 
-static direction flip(direction dir)
+inline static direction flip(direction dir)
 {
     if (dir == LEFT) return RIGHT;
     if (dir == RIGHT) return LEFT;
@@ -436,7 +430,7 @@ static direction flip(direction dir)
 }
 
 template <typename pos_t, direction search_dir, typename fnc_t>
-pos_t exp_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
+inline static pos_t exp_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     pos_t cur_step_size = 1;
 
@@ -475,7 +469,7 @@ pos_t exp_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
     }
 }
 
-uint64_t malloc_count_peak_memory_usage(std::ifstream& log_file)
+static uint64_t malloc_count_peak_memory_usage(std::ifstream& log_file)
 {
     std::string log_file_content;
     log_file.seekg(0, std::ios::end);
@@ -507,7 +501,7 @@ uint64_t malloc_count_peak_memory_usage(std::ifstream& log_file)
 }
 
 template <auto start, auto end, auto inc, class T>
-constexpr void for_constexpr(T&& f)
+inline static constexpr void for_constexpr(T&& f)
 {
     if constexpr (start < end) {
         f(std::integral_constant<decltype(start), start>());
@@ -578,7 +572,7 @@ static void log_contents(container_t container)
 }
 
 template <typename inp_t>
-inp_t random_repetitive_input(
+static inp_t random_repetitive_input(
     uint64_t min_size, uint64_t max_size,
     typename inp_t::value_type min_sym = std::numeric_limits<typename inp_t::value_type>::min(),
     typename inp_t::value_type max_sym = std::numeric_limits<typename inp_t::value_type>::max()
@@ -671,7 +665,7 @@ inline static std::size_t pos_hash(pos_t x) {
     }
 }
 
-uint64_t hamming_dist(const std::string &str_1, const std::string &str_2) {
+static uint64_t hamming_dist(const std::string &str_1, const std::string &str_2) {
     uint64_t dist = 0;
 
     for (uint64_t i = 0; i < str_1.size(); i++) {

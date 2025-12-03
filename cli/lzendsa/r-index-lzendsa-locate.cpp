@@ -37,10 +37,10 @@
 void help()
 {
     std::cout << "r-index-lzendsa-locate: locates all occurences of the provided patterns." << std::endl << std::endl;
-    std::cout << "Usage: r-index-lzendsa-locate [options] <index file> <pattern file>" << std::endl;
-    std::cout << "\t<index file>    path to the computed index (file with extension .r-index-lzendsa)" << std::endl;
-    std::cout << "\t<pattern>       path to the pattern file in the pizza&chili format" << std::endl;
-    std::cout << "\t-c <input file> checks correctness of the results on <input file>" << std::endl;
+    std::cout << "Usage: r-index-lzendsa-locate [...] <index file> <pattern file>" << std::endl;
+    std::cout << "   <index file>    path to the computed index (file with extension .r-index-lzendsa)" << std::endl;
+    std::cout << "   <pattern>       path to the pattern file in the pizza&chili format" << std::endl;
+    std::cout << "   -c <input_file> checks correctness of the results on <input_file>" << std::endl;
 }
 
 template <typename int_t>
@@ -54,7 +54,7 @@ void locate(std::ifstream& index_file, std::ifstream& patterns_file, std::string
     std::string input;
 
     if (!input_file.empty()) {
-        std::cout << "Loading <input file>" << std::flush;
+        std::cout << "Loading <input_file>" << std::flush;
         uint64_t input_size = std::filesystem::file_size(input_file);
         std::ifstream input_ifile(input_file);
         no_init_resize(input, input_size);
@@ -66,7 +66,8 @@ void locate(std::ifstream& index_file, std::ifstream& patterns_file, std::string
     std::getline(patterns_file, pattern_header);
     uint64_t pattern_length = get_pattern_length(pattern_header);
     uint64_t pattern_count = get_pattern_count(pattern_header);
-    std::cout << "Found " << pattern_count << " patterns of length " << pattern_length << "." << std::endl;
+    std::cout << "Found " << pattern_count << " patterns of length " <<
+        pattern_length << "." << std::endl;
     std::cout << "Locate: " << std::flush;
     int64_t occ_total = 0;
     uint64_t time_ns = 0;
@@ -86,14 +87,16 @@ void locate(std::ifstream& index_file, std::ifstream& patterns_file, std::string
         if (!input_file.empty()) {
             for (int_t occ : occurrences) {
                 if (input.substr(occ, pattern_length) != pattern) {
-                    std::cout << "error: wrong occurrence: " << occ << " of pattern '" << pattern << "'" << std::endl;
+                    std::cout << "error: wrong occurrence: " << occ <<
+                        " of pattern '" << pattern << "'" << std::endl;
                     exit(-1);
                 }
             }
         }
     }
 
-    std::cout << "Located " << pattern_count << " patterns (with " << occ_total << " occurences) in " << format_time(time_ns) << std::endl;
+    std::cout << "Located " << pattern_count << " patterns (with " <<
+        occ_total << " occurences) in " << format_time(time_ns) << std::endl;
     uint64_t size_index = index.size_in_bytes();
 
     std::cout << "RESULT"
@@ -116,14 +119,15 @@ int main(int argc, char** argv)
 
     allowed_value_options.insert("-c");
 
-    CommandLineArguments a = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 2);
+    CommandLineArguments a = parse_args(argc, argv,
+        allowed_value_options, allowed_literal_options, 2);
 
     if (!a.success) {
         help();
         return -1;
     }
 
-    std::string file_name = a.last_parameter.at(0);
+    std::string file_name = a.last_param.at(0);
     file_name = file_name.substr(file_name.find_last_of("/\\") + 1);
     std::string input_file;
 
@@ -133,12 +137,12 @@ int main(int argc, char** argv)
         }
     }
 
-    std::ifstream index_file(a.last_parameter.at(0));
-    std::ifstream patterns_file(a.last_parameter.at(1));
-    uint8_t long_integer_flag;
-    index_file.read((char*) &long_integer_flag, sizeof(uint8_t));
+    std::ifstream index_file(a.last_param.at(0));
+    std::ifstream patterns_file(a.last_param.at(1));
+    bool is_64_bit;
+    index_file.read((char*) &is_64_bit, sizeof(uint8_t));
 
-    if (long_integer_flag == 0) {
+    if (!is_64_bit) {
         locate<int32_t>(index_file, patterns_file, file_name, input_file);
     } else {
         locate<int64_t>(index_file, patterns_file, file_name, input_file);

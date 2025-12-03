@@ -46,7 +46,7 @@ void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-rb-build: builds move-rb." << std::endl << std::endl;
-    std::cout << "usage: move-rb-build [options] <input_file>" << std::endl;
+    std::cout << "usage: move-rb-build [...] <input_file>" << std::endl;
     std::cout << "   -c <mode>           construction mode: sa or bigbwt (default: sa)" << std::endl;
     std::cout << "   -o <base_name>      names the index file base_name.move-rb (default: input_file)" << std::endl;
     std::cout << "   -s <support>        support: count, locate_move or locate_rlzsa" << std::endl;
