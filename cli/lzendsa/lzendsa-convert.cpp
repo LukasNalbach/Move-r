@@ -40,10 +40,10 @@ int64_t d = -1;
 void help()
 {
     std::cout << "lzendsa-convert: converts an r-index-lzendsa index to an lzendsa index." << std::endl << std::endl;
-    std::cout << "Usage: lzendsa-convert [options] <input index> <output index>" << std::endl;
-    std::cout << "\t<input index>    path to the input index (file with extension .r-index-lzendsa)" << std::endl;
-    std::cout << "\t<output index>   path to the output index (file with extension .lzendsa)" << std::endl;
-    std::cout << "\t-d               delta, if not provided the sample will be about 10\% of the index size" << std::endl;
+    std::cout << "Usage: lzendsa-convert [...] <input index> <output index>" << std::endl;
+    std::cout << "   <input index>    path to the input index (file with extension .r-index-lzendsa)" << std::endl;
+    std::cout << "   <output index>   path to the output index (file with extension .lzendsa)" << std::endl;
+    std::cout << "   -d               delta, if not provided the sample will be about 10\% of the index size" << std::endl;
 }
 
 template <typename int_t>
@@ -86,7 +86,8 @@ int main(int argc, char** argv)
     std::set<std::string> allowed_value_options;
     std::set<std::string> allowed_literal_options;
     allowed_value_options.insert("-d");
-    CommandLineArguments parsed_args = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 2);
+    CommandLineArguments parsed_args = parse_args(argc, argv,
+        allowed_value_options, allowed_literal_options, 2);
 
     if (!parsed_args.success) {
         help();
@@ -99,13 +100,13 @@ int main(int argc, char** argv)
         }
     }
 
-    input_file.open(parsed_args.last_parameter.at(0));
-    output_file.open(parsed_args.last_parameter.at(1));
-    uint8_t long_integer_flag;
-    input_file.read((char*) &long_integer_flag, sizeof(uint8_t));
-    output_file.write((char*) &long_integer_flag, sizeof(uint8_t));
+    input_file.open(parsed_args.last_param.at(0));
+    output_file.open(parsed_args.last_param.at(1));
+    bool is_64_bit;
+    input_file.read((char*) &is_64_bit, sizeof(uint8_t));
+    output_file.write((char*) &is_64_bit, sizeof(uint8_t));
 
-    if (long_integer_flag == 0) {
+    if (!is_64_bit) {
         convert<int32_t>();
     } else {
         convert<int64_t>();

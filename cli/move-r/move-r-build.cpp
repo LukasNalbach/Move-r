@@ -46,7 +46,7 @@ void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-build: builds move-r." << std::endl << std::endl;
-    std::cout << "usage: move-r-build [options] <input_file>" << std::endl;
+    std::cout << "usage: move-r-build [...] <input_file>" << std::endl;
     std::cout << "   -c <mode>           construction mode: sa or bigbwt (default: sa)" << std::endl;
     std::cout << "   -o <base_name>      names the index file base_name.move-r (default: input_file)" << std::endl;
     std::cout << "   -s <support>        support: count, locate_move, locate_rlzsa, locate_rlzsa_bin_search or locate_lzendsa" << std::endl;

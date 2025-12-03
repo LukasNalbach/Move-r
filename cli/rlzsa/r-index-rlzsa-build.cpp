@@ -37,13 +37,13 @@
 void help()
 {
     std::cout << "r-index-rlzsa-build: builds the r-index-rlzsa-Index from the input file." << std::endl << std::endl;
-    std::cout << "Usage: r-index-rlzsa-build [options] <text file>" << std::endl;
-    std::cout << "\t<text file>        path to the input file (should contain text)" << std::endl;
-    std::cout << "\t-o                 path to the desired output file (the extension .r-index-rlzsa will be added automatically)" << std::endl;
-    std::cout << "\t--bigbwt           use Big-BWT instead of libsais" << std::endl;
-    std::cout << "\t--f64              explicitly use 64-bit-integers regardless of the file size" << std::endl;
-    std::cout << "\t--r-index-samples  use the SA-Samples in the r-index instead of the literal phrases in the rlzsa factorization" << std::endl;
-    std::cout << "\t                   this mode additionally ensures that there is a literal phrase after each copy phrase in the rlzsa" << std::endl;
+    std::cout << "Usage: r-index-rlzsa-build [...] <text file>" << std::endl;
+    std::cout << "   <text file>        path to the input file (should contain text)" << std::endl;
+    std::cout << "   -o                 path to the desired output file (the extension .r-index-rlzsa will be added automatically)" << std::endl;
+    std::cout << "   --bigbwt           use Big-BWT instead of libsais" << std::endl;
+    std::cout << "   --f64              explicitly use 64-bit-integers regardless of the file size" << std::endl;
+    std::cout << "   --r-index-samples  use the SA-Samples in the r-index instead of the literal phrases in the rlzsa factorization" << std::endl;
+    std::cout << "                      this mode additionally ensures that there is a literal phrase after each copy phrase in the rlzsa" << std::endl;
 }
 
 int main(int argc, char** argv)
@@ -56,16 +56,17 @@ int main(int argc, char** argv)
     allowed_literal_options.insert("--f64");
     allowed_literal_options.insert("--r-index-samples");
 
-    CommandLineArguments parsed_args = parse_args(argc, argv, allowed_value_options, allowed_literal_options, 1);
+    CommandLineArguments parsed_args = parse_args(argc, argv,
+        allowed_value_options, allowed_literal_options, 1);
 
     if (!parsed_args.success) {
         help();
         return -1;
     }
 
-    std::string o = parsed_args.last_parameter.at(0);
+    std::string o = parsed_args.last_param.at(0);
     o.append(".r-index-rlzsa");
-    std::string filepath = parsed_args.last_parameter.at(0);
+    std::string filepath = parsed_args.last_param.at(0);
     std::string file_name = filepath.substr(filepath.find_last_of("/\\") + 1);
     bool use_bigbwt = false;
     bool use64 = false;
@@ -94,7 +95,7 @@ int main(int argc, char** argv)
     if (use_bigbwt) {
         input = filepath;
     } else {
-        std::string input_file_name = parsed_args.last_parameter.at(0);
+        std::string input_file_name = parsed_args.last_param.at(0);
         uint64_t input_size = std::filesystem::file_size(input_file_name);
         std::ifstream input_file(input_file_name);
         no_init_resize(input, input_size);
@@ -102,7 +103,8 @@ int main(int argc, char** argv)
     }
 
     int64_t n = use_bigbwt ? std::filesystem::file_size(input) : input.length();
-    std::cout << "File " << parsed_args.last_parameter.at(0) << " successfully loaded (" << format_size(n) << ")" << std::endl;
+    std::cout << "File " << parsed_args.last_param.at(0) <<
+        " successfully loaded (" << format_size(n) << ")" << std::endl;
 
     auto t1 = now();
     r_index_rlzsa<int32_t> index_32;
@@ -123,14 +125,14 @@ int main(int argc, char** argv)
 
     if (n <= INT32_MAX && !use64) {
         z = index_32.sa_encoding().num_phrases();
-        uint8_t long_integer_flag = 0;
-        out.write((char*) &long_integer_flag, sizeof(uint8_t));
+        bool is_64_bit = 0;
+        out.write((char*) &is_64_bit, sizeof(uint8_t));
         index_32.serialize(out);
         size_index += index_32.size_in_bytes();
     } else {
         z = index_64.sa_encoding().num_phrases();
-        uint8_t long_integer_flag = 1;
-        out.write((char*) &long_integer_flag, sizeof(uint8_t));
+        bool is_64_bit = 1;
+        out.write((char*) &is_64_bit, sizeof(uint8_t));
         index_64.serialize(out);
         size_index += index_64.size_in_bytes();
     }

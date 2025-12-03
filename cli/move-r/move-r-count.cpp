@@ -38,16 +38,20 @@ std::string name_text_file;
 std::string path_input_file;
 std::ifstream input_file;
 std::string input;
+std::string path_output_file;
+std::ofstream output_file;
+bool output_occurrences;
 
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-count: count all occurrences of the input patterns." << std::endl << std::endl;
-    std::cout << "usage: move-r-count <index_file> <patterns_file>" << std::endl;
+    std::cout << "usage: move-r-count [...] <index_file> <patterns_file>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
     std::cout << "   -i <input_file>            input_file must be the file the index was built for" << std::endl;
     std::cout << "                              (only for locate_rlzsa_bin_search)" << std::endl;
+    std::cout << "   -o <output_file>           write pattern counts to this file (in ASCII format; one line per pattern)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in pizza&chili format containing the patterns." << std::endl;
     exit(0);
@@ -69,6 +73,10 @@ void parse_args(char** argv, int argc)
         path_input_file = argv[arg_idx++];
         input_file.open(path_input_file);
         if (!input_file.good()) help("error: cannot open <input_file>");
+    } else if (s == "-o") {
+        if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
+        output_occurrences = true;
+        path_output_file = argv[arg_idx++];
     } else {
         help("error: unrecognized '" + s + "' option");
     }
@@ -107,6 +115,7 @@ void measure_count()
     uint64_t last_perc = 0;
     uint64_t num_occurrences = 0;
     uint64_t time_count = 0;
+    uint64_t count = 0;
     std::chrono::steady_clock::time_point t2, t3;
     std::string pattern;
     no_init_resize(pattern, pattern_length);
@@ -121,9 +130,14 @@ void measure_count()
 
         patterns_file.read(pattern.data(), pattern_length);
         t2 = now();
-        num_occurrences += index.count(pattern);
+        count = index.count(pattern);
+        num_occurrences += count;
         t3 = now();
         time_count += time_diff_ns(t2, t3);
+
+        if (output_occurrences) {
+            output_file << count << std::endl;
+        }
     }
 
     patterns_file.close();
@@ -180,6 +194,11 @@ int main(int argc, char** argv)
 
     if (!index_file.good()) help("error: could not read <index_file>");
     if (!patterns_file.good()) help("error: could not read <patterns_file>");
+
+    if (output_occurrences) {
+        output_file.open(path_output_file);
+        if (!output_file.good()) help("error: could not create <output_file>");
+    }
 
     bool is_64_bit;
     index_file.read((char*) &is_64_bit, 1);

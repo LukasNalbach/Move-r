@@ -117,29 +117,34 @@ if(MOVE_R_BUILD_CLI)
   add_executable(move-r-revert cli/move-r/move-r-revert.cpp)
   add_executable(move-r-count cli/move-r/move-r-count.cpp)
   add_executable(move-r-locate cli/move-r/move-r-locate.cpp)
-  add_executable(move-r-patterns cli/move-r/move-r-patterns.cpp)
 
   add_executable(move-rb-build cli/move-rb/move-rb-build.cpp)
   add_executable(move-rb-revert cli/move-rb/move-rb-revert.cpp)
   add_executable(move-rb-count cli/move-rb/move-rb-count.cpp)
   add_executable(move-rb-locate cli/move-rb/move-rb-locate.cpp)
-  add_executable(patterns-to-reads cli/patterns-to-reads.cpp)
+
+  add_executable(gen-patterns cli/tools/gen-patterns.cpp)
+  add_executable(patterns-to-fasta cli/tools/patterns-to-fasta.cpp)
+  add_executable(fasta-to-plain cli/tools/fasta-to-plain.cpp)
 
   target_link_libraries(move-r-build PRIVATE move_r)
   target_link_libraries(move-r-revert PRIVATE move_r)
   target_link_libraries(move-r-count PRIVATE move_r)
   target_link_libraries(move-r-locate PRIVATE move_r)
-  target_link_libraries(move-r-patterns PRIVATE move_r)
 
   target_link_libraries(move-rb-build PRIVATE move_r)
   target_link_libraries(move-rb-revert PRIVATE move_r)
   target_link_libraries(move-rb-count PRIVATE move_r)
   target_link_libraries(move-rb-locate PRIVATE move_r)
-  target_link_libraries(patterns-to-reads PRIVATE move_r)
+
+  target_link_libraries(gen-patterns PRIVATE move_r)
+  target_link_libraries(patterns-to-fasta PRIVATE move_r)
+  target_link_libraries(fasta-to-plain PRIVATE move_r)
 
   set_target_properties(
-    move-r-build move-r-revert move-r-count move-r-locate move-r-patterns
-    move-rb-build move-rb-revert move-rb-count move-rb-locate patterns-to-reads
+    move-r-build move-r-revert move-r-count move-r-locate 
+    move-rb-build move-rb-revert move-rb-count move-rb-locate
+    gen-patterns patterns-to-fasta fasta-to-plain
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/"
   )
 endif()
@@ -150,6 +155,7 @@ if(MOVE_R_BUILD_LZENDSA_CLI)
   add_executable(lzendsa-count cli/lzendsa/lzendsa-count.cpp)
   add_executable(lzendsa-locate cli/lzendsa/lzendsa-locate.cpp)
   add_executable(lzendsa-random-access cli/lzendsa/lzendsa-random-access.cpp)
+
   add_executable(r-index-lzendsa-build cli/lzendsa/r-index-lzendsa-build.cpp)
   add_executable(r-index-lzendsa-count cli/lzendsa/r-index-lzendsa-count.cpp)
   add_executable(r-index-lzendsa-locate cli/lzendsa/r-index-lzendsa-locate.cpp)
@@ -159,6 +165,7 @@ if(MOVE_R_BUILD_LZENDSA_CLI)
   target_link_libraries(lzendsa-count PRIVATE move_r)
   target_link_libraries(lzendsa-locate PRIVATE move_r)
   target_link_libraries(lzendsa-random-access PRIVATE move_r)
+
   target_link_libraries(r-index-lzendsa-build PRIVATE move_r)
   target_link_libraries(r-index-lzendsa-count PRIVATE move_r)
   target_link_libraries(r-index-lzendsa-locate PRIVATE move_r)
@@ -176,6 +183,7 @@ if(MOVE_R_BUILD_RLZSA_CLI)
   add_executable(rlzsa-count cli/rlzsa/rlzsa-count.cpp)
   add_executable(rlzsa-locate cli/rlzsa/rlzsa-locate.cpp)
   add_executable(rlzsa-random-access cli/rlzsa/rlzsa-random-access.cpp)
+  
   add_executable(r-index-rlzsa-build cli/rlzsa/r-index-rlzsa-build.cpp)
   add_executable(r-index-rlzsa-count cli/rlzsa/r-index-rlzsa-count.cpp)
   add_executable(r-index-rlzsa-locate cli/rlzsa/r-index-rlzsa-locate.cpp)
@@ -185,6 +193,7 @@ if(MOVE_R_BUILD_RLZSA_CLI)
   target_link_libraries(rlzsa-count PRIVATE move_r)
   target_link_libraries(rlzsa-locate PRIVATE move_r)
   target_link_libraries(rlzsa-random-access PRIVATE move_r)
+
   target_link_libraries(r-index-rlzsa-build PRIVATE move_r)
   target_link_libraries(r-index-rlzsa-count PRIVATE move_r)
   target_link_libraries(r-index-rlzsa-locate PRIVATE move_r)

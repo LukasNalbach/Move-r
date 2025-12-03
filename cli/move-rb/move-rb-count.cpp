@@ -31,6 +31,7 @@
 static constexpr int min_args = 8;
 int arg_idx = 1;
 int64_t k = -1;
+std::string scheme_str;
 distance_metric_t dist_metr = NO_METRIC;
 search_scheme_t search_scheme;
 std::ofstream mf;
@@ -39,17 +40,22 @@ std::string path_patterns_file;
 std::ifstream index_file;
 std::ifstream patterns_file;
 std::string name_text_file;
+std::string path_output_file;
+std::ofstream output_file;
+bool output_occurrences;
 
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-rb-count: count all approximate occurrences of the input patterns." << std::endl << std::endl;
-    std::cout << "usage: move-rb-count [options] -k <mismatches> -d <metric> -s <scheme> <index_file> <patterns_file>" << std::endl;
+    std::cout << "usage: move-rb-count [...] -d <metric> -s <scheme> [-k <mismatches>] <index_file> <patterns_file>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
-    std::cout << "   <mismatches>               maximum number of allowed mismatches" << std::endl;
     std::cout << "   <metric>                   distance metric to use (hamming or edit)" << std::endl;
     std::cout << "   <scheme>                   search scheme to use (pigeon_hole, suffix_filter, 01 or path to a file)" << std::endl;
+    std::cout << "   <mismatches>               maximum number of allowed mismatches; applies only to" << std::endl;
+    std::cout << "                              pigeon_hole suffix_filter and 01 search schemes" << std::endl;
+    std::cout << "   -o <output_file>           write pattern counts to this file (in ASCII format; one line per pattern)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in move-rb-patterns format containing the patterns." << std::endl;
     exit(0);
@@ -66,6 +72,10 @@ void parse_args(char** argv, int argc)
         mf.open(path_m_file, std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
         if (!mf.good()) help("error: cannot open nor create <m_file>");
         name_text_file = argv[arg_idx++];
+    } else if (s == "-o") {
+        if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
+        output_occurrences = true;
+        path_output_file = argv[arg_idx++];
     } else {
         help("error: unrecognized '" + s + "' option");
     }
@@ -94,6 +104,7 @@ void measure_count()
     uint64_t last_perc = 0;
     uint64_t num_occurrences = 0;
     uint64_t time_count = 0;
+    uint64_t count = 0;
     std::chrono::steady_clock::time_point t2, t3;
     std::string pattern;
     no_init_resize(pattern, pattern_length);
@@ -110,9 +121,14 @@ void measure_count()
 
         patterns_file.read(pattern.data(), pattern_length);
         t2 = now();
-        num_occurrences += index.count_with_mismatches(pattern, search_scheme);
+        count = index.count_with_mismatches(pattern, search_scheme);
+        num_occurrences += count;
         t3 = now();
         time_count += time_diff_ns(t2, t3);
+
+        if (output_occurrences) {
+            output_file << count << std::endl;
+        }
     }
 
     patterns_file.close();
@@ -120,6 +136,8 @@ void measure_count()
     std::cout << "additional memory consumption during the search phase: " << format_size(malloc_count_peak() - baseline_alloc) << std::endl;
     std::cout << "number of patterns: " << num_patterns << std::endl;
     std::cout << "pattern length: " << pattern_length << std::endl;
+    std::cout << "maximum number of mismatches: " << k << std::endl;
+    std::cout << "search scheme: " << scheme_str << std::endl;
     std::cout << "total number of occurrences: " << num_occurrences << std::endl;
     std::cout << "count time: " << format_time(time_count) << std::endl;
     std::cout << "            " << format_time(time_count / num_patterns) << "/pattern" << std::endl;
@@ -151,7 +169,7 @@ void measure_count()
         mf << " pattern_length=" << pattern_length;
         index.log_data_structure_sizes(mf);
         mf << " num_patterns=" << num_patterns;
-        mf << " num_switches=" << num_occurrences;
+        mf << " max_mismatches=" << k;
         mf << " num_occurrences=" << num_occurrences;
         mf << " time_count=" << time_count;
         mf << std::endl;
@@ -165,33 +183,38 @@ int main(int argc, char** argv)
     while (arg_idx < argc - min_args) parse_args(argv, argc);
 
     std::string arg = argv[arg_idx++];
-    if (arg != "-k") help("");
-    k = atoi(argv[arg_idx++]);
-    if (k < 0) help("error: invalid k value");
-
-    arg = argv[arg_idx++];
     if (arg != "-d") help("");
-    std::string str = argv[arg_idx++];
-    if      (str == "hamming") dist_metr = HAMMING_DISTANCE;
-    else if (str == "edit")    dist_metr = EDIT_DISTANCE;
+    std::string dist_str = argv[arg_idx++];
+    if      (dist_str == "hamming") dist_metr = HAMMING_DISTANCE;
+    else if (dist_str == "edit")    dist_metr = EDIT_DISTANCE;
     else help("error: invalid option after -d");
 
     arg = argv[arg_idx++];
     if (arg != "-s") help("");
-    str = argv[arg_idx++];
-    if      (str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k, dist_metr);
-    else if (str == "suffix_filter") search_scheme = suffix_filter_scheme(k, dist_metr);
-    else if (str == "01")            search_scheme = zero_one_scheme(k, dist_metr);
-    else if (std::filesystem::exists(str)) {
-        std::string file_content;
-        uint64_t file_size = std::filesystem::file_size(str);
-        no_init_resize(file_content, file_size);
-        std::ifstream ifile(str);
-        ifile.read(file_content.data(), file_size);
-        search_scheme = parse_search_scheme(file_content, dist_metr);
-    } else help("error: invalid option after -s");
-
-    if (k != search_scheme.k_max) help("error: provided search scheme and k value are not compatible");
+    scheme_str = argv[arg_idx++];
+    bool is_default_scheme = scheme_str == "pigeon_hole" || scheme_str == "suffix_filter" || scheme_str == "01";
+    if (!is_default_scheme) {
+        if (std::filesystem::exists(scheme_str)) {
+            std::string file_content;
+            uint64_t file_size = std::filesystem::file_size(scheme_str);
+            no_init_resize(file_content, file_size);
+            std::ifstream ifile(scheme_str);
+            ifile.read(file_content.data(), file_size);
+            search_scheme = parse_search_scheme(file_content, dist_metr);
+        } else help("error: invalid option after -s");
+    }
+    
+    if (is_default_scheme) {
+        arg = argv[arg_idx++];
+        if (arg != "-k") help("");
+        k = atoi(argv[arg_idx++]);
+        if (k < 0) help("error: invalid k value");
+        if      (scheme_str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k, dist_metr);
+        else if (scheme_str == "suffix_filter") search_scheme = suffix_filter_scheme(k, dist_metr);
+        else if (scheme_str == "01")            search_scheme = zero_one_scheme(k, dist_metr);
+    } else {
+        k = search_scheme.k_max;
+    }
 
     path_index_file = argv[arg_idx];
     path_patterns_file = argv[arg_idx + 1];
@@ -201,6 +224,11 @@ int main(int argc, char** argv)
 
     if (!index_file.good()) help("error: could not read <index_file>");
     if (!patterns_file.good()) help("error: could not read <patterns_file>");
+
+    if (output_occurrences) {
+        output_file.open(path_output_file);
+        if (!output_file.good()) help("error: could not create <output_file>");
+    }
 
     bool is_64_bit;
     index_file.read((char*) &is_64_bit, 1);

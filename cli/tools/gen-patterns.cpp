@@ -35,11 +35,11 @@
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
-    std::cout << "move-r-patterns: generate patterns from a file." << std::endl << std::endl;
-    std::cout << "usage: move-r-patterns <file> <length> <number> <patterns file> <forbidden>" << std::endl;
+    std::cout << "gen-patterns: generate patterns in Pizza&Chili format from a file." << std::endl << std::endl;
+    std::cout << "usage: gen-patterns <file> <length> <number> <patterns_file> [<forbidden>]" << std::endl;
     std::cout << "       randomly extracts <number> substrings of length <length> from <file>," << std::endl;
     std::cout << "       avoiding substrings containing characters in <forbidden>." << std::endl;
-    std::cout << "       The output file <patterns file> has a first line of the form:" << std::endl;
+    std::cout << "       The output file <patterns_file> has a first line of the form:" << std::endl;
     std::cout << "       # number=<number> length=<length> file=<file> forbidden=<forbidden>" << std::endl;
     std::cout << "       and then the <number> patterns come successively without any separator" << std::endl;
     exit(0);
@@ -62,7 +62,7 @@ int main(int argc, char* argv[])
     if (num_patterns < 0) help("Error: number of patterns must be >= 1");
 
     std::ofstream output_file(argv[4]);
-    if (!output_file.is_open()) help("invalid input: could not create <patterns file>");
+    if (!output_file.is_open()) help("invalid input: could not create <patterns_file>");
 
     std::string forbidden = "";
     if (argc == 6) forbidden = argv[5];

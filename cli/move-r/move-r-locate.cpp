@@ -47,13 +47,13 @@ void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-locate: locate all occurrences of the input patterns." << std::endl << std::endl;
-    std::cout << "usage: move-r-locate [options] <index_file> <patterns>" << std::endl;
+    std::cout << "usage: move-r-locate [...] <index_file> <patterns>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
     std::cout << "   -i <input_file>            input_file must be the file the index was built for" << std::endl;
     std::cout << "                              (required for locate_rlzsa_bin_search and the -c option)" << std::endl;
     std::cout << "   -c                         checks correctness of each pattern occurrence on <input_file>" << std::endl;
-    std::cout << "   -o <output_file>           write pattern occurrences to this file (ASCII)" << std::endl;
+    std::cout << "   -o <output_file>           write pattern occurrences to this file (in ASCII format; one line per pattern)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in pizza&chili format containing the patterns" << std::endl;
     exit(0);
@@ -123,12 +123,11 @@ void measure_locate()
     std::string pattern;
     no_init_resize(pattern, pattern_length);
     std::vector<pos_t> occurrences;
-    bool is_sorted, equal;
+    bool equal;
     pos_t count;
 
     for (uint64_t i = 0; i < num_patterns; i++) {
         perc = (100 * i) / num_patterns;
-        is_sorted = false;
 
         if (perc > last_perc) {
             std::cout << perc << "% done .." << std::endl;
@@ -145,7 +144,8 @@ void measure_locate()
         if (check_correctness) {
             for (pos_t occ : occurrences) {
                 if (input.substr(occ, pattern_length) != pattern) {
-                    std::cout << "error: wrong occurrence: " << occ << " of pattern '" << pattern << "'" << std::endl;
+                    std::cout << "error: wrong occurrence: " << occ <<
+                        " of pattern '" << pattern << "'" << std::endl;
                     exit(-1);
                 }
             }
@@ -226,8 +226,7 @@ int main(int argc, char** argv)
     index_file.seekg(0, std::ios::beg);
 
     if (_support == _count || _support == _locate_one) {
-        std::cout << "error: this index does not support locate" << std::endl;
-        exit(0);
+        help("error: this index does not support locate");
     } else if (_support == _locate_move) {
         if (is_64_bit) {
             measure_locate<uint64_t, _locate_move>();

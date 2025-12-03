@@ -70,7 +70,7 @@ void help(std::string msg)
     std::cout << "move-r-bench: benchmarks construction- and query performance of move-r, block-rlbwt-2, block-rlbwt-v," << std::endl;
     std::cout << "              block-rlbwt-r, r-index, r-index-f, rcomp-glfig and online-rlbwt;" << std::endl;
     std::cout << "              has to be executed from the base folder." << std::endl << std::endl;
-    std::cout << "usage 1: move-r-bench [options] <input_file> <patterns_file_1> <patterns_file_2>" << std::endl;
+    std::cout << "usage 1: move-r-bench [...] <input_file> <patterns_file_1> <patterns_file_2>" << std::endl;
     std::cout << "   -c                 check for correctnes if possible; disables the -m option; will not print" << std::endl;
     std::cout << "                      runtime data if the runtime could be affected by checking for correctness" << std::endl;
     std::cout << "   -m <m_file>        writes measurement data to m_file" << std::endl;
@@ -80,7 +80,7 @@ void help(std::string msg)
     std::cout << "   <patterns_file_2>  file containing patterns (pattern length << number of occurrences) from <input_file>" << std::endl;
     std::cout << "                      to locate" << std::endl;
     std::cout << std::endl;
-    std::cout << "usage 2: move-r-bench -a [options] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>" << std::endl;
+    std::cout << "usage 2: move-r-bench -a [...] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>" << std::endl;
     std::cout << "                      constructs move_r using <num_threads> threads and measures count- and locate" << std::endl;
     std::cout << "                      performance of move_r for a=2, a=4, ..., a=8192." << std::endl;
     std::cout << "   -m <m_file>        writes measurement data to m_file" << std::endl;
