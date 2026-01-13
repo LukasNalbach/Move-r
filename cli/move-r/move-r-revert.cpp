@@ -88,7 +88,6 @@ void measure_revert()
     index.load(index_file);
     log_runtime(t1);
     index_file.close();
-    std::cout << std::endl;
     index.log_data_structure_sizes();
     std::cout << std::endl;
     std::chrono::steady_clock::time_point t2, t3, t4;

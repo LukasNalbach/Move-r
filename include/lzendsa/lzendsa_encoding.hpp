@@ -186,7 +186,7 @@ public:
                 int64_t end_pos = end_position(phrase_id);
 
                 if (end_pos == end) {
-                    report(pos_in_sa, extension(phrase_id));
+                    report(extension(phrase_id));
                     --pos_in_sa;
 
                     if (phrase_id != 0 && end_position(phrase_id - 1) == end - 1) {
@@ -218,26 +218,23 @@ public:
         }
     }
 
-    // extraction method
     template <typename out_t>
     std::vector<out_t> extract_deltas(int64_t beg, int64_t end) const
     {
         std::vector<out_t> result;
         no_init_resize(result, end - beg + 1);
-        extract_deltas(beg, end, [&](int64_t pos, int64_t val){result[pos - beg] = val;});
+        int64_t pos = result.size() - 1;
+        extract_deltas(beg, end, [&](out_t delta){result[pos] = delta; pos--;});
         return result;
     }
 
-    template <typename report_fnc_t>
+    // extraction method
+    template <typename out_t, typename report_fnc_t>
     void extract(int64_t beg, int64_t end, int64_t sa_end, report_fnc_t report) const
     {
-        report(end, sa_end);
-        int64_t cur_val = sa_end;
-
-        extract_deltas(beg + 1, end, [&](int64_t pos, int64_t val){
-            cur_val -= val;
-            report(pos - 1, cur_val);
-        });
+        report(sa_end);
+        out_t val = sa_end;
+        extract_deltas(beg + 1, end, [&](out_t delta){val -= delta; report(val);});
     }
 
     // extraction method
@@ -246,7 +243,8 @@ public:
     {
         std::vector<out_t> result;
         no_init_resize(result, end - beg + 1);
-        extract(beg, end, [&](int64_t pos, int64_t val){result[pos - beg] = val;});
+        out_t pos = result.size() - 1;
+        extract<out_t>(beg, end, [&](out_t val){result[pos] = val; pos--;});
         return result;
     }
 

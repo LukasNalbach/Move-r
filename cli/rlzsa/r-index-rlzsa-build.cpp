@@ -23,6 +23,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
 #include "malloc_count.h"
 
 #include <cstdint>
@@ -30,7 +31,6 @@
 #include <iostream>
 #include <set>
 #include <string>
-
 #include <misc/cli.hpp>
 #include <rlzsa/r_index_rlzsa.hpp>
 

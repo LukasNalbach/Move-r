@@ -27,6 +27,7 @@
 #include <move_data_structure/move_data_structure.hpp>
 #include <move_data_structure/move_data_structure_l_.hpp>
 #include <misc/utils.hpp>
+#include <misc/log.hpp>
 
 int main()
 {

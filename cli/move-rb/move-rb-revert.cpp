@@ -90,7 +90,6 @@ void measure_revert()
     index_file.close();
     std::cout << std::endl;
     index.log_data_structure_sizes();
-    std::cout << std::endl;
     std::chrono::steady_clock::time_point t2, t3, t4;
     std::string input;
     p = std::min({ (uint16_t) omp_get_max_threads(), index.forward_index().max_revert_threads(), p });

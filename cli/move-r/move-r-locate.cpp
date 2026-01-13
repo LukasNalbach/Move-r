@@ -97,7 +97,6 @@ void measure_locate()
     index.load(index_file);
     time = log_runtime(time);
     index_file.close();
-    std::cout << std::endl;
     index.log_data_structure_sizes();
 
     if (support == _locate_rlzsa_bin_search || check_correctness) {

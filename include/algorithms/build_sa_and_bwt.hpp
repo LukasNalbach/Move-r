@@ -32,6 +32,9 @@
 #include <libsais64.h>
 #include <vector>
 #include <misc/utils.hpp>
+#include <misc/files.hpp>
+#include <misc/search.hpp>
+#include <misc/log.hpp>
 
 template <typename int_t>
 std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input, bool build_bwt = true, bool use_bigbwt = false, bool log = false) {

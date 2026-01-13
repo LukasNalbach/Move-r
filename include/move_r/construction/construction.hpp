@@ -791,7 +791,7 @@ public:
     {
         if constexpr (std::is_same_v<pos_t, uint64_t>) {
             construct_from_sa<int64_t>();
-        } else if (n <= INT_MAX) {
+        } else if (n <= std::numeric_limits<int32_t>::max()) {
             construct_from_sa<int32_t>();
         } else {
             construct_from_sa<int64_t>();
@@ -1044,9 +1044,9 @@ public:
 
         if constexpr (std::is_same_v<pos_t, uint32_t>) {
             construct_rlzsa<bigbwt, uint32_t, uint32_t, sa_sint_t>();
-        } else if (2 * n <= UINT_MAX) {
+        } else if (2 * n <= std::numeric_limits<uint32_t>::max()) {
             construct_rlzsa<bigbwt, uint32_t, uint32_t, sa_sint_t>();
-        } else if (size_R_target + seg_size <= UINT_MAX) {
+        } else if (size_R_target + seg_size <= std::numeric_limits<uint32_t>::max()) {
             construct_rlzsa<bigbwt, uint64_t, uint32_t, sa_sint_t>();
         } else {
             construct_rlzsa<bigbwt, uint64_t, uint64_t, sa_sint_t>();

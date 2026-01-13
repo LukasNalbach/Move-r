@@ -67,9 +67,9 @@ void convert()
 
         uint64_t b = i_p * (n / p);
         uint64_t e = i_p == p - 1 ? n - 1 : ((i_p + 1) * (n / p) - 1);
+        uint64_t i = e;
 
-        input_index.sa_encoding().template extract_deltas(b, e,
-            [&](uint64_t pos, uint64_t val){sa[pos] = val;});
+        input_index.sa_encoding().template extract_deltas(b, e, [&](int_t v){sa[i] = v; i--;});
     }
     
     for (uint64_t i = 1; i < n; i++) {

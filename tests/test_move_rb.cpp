@@ -33,7 +33,8 @@ uint16_t max_num_threads = omp_get_max_threads();
 char min_uchar = std::numeric_limits<char>::min();
 char max_uchar = std::numeric_limits<char>::max() - 2;
 uint64_t min_input_size = 1;
-uint64_t max_input_size = 200000;
+uint64_t max_input_size = 100000;
+uint64_t max_pattern_length = 20;
 uint8_t mismatches_limit = 10;
 
 std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
@@ -57,8 +58,7 @@ void test_move_rb()
 
     // generate patterns from the input and test count- and locate queries
     std::uniform_int_distribution<pos_t> pattern_pos_distrib(0, input_size - 1);
-    pos_t max_pattern_length = std::min<pos_t>(10000, std::max<pos_t>(100, input_size / 1000));
-    std::uniform_int_distribution<pos_t> pattern_length_distrib(1, max_pattern_length);
+    std::uniform_int_distribution<pos_t> pattern_length_distrib(1, std::min<pos_t>(max_pattern_length, input_size));
     pos_t num_queries = std::min<pos_t>(1000, std::max<pos_t>(100, input_size / 1000));
     num_queries = std::max<pos_t>(1, num_queries / max_num_threads);
 
@@ -69,41 +69,32 @@ void test_move_rb()
         pos_t pattern_pos;
         pos_t pattern_length;
         std::string pattern;
-        std::vector<pos_t> correct_occurrences;
-        std::vector<pos_t> occurrences;
+        std::vector<aprx_occ_t<pos_t>> correct_occurrences;
+        std::vector<aprx_occ_t<pos_t>> occurrences;
 
         for (pos_t cur_query = 0; cur_query < num_queries; cur_query++) {
             pattern_pos = pattern_pos_distrib(gen_thr);
             pattern_length = std::min<pos_t>(input_size - pattern_pos, pattern_length_distrib(gen_thr));
-            uint max_mismatches = std::uniform_int_distribution<pos_t>(0,
+            pos_t max_mismatches = std::uniform_int_distribution<pos_t>(0,
                 std::min<pos_t>(mismatches_limit, pattern_length - 1))(gen_thr);
             no_init_resize(pattern, pattern_length);
-
             for (pos_t i = 0; i < pattern_length; i++)
                 pattern[i] = input[pattern_pos + i];
 
-            for (pos_t i = 0; i <= input_size - pattern_length; i++) {
-                pos_t mismatches = 0;
-
-                for (pos_t j = 0; j < pattern_length; j++) {
-                    if (input[i + j] != pattern[j]) mismatches++;
-                    if (mismatches > max_mismatches) break;
-                }
-
-                if (mismatches <= max_mismatches) correct_occurrences.emplace_back(i);
-            }
-
-            occurrences = index.locate_with_mismatches(pattern, suffix_filter_scheme(max_mismatches, HAMMING_DISTANCE));
-            EXPECT_EQ(occurrences.size(), correct_occurrences.size());
-            ips4o::sort(occurrences.begin(), occurrences.end());
-            EXPECT_EQ(occurrences, correct_occurrences);
+            for_each_constexpr<HAMMING_DISTANCE, EDIT_DISTANCE>([&](auto dist_metr){
+                correct_occurrences = locate<pos_t, dist_metr>(input, pattern, max_mismatches);
+                search_scheme_t scheme = suffix_filter_scheme(max_mismatches);
+                EXPECT_EQ(index.template count<dist_metr>(pattern, scheme), correct_occurrences.size());
+                occurrences = index.template locate<dist_metr>(pattern, scheme);
+                EXPECT_EQ(occurrences.size(), correct_occurrences.size());
+                ips4o::sort(occurrences.begin(), occurrences.end());
+                EXPECT_EQ(occurrences, correct_occurrences);
+            });
 
             correct_occurrences.clear();
             occurrences.clear();
         }
     }
-
-    input.clear();
 }
 
 TEST(test_move_rb, fuzzy_test)

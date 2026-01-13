@@ -1,19 +1,42 @@
+/**
+ * part of LukasNalbach/Move-r
+ *
+ * MIT License
+ *
+ * Copyright (c) Lukas Nalbach
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #pragma once
 
 #include <cstdint>
 #include <vector>
+#include <string>
+
+#include "files.hpp"
 
 static void print_search_scheme_error()
 {
     std::cout << "Error: malformed header in search scheme file" << std::endl;
     exit(0);
 }
-
-enum distance_metric_t : int8_t {
-    NO_METRIC = -1,
-    HAMMING_DISTANCE = 0,
-    EDIT_DISTANCE = 1
-};
 
 struct search_step_t {
     uint8_t part;
@@ -24,103 +47,99 @@ struct search_step_t {
 using search_t = std::vector<search_step_t>;
 
 struct search_scheme_t {
-    distance_metric_t dist_metr = NO_METRIC;
-    uint8_t k_max = 0;
-    uint8_t parts = 1;
-    std::vector<search_t> searches = {{{0, 0, 0}}};
+    uint8_t k = 0;
+    uint8_t p = 1;
+    std::vector<search_t> S = {{{0, 0, 0}}};
 };
 
-static search_scheme_t pigeon_hole_scheme(uint8_t k_max, distance_metric_t dist_metr)
+static search_scheme_t pigeon_hole_scheme(uint8_t k)
 {
-    uint8_t parts = k_max + 1;
-    std::vector<search_t> searches;
-    searches.reserve(k_max + 1);
+    uint8_t p = k + 1;
+    std::vector<search_t> S;
+    S.reserve(k + 1);
 
-    for (int16_t i = 0; i < k_max + 1; i++) {
-        search_t search;
-        search.reserve(parts);
-        search.emplace_back(search_step_t{.part = i, .k_min = 0, .k_max = 0});
+    for (int16_t i = 0; i < k + 1; i++) {
+        search_t s;
+        s.reserve(p);
+        s.emplace_back(search_step_t{.part = i, .k_min = 0, .k_max = 0});
 
-        for (int16_t j = i + 1; j < parts; j++) {
-            search.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k_max});
+        for (int16_t j = i + 1; j < p; j++) {
+            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k});
         }
 
         for (int16_t j = i - 1; j >= 0; j--) {
-            search.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k_max});
+            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k});
         }
 
-        searches.emplace_back(std::move(search));
+        S.emplace_back(std::move(s));
     }
 
     return search_scheme_t {
-        .dist_metr = dist_metr,
-        .k_max = k_max,
-        .parts = parts,
-        .searches = std::move(searches)
+        .k = k,
+        .p = p,
+        .S = std::move(S)
     };
 }
 
-static search_scheme_t suffix_filter_scheme(uint8_t k_max, distance_metric_t dist_metr)
+static search_scheme_t suffix_filter_scheme(uint8_t k)
 {
-    uint8_t parts = k_max + 1;
-    std::vector<search_t> searches;
-    searches.reserve(k_max + 1);
+    uint8_t p = k + 1;
+    std::vector<search_t> S;
+    S.reserve(k + 1);
 
-    for (int16_t i = 0; i < k_max + 1; i++) {
-        search_t search;
-        search.reserve(parts);
+    for (int16_t i = 0; i < k + 1; i++) {
+        search_t s;
+        s.reserve(p);
 
-        for (int16_t j = i; j < parts; j++) {
-            search.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = j - i});
+        for (int16_t j = i; j < p; j++) {
+            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = j - i});
         }
 
         for (int16_t j = i - 1; j >= 0; j--) {
-            search.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k_max});
+            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k});
         }
 
-        searches.emplace_back(std::move(search));
+        S.emplace_back(std::move(s));
     }
 
     return search_scheme_t {
-        .dist_metr = dist_metr,
-        .k_max = k_max,
-        .parts = parts,
-        .searches = std::move(searches)
+        .k = k,
+        .p = p,
+        .S = std::move(S)
     };
 }
 
-static search_scheme_t zero_one_scheme(uint8_t k_max, distance_metric_t dist_metr)
+static search_scheme_t zero_one_scheme(uint8_t k)
 {
-    uint8_t parts = k_max + 2;
-    std::vector<search_t> searches;
-    searches.reserve(k_max + 1);
+    uint8_t p = k + 2;
+    std::vector<search_t> S;
+    S.reserve(k + 1);
 
-    for (int16_t i = 0; i < k_max + 1; i++) {
-        search_t search;
-        search.reserve(parts);
-        search.emplace_back(search_step_t{.part = i, .k_min = 0, .k_max = 0});
-        search.emplace_back(search_step_t{.part = i + 1, .k_min = 0, .k_max = i == k_max ? 0 : 1});
+    for (int16_t i = 0; i < k + 1; i++) {
+        search_t s;
+        s.reserve(p);
+        s.emplace_back(search_step_t{.part = i, .k_min = 0, .k_max = 0});
+        s.emplace_back(search_step_t{.part = i + 1, .k_min = 0, .k_max = (i == k ? 0 : 1)});
 
-        for (int16_t j = i + 2; j < parts; j++) {
-            search.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k_max});
+        for (int16_t j = i + 2; j < p; j++) {
+            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k});
         }
 
         for (int16_t j = i - 1; j >= 0; j--) {
-            search.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k_max});
+            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k});
         }
 
-        searches.emplace_back(std::move(search));
+        S.emplace_back(std::move(s));
     }
 
     return search_scheme_t {
-        .dist_metr = dist_metr,
-        .k_max = k_max,
-        .parts = parts,
-        .searches = std::move(searches)
+        .k = k,
+        .p = p,
+        .S = std::move(S)
     };
 }
 
-static std::vector<uint8_t> parse_bracket(std::string content, int64_t parts)
+static std::vector<uint8_t> parse_bracket(std::string content, int64_t p)
 {
     std::replace(content.begin(), content.end(), ',', ' ');
     
@@ -129,7 +148,7 @@ static std::vector<uint8_t> parse_bracket(std::string content, int64_t parts)
     int64_t num;
     
     while (ss >> num) {
-        if (!(0 <= num && num < parts)) {
+        if (!(0 <= num && num < p)) {
             print_search_scheme_error();
         }
 
@@ -139,20 +158,20 @@ static std::vector<uint8_t> parse_bracket(std::string content, int64_t parts)
     return numbers;
 }
 
-static search_scheme_t parse_search_scheme(const std::string& str, distance_metric_t dist_metr)
+static search_scheme_t parse_search_scheme(const std::string& str)
 {
     std::stringstream ss_input(str);
     std::string line;
     std::getline(ss_input, line);
 
-    int64_t parts = value_from_key(line, "p=");
-    int64_t k_max = value_from_key(line, "k=");
+    int64_t p = value_from_key(line, "p=");
+    int64_t k = value_from_key(line, "k=");
 
-    if (parts == -1 || k_max == -1) {
+    if (p == -1 || k == -1) {
         print_search_scheme_error();
     }
 
-    std::vector<search_t> searches;
+    std::vector<search_t> S;
 
     while (std::getline(ss_input, line)) {
         if (line.empty()) {
@@ -167,37 +186,36 @@ static search_scheme_t parse_search_scheme(const std::string& str, distance_metr
             if (end == std::string::npos) break;
 
             std::string content = line.substr(pos + 1, end - pos - 1);
-            bracket_contents.emplace_back(parse_bracket(content, parts));
+            bracket_contents.emplace_back(parse_bracket(content, p));
             
             pos = end + 1;
         }
 
         if (bracket_contents.size() != 3 ||
-            bracket_contents[0].size() != parts ||
-            bracket_contents[1].size() != parts ||
-            bracket_contents[2].size() != parts
+            bracket_contents[0].size() != p ||
+            bracket_contents[1].size() != p ||
+            bracket_contents[2].size() != p
         ) {
             print_search_scheme_error();
         }
 
-        search_t search;
-        search.reserve(parts);
+        search_t s;
+        s.reserve(p);
 
-        for (int64_t i = 0; i < parts; i++) {
-            search.emplace_back(search_step_t{
-                .part =  (uint8_t) bracket_contents[0][i],
-                .k_min = (uint8_t) bracket_contents[1][i],
-                .k_max = (uint8_t) bracket_contents[2][i]
+        for (int64_t i = 0; i < p; i++) {
+            s.emplace_back(search_step_t{
+                .part =  bracket_contents[0][i],
+                .k_min = bracket_contents[1][i],
+                .k_max = bracket_contents[2][i]
             });
         }
 
-        searches.emplace_back(search);
+        S.emplace_back(s);
     }
 
     return search_scheme_t {
-        .dist_metr = dist_metr,
-        .k_max = (uint8_t) k_max,
-        .parts = (uint8_t) parts,
-        .searches = std::move(searches)
+        .k = k,
+        .p = p,
+        .S = std::move(S)
     };
 }

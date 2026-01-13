@@ -35,6 +35,7 @@ std::string scheme_str;
 distance_metric_t dist_metr = NO_METRIC;
 search_scheme_t search_scheme;
 bool output_occurrences = false;
+bool filter_occurrences = false;
 bool check_correctness = false;
 std::string input;
 std::ofstream mf;
@@ -58,6 +59,7 @@ void help(std::string msg)
     std::cout << "   -i <input_file>            input_file must be the file the index was built for" << std::endl;
     std::cout << "                              (required for the -c option)" << std::endl;
     std::cout << "   -c                         checks correctness of each pattern occurrence on <input_file>" << std::endl;
+    std::cout << "   -f                         filters out redundant occurrdences" << std::endl;
     std::cout << "   <metric>                   distance metric to use (hamming or edit)" << std::endl;
     std::cout << "   <scheme>                   search scheme to use (pigeon_hole, suffix_filter, 01 or path to a file)" << std::endl;
     std::cout << "   <mismatches>               maximum number of allowed mismatches; applies only to" << std::endl;
@@ -68,12 +70,16 @@ void help(std::string msg)
     exit(0);
 }
 
-void parse_args(char** argv, int argc)
+bool parse_args(char** argv, int argc)
 {
+    if (arg_idx >= argc - min_args) return false;
     std::string s = argv[arg_idx];
+    if (s == "-d") return false;
     arg_idx++;
 
-    if (s == "-c") {
+    if (s == "-f") {
+        filter_occurrences = true;
+    } else if (s == "-c") {
         check_correctness = true;
     } else if (s == "-m") {
         if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
@@ -93,6 +99,8 @@ void parse_args(char** argv, int argc)
     } else {
         help("error: unrecognized '" + s + "' option");
     }
+
+    return true;
 }
 
 template <typename pos_t, move_r_support support>
@@ -106,7 +114,6 @@ void measure_locate()
     index.load(index_file);
     index_file.close();
     time = log_runtime(time);
-    std::cout << std::endl;
     index.log_data_structure_sizes();
 
     if (check_correctness) {
@@ -130,6 +137,8 @@ void measure_locate()
     std::chrono::steady_clock::time_point t2, t3;
     std::string pattern;
     no_init_resize(pattern, pattern_length);
+    std::vector<aprx_occ_t<pos_t>> occurrences;
+    std::vector<aprx_occ_t<pos_t>> redundant_occurrences;
     uint64_t checksum = 0;
     uint64_t baseline_alloc = malloc_count_current();
     malloc_count_reset_peak();
@@ -145,31 +154,89 @@ void measure_locate()
         patterns_file.read(pattern.data(), pattern_length);
         t2 = now();
 
-        auto occurrences = index.locate_with_mismatches(pattern, search_scheme);
+        if (dist_metr == HAMMING_DISTANCE) {
+            index.locate_hamming_dist(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){redundant_occurrences.emplace_back(occ);});
+        } else {
+            index.locate_edit_dist(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){redundant_occurrences.emplace_back(occ);});
+        }
+
+        if (filter_occurrences) {
+            ips4o::sort(redundant_occurrences.begin(), redundant_occurrences.end());
+            int64_t window = 2 * k;
+
+            aprx_occ_t<pos_t> prev {
+                .pos = std::numeric_limits<pos_t>::max(),
+                .len = std::numeric_limits<pos_t>::max(),
+                .err = k + 1
+            };
+
+            for (const auto& occ : redundant_occurrences) {
+                int64_t dist = abs_diff<int64_t>(occ.pos, prev.pos);
+
+                if (dist == 0) {
+                    continue;
+                }
+
+                if (dist <= window) {
+                    if (occ.err > prev.err || (occ.err == prev.err && occ.len >= prev.len)) {
+                        continue;
+                    }
+
+                    occurrences.pop_back();
+                }
+
+                occurrences.emplace_back(occ);
+                prev = occ;
+            }
+
+            redundant_occurrences.clear();
+        } else {
+            std::swap(occurrences, redundant_occurrences);
+        }
+        
         num_occurrences += occurrences.size();
 
         t3 = now();
         time_locate += time_diff_ns(t2, t3);
 
         if (check_correctness) {
-            for (pos_t occ : occurrences) {
-                if (hamming_dist(input.substr(occ, pattern_length), pattern) > k) {
-                    std::cout << "error: wrong aprx. occurrence: " << occ << " of pattern '" << pattern << "'" << std::endl;
+            for (auto occ : occurrences) {
+                std::string_view occ_view(input.c_str() + occ.pos, occ.len);
+                pos_t dist;
+
+                if (dist_metr == HAMMING_DISTANCE) {
+                    dist = hamming_dist_bounded<pos_t>(occ_view, pattern, k);
+                } else {
+                    dist = edit_dist_bounded<pos_t>(occ_view, pattern, k);
+                }
+
+                if (dist > k || occ.err != dist) {
+                    std::cout << "error: wrong approximate occurrence " << occ.pos <<
+                        " with length " << occ.len << " of pattern '" << pattern << "'" << std::endl;
                     exit(-1);
                 }
             }
         }
 
         if (output_occurrences) {
-            ips4o::sort(occurrences.begin(), occurrences.end());
-            for (pos_t occ : occurrences) output_file << occ << " ";
+            if (!filter_occurrences) {
+                ips4o::sort(occurrences.begin(), occurrences.end());
+            }
+
+            for (auto occ : occurrences) {
+                output_file <<
+                    "(pos=" << occ.pos <<
+                    " len=" << occ.len <<
+                    " err=" << occ.err << ") ";
+            }
+
             output_file << std::endl;
         }
 
         checksum += occurrences.size();
 
-        for (pos_t occ : occurrences) {
-            checksum += occ;
+        for (auto occ : occurrences) {
+            checksum += occ.pos + occ.err;
         }
 
         occurrences.clear();
@@ -187,6 +254,7 @@ void measure_locate()
     std::cout << "locate time: " << format_time(time_locate) << std::endl;
     std::cout << "             " << format_time(time_locate / num_patterns) << "/pattern" << std::endl;
     std::cout << "             " << format_time(time_locate / (num_patterns * pattern_length)) << "/character" << std::endl;
+    std::cout << "             " << format_time(time_locate / num_occurrences) << "/occurrence" << std::endl;
 
     if (mf.is_open()) {
         mf << "RESULT";
@@ -225,7 +293,7 @@ void measure_locate()
 int main(int argc, char** argv)
 {
     if (argc - 1 < min_args) help("");
-    while (arg_idx < argc - min_args) parse_args(argv, argc);
+    while (parse_args(argv, argc));
 
     std::string arg = argv[arg_idx++];
     if (arg != "-d") help("");
@@ -245,7 +313,7 @@ int main(int argc, char** argv)
             no_init_resize(file_content, file_size);
             std::ifstream ifile(scheme_str);
             ifile.read(file_content.data(), file_size);
-            search_scheme = parse_search_scheme(file_content, dist_metr);
+            search_scheme = parse_search_scheme(file_content);
         } else help("error: invalid option after -s");
     }
     
@@ -254,11 +322,11 @@ int main(int argc, char** argv)
         if (arg != "-k") help("");
         k = atoi(argv[arg_idx++]);
         if (k < 0) help("error: invalid k value");
-        if      (scheme_str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k, dist_metr);
-        else if (scheme_str == "suffix_filter") search_scheme = suffix_filter_scheme(k, dist_metr);
-        else if (scheme_str == "01")            search_scheme = zero_one_scheme(k, dist_metr);
+        if      (scheme_str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k);
+        else if (scheme_str == "suffix_filter") search_scheme = suffix_filter_scheme(k);
+        else if (scheme_str == "01")            search_scheme = zero_one_scheme(k);
     } else {
-        k = search_scheme.k_max;
+        k = search_scheme.k;
     }
 
     path_index_file = argv[arg_idx];

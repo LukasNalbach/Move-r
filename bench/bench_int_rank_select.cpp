@@ -31,6 +31,7 @@
 
 #include <data_structures/rank_select_support.hpp>
 #include <misc/utils.hpp>
+#include <misc/log.hpp>
 
 static constexpr uint32_t num_queries = 1 << 24;
 static constexpr uint32_t target_input_size = 1 << 24;

@@ -32,6 +32,7 @@
 #include <vector>
 
 #include <misc/utils.hpp>
+#include <misc/files.hpp>
 
 /**
  * @brief variable-width interleaved vectors (widths are fixed to whole bytes)

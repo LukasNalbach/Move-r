@@ -32,6 +32,7 @@
 #include <vector>
 
 #include <misc/utils.hpp>
+#include <misc/files.hpp>
 
 /**
  * @brief variable-width word-packed interleaved vectors (the maximum supported width is 64 bits)

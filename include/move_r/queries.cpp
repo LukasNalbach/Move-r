@@ -60,15 +60,15 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
     requires(supports_multiple_locate)
 {
     if constexpr (has_lzendsa) {
-        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
+        pos_t x = bin_search_min_geq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_ + 1) - 1; });
 
-        while (SA_s(x) == n) {
-            x--;
+        while (SA_s_(x) == n) {
+            x++;
         }
 
-        pos_t j = M_LF().p(x);
-        int64_t s = SA_s(x);
-        _lzendsa.extract_deltas(j + 1, i, [&](int64_t, int64_t d){s += d;});
+        pos_t j = M_LF().p(x + 1) - 1;
+        int64_t s = SA_s_(x);
+        _lzendsa.extract_deltas(i + 1, j, [&](int64_t d){s -= d;});
 
         return s;
     } else if constexpr (has_rlzsa) {
@@ -204,36 +204,22 @@ pos_t move_r<support, sym_t, pos_t>::query_context_t::one_occ() const
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-std::vector<pos_t> move_r<support, sym_t, pos_t>::query_context_t::locate()
+template <typename report_fnc_t>
+void move_r<support, sym_t, pos_t>::query_context_t::locate(report_fnc_t report)
     requires(supports_multiple_locate)
 {
-    std::vector<pos_t> Occ;
-
     if constexpr (has_lzendsa) {
-        no_init_resize(Occ, num_occ_rem());
-
         // compute the suffix array value at b
-        s = idx->SA_s(hat_b_ap_y) - (y + 1);
-        Occ[0] = s;
-
-        idx->_lzendsa.extract_deltas(b + 1, e,
-            [&](int64_t j, int64_t d){
-                Occ[j - b] = d + idx->n;
-            });
-
-        for (pos_t j = 1; j < Occ.size(); j++) {
-            Occ[j] += Occ[j - 1];
-            Occ[j] -= idx->n;
-        }
-
+        int64_t s = idx->SA_s_(hat_e_ap_z) - (z + 1);
+        report(s);
+        idx->_lzendsa.extract_deltas(b + 1, e, [&](int64_t d){s -= d; report(s);});
         i = e + 1;
     } else if constexpr (has_rlzsa) {
-        Occ.reserve(num_occ_rem());
 
         if (i == b) [[unlikely]] {
             // compute the suffix array value at b
             s = idx->SA_s(hat_b_ap_y) - (y + 1);
-            Occ.emplace_back(s);
+            report(s);
             i++;
 
             // check if there is more than one occurrence
@@ -244,28 +230,23 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::query_context_t::locate()
 
         // compute the remaining occurrences SA(b,e]
         if (i <= e) [[likely]] {
-            idx->report_rlzsa_right(i, e, s, x_p, x_lp, x_cp, x_r, s_np,
-                [&](pos_t, pos_t v){Occ.emplace_back(v);});
+            idx->report_rlzsa_right(i, e, s, x_p, x_lp, x_cp, x_r, s_np, report);
         }
     } else if constexpr (has_locate_move) {
-        Occ.reserve(num_occ_rem());
-
         // compute the suffix array value at b
         if (i == b) [[unlikely]] {
             idx->init_phi_m1(b, e, s, s_, hat_b_ap_y, y);
-            Occ.emplace_back(s);
+            report(s);
             i++;
         }
 
         // compute the remaining occurrences SA(b,e]
         while (i <= e) {
             idx->M_Phi_m1().move(s, s_);
-            Occ.emplace_back(s);
+            report(s);
             i++;
         }
     }
-
-    return Occ;
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -639,6 +620,8 @@ void move_r<support, sym_t, pos_t>::report_rlzsa_left(
     report_fnc_t report) const
     requires(has_rlzsa)
 {
+    static constexpr bool report_pos = function_traits<report_fnc_t>::arity > 1;
+
     while (true) {
         // decode all copy-phrases after the previous literal phrase
         while (!PT(x_p)) {
@@ -647,7 +630,7 @@ void move_r<support, sym_t, pos_t>::report_rlzsa_left(
                 s += n;
                 s -= R(x_r);
                 i--;
-                report(i, s);
+                if constexpr (report_pos) report(i, s); else report(s);
                 if (i == b) [[unlikely]] return;
                 x_r--;
             }
@@ -667,7 +650,7 @@ void move_r<support, sym_t, pos_t>::report_rlzsa_left(
             s += n;
             s -= LP(x_lp);
             i--;
-            report(i, s);
+            if constexpr (report_pos) report(i, s); else report(s);
             if (i == b) [[unlikely]] return;
             x_p--;
             x_lp--;
@@ -688,6 +671,8 @@ void move_r<support, sym_t, pos_t>::report_rlzsa_right(
     report_fnc_t report) const
     requires(has_rlzsa)
 {
+    static constexpr bool report_pos = function_traits<report_fnc_t>::arity > 1;
+
     while (true) {
         // decode all copy-phrases before the next literal phrase
         while (!PT(x_p)) {
@@ -695,7 +680,7 @@ void move_r<support, sym_t, pos_t>::report_rlzsa_right(
             while (i < s_np) {
                 s += R(x_r);
                 s -= n;
-                report(i, s);
+                if constexpr (report_pos) report(i, s); else report(s);
                 if (i == e) [[unlikely]] return;
                 i++;
                 x_r++;
@@ -712,7 +697,7 @@ void move_r<support, sym_t, pos_t>::report_rlzsa_right(
             // decode the x_lp-th literal phrase
             s += LP(x_lp);
             s -= n;
-            report(i, s);
+            if constexpr (report_pos) report(i, s); else report(s);
             if (i == e) [[unlikely]] return;
             i++;
             x_p++;
@@ -730,17 +715,17 @@ template <move_r_support support, typename sym_t, typename pos_t>
 pos_t move_r<support, sym_t, pos_t>::count(const inp_t& P) const
 {
     if constexpr (!supports_bwsearch) {
-        auto [beg, end, result] = binary_sa_search_and_extract<pos_t>(*input, P, _SA_delta.size() + 1,
+        auto [beg, end] = binary_sa_search_and_extract<pos_t>(*input, P, _SA_delta.size() + 1,
             [&](pos_t i){return i == _SA_delta.size() ? last_sa : _SA_delta[i];},
             [&](pos_t i){return i == _SA_delta.size() ? n - 1 : (i * delta);},
             [&](pos_t b, pos_t e, pos_t sa_b, pos_t sa_e, auto report){
-                report(b, sa_b);
+                report(sa_b);
                 if (e == b) return;
                 b++;
                 pos_t x_p, x_lp, x_cp, x_r, s_np;
                 init_rlzsa(b, x_p, x_lp, x_cp, x_r, s_np);
                 report_rlzsa_right(b, e, sa_b, x_p, x_lp, x_cp, x_r, s_np, report);
-            }, false);
+            }, [](pos_t){}, false, false);
         
         return end - beg + 1;
     }
@@ -760,23 +745,24 @@ pos_t move_r<support, sym_t, pos_t>::count(const inp_t& P) const
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
-std::vector<pos_t> move_r<support, sym_t, pos_t>::locate(const inp_t& P) const
+template <typename report_fnc_t>
+void move_r<support, sym_t, pos_t>::locate(const inp_t& P, report_fnc_t report) const
     requires(supports_multiple_locate)
 {
     if constexpr (!supports_bwsearch) {
-        auto [beg, end, result] = binary_sa_search_and_extract<pos_t>(*input, P, _SA_delta.size() + 1,
+        auto [beg, end] = binary_sa_search_and_extract<pos_t>(*input, P, _SA_delta.size() + 1,
             [&](pos_t i){return i == _SA_delta.size() ? last_sa : _SA_delta[i];},
             [&](pos_t i){return i == _SA_delta.size() ? n - 1 : (i * delta);},
             [&](pos_t b, pos_t e, pos_t sa_b, pos_t sa_e, auto report){
-                report(b, sa_b);
+                report(sa_b);
                 if (e == b) return;
                 b++;
                 pos_t x_p, x_lp, x_cp, x_r, s_np;
                 init_rlzsa(b, x_p, x_lp, x_cp, x_r, s_np);
                 report_rlzsa_right(b, e, sa_b, x_p, x_lp, x_cp, x_r, s_np, report);
-            }, true);
-        
-        return result;
+            }, report, false, true);
+
+        return;
     }
 
     pos_t b, e, b_, e_, hat_b_ap_y, hat_e_ap_z;
@@ -786,59 +772,43 @@ std::vector<pos_t> move_r<support, sym_t, pos_t>::locate(const inp_t& P) const
 
     for (int64_t i = P.size() - 1; i >= 0; i--) {
         if (!backward_search_step(P[i], b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z)) {
-            return {};
+            return;
         }
     }
 
-    std::vector<pos_t> Occ;
-    Occ.reserve(e - b + 1);
-
     if constexpr (has_lzendsa) {
-        no_init_resize(Occ, e - b + 1);
-
-        // compute the suffix array value at b
-        int64_t s = SA_s(hat_b_ap_y) - (y + 1);
-        Occ[0] = s;
+        // compute the suffix array value at e
+        int64_t s = SA_s_(hat_e_ap_z) - (z + 1);
+        report(s);
 
         // compute the remaining occurrences SA[b,e)
-        _lzendsa.extract_deltas(b + 1, e,
-            [&](int64_t i, int64_t d){
-                Occ[i - b] = d + n;
-            });
-
-        for (pos_t i = 1; i < Occ.size(); i++) {
-            Occ[i] += Occ[i - 1];
-            Occ[i] -= n;
-        }
+        _lzendsa.extract_deltas(b + 1, e, [&](int64_t d){s -= d; report(s);});
     } else if constexpr (has_rlzsa) {
         pos_t s = SA_s(hat_b_ap_y) - (y + 1);
-        Occ.emplace_back(s);
+        report(s);
 
         if (b < e) {
             pos_t i = b + 1;
             pos_t x_p, x_lp, x_cp, x_r, s_np;
 
             init_rlzsa(i, x_p, x_lp, x_cp, x_r, s_np);
-            report_rlzsa_right(i, e, s, x_p, x_lp, x_cp, x_r, s_np,
-                [&](pos_t, pos_t v){Occ.emplace_back(v);});
+            report_rlzsa_right(i, e, s, x_p, x_lp, x_cp, x_r, s_np, report);
         }
     } else if constexpr (has_locate_move) {
         pos_t s, s_;
         init_phi_m1(b, e, s, s_, hat_b_ap_y, y);
-        Occ.emplace_back(s);
+        report(s);
 
         if (b < e) {
             pos_t i = b + 1;
 
             while (i <= e) {
                 M_Phi_m1().move(s, s_);
-                Occ.emplace_back(s);
+                report(s);
                 i++;
             }
         }
     }
-
-    return Occ;
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -1013,12 +983,7 @@ void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_param
             report(e, s);
 
             // compute the remaining occurrences SA[b,e)
-            _lzendsa.extract_deltas(b + 1, e,
-                [&](int64_t, int64_t d){
-                    s -= d;
-                    i--;
-                    report(i, s);
-                });
+            _lzendsa.extract_deltas(b + 1, e, [&](int64_t d){s -= d; i--; report(i, s);});
         } else if constexpr (has_locate_move) {
             // the input interval of M_LF containing i
             pos_t x = bin_search_max_leq<pos_t>(b, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });

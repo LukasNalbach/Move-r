@@ -189,8 +189,6 @@ void test_move_r_int()
             occurrences.clear();
         }
     }
-
-    input.clear();
 }
 
 TEST(test_move_r, fuzzy_test)
