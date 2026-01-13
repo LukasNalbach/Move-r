@@ -27,6 +27,10 @@
 #pragma once
 
 #include <misc/utils.hpp>
+#include <misc/files.hpp>
+#include <misc/search.hpp>
+#include <misc/log.hpp>
+
 #include <ips4o.hpp>
 #include <libsais.h>
 #include <libsais64.h>
@@ -416,6 +420,8 @@ public:
     template <typename out_t, typename report_fnc_t>
     void extract(uint64_t l, uint64_t r, report_fnc_t report, int64_t sa_l = -1) const
     {
+        static constexpr bool report_pos = function_traits<report_fnc_t>::arity > 1;
+
         if (r < l) return;
 
         // index in PS of the last phrase starting before or at position l		
@@ -455,7 +461,7 @@ public:
         } else {
             s = sa_l;
             i = l;
-            report(i, s);
+            if constexpr (report_pos) report(i, s); else report(s);
             i++;
 
             if (i == s_cp + std::max<uint64_t>(1, PL[x_p])) {
@@ -470,7 +476,7 @@ public:
             // decode all literal phrases until the next copy phrase or until i > r
             while (PL[x_p] == 0 && i <= r) {
                 s = S[x_p];
-                report(i, s);
+                if constexpr (report_pos) report(i, s); else report(s);
                 x_p++;
                 s_cp++;
                 s_np += std::max<uint64_t>(1, PL[x_p]);
@@ -487,7 +493,7 @@ public:
             do {
                 s += R[p_r];
                 s -= n;
-                report(i, s);
+                if constexpr (report_pos) report(i, s); else report(s);
                 p_r++;
                 i++;
             } while (i < s_np && i <= r);
@@ -511,7 +517,7 @@ public:
     {
         std::vector<out_t> result;
         result.reserve(r - l + 1);
-        extract<out_t>(l, r, [&](uint64_t, out_t v){result.emplace_back(v);}, sa_l);
+        extract<out_t>(l, r, [&](out_t v){result.emplace_back(v);}, sa_l);
         return result;
     }
 

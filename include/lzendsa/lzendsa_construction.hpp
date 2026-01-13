@@ -38,6 +38,10 @@
 #include <ips4o.hpp>
 
 #include <misc/utils.hpp>
+#include <misc/files.hpp>
+#include <misc/search.hpp>
+#include <misc/log.hpp>
+#include <misc/files.hpp>
 #include <ordered/btree/map.hpp>
 #include <rmq/rmq.hpp>
 

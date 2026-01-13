@@ -34,6 +34,10 @@
 #include <data_structures/rank_select_support.hpp>
 #include <lzendsa/lzendsa_encoding.hpp>
 #include <misc/utils.hpp>
+#include <misc/files.hpp>
+#include <misc/search.hpp>
+#include <misc/log.hpp>
+#include <misc/strings.hpp>
 #include <omp.h>
 #include <tsl/sparse_map.h>
 #include <type_traits>
@@ -1131,7 +1135,20 @@ public:
          * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
          * @return vector containing the occurrences
          */
-        std::vector<pos_t> locate() requires(supports_multiple_locate);
+        template <typename report_fnc_t>
+        void locate(report_fnc_t report) requires(supports_multiple_locate);
+
+        /**
+         * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
+         * @return vector containing the occurrences
+         */
+        std::vector<pos_t> locate() requires(supports_multiple_locate)
+        {
+            std::vector<pos_t> Occ;
+            Occ.reserve(num_occ_rem());
+            locate([&](pos_t occ){Occ.emplace_back(occ);});
+            return Occ;
+        }
     };
 
     /**
@@ -1277,7 +1294,7 @@ public:
      * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzsa
      * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzsa
      * @param s_np starting position in the rlzsa of the next phrase of the rlzsa
-     * @param report function that is called with every tuple (j,SA[j]) as a parameter, where j in [i,e]; the values are reported from left to right
+     * @param report function that is called with every value SA[j] as a parameter, where j in [i,e]; the values are reported from left to right
      */
     template <typename report_fnc_t>
     inline void report_rlzsa_left(
@@ -1295,7 +1312,7 @@ public:
      * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzsa
      * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzsa
      * @param s_np starting position in the rlzsa of the next phrase of the rlzsa
-     * @param report function that is called with every tuple (j,SA[j]) as a parameter, where j in [i,e]; the values are reported from left to right
+     * @param report function that is called with every value SA[j] as a parameter, where j in [i,e]; the values are reported from left to right
      */
     template <typename report_fnc_t>
     inline void report_rlzsa_right(
@@ -1328,10 +1345,24 @@ public:
     /**
      * @brief locates the pattern P in the input
      * @param P the pattern to locate in the input
+     * @param report function that is called with every occurrence of P in the input as a parameter
+     */
+    template <typename report_fnc_t>
+    inline void locate(const inp_t& P, report_fnc_t report) const
+        requires(supports_multiple_locate);
+
+    /**
+     * @brief locates the pattern P in the input
+     * @param P the pattern to locate in the input
      * @return a vector containing the occurrences of P in the input
      */
     inline std::vector<pos_t> locate(const inp_t& P) const
-        requires(supports_multiple_locate);
+        requires(supports_multiple_locate)
+    {
+        std::vector<pos_t> Occ;
+        locate(P, [&](pos_t occ){Occ.emplace_back(occ);});
+        return Occ;
+    }
 
     // ############################# RETRIEVE-RANGE METHODS #############################
 

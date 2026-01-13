@@ -34,6 +34,7 @@
 #include <data_structures/hybrid_bit_vector.hpp>
 #include <data_structures/interleaved_byte_aligned_vectors.hpp>
 #include <misc/utils.hpp>
+#include <misc/search.hpp>
 
 /**
  * @brief a rank-select data structure using hybrid bit vectors (either sd_array or plain bit vector), or the rs data structure

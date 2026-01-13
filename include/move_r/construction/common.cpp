@@ -590,10 +590,12 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sas_from_sa()
     if constexpr (support == _locate_move) {
         no_init_resize(SA_s, r_);
     } else {
-        idx._SA_s = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
-        idx._SA_s.resize_no_init(r_);
+        if constexpr (!has_lzendsa) {
+            idx._SA_s = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
+            idx._SA_s.resize_no_init(r_);
+        }
 
-        if constexpr (is_bidirectional) {
+        if constexpr (is_bidirectional || has_lzendsa) {
             idx._SA_s_ = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
             idx._SA_s_.resize_no_init(r_);
         }
@@ -638,7 +640,7 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sas_from_sa()
                     } else {
                         SA_s[x] = n;
                     }
-                } else {
+                } else if constexpr (!has_lzendsa) {
                     idx._SA_s.template set_parallel<0, pos_t>(x,
                         SA<bigbwt, sa_sint_t>(i_p, k));
                 }
@@ -646,7 +648,7 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sas_from_sa()
                 x++;
                 k = idx._M_LF.p(x);
 
-                if constexpr (is_bidirectional) {
+                if constexpr (is_bidirectional || has_lzendsa) {
                     idx._SA_s_.template set_parallel<0, pos_t>(x - 1,
                         SA<bigbwt, sa_sint_t>(i_p, k - 1));
                 }

@@ -174,22 +174,28 @@ public:
 
     std::tuple<uint64_t, uint64_t> count(const std::string& pattern) const
     {
-        auto [beg, end, result] = binary_sa_search_and_extract<int_t>(*input, pattern, num_samples(),
+        auto [beg, end] = binary_sa_search_and_extract<int_t>(*input, pattern, num_samples(),
             [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
             [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, auto report){
-                rlzsa_enc.template extract<int_t>(b, e, report, sa_b);}, false);
+                rlzsa_enc.template extract<int_t>(b, e, report, sa_b);}, [](int_t){}, false, false);
         
         return {beg, end};
+    }
+
+    template <typename out_t, typename report_fnc_t>
+    void locate(const std::string& pattern, report_fnc_t report) const
+    {
+        auto [beg, end] = binary_sa_search_and_extract<out_t>(*input, pattern, num_samples(),
+            [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
+            [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, auto report){
+                rlzsa_enc.template extract<out_t>(b, e, report, sa_b);}, report, false, true);
     }
 
     template <typename out_t>
     std::vector<out_t> locate(const std::string& pattern) const
     {
-        auto [beg, end, result] = binary_sa_search_and_extract<out_t>(*input, pattern, num_samples(),
-            [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
-            [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, auto report){
-                rlzsa_enc.template extract<out_t>(b, e, report, sa_b);}, true);
-        
+        std::vector<out_t> result;
+        locate<out_t>(pattern, [&](uint64_t val){result.emplace_back(val);});
         return result;
     }
 
@@ -202,10 +208,11 @@ public:
         uint64_t smpl = sa_samples[smpl_idx];
 
         std::vector<out_t> result;
-        no_init_resize(result, end - beg + 1);
+        result.reserve(end - beg + 1);
+        uint64_t pos = smpl_pos;
 
         rlzsa_enc.template extract<out_t>(smpl_pos, end,
-            [&](uint64_t pos, uint64_t val){if (pos >= beg) result[pos - beg] = val;}, smpl);
+            [&](uint64_t val){if (pos++ >= beg) result.emplace_back(val);}, smpl);
 
         return result;
     }

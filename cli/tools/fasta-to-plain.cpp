@@ -31,6 +31,8 @@
 #include <iomanip>
 #include <iostream>
 #include <misc/utils.hpp>
+#include <misc/log.hpp>
+#include <misc/files.hpp>
 
 void help(std::string msg)
 {

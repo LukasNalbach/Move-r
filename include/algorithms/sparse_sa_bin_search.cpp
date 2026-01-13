@@ -218,11 +218,12 @@ uint64_t lex_boundary(
     }
 }
 
-template <typename out_t, typename inp_t, typename smpl_fnc_t, typename smpl_pos_fnc_t, typename report_fnc_t>
-std::tuple<uint64_t, uint64_t, std::vector<out_t>> binary_sa_search_and_extract(
+template <typename out_t, typename inp_t, typename smpl_fnc_t, typename smpl_pos_fnc_t, typename rng_report_fnc_t, typename report_fnc_t>
+std::tuple<uint64_t, uint64_t> binary_sa_search_and_extract(
     const inp_t& input, const inp_t& pattern, uint64_t num_samples,
     smpl_fnc_t get_sa_sample, smpl_pos_fnc_t get_sa_smpl_pos,
-    report_fnc_t report_sa_rng, bool extract_sa_values = true
+    rng_report_fnc_t report_sa_rng, report_fnc_t report,
+    bool reverse_rng, bool extract_sa_values
 ) {
     // binary search over sampled SA-positions
     auto [fst_smpl_idx, lst_smpl_idx] = sa_interval(input, pattern, 0, num_samples - 1, get_sa_sample);
@@ -240,7 +241,8 @@ std::tuple<uint64_t, uint64_t, std::vector<out_t>> binary_sa_search_and_extract(
         no_init_resize(sa_rng, lst_smpl_pos - fst_smpl_pos + 1);
         report_sa_rng(fst_smpl_pos, lst_smpl_pos,
             get_sa_sample(fst_smpl_idx), get_sa_sample(lst_smpl_idx),
-            [&](uint64_t pos, uint64_t val){sa_rng[pos - fst_smpl_pos] = val;});
+            [&](uint64_t val){sa_rng.emplace_back(val);});
+        if (reverse_rng) std::reverse(sa_rng.begin(), sa_rng.end());
 
         auto [beg_offs, end_offs] = sa_interval(
             input, pattern, 0, lst_smpl_pos - fst_smpl_pos,
@@ -250,7 +252,7 @@ std::tuple<uint64_t, uint64_t, std::vector<out_t>> binary_sa_search_and_extract(
         uint64_t end = fst_smpl_pos + end_offs;
 
         if (!extract_sa_values) {
-            return {beg, end, {}};
+            return {beg, end};
         } else {
             uint64_t len = end - beg + 1;
 
@@ -263,7 +265,7 @@ std::tuple<uint64_t, uint64_t, std::vector<out_t>> binary_sa_search_and_extract(
             }
 
             sa_rng.resize(len);
-            return {beg, end, sa_rng};
+            return {beg, end};
         }
     } else {
         // the unsampled regions surrounding the (lexicographical) boundary-samples are not connected
@@ -283,13 +285,15 @@ std::tuple<uint64_t, uint64_t, std::vector<out_t>> binary_sa_search_and_extract(
         no_init_resize(sa_rng_left, next_fst_smpl_pos - prev_fst_smpl_pos + 1);
         report_sa_rng(prev_fst_smpl_pos, next_fst_smpl_pos,
             get_sa_sample(prev_fst_smpl_idx), get_sa_sample(next_fst_smpl_idx),
-            [&](uint64_t pos, uint64_t val){sa_rng_left[pos - prev_fst_smpl_pos] = val;});
+            [&](uint64_t val){sa_rng_left.emplace_back(val);});
+        if (reverse_rng) std::reverse(sa_rng_left.begin(), sa_rng_left.end());
 
         std::vector<out_t> sa_rng_right;
         no_init_resize(sa_rng_right, next_lst_smpl_pos - prev_lst_smpl_pos + 1);
         report_sa_rng(prev_lst_smpl_pos, next_lst_smpl_pos,
             get_sa_sample(prev_lst_smpl_idx), get_sa_sample(next_lst_smpl_idx),
-            [&](uint64_t pos, uint64_t val){sa_rng_right[pos - prev_lst_smpl_pos] = val;});
+            [&](uint64_t val){sa_rng_right.emplace_back(val);});
+        if (reverse_rng) std::reverse(sa_rng_right.begin(), sa_rng_right.end());
 
         uint64_t beg_offs = lex_boundary<_min_lex_geq>(
             input, pattern, 0, next_fst_smpl_pos - prev_fst_smpl_pos,
@@ -303,31 +307,25 @@ std::tuple<uint64_t, uint64_t, std::vector<out_t>> binary_sa_search_and_extract(
         uint64_t end = prev_lst_smpl_pos + end_offs;
 
         if (!extract_sa_values) {
-            return {beg, end, {}};
+            return {beg, end};
         } else {
-            uint64_t len = end - beg + 1;
-            std::vector<out_t> sa_rng;
-            no_init_resize(sa_rng, len);
-
             uint64_t left_len = next_fst_smpl_pos - beg + 1;
             uint64_t left_offs = beg - prev_fst_smpl_pos;
+            uint64_t right_len = end - prev_lst_smpl_pos + 1;
             
             for (uint64_t i = 0; i < left_len; i++) {
-                sa_rng[i] = sa_rng_left[left_offs + i];
+                report(sa_rng_left[left_offs + i]);
             }
-
-            uint64_t right_len = end - prev_lst_smpl_pos + 1;
-            uint64_t right_offs = prev_lst_smpl_pos - beg;
             
             for (uint64_t i = 0; i < right_len; i++) {
-                sa_rng[right_offs + i] = sa_rng_right[i];
+                report(sa_rng_right[i]);
             }
 
             report_sa_rng(next_fst_smpl_pos, prev_lst_smpl_pos,
                 get_sa_sample(next_fst_smpl_idx), get_sa_sample(prev_lst_smpl_idx),
-                [&](uint64_t pos, uint64_t val){sa_rng[pos - beg] = val;});
+                [&](uint64_t val){report(val);});
 
-            return {beg, end, sa_rng};
+            return {beg, end};
         }
     }
 }

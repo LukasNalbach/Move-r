@@ -93,7 +93,6 @@ void measure_count()
     index.load(index_file);
     index_file.close();
     time = log_runtime(time);
-    std::cout << std::endl;
     index.log_data_structure_sizes();
     
     if constexpr (support == _locate_rlzsa_bin_search) {

@@ -26,6 +26,10 @@
 
 #pragma once
 
+#include <misc/files.hpp>
+#include <misc/search.hpp>
+#include <misc/log.hpp>
+
 #include <concurrentqueue.h>
 #include <gtl/btree.hpp>
 #include <data_structures/avl_tree.hpp>

@@ -30,6 +30,8 @@
 #include <iomanip>
 #include <iostream>
 #include <misc/utils.hpp>
+#include <misc/log.hpp>
+#include <misc/files.hpp>
 #include <vector>
 
 void help(std::string msg)

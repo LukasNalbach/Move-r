@@ -27,7 +27,14 @@
 #pragma once
 
 #include <hash_table6.hpp>
+#include <hash_set2.hpp>
+#include <hash_set3.hpp>
+#include <hash_set4.hpp>
+#include <hash_set8.hpp>
 #include <tsl/sparse_set.h>
+
+#include <misc/hash.hpp>
+#include <misc/strings.hpp>
 #include <move_r/move_r.hpp>
 #include <misc/search_schemes.hpp>
 
@@ -783,11 +790,12 @@ public:
     protected:
         // ############################# VARIABLES FOR THE SEARCH PHASE #############################
         
-        direction dir_lst; // last performed P extend direction
+        direction dir_lst; // last performed pattern extend direction
         sym_t sym_lst; // last-added symbol
-        pos_t m; // length of the currently matched P
+        uint8_t err; // number of errors (only used for approximate pattern matching output)
+        pos_t m; // length of the currently matched pattern P
         pos_t b, e; // [b, e] = SA-interval in T of the currently matched P
-        pos_t b_R, e_R; // [b_R, e_R] = SA-interval in T^R of the currently matched P^R
+        pos_t b_R, e_R; // [b_R, e_R] = SA-interval in T^R of the reverse of the currently matched P
         pos_t b_, e_; // indices of the input intervals in M_LF containing b and e
         pos_t b_R_, e_R_; // indices of the input intervals in M_LF^R containing b_R and e_R
 
@@ -796,7 +804,7 @@ public:
         using sample_info_t = std::conditional_t<query_support == LOCATE, sample_info_pack_t, empty_t>;
         
         sample_info_t s_b, s_e; // sample info for the beginning/end of the SA-interval in T of the currently matched P
-        sample_info_t s_b_R, s_e_R; // sample info for the beginning/end of the SA-interval in T^R of the currently matched P^R
+        sample_info_t s_b_R, s_e_R; // sample info for the beginning/end of the SA-interval in T^R of the reverse of the currently matched P
 
         template <direction dir> inline pos_t& beg() {if constexpr (dir == LEFT) {return b;} else {return b_R;}}
         template <direction dir> inline pos_t& end() {if constexpr (dir == LEFT) {return e;} else {return e_R;}}
@@ -829,12 +837,26 @@ public:
         /**
          * @brief equality operator on search contexts
          * @param other the other search context to test equality with
-         * @return whether the other context other is equal to this search context; it is considered equal
-         *         if it represents the same pattern (SA-interval); other context variables may vary
+         * @return whether the other context other is equal to this search context; it is considered equal if it
+         *         represents the same pattern (SA-interval and pattern length); other context variables may vary
          */
         bool operator==(const search_context_t& other) const
         {
-            return b == other.b && e == other.e;
+            return b == other.b &&
+                   e == other.e &&
+                   m == other.m;
+        }
+
+        /**
+         * @brief "less than" operator on search contexts
+         * @param other the other search context to compare with
+         * @return whether this context is considered "less than" the other
+         */
+        bool operator<(const search_context_t& other) const
+        {
+            return b != other.b ? b < other.b :
+                  (e != other.e ? e > other.e :
+                                  m > other.m);
         }
 
         /**
@@ -847,9 +869,13 @@ public:
              * @param ctx the given search context
              * @return the hash computed from just the beginning of the interval
              */
-            inline std::size_t operator()(const search_context_t& ctx) const noexcept
+            inline static pos_t operator()(const search_context_t& ctx)
             {
-                return pos_hash<pos_t>(ctx.b);
+                pos_t hash = pos_hash<pos_t>(ctx.b);
+                hash_combine<pos_t>(hash, pos_hash<pos_t>(ctx.e));
+                hash_combine<pos_t>(hash, pos_hash<pos_t>(ctx.m));
+
+                return hash;
             }
         };
 
@@ -878,7 +904,9 @@ public:
         inline void reset(const move_rb<support, sym_t, pos_t>& idx)
         {
             dir_lst = NO_DIR;
+            sym_lst = 0;
             m = 0;
+            err = 0;
 
             b = 0;
             e = idx.idx_fwd.input_size();
@@ -905,6 +933,15 @@ public:
         {
             return m;
         }
+        
+        /**
+         * @brief sets the length of the currently matched P to len (only used for approximate pattern matching)
+         * @param len length of the currently matched P
+         */
+        inline void set_length(pos_t len)
+        {
+            this->m = len;
+        }
 
         /**
          * @brief returns whether the context is valid (not empty)
@@ -923,6 +960,24 @@ public:
         {
             return e - b + 1;
         }
+        
+        /**
+         * @brief returns the number of errors (only used for approximate pattern matching)
+         * @return number of errors
+         */
+        inline uint8_t errors() const
+        {
+            return err;
+        }
+        
+        /**
+         * @brief sets the number of errors to err (only used for approximate pattern matching)
+         * @param err number of errors
+         */
+        inline void set_errors(uint8_t err)
+        {
+            this->err = err;
+        }
 
         /**
          * @brief returns the SA-interval in T/T^R of the currently matched P/P^R
@@ -930,7 +985,7 @@ public:
          * @return suffix array interval in the forward text
          */
         template <direction dir>
-        inline std::pair<pos_t, pos_t> sa_interval() const
+        inline std::tuple<pos_t, pos_t> sa_interval() const
         {
             if constexpr (dir == LEFT) {
                 return forward_sa_interval();
@@ -943,18 +998,18 @@ public:
          * @brief returns the SA-interval in T of the currently matched P
          * @return suffix array interval in the forward text
          */
-        inline std::pair<pos_t, pos_t> forward_sa_interval() const
+        inline std::tuple<pos_t, pos_t> forward_sa_interval() const
         {
-            return std::make_pair(b, e);
+            return std::tuple<pos_t, pos_t>{b, e};
         }
 
         /**
          * @brief returns the SA-interval in T^R of the currently matched P^R
          * @return suffix array interval in the backward text
          */
-        inline std::pair<pos_t, pos_t> backward_sa_interval() const
+        inline std::tuple<pos_t, pos_t> backward_sa_interval() const
         {
-            return std::make_pair(b_R, e_R);
+            return std::tuple<pos_t, pos_t>{b_R, e_R};
         }
 
         /**
@@ -1026,6 +1081,7 @@ public:
             if (result) [[likely]] {
                 m++;
                 dir_lst = dir;
+                sym_lst = sym;
             } else {
                 *this = ctx_old;
             }
@@ -1037,7 +1093,7 @@ public:
          * @brief prepares the context to be prepended
          * @param idx the index to query
          * @param ext_ctx 
-         * @return extend context prepared for prepending the search context with every possible character in O(sigma) time
+         * @return extend context prepared for prepending the search context with every possible symbol in O(sigma) time
          */
         extend_context_t prepare_prepend(const move_rb<support, sym_t, pos_t>& idx) {
             return prepare_extend<LEFT>(idx);
@@ -1047,7 +1103,7 @@ public:
          * @brief prepares the context to be appended
          * @param idx the index to query
          * @param ext_ctx 
-         * @return extend context prepared for appending the search context with every possible character in O(sigma) time
+         * @return extend context prepared for appending the search context with every possible symbol in O(sigma) time
          */
         extend_context_t prepare_append(const move_rb<support, sym_t, pos_t>& idx) {
             return prepare_extend<RIGHT>(idx);
@@ -1058,7 +1114,7 @@ public:
          * @tparam dir extend direction
          * @param idx the index to query
          * @param ext_ctx 
-         * @return extend context prepared for extending the search context with every possible character in O(sigma) time
+         * @return extend context prepared for extending the search context with every possible symbol in O(sigma) time
          */
         template <direction dir>
         extend_context_t prepare_extend(const move_rb<support, sym_t, pos_t>& idx) {
@@ -1074,7 +1130,7 @@ public:
         }
 
         /**
-         * @brief prepends the context with the next character
+         * @brief prepends the context with the next symbol
          * @param idx the index to query
          * @param ext_ctx extend context to prepare
          */
@@ -1083,7 +1139,7 @@ public:
         }
         
         /**
-         * @brief appends the context with the next character
+         * @brief appends the context with the next symbol
          * @param idx the index to query
          * @param ext_ctx extend context to prepare
          */
@@ -1429,7 +1485,7 @@ public:
 
     public:
         /**
-         * @brief extends the context with the next character
+         * @brief extends the context with the next symbol
          * @tparam dir extend direction
          * @param idx the index to query
          * @param ext_ctx extend context to prepare
@@ -1450,6 +1506,7 @@ public:
             }
 
             search_context_t ctx(idx.unmap_symbol(ext_ctx.sym_nxt));
+            ctx.set_errors(0);
 
             ctx.beg_run<dir>() = ext_ctx.next[ext_ctx.sym_nxt];
             ctx.end_run<dir>() = ext_ctx.prev[ext_ctx.sym_nxt];
@@ -1606,6 +1663,9 @@ public:
             ctx.m = m + 1;
             ext_ctx.template next_symbol<dir>(idx);
 
+            ctx.beg_run<rev_dir>() = 0;
+            ctx.end_run<rev_dir>() = 0;
+
             return ctx;
         }
     };
@@ -1646,6 +1706,7 @@ public:
         {
             occ_rem = ctx.num_occ();
             dir = NO_DIR;
+            c = std::numeric_limits<pos_t>::max();
         }
 
         /**
@@ -1657,6 +1718,45 @@ public:
             return occ_rem;
         }
 
+        inline pos_t compute_center(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx)
+        {
+            if (ctx.s_b.t != NO_SAMPLE) {
+                c = ctx.b + ctx.s_b.o;
+            } else if (ctx.s_e.t != NO_SAMPLE) {
+                c = ctx.e - ctx.s_e.o;
+            } else if (ctx.s_b_R.t != NO_SAMPLE) {
+                if (ctx.s_b_R.t == RUN_START) {
+                    c = idx._SA_sR_m1[ctx.s_b_R.x];
+                } else {
+                    c = idx._SA_eR_m1[ctx.s_b_R.x];
+                }
+
+                pos_t c_ = input_interval(c, idx._S_MLF_p_fwd,
+                    [&](pos_t x){return idx.idx_fwd.M_LF().p(x);});
+
+                for (pos_t j = 0; j < ctx.m - ctx.s_b_R.i; j++) {
+                    idx.idx_fwd.M_LF().move(c, c_);
+                }
+            } else /* if (ctx.s_e_R.t != NO_SAMPLE) */ {
+                if (ctx.s_e_R.t == RUN_START) {
+                    c = idx._SA_sR_m1[ctx.s_e_R.x];
+                } else {
+                    c = idx._SA_eR_m1[ctx.s_e_R.x];
+                }
+
+                pos_t c_ = input_interval(c, idx._S_MLF_p_fwd,
+                    [&](pos_t x){return idx.idx_fwd.M_LF().p(x);});
+
+                for (pos_t j = 0; j < ctx.m - ctx.s_e_R.i; j++) {
+                    idx.idx_fwd.M_LF().move(c, c_);
+                }
+            }
+
+            assert(ctx.b <= c && c <= ctx.e);
+
+            return c;
+        }
+
     protected:
         /**
          * @brief computes a first occurrence (SA[i]) of P, and adjusts the locate context accordingly
@@ -1666,47 +1766,30 @@ public:
          */
         inline pos_t first_occ(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx)
         {
+            if (c == std::numeric_limits<pos_t>::max()) {
+                compute_center(idx, ctx);
+            }
+
+            i = c;
+
             if (ctx.s_b.t != NO_SAMPLE) {
-                i = ctx.b + ctx.s_b.o;
                 SA_i = (ctx.s_b.t == RUN_START ? idx.idx_fwd.SA_s(ctx.s_b.x) : idx.idx_fwd.SA_s_(ctx.s_b.x)) - ctx.s_b.i;
             } else if (ctx.s_e.t != NO_SAMPLE) {
-                i = ctx.e - ctx.s_e.o;
                 SA_i = (ctx.s_e.t == RUN_START ? idx.idx_fwd.SA_s(ctx.s_e.x) : idx.idx_fwd.SA_s_(ctx.s_e.x)) - ctx.s_e.i;
             } else if (ctx.s_b_R.t != NO_SAMPLE) {
                 if (ctx.s_b_R.t == RUN_START) {
-                    i = idx._SA_sR_m1[ctx.s_b_R.x];
                     SA_i = idx.n - idx.idx_bwd.SA_s(ctx.s_b_R.x) - (ctx.m - ctx.s_b_R.i + 1);
                 } else {
-                    i = idx._SA_eR_m1[ctx.s_b_R.x];
                     SA_i = idx.n - idx.idx_bwd.SA_s_(ctx.s_b_R.x) - (ctx.m - ctx.s_b_R.i + 1);
-                }
-
-                pos_t i_ = input_interval(i, idx._S_MLF_p_fwd,
-                    [&](pos_t x){return idx.idx_fwd.M_LF().p(x);});
-
-                for (pos_t j = 0; j < ctx.m - ctx.s_b_R.i; j++) {
-                    idx.idx_fwd.M_LF().move(i, i_);
                 }
             } else /* if (ctx.s_e_R.t != NO_SAMPLE) */ {
                 if (ctx.s_e_R.t == RUN_START) {
-                    i = idx._SA_sR_m1[ctx.s_e_R.x];
                     SA_i = idx.n - idx.idx_bwd.SA_s(ctx.s_e_R.x) - (ctx.m - ctx.s_e_R.i + 1);
                 } else {
-                    i = idx._SA_eR_m1[ctx.s_e_R.x];
                     SA_i = idx.n - idx.idx_bwd.SA_s_(ctx.s_e_R.x) - (ctx.m - ctx.s_e_R.i + 1);
-                }
-
-                pos_t i_ = input_interval(i, idx._S_MLF_p_fwd,
-                    [&](pos_t x){return idx.idx_fwd.M_LF().p(x);});
-
-                for (pos_t j = 0; j < ctx.m - ctx.s_e_R.i; j++) {
-                    idx.idx_fwd.M_LF().move(i, i_);
                 }
             }
 
-            assert(ctx.b <= i && i <= ctx.e);
-
-            c = i;
             SA_c = SA_i;
 
             if (occ_rem > 1) [[likely]] {
@@ -1799,23 +1882,22 @@ public:
          * @brief locates the remaining (not yet reported) occurrences of the currently matched P
          * @param Occ vector to append the occurrences to
          */
-        inline void locate(
-            const move_rb<support, sym_t, pos_t>& idx,
-            const search_context_t<LOCATE>& ctx,
-            std::vector<pos_t>& Occ
-        ) {
-            Occ.reserve(Occ.size() + occ_rem);
+        template <typename report_fnc_t>
+        inline void locate(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx, report_fnc_t report)
+        {
+            static constexpr bool report_pos = function_traits<report_fnc_t>::arity > 1;
 
             if (occ_rem == ctx.num_occ()) {
-                Occ.emplace_back(first_occ(idx, ctx));
+                first_occ(idx, ctx);
+                if constexpr (report_pos) report(c, SA_c); else report(SA_c);
             }
 
             if constexpr (support == _locate_move) {
                 if (dir == LEFT) {
                     while (i > ctx.b) {
                         idx.idx_fwd.M_Phi().move(SA_i, s_);
-                        Occ.emplace_back(SA_i);
                         i--;
+                        if constexpr (report_pos) report(i, SA_i); else report(SA_i);
                     }
 
                     if (c < ctx.e) {
@@ -1829,16 +1911,15 @@ public:
                 if (c < ctx.e) {
                     while (i < ctx.e) {
                         idx.idx_fwd.M_Phi_m1().move(SA_i, s_);
-                        Occ.emplace_back(SA_i);
                         i++;
+                        if constexpr (report_pos) report(i, SA_i); else report(SA_i);
                     }
                 }
             } else if constexpr (support == _locate_rlzsa) {
                 if (dir == LEFT) {
                     idx.idx_fwd.report_rlzsa_left(i, ctx.b, SA_i,
                         rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p,
-                        [&](pos_t, pos_t occ){Occ.emplace_back(occ);}
-                    );
+                        report);
 
                     if (c < ctx.e) [[likely]] {
                         i = c + 1;
@@ -1849,9 +1930,7 @@ public:
 
                 if (c < ctx.e) [[likely]] {
                     idx.idx_fwd.report_rlzsa_right(i, ctx.e, SA_i,
-                        rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p,
-                        [&](pos_t, pos_t occ){Occ.emplace_back(occ);}
-                    );
+                        rlz_r.x_p, rlz_r.x_lp, rlz_r.x_cp, rlz_r.x_r, rlz_r.s_p, report);
                 }
             }
 
@@ -1865,7 +1944,8 @@ public:
         std::vector<pos_t> locate(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx)
         {
             std::vector<pos_t> Occ;
-            locate(idx, ctx, Occ);
+            Occ.reserve(occ_rem);
+            locate(idx, ctx, [&](pos_t occ){Occ.emplace_back(occ);});
             return Occ;
         }
     };
@@ -1931,107 +2011,115 @@ public:
 
     // ############################# APPROXIMATE PATTERN MATCHING #############################
     
-    /**
-     * @brief counts a pattern with at most k_max mismatches
-     * @param P the pattern to search
-     * @param scheme the search scheme to use (provides k_max)
-     * @return number of occurrences of P in T with at most k_max mismatches
-     */
-    pos_t count_with_mismatches(const inp_t& P, const search_scheme_t& scheme) const
-    {
-        if (scheme.k_max == 0) {
-            return forward_index().count(P);
-        }
-
-        auto ctxts = execute_search_scheme<COUNT>(P, scheme);
-        pos_t count = 0;
-
-        for (auto ctx: ctxts) {
-            count += ctx.num_occ();
-        }
-        
-        return count;
-    }
-
-    /**
-     * @brief locaes a pattern with at most k_max mismatches
-     * @param P the pattern to search
-     * @param scheme the search scheme to use (provides k_max)
-     * @return occurrences of P in T with at most k_max mismatches
-     */
-    std::vector<pos_t> locate_with_mismatches(const inp_t& P, const search_scheme_t& scheme) const
-    {
-        if (scheme.k_max == 0) {
-            return forward_index().locate(P);
-        }
-
-        auto ctxts = execute_search_scheme<LOCATE>(P, scheme);
-        pos_t count = 0;
-
-        for (auto ctx: ctxts) {
-            count += ctx.num_occ();
-        }
-
-        std::vector<pos_t> Occ;
-        Occ.reserve(Occ.size() + count);
-
-        for (auto ctx: ctxts) {
-            ctx.locate_phase().locate(*this, ctx, Occ);
-        }
-
-        return Occ;
-    }
-    
-    // type of hashset to store search contexts in
+    // type of hashset to store search contexts for hamming distance search
     template <move_rb_query_support_t query_support>
     using search_context_set_t = tsl::sparse_set<search_context_t<query_support>, typename search_context_t<query_support>::hash>;
 
     /**
-     * @brief executes a given search scheme for a pattern
+     * @brief counts a pattern with at most k mismatches (w.r.t. hamming distance)
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @return number of occurrences of P in T with at most k mismatches (w.r.t. hamming distance)
+     */
+    pos_t count_hamming_dist(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        pos_t m = P.size();
+        uint8_t k = scheme.k;
+
+        if (k >= m) return n - 1;
+        if (k == 0) return forward_index().count(P);
+
+        pos_t count = 0;
+
+        auto ctxts_set = search_hamming_dist<COUNT>(P, scheme);
+        for (const auto& ctx : ctxts_set) count += ctx.num_occ();
+
+        return count;
+    }
+
+    /**
+     * @brief locaes a pattern with at most k mismatches (w.r.t. hamming distance)
+     * @tparam report_fnc_t type of the function report
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @param report function that is called with every tuple (occ, err) as parameters, where occ
+     *               is an occurrence of P in T with at most k mismatches (w.r.t. hamming distance)
+     */
+    template <typename report_fnc_t>
+    void locate_hamming_dist(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const
+    {
+        pos_t m = P.size();
+        uint8_t k = scheme.k;
+        std::vector<pos_t> Occ;
+
+        if (k == 0) {
+            forward_index().locate(P, [&](pos_t occ){report({occ, m, 0});});
+        } else {
+            auto ctxts_set = search_hamming_dist<LOCATE>(P, scheme);
+
+            for (const auto& ctx : ctxts_set) {
+                ctx.locate_phase().locate(*this, ctx, [&](pos_t occ){report({occ, ctx.length(), ctx.errors()});});
+            }
+        }
+    }
+
+    /**
+     * @brief locaes a pattern with at most k mismatches (w.r.t. hamming distance)
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @return occurrences of P in T with at most k mismatches (w.r.t. hamming distance)
+     */
+    std::vector<aprx_occ_t<pos_t>> locate_hamming_dist(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        std::vector<aprx_occ_t<pos_t>> Occ;
+        locate_hamming_dist(P, scheme, [&](aprx_occ_t<pos_t> occ){Occ.emplace_back(occ);});
+        return Occ;
+    }
+    
+    /**
+     * @brief executes a given search scheme for a pattern (w.r.t. hamming distance)
      * @param scheme the search scheme to use
-     * @return all search contexts of P in T with at most k_max mismatches (assuming the schearch scheme covers all error configurations)
+     * @return all search contexts of P in T with at most k mismatches (assuming the schearch scheme covers all error configurations)
      */
     template <move_rb_query_support_t query_support>
-    search_context_set_t<query_support> execute_search_scheme(const inp_t& P, const search_scheme_t& scheme) const
+    search_context_set_t<query_support> search_hamming_dist(const inp_t& P, const search_scheme_t& scheme) const
     {
-        search_context_set_t<query_support> ctxts;
         pos_t m = P.size();
-        if (m == 0) return ctxts;
-        uint8_t k_max = scheme.k_max;
-        const distance_metric_t& dist_metr = scheme.dist_metr;
-        
-        uint8_t parts = scheme.parts;
-        assert(parts <= m);
+        if (m == 0) return {search<query_support>()};
+        uint8_t k = scheme.k;
+        uint8_t p = scheme.p;
+        assert(p <= m);
 
         using search_state_t = std::tuple<
             search_context_t<query_support>, // ctx
-            uint8_t, // k
+            uint8_t, // k_cur
             uint8_t, // p_idx
             pos_t // pos
         >;
 
+        search_context_set_t<query_support> ctxts_set;
         std::vector<search_state_t> nav_stack;
-        auto init_ctx = search<query_support>();
-        pos_t part_len = m / parts;
+        nav_stack.reserve(1.5 * (m + k));
+        auto empty_ctx = search<query_support>();
+        pos_t part_len = m / p;
 
-        for (uint8_t s_idx = 0; s_idx < scheme.searches.size(); s_idx++) {
-            const search_t& search = scheme.searches[s_idx];
+        for (uint8_t s_idx = 0; s_idx < scheme.S.size(); s_idx++) {
+            const search_t& S = scheme.S[s_idx];
 
-            pos_t init_beg = search[0].part * part_len;
-            pos_t init_end = (search[0].part + 1) == parts ? m : ((search[0].part + 1) * part_len);
-            direction init_dir = search[1].part < search[0].part ? LEFT : RIGHT;
+            pos_t init_beg = S[0].part * part_len;
+            pos_t init_end = (S[0].part + 1) == p ? m : ((S[0].part + 1) * part_len);
+            direction init_dir = S[1].part < S[0].part ? LEFT : RIGHT;
             pos_t init_pos = init_dir == LEFT ? init_end - 1 : init_beg;
-
-            nav_stack.emplace_back(search_state_t{init_ctx, 0, 0, init_pos});
+            nav_stack.emplace_back(search_state_t{empty_ctx, 0, 0, init_pos});
             
             while (!nav_stack.empty()) {
-                auto [ctx, k, p_idx, pos] = nav_stack.back();
+                auto [ctx, k_cur, p_idx, pos] = nav_stack.back();
                 nav_stack.pop_back();
                 
-                pos_t part = search[p_idx].part;
+                pos_t part = S[p_idx].part;
                 pos_t beg = part * part_len;
-                pos_t end = (part + 1) == parts ? m : ((part + 1) * part_len);
-                direction dir = p_idx == 0 ? init_dir : (part < search[p_idx - 1].part ? LEFT : RIGHT);
+                pos_t end = (part + 1) == p ? m : ((part + 1) * part_len);
+                direction dir = p_idx == 0 ? init_dir : (part < S[p_idx - 1].part ? LEFT : RIGHT);
 
                 uint8_t p_idx_nxt = p_idx;
                 pos_t pos_nxt = pos + (dir == LEFT ? -1 : 1);
@@ -2043,11 +2131,11 @@ public:
                 if (!(beg <= pos_nxt && pos_nxt < end)) [[unlikely]] {
                     p_idx_nxt = p_idx + 1;
 
-                    if (p_idx_nxt < parts) [[likely]] {
-                        pos_t part_nxt = search[p_idx_nxt].part;
+                    if (p_idx_nxt < p) [[likely]] {
+                        pos_t part_nxt = S[p_idx_nxt].part;
                         dir_nxt = part_nxt < part ? LEFT : RIGHT;
                         beg_nxt = part_nxt * part_len;
-                        end_nxt = (part_nxt + 1) == parts ? m : ((part_nxt + 1) * part_len);
+                        end_nxt = (part_nxt + 1) == p ? m : ((part_nxt + 1) * part_len);
                         pos_nxt = dir_nxt == LEFT ? end_nxt - 1 : beg_nxt;
                         ext_rem = end_nxt - beg_nxt;
                     } else {
@@ -2057,37 +2145,373 @@ public:
                     ext_rem = dir == LEFT ? pos - beg : (end - pos - 1);
                 }
                 
-                if (k < k_max && k < search[p_idx].k_max) [[unlikely]] {
+                if (k_cur < S[p_idx].k_max && (p_idx_nxt == p || S[p_idx_nxt].k_min <= k_cur + 1 + ext_rem)) {
                     auto ext_ctx = dir == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
 
                     while (ext_ctx.can_extend(*this)) {
                         auto ctx_nxt = dir == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
                         bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
-                        uint8_t k_nxt = k + is_mismatch;
+                        uint8_t k_nxt = k_cur + is_mismatch;
 
-                        if (p_idx_nxt == parts) [[unlikely]] {
-                            ctxts.emplace(ctx_nxt);
-                        } else if (search[p_idx_nxt].k_min <= k_nxt + ext_rem) {
+                        if (p_idx_nxt == p) {
+                            ctx_nxt.set_errors(k_nxt);
+                            ctxts_set.emplace(ctx_nxt);
+                        } else if (is_mismatch || p_idx_nxt == p || S[p_idx_nxt].k_min <= k_nxt + ext_rem) {
                             nav_stack.emplace_back(search_state_t{ctx_nxt, k_nxt, p_idx_nxt, pos_nxt});
                         }
                     }
-                } else {
-                    uint8_t k_nxt = k;
-
-                    if ((p_idx_nxt == parts || search[p_idx_nxt].k_min <= k_nxt + ext_rem) &&
-                        (dir == LEFT ? ctx.prepend(*this, P[pos]) : ctx.append(*this, P[pos]))
-                    ) [[likely]] {
-                        if (p_idx_nxt == parts) [[unlikely]] {
-                            ctxts.emplace(ctx);
-                        } else {
-                            nav_stack.emplace_back(search_state_t{ctx, k_nxt, p_idx_nxt, pos_nxt});
-                        }
+                } else if (dir == LEFT ? ctx.prepend(*this, P[pos]) : ctx.append(*this, P[pos])) {
+                    if (p_idx_nxt == p) {
+                        ctx.set_errors(k_cur);
+                        ctxts_set.emplace(ctx);
+                    } else {
+                        nav_stack.emplace_back(search_state_t{ctx, k_cur, p_idx_nxt, pos_nxt});
                     }
                 }
             }
         }
 
-        return ctxts;
+        return ctxts_set;
+    }
+
+    /**
+     * @brief counts a pattern with at most k mismatches (w.r.t. edit distance)
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @return number of occurrences of P in T with at most k mismatches (w.r.t. edit distance)
+     */
+    pos_t count_edit_dist(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        pos_t m = P.size();
+        uint8_t k = scheme.k;
+
+        if (k >= m) return n - 1;
+        if (k == 0) return forward_index().count(P);
+
+        auto ctxts = search_edit_dist<COUNT>(P, scheme);
+        pos_t count = 0;
+        for (const auto& ctx : ctxts) count += ctx.num_occ();
+        return count;
+    }
+
+    /**
+     * @brief locaes a pattern with at most k mismatches (w.r.t. edit distance)
+     * @tparam report_fnc_t type of the function report
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @param report function that is called with every tuple (occ, err) as parameters, where occ
+     *               is an occurrence of P in T with at most k mismatches (w.r.t. edit distance)
+     */
+    template <typename report_fnc_t>
+    void locate_edit_dist(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const
+    {
+        uint8_t k = scheme.k;
+        pos_t m = P.size();
+
+        if (k == 0) {
+            forward_index().locate(P, [&](pos_t occ){report({occ, m, 0});});
+            return;
+        }
+        
+        auto ctxts = search_edit_dist<LOCATE>(P, scheme);
+        std::vector<const search_context_t<LOCATE>*> ctxts_sorted;
+        ctxts_sorted.reserve(ctxts.size());
+        for (const auto& ctx : ctxts) ctxts_sorted.emplace_back(&ctx);
+        ips4o::sort(ctxts_sorted.begin(), ctxts_sorted.end(), [](auto x, auto y){return *x < *y;});
+        pos_t num_ctxts = ctxts.size();
+        std::vector<pos_t> Occ_i;
+
+        for (pos_t i = 0; i < num_ctxts;) {
+            const auto& ctx_i = *ctxts_sorted[i];
+            auto [beg_i, end_i] = ctx_i.forward_sa_interval();
+            Occ_i.reserve(ctx_i.num_occ());
+            no_init_resize(Occ_i, ctx_i.num_occ());
+
+            ctx_i.locate_phase().locate(*this, ctx_i, [&](pos_t pos, pos_t occ){
+                Occ_i[pos - beg_i] = occ;
+            });
+
+            for (pos_t occ : Occ_i) {
+                report({occ, ctx_i.length(), ctx_i.errors()});
+            }
+
+            pos_t j = i + 1;
+
+            for (;j < num_ctxts; j++) {
+                const auto& ctx_j = *ctxts_sorted[j];
+                auto [beg_j, end_j] = ctx_j.forward_sa_interval();
+                if (beg_j > end_i) break;
+
+                for (pos_t pos = beg_j; pos <= end_j; pos++) {
+                    report({Occ_i[pos - beg_i], ctx_j.length(), ctx_j.errors()});
+                }
+            }
+
+            i = j;
+        }
+    }
+
+    /**
+     * @brief locaes a pattern with at most k mismatches (w.r.t. edit distance)
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @return occurrences of P in T with at most k mismatches (w.r.t. edit distance)
+     */
+    std::vector<aprx_occ_t<pos_t>> locate_edit_dist(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        std::vector<aprx_occ_t<pos_t>> Occ;
+        locate_edit_dist(P, scheme, [&](aprx_occ_t<pos_t> occ){Occ.emplace_back(occ);});
+        return Occ;
+    }
+
+    /**
+     * @brief executes a given search scheme for a pattern (w.r.t. edit distance)
+     * @param scheme the search scheme to use
+     * @return all search contexts of P in T with at most k mismatches (assuming the schearch scheme covers all error configurations)
+     */
+    template <move_rb_query_support_t query_support>
+    search_context_set_t<query_support> search_edit_dist(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        pos_t m = P.size();
+        if (m == 0) return {search<query_support>()};
+        uint8_t k = scheme.k;
+        uint8_t p = scheme.p;
+        assert(p <= m);
+
+        using search_state_t = std::tuple<
+            search_context_t<query_support>, // ctx
+            uint8_t, // k_cur
+            uint8_t // k_tot
+        >;
+
+        using node_t = std::tuple<
+            pos_t, // b
+            pos_t, // e
+            pos_t, // len
+            uint8_t // k_cur
+        >;
+
+        using match_pos_t = std::tuple<
+            uint8_t, // p_idx
+            direction, // dir
+            pos_t, // part
+            pos_t, // beg
+            pos_t, // end
+            pos_t // pos
+        >;
+
+        struct node_hash_t {
+            inline static pos_t operator()(const node_t& node)
+            {
+                const auto& [b, e, len, k_cur] = node;
+
+                pos_t hash = pos_hash<pos_t>(b);
+                hash_combine<pos_t>(hash, pos_hash<pos_t>(e));
+                hash_combine<pos_t>(hash, pos_hash<pos_t>(len));
+                hash_combine<pos_t>(hash, pos_hash<pos_t>(pos_t{k_cur}));
+
+                return hash;
+            }
+        };
+
+        search_context_set_t<query_support> ctxts_set;
+        std::vector<search_state_t> states_cur;
+        std::vector<search_state_t> states_nxt;
+        gtl::flat_hash_set<node_t, node_hash_t> nodes_cur;
+        gtl::flat_hash_set<node_t, node_hash_t> nodes_nxt;
+
+        auto state_to_node = [](const search_state_t& state){
+            const auto& [ctx, k_cur, k_tot] = state;
+            auto [b, e] = ctx.forward_sa_interval();
+            pos_t len = ctx.length();
+            return node_t{b, e, len, k_cur};
+        };
+
+        auto add_to_cur = [&](search_state_t&& state){
+            node_t node = state_to_node(state);
+            auto it = nodes_cur.find(node);
+
+            if (it == nodes_cur.end()) {
+                nodes_cur.emplace_hint(it, node);
+                states_cur.emplace_back(std::move(state));
+            }
+        };
+
+        auto add_to_nxt = [&](search_state_t&& state){
+            node_t node = state_to_node(state);
+            auto it = nodes_nxt.find(node);
+
+            if (it == nodes_nxt.end()) {
+                nodes_nxt.emplace_hint(it, node);
+                states_nxt.emplace_back(std::move(state));
+            }
+        };
+
+        auto empty_ctx = search<query_support>();
+        pos_t part_len = m / p;
+
+        for (const search_t& S : scheme.S) {
+            match_pos_t match_pos_lst;
+            auto& [p_idx_lst, dir_lst, part_lst, beg_lst, end_lst, pos_lst] = match_pos_lst;
+
+            match_pos_t match_pos_cur;
+            auto& [p_idx, dir, part, beg, end, pos] = match_pos_cur;
+
+            p_idx = 0;
+            part = S[p_idx].part;
+            beg = part * part_len;
+            end = (part + 1) == p ? m : ((part + 1) * part_len);
+            dir = S[p_idx + 1].part < part ? LEFT : RIGHT;
+            pos = dir == LEFT ? end - 1 : beg;
+            states_cur.emplace_back(search_state_t{empty_ctx, 0, m});
+
+            match_pos_t match_pos_nxt {p_idx, dir, part, beg, end, pos};
+            auto& [p_idx_nxt, dir_nxt, part_nxt, beg_nxt, end_nxt, pos_nxt] = match_pos_nxt;
+
+            bool dir_switch;
+            pos_t matches_left = m;
+
+            while (true) {
+                dir_switch = 1 < p_idx && dir != dir_lst;
+                pos_nxt = pos + (dir == LEFT ? -1 : 1);
+
+                if (!(beg <= pos_nxt && pos_nxt < end)) [[unlikely]] {
+                    p_idx_nxt = p_idx + 1;
+
+                    if (p_idx_nxt < p) [[likely]] {
+                        part_nxt = S[p_idx_nxt].part;
+                        dir_nxt = part_nxt < part ? LEFT : RIGHT;
+                        beg_nxt = part_nxt * part_len;
+                        end_nxt = (part_nxt + 1) == p ? m : ((part_nxt + 1) * part_len);
+                        pos_nxt = dir_nxt == LEFT ? end_nxt - 1 : beg_nxt;
+                    }
+                }
+
+                while (!states_cur.empty()) {
+                    auto [ctx, k_cur, k_tot] = states_cur.back();
+                    states_cur.pop_back();
+
+                    if (k_tot <= k) {
+                        ctx.set_errors(k_tot);
+                        auto it = ctxts_set.find(ctx);
+
+                        if (it == ctxts_set.end()) {
+                            ctxts_set.emplace(ctx);
+                        } else if (k_tot < it->errors()) {
+                            ctxts_set.erase(it);
+                            ctxts_set.emplace(ctx);
+                        }
+                    }
+
+                    // if the whole pattern has been (mis-)matched and we cannot add errors, then we cannot extend this context
+                    if (k_cur == k && p_idx == p) continue;
+
+                    // if the total number of errors cannot be reduced to k (or lower) using all the remaining matches, we cannot add errors
+                    bool can_add_error = k_tot + 1 <= k + matches_left;
+
+                    // in case of a direction switch, insert each possible symbol on the side of the pattern facing the direction from before the switch;
+                    // or, after (mis-)matching the whole pattern, insert each possible symbol on the side facing the last extension
+                    if (can_add_error && (p_idx == p || (dir_switch && k_cur < S[p_idx_lst].k_max))) {
+                        auto ext_ctx = dir_lst == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
+                        
+                        // extend the pattern with every possible symbol
+                        while (ext_ctx.can_extend(*this)) {
+                            auto ctx_nxt = dir_lst == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
+
+                            // insertion
+                            add_to_cur(search_state_t{ctx_nxt, k_cur + 1, k_tot + 1});
+                        }
+                    }
+
+                    // if the whole pattern has been (mis-)matched, insertion has been handled above and (mis-)match and deletion are not applicable
+                    if (p_idx == p) continue;
+
+                    // in case of a direction switch, make sure we enter the new part with at least the minimum number of errors
+                    if (dir_switch && k_cur < S[p_idx].k_min) continue;
+                    
+                    if (can_add_error && k_cur < S[p_idx].k_max) {
+                        // we can still add an error in this part
+                        auto ext_ctx = dir == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
+                        
+                        // extend the pattern with every possible symbol
+                        while (ext_ctx.can_extend(*this)) {
+                            auto ctx_nxt = dir == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
+                            bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
+                            uint8_t k_nxt = k_cur + is_mismatch;
+                            uint8_t k_tot_nxt = k_tot - !is_mismatch;
+
+                            // match / mismatch
+                            add_to_nxt(search_state_t{ctx_nxt, k_nxt, k_tot_nxt});
+
+                            // insertion
+                            add_to_cur(search_state_t{ctx_nxt, k_cur + 1, k_tot + 1});
+                        }
+
+                        // deletion
+                        add_to_nxt(search_state_t{ctx, k_cur + 1, k_tot});
+                    } else if (dir == LEFT ? ctx.prepend(*this, P[pos]) : ctx.append(*this, P[pos])) {
+                        // match
+                        add_to_nxt(search_state_t{ctx, k_cur, k_tot - 1});
+                    }
+                }
+
+                if (p_idx == p) break;
+
+                match_pos_lst = match_pos_cur;
+                match_pos_cur = match_pos_nxt;
+                matches_left--;
+
+                std::swap(nodes_cur, nodes_nxt);
+                std::swap(states_cur, states_nxt);
+
+                nodes_nxt.clear();
+                states_nxt.clear();
+            }
+        }
+
+        return ctxts_set;
+    }
+
+    /**
+     * @brief counts a pattern with at most k mismatches (w.r.t. edit distance)
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @return number of occurrences of P in T with at most k mismatches (w.r.t. edit distance)
+     */
+    template <distance_metric_t dist_metr>
+    pos_t count(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        if constexpr (dist_metr == HAMMING_DISTANCE) return count_hamming_dist(P, scheme);
+        if constexpr (dist_metr == EDIT_DISTANCE) return count_edit_dist(P, scheme);
+    }
+
+    /**
+     * @brief locaes a pattern with at most k mismatches (w.r.t. dist_metr)
+     * @tparam report_fnc_t type of the function report
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @param report function that is called with every tuple (occ, err) as parameters, where occ
+     *               is an occurrence of P in T with at most k mismatches (w.r.t. dist_metr)
+     */
+    template <distance_metric_t dist_metr, typename report_fnc_t>
+    void locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const
+    {
+        if constexpr (dist_metr == HAMMING_DISTANCE) locate_hamming_dist(P, scheme, report);
+        if constexpr (dist_metr == EDIT_DISTANCE) locate_edit_dist(P, scheme, report);
+    }
+
+    /**
+     * @brief locaes a pattern with at most k mismatches (w.r.t. dist_metr)
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @return occurrences of P in T with at most k mismatches (w.r.t. dist_metr)
+     */
+    template <distance_metric_t dist_metr>
+    std::vector<aprx_occ_t<pos_t>> locate(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        std::vector<aprx_occ_t<pos_t>> Occ;
+        locate<dist_metr>(P, scheme, [&](aprx_occ_t<pos_t> occ){Occ.emplace_back(occ);});
+        return Occ;
     }
 
     // ############################# SERIALIZATION METHODS #############################

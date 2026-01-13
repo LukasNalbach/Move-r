@@ -28,7 +28,7 @@
 #include <iostream>
 #include <move_r/move_rb.hpp>
 
-static constexpr int min_args = 8;
+static constexpr int min_args = 6;
 int arg_idx = 1;
 int64_t k = -1;
 std::string scheme_str;
@@ -61,9 +61,11 @@ void help(std::string msg)
     exit(0);
 }
 
-void parse_args(char** argv, int argc)
+bool parse_args(char** argv, int argc)
 {
+    if (arg_idx >= argc - min_args) return false;
     std::string s = argv[arg_idx];
+    if (s == "-d") return false;
     arg_idx++;
 
     if (s == "-m") {
@@ -79,6 +81,8 @@ void parse_args(char** argv, int argc)
     } else {
         help("error: unrecognized '" + s + "' option");
     }
+
+    return true;
 }
 
 template <typename pos_t, move_r_support support>
@@ -92,7 +96,6 @@ void measure_count()
     index.load(index_file);
     index_file.close();
     time = log_runtime(time);
-    std::cout << std::endl;
     index.log_data_structure_sizes();
     
     std::cout << std::endl << "searching patterns ... " << std::endl;
@@ -121,7 +124,13 @@ void measure_count()
 
         patterns_file.read(pattern.data(), pattern_length);
         t2 = now();
-        count = index.count_with_mismatches(pattern, search_scheme);
+
+        if (dist_metr == HAMMING_DISTANCE) {
+            count = index.count_hamming_dist(pattern, search_scheme);
+        } else {
+            count = index.count_edit_dist(pattern, search_scheme);
+        }
+
         num_occurrences += count;
         t3 = now();
         time_count += time_diff_ns(t2, t3);
@@ -180,7 +189,7 @@ void measure_count()
 int main(int argc, char** argv)
 {
     if (argc - 1 < min_args) help("");
-    while (arg_idx < argc - min_args) parse_args(argv, argc);
+    while (parse_args(argv, argc));
 
     std::string arg = argv[arg_idx++];
     if (arg != "-d") help("");
@@ -200,7 +209,7 @@ int main(int argc, char** argv)
             no_init_resize(file_content, file_size);
             std::ifstream ifile(scheme_str);
             ifile.read(file_content.data(), file_size);
-            search_scheme = parse_search_scheme(file_content, dist_metr);
+            search_scheme = parse_search_scheme(file_content);
         } else help("error: invalid option after -s");
     }
     
@@ -209,11 +218,11 @@ int main(int argc, char** argv)
         if (arg != "-k") help("");
         k = atoi(argv[arg_idx++]);
         if (k < 0) help("error: invalid k value");
-        if      (scheme_str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k, dist_metr);
-        else if (scheme_str == "suffix_filter") search_scheme = suffix_filter_scheme(k, dist_metr);
-        else if (scheme_str == "01")            search_scheme = zero_one_scheme(k, dist_metr);
+        if      (scheme_str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k);
+        else if (scheme_str == "suffix_filter") search_scheme = suffix_filter_scheme(k);
+        else if (scheme_str == "01")            search_scheme = zero_one_scheme(k);
     } else {
-        k = search_scheme.k_max;
+        k = search_scheme.k;
     }
 
     path_index_file = argv[arg_idx];
