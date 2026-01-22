@@ -195,7 +195,7 @@ static pos_t hamming_dist_bounded(const std::string_view str_1, const std::strin
 }
 
 template <typename pos_t>
-std::vector<aprx_occ_t<pos_t>> locate_hamming_dist(const std::string& T, const std::string& P, pos_t k)
+static std::vector<aprx_occ_t<pos_t>> locate_hamming_dist(const std::string& T, const std::string& P, pos_t k)
 {
     pos_t m = P.length();
     pos_t n = T.length();
@@ -211,7 +211,7 @@ std::vector<aprx_occ_t<pos_t>> locate_hamming_dist(const std::string& T, const s
 }
 
 template <typename pos_t>
-pos_t edit_dist(const std::string_view T, const std::string_view P) {
+static pos_t edit_dist(const std::string_view T, const std::string_view P) {
     pos_t n = T.size();
     pos_t m = P.size();
 
@@ -239,7 +239,7 @@ pos_t edit_dist(const std::string_view T, const std::string_view P) {
 }
 
 template <typename pos_t>
-int64_t edit_dist_bounded(const std::string_view T, const std::string_view P, int64_t k) {
+static int64_t edit_dist_bounded(const std::string_view T, const std::string_view P, int64_t k) {
     if (T.size() < P.size()) return edit_dist_bounded<pos_t>(P, T, k);
 
     int64_t n = T.size();
@@ -265,7 +265,7 @@ int64_t edit_dist_bounded(const std::string_view T, const std::string_view P, in
                 infty,                               // limit to k + 1
                 prev[j] + 1,                         // deletion
                 curr[j - 1] + 1,                     // insertion
-                prev[j - 1] + (T[i - 1] != P[j - 1]) // match/mismatch
+                prev[j - 1] + (T[i - 1] != P[j - 1]) // match / mismatch
             });
 
             if (curr[j] <= k) abort = false;
@@ -280,7 +280,7 @@ int64_t edit_dist_bounded(const std::string_view T, const std::string_view P, in
 }
 
 template <typename pos_t>
-std::vector<aprx_occ_t<pos_t>> locate_edit_dist(const std::string& T, const std::string& P, pos_t k)
+static std::vector<aprx_occ_t<pos_t>> locate_edit_dist(const std::string& T, const std::string& P, pos_t k)
 {
     pos_t n = T.size();
     pos_t m = P.size();
@@ -291,14 +291,17 @@ std::vector<aprx_occ_t<pos_t>> locate_edit_dist(const std::string& T, const std:
     std::vector<aprx_occ_t<pos_t>> Occ;
 
     for (pos_t i = 0; i < n; i++) {
+        aprx_occ_t<pos_t> occ{.pos = i, .len = 0, .err = k + 1};
+
         for (pos_t l = l_min; l <= l_max; l++) {
-            if (i + l > n) continue;
-            pos_t d = edit_dist_bounded<pos_t>(std::string_view(T.c_str() + i, l), P, k);
-            if (d <= k) Occ.emplace_back(aprx_occ_t<pos_t>{.pos = i, .len = l, .err = d});
+            if (i + l > n) [[unlikely]] break;
+            pos_t err = edit_dist_bounded<pos_t>(std::string_view(T.c_str() + i, l), P, k);
+            if (err < occ.err || (err == occ.err && l < occ.len)) {occ.err = err; occ.len = l;}
         }
+
+        if (occ.err <= k) Occ.emplace_back(occ);
     }
 
-    ips4o::sort(Occ.begin(), Occ.end());
     return Occ;
 }
 
@@ -309,7 +312,7 @@ enum distance_metric_t : int8_t {
 };
 
 template <typename pos_t, distance_metric_t dist_metr>
-std::vector<aprx_occ_t<pos_t>> locate(const std::string& T, const std::string& P, pos_t k)
+static std::vector<aprx_occ_t<pos_t>> locate(const std::string& T, const std::string& P, pos_t k)
 {
     if constexpr (dist_metr == HAMMING_DISTANCE) return locate_hamming_dist<pos_t>(T, P, k);
     if constexpr (dist_metr == EDIT_DISTANCE) return locate_edit_dist<pos_t>(T, P, k);

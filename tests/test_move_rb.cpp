@@ -89,10 +89,9 @@ void test_move_rb()
                 EXPECT_EQ(occurrences.size(), correct_occurrences.size());
                 ips4o::sort(occurrences.begin(), occurrences.end());
                 EXPECT_EQ(occurrences, correct_occurrences);
+                correct_occurrences.clear();
+                occurrences.clear();
             });
-
-            correct_occurrences.clear();
-            occurrences.clear();
         }
     }
 }

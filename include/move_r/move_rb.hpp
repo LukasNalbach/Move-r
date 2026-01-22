@@ -792,7 +792,7 @@ public:
         
         direction dir_lst; // last performed pattern extend direction
         sym_t sym_lst; // last-added symbol
-        uint8_t err; // number of errors (only used for approximate pattern matching output)
+        pos_t err; // number of errors (only used for approximate pattern matching output)
         pos_t m; // length of the currently matched pattern P
         pos_t b, e; // [b, e] = SA-interval in T of the currently matched P
         pos_t b_R, e_R; // [b_R, e_R] = SA-interval in T^R of the reverse of the currently matched P
@@ -842,9 +842,7 @@ public:
          */
         bool operator==(const search_context_t& other) const
         {
-            return b == other.b &&
-                   e == other.e &&
-                   m == other.m;
+            return b == other.b && e == other.e;
         }
 
         /**
@@ -856,7 +854,7 @@ public:
         {
             return b != other.b ? b < other.b :
                   (e != other.e ? e > other.e :
-                                  m > other.m);
+                                  m < other.m);
         }
 
         /**
@@ -873,8 +871,6 @@ public:
             {
                 pos_t hash = pos_hash<pos_t>(ctx.b);
                 hash_combine<pos_t>(hash, pos_hash<pos_t>(ctx.e));
-                hash_combine<pos_t>(hash, pos_hash<pos_t>(ctx.m));
-
                 return hash;
             }
         };
@@ -965,7 +961,7 @@ public:
          * @brief returns the number of errors (only used for approximate pattern matching)
          * @return number of errors
          */
-        inline uint8_t errors() const
+        inline pos_t errors() const
         {
             return err;
         }
@@ -974,7 +970,7 @@ public:
          * @brief sets the number of errors to err (only used for approximate pattern matching)
          * @param err number of errors
          */
-        inline void set_errors(uint8_t err)
+        inline void set_errors(pos_t err)
         {
             this->err = err;
         }
@@ -2024,7 +2020,7 @@ public:
     pos_t count_hamming_dist(const inp_t& P, const search_scheme_t& scheme) const
     {
         pos_t m = P.size();
-        uint8_t k = scheme.k;
+        pos_t k = scheme.k;
 
         if (k >= m) return n - 1;
         if (k == 0) return forward_index().count(P);
@@ -2049,7 +2045,7 @@ public:
     void locate_hamming_dist(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const
     {
         pos_t m = P.size();
-        uint8_t k = scheme.k;
+        pos_t k = scheme.k;
         std::vector<pos_t> Occ;
 
         if (k == 0) {
@@ -2086,17 +2082,17 @@ public:
     {
         pos_t m = P.size();
         if (m == 0) return {search<query_support>()};
-        uint8_t k = scheme.k;
-        uint8_t p = scheme.p;
+        pos_t k = scheme.k;
+        pos_t p = scheme.p;
         assert(p <= m);
 
         using search_state_t = std::tuple<
             search_context_t<query_support>, // ctx
-            uint8_t // k_cur
+            pos_t // k_cur
         >;
 
         using match_pos_t = std::tuple<
-            uint8_t, // p_idx
+            pos_t, // p_idx
             direction, // dir
             pos_t, // part
             pos_t, // beg
@@ -2104,9 +2100,11 @@ public:
             pos_t // pos
         >;
 
+        using states_arr_t = std::vector<search_state_t>;
+
         search_context_set_t<query_support> ctxts_set;
-        std::vector<search_state_t> states_cur;
-        std::vector<search_state_t> states_nxt;
+        states_arr_t states_cur;
+        states_arr_t states_nxt;
         auto empty_ctx = search<query_support>();
         pos_t part_len = m / p;
 
@@ -2156,7 +2154,7 @@ public:
                         while (ext_ctx.can_extend(*this)) {
                             auto ctx_nxt = dir == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
                             bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
-                            uint8_t k_nxt = k_cur + is_mismatch;
+                            pos_t k_nxt = k_cur + is_mismatch;
 
                             if (p_idx_nxt == p) {
                                 ctx_nxt.set_errors(k_nxt);
@@ -2178,7 +2176,6 @@ public:
                 if (p_idx == p) [[unlikely]] break;
                 match_pos_cur = match_pos_nxt;
                 std::swap(states_cur, states_nxt);
-                states_nxt.clear();
             }
         }
 
@@ -2194,15 +2191,107 @@ public:
     pos_t count_edit_dist(const inp_t& P, const search_scheme_t& scheme) const
     {
         pos_t m = P.size();
-        uint8_t k = scheme.k;
+        pos_t k = scheme.k;
 
         if (k >= m) return n - 1;
         if (k == 0) return forward_index().count(P);
 
-        auto ctxts = search_edit_dist<COUNT>(P, scheme);
+        auto ctxts_set = search_edit_dist<COUNT>(P, scheme);
+        auto ctxts_sorted = sort_contexts(ctxts_set);
         pos_t count = 0;
-        for (const auto& ctx : ctxts) count += ctx.num_occ();
+        iterate_fundamental_intervals<COUNT>(ctxts_sorted, [&](const auto& ctx){count += ctx.num_occ();});
         return count;
+    }
+
+    template <move_rb_query_support_t query_support>
+    static std::vector<const search_context_t<query_support>*> sort_contexts(const search_context_set_t<query_support>& ctxts_set)
+    {
+        std::vector<const search_context_t<query_support>*> ctxts_sorted;
+        ctxts_sorted.reserve(ctxts_set.size());
+        for (const auto& ctx : ctxts_set) ctxts_sorted.emplace_back(&ctx);
+        ips4o::sort(ctxts_sorted.begin(), ctxts_sorted.end(), [](auto x, auto y){return *x < *y;});
+        return std::move(ctxts_sorted);
+    }
+
+    struct interval_t {pos_t beg; pos_t end; pos_t err; pos_t len;};
+
+    static std::vector<interval_t> effective_intervals(const std::vector<const search_context_t<LOCATE>*>& ctxts_sorted)
+    {
+        std::vector<interval_t> iv_stack;
+        std::vector<interval_t> ivs;
+
+        iv_stack.reserve(16);
+        ivs.reserve(ctxts_sorted.size());
+    
+        auto append_segment = [&](interval_t iv) {
+            auto [b, e, err, len] = iv;
+            if (b > e) return;
+
+            if (!ivs.empty()) {
+                interval_t& seg_lst = ivs.back();
+                const auto& [b_lst, e_lst, err_lst, len_lst] = seg_lst;
+
+                if (err_lst == err && len_lst == len && e_lst + 1 == b) {
+                    seg_lst.end = e;
+                    return;
+                }
+            }
+
+            ivs.emplace_back(interval_t{b, e, err, len});
+        };
+
+        for (const auto* ctx : ctxts_sorted) {
+            auto [beg, end] = ctx->forward_sa_interval();
+            pos_t err = ctx->errors();
+            pos_t len = ctx->length();
+
+            while (!iv_stack.empty() && iv_stack.back().end < beg) {
+                interval_t iv = iv_stack.back();
+                iv_stack.pop_back();
+                append_segment(iv);
+
+                if (!iv_stack.empty()) {
+                    iv_stack.back().beg = iv.end + 1;
+                }
+            }
+
+            if (iv_stack.empty()) {
+                iv_stack.emplace_back(interval_t{beg, end, err, len});
+            } else {
+                interval_t& iv_top = iv_stack.back();
+                append_segment({iv_top.beg, beg - 1, iv_top.err, iv_top.len});
+                iv_top.beg = beg;
+
+                if (iv_top.err < err || (iv_top.err == err && iv_top.len <= len)) {
+                    iv_stack.emplace_back(interval_t{beg, end, iv_top.err, iv_top.len});
+                } else {
+                    iv_stack.emplace_back(interval_t{beg, end, err, len});
+                }
+            }
+        }
+
+        while (!iv_stack.empty()) {
+            interval_t iv = iv_stack.back();
+            iv_stack.pop_back();
+            append_segment(iv);
+
+            if (!iv_stack.empty()) {
+                iv_stack.back().beg = iv.end + 1;
+            }
+        }
+
+        return std::move(ivs);
+    }
+
+    template <move_rb_query_support_t query_support, typename fnc_t>
+    static void iterate_fundamental_intervals(const std::vector<const search_context_t<query_support>*>& ctxts_sorted, fnc_t fnc)
+    {
+        for (auto it = ctxts_sorted.begin(); it != ctxts_sorted.end();) {
+            const auto& ctx = **it;
+            auto [beg, end] = ctx.forward_sa_interval();
+            fnc(ctx);
+            do {it++;} while (it != ctxts_sorted.end() && std::get<0>((*it)->forward_sa_interval()) <= end);
+        }
     }
 
     /**
@@ -2216,50 +2305,38 @@ public:
     template <typename report_fnc_t>
     void locate_edit_dist(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const
     {
-        uint8_t k = scheme.k;
+        pos_t k = scheme.k;
         pos_t m = P.size();
 
         if (k == 0) {
             forward_index().locate(P, [&](pos_t occ){report({occ, m, 0});});
             return;
         }
-        
-        auto ctxts = search_edit_dist<LOCATE>(P, scheme);
-        std::vector<const search_context_t<LOCATE>*> ctxts_sorted;
-        ctxts_sorted.reserve(ctxts.size());
-        for (const auto& ctx : ctxts) ctxts_sorted.emplace_back(&ctx);
-        ips4o::sort(ctxts_sorted.begin(), ctxts_sorted.end(), [](auto x, auto y){return *x < *y;});
-        pos_t num_ctxts = ctxts.size();
-        std::vector<pos_t> Occ_i;
 
-        for (pos_t i = 0; i < num_ctxts;) {
-            const auto& ctx_i = *ctxts_sorted[i];
-            auto [beg_i, end_i] = ctx_i.forward_sa_interval();
-            Occ_i.reserve(ctx_i.num_occ());
-            no_init_resize(Occ_i, ctx_i.num_occ());
+        auto ctxts_set = search_edit_dist<LOCATE>(P, scheme);
+        auto ctxts_sorted = sort_contexts(ctxts_set);
+        auto ivs = effective_intervals(ctxts_sorted);
+        pos_t iv_idx = 0;
 
-            ctx_i.locate_phase().locate(*this, ctx_i, [&](pos_t pos, pos_t occ){
-                Occ_i[pos - beg_i] = occ;
+        iterate_fundamental_intervals<LOCATE>(ctxts_sorted, [&](const auto& ctx){
+            auto loc_ctx = ctx.locate_phase();
+            pos_t cntr = loc_ctx.compute_center(*this, ctx);
+            pos_t iv_idx_cntr = exp_search_max_leq<pos_t, RIGHT>(cntr, iv_idx, ivs.size() - 1, [&](pos_t x) {return ivs[x].beg;});
+            iv_idx = iv_idx_cntr;
+
+            loc_ctx.locate(*this, ctx, [&](pos_t pos, pos_t occ){
+                if (pos <= cntr) {
+                    if (pos < ivs[iv_idx].beg) [[unlikely]] iv_idx--;
+                } else {
+                    if (iv_idx < iv_idx_cntr) [[unlikely]] iv_idx = iv_idx_cntr;
+                    if (ivs[iv_idx].end < pos) [[unlikely]] iv_idx++;
+                }
+
+                report({occ, ivs[iv_idx].len, ivs[iv_idx].err});
             });
 
-            for (pos_t occ : Occ_i) {
-                report({occ, ctx_i.length(), ctx_i.errors()});
-            }
-
-            pos_t j = i + 1;
-
-            for (;j < num_ctxts; j++) {
-                const auto& ctx_j = *ctxts_sorted[j];
-                auto [beg_j, end_j] = ctx_j.forward_sa_interval();
-                if (beg_j > end_i) break;
-
-                for (pos_t pos = beg_j; pos <= end_j; pos++) {
-                    report({Occ_i[pos - beg_i], ctx_j.length(), ctx_j.errors()});
-                }
-            }
-
-            i = j;
-        }
+            iv_idx = std::max<pos_t>(iv_idx, iv_idx_cntr);
+        });
     }
 
     /**
@@ -2285,25 +2362,25 @@ public:
     {
         pos_t m = P.size();
         if (m == 0) return {search<query_support>()};
-        uint8_t k = scheme.k;
-        uint8_t p = scheme.p;
+        pos_t k = scheme.k;
+        pos_t p = scheme.p;
         assert(p <= m);
 
         using search_state_t = std::tuple<
             search_context_t<query_support>, // ctx
-            uint8_t, // k_cur
-            uint8_t // k_tot
+            pos_t, // k_cur
+            pos_t // k_tot
         >;
 
         using node_t = std::tuple<
             pos_t, // b
             pos_t, // e
-            pos_t, // len
-            uint8_t // k_cur
+            pos_t, // k_cur
+            pos_t // st_idx
         >;
 
         using match_pos_t = std::tuple<
-            uint8_t, // p_idx
+            pos_t, // p_idx
             direction, // dir
             pos_t, // part
             pos_t, // beg
@@ -2314,50 +2391,69 @@ public:
         struct node_hash_t {
             inline static pos_t operator()(const node_t& node)
             {
-                const auto& [b, e, len, k_cur] = node;
+                const auto& [b, e, k_cur, st_idx] = node;
                 pos_t hash = pos_hash<pos_t>(b);
                 hash_combine<pos_t>(hash, pos_hash<pos_t>(e));
-                hash_combine<pos_t>(hash, pos_hash<pos_t>(len));
-                hash_combine<pos_t>(hash, pos_hash<pos_t>(pos_t{k_cur}));
                 return hash;
             }
         };
 
+        struct node_eq_t {
+            inline static bool operator()(const node_t& node_1, const node_t& node_2)
+            {
+                const auto& [b_1, e_1, k_cur_1, st_idx_1] = node_1;
+                const auto& [b_2, e_2, k_cur_2, st_idx_2] = node_2;
+                return b_1 == b_2 && e_1 == e_2;
+            }
+        };
+        
+        using nodes_set_t = gtl::flat_hash_set<node_t, node_hash_t, node_eq_t>;
+        using nodes_set_arr_t = std::vector<nodes_set_t>;
+        using states_arr_t = std::vector<std::vector<search_state_t>>;
+
         search_context_set_t<query_support> ctxts_set;
-        std::vector<search_state_t> states_cur;
-        std::vector<search_state_t> states_nxt;
-        gtl::flat_hash_set<node_t, node_hash_t> nodes_cur;
-        gtl::flat_hash_set<node_t, node_hash_t> nodes_nxt;
+        states_arr_t states_cur, states_nxt;
+        nodes_set_arr_t nodes_cur, nodes_nxt;
 
         auto state_to_node = [](const search_state_t& state){
             const auto& [ctx, k_cur, k_tot] = state;
             auto [b, e] = ctx.forward_sa_interval();
-            pos_t len = ctx.length();
-            return node_t{b, e, len, k_cur};
+            return node_t{b, e, k_cur, 0};
         };
 
-        auto add_to_cur = [&](search_state_t&& state){
-            node_t node = state_to_node(state);
-            auto it = nodes_cur.find(node);
+        auto add_state = [&](search_state_t&& state_new, states_arr_t& states, nodes_set_arr_t& nodes){
+            node_t node_new = state_to_node(state_new);
+            auto& [b_new, e_new, k_cur_new, st_idx_new] = node_new;
+            auto& [ctx_new, k_cur_new_st, k_tot_new] = state_new;
+            pos_t len_new = ctx_new.length();
+            auto it_node_old = nodes[len_new].find(node_new);
 
-            if (it == nodes_cur.end()) {
-                nodes_cur.emplace_hint(it, node);
-                states_cur.emplace_back(std::move(state));
-            }
-        };
+            if (it_node_old == nodes[len_new].end()) {
+                st_idx_new = states[len_new].size();
+                nodes[len_new].emplace_hint(it_node_old, node_new);
+                states[len_new].emplace_back(std::move(state_new));
+            } else {
+                const auto& [b_old, e_old, k_cur_old, st_idx_old] = *it_node_old;
 
-        auto add_to_nxt = [&](search_state_t&& state){
-            node_t node = state_to_node(state);
-            auto it = nodes_nxt.find(node);
-
-            if (it == nodes_nxt.end()) {
-                nodes_nxt.emplace_hint(it, node);
-                states_nxt.emplace_back(std::move(state));
+                if (k_cur_new < k_cur_old) {
+                    auto& state_old = states[len_new][st_idx_old];
+                    auto& [ctx_old, k_cur_old_st, k_tot_old] = state_old;
+                    k_cur_old_st = k_cur_new_st;
+                    k_tot_old = k_tot_new;
+                    st_idx_new = st_idx_old;
+                    it_node_old = nodes[len_new].erase(it_node_old);
+                    nodes[len_new].emplace_hint(it_node_old, node_new);
+                }
             }
         };
 
         auto empty_ctx = search<query_support>();
         pos_t part_len = m / p;
+        pos_t len_bound = m + k + 1;
+        states_cur.resize(len_bound);
+        states_nxt.resize(len_bound);
+        nodes_cur.resize(len_bound);
+        nodes_nxt.resize(len_bound);
 
         for (const search_t& S : scheme.S) {
             match_pos_t match_pos_lst;
@@ -2372,7 +2468,7 @@ public:
             end = (part + 1) == p ? m : ((part + 1) * part_len);
             dir = S[p_idx + 1].part < part ? LEFT : RIGHT;
             pos = dir == LEFT ? end - 1 : beg;
-            states_cur.emplace_back(search_state_t{empty_ctx, 0, m});
+            states_cur[0].emplace_back(search_state_t{empty_ctx, 0, m});
 
             match_pos_t match_pos_nxt {p_idx, dir, part, beg, end, pos};
             auto& [p_idx_nxt, dir_nxt, part_nxt, beg_nxt, end_nxt, pos_nxt] = match_pos_nxt;
@@ -2396,72 +2492,89 @@ public:
                     }
                 }
 
-                while (!states_cur.empty()) {
-                    auto [ctx, k_cur, k_tot] = states_cur.back();
-                    states_cur.pop_back();
+                int32_t matches = m - matches_left;
+                pos_t len_min = std::max<int32_t>(matches - int32_t{k}, 0);
+                pos_t len_max = std::min<int32_t>(matches + int32_t{k}, m + k);
 
-                    if (k_tot <= k) {
-                        ctx.set_errors(k_tot);
-                        auto it = ctxts_set.find(ctx);
+                for (pos_t len_idx = len_min; len_idx <= len_max; len_idx++) {
+                    auto& states_cur_len = states_cur[len_idx];
 
-                        if (it == ctxts_set.end()) {
-                            ctxts_set.emplace(ctx);
-                        } else if (k_tot < it->errors()) {
-                            ctxts_set.erase(it);
-                            ctxts_set.emplace(ctx);
+                    while (!states_cur_len.empty()) {
+                        auto [ctx, k_cur, k_tot] = states_cur_len.back();
+                        states_cur_len.pop_back();
+
+                        if (k_tot <= k) {
+                            ctx.set_errors(k_tot);
+                            auto it = ctxts_set.find(ctx);
+
+                            if (it == ctxts_set.end()) {
+                                ctxts_set.emplace_hint(it, ctx);
+                            } else {
+                                pos_t k_tot_old = it->errors();
+                                pos_t len_old = it->length();
+                                pos_t len = ctx.length();
+
+                                if (k_tot < k_tot_old || (k_tot == k_tot_old && len < len_old)) {
+                                    it = ctxts_set.erase(it);
+                                    ctxts_set.emplace_hint(it, ctx);
+                                }
+                            }
                         }
-                    }
 
-                    // if the whole pattern has been (mis-)matched and we cannot add errors, then we cannot extend this context
-                    if (k_cur == k && p_idx == p) continue;
+                        // if the whole pattern has been (mis-)matched and we cannot add errors, then we cannot extend this context
+                        if (k_cur == k && p_idx == p) continue;
 
-                    // if the total number of errors cannot be reduced to k (or lower) using all the remaining matches, we cannot add errors
-                    bool can_add_error = k_tot + 1 <= k + matches_left;
+                        // if the total number of errors cannot be reduced to k (or lower) using all the remaining matches, we cannot add errors
+                        bool can_add_error = k_tot + 1 <= k + matches_left;
 
-                    // in case of a direction switch, insert each possible symbol on the side of the pattern facing the direction from before the switch;
-                    // or, after (mis-)matching the whole pattern, insert each possible symbol on the side facing the last extension
-                    if (can_add_error && (p_idx == p || (dir_switch && k_cur < S[p_idx_lst].k_max))) {
-                        auto ext_ctx = dir_lst == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
+                        // in case of a direction switch, insert each possible symbol on the side of the pattern facing the direction from before the switch;
+                        // or, after (mis-)matching the whole pattern, insert each possible symbol on the side facing the last extension
+                        if (can_add_error && (p_idx == p || (dir_switch && k_cur < S[p_idx_lst].k_max))) {
+                            auto ext_ctx = dir_lst == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
+                            
+                            // extend the pattern with every possible symbol
+                            while (ext_ctx.can_extend(*this)) {
+                                auto ctx_nxt = dir_lst == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
+
+                                // insertion
+                                add_state(search_state_t{ctx_nxt, k_cur + 1, k_tot + 1}, states_cur, nodes_cur);
+                            }
+                        }
+
+                        // if the whole pattern has been (mis-)matched, insertion has been handled above and (mis-)match and deletion are not applicable
+                        if (p_idx == p) continue;
+
+                        // in case of a direction switch, make sure we enter the new part with at least the minimum number of errors
+                        if (dir_switch && k_cur < S[p_idx].k_min) continue;
                         
-                        // extend the pattern with every possible symbol
-                        while (ext_ctx.can_extend(*this)) {
-                            auto ctx_nxt = dir_lst == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
+                        if (can_add_error && k_cur < S[p_idx].k_max) {
+                            // we can still add an error in this part
+                            auto ext_ctx = dir == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
+                            
+                            // extend the pattern with every possible symbol
+                            while (ext_ctx.can_extend(*this)) {
+                                auto ctx_nxt = dir == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
+                                bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
+                                pos_t k_nxt = k_cur + is_mismatch;
+                                pos_t k_tot_nxt = k_tot - !is_mismatch;
 
-                            // insertion
-                            add_to_cur(search_state_t{ctx_nxt, k_cur + 1, k_tot + 1});
+                                // match / mismatch
+                                add_state(search_state_t{ctx_nxt, k_nxt, k_tot_nxt}, states_nxt, nodes_nxt);
+
+                                // insertion
+                                add_state(search_state_t{ctx_nxt, k_cur + 1, k_tot + 1}, states_cur, nodes_cur);
+                            }
+
+                            // deletion
+                            add_state(search_state_t{ctx, k_cur + 1, k_tot}, states_nxt, nodes_nxt);
+                        } else if (dir == LEFT ? ctx.prepend(*this, P[pos]) : ctx.append(*this, P[pos])) {
+                            // match
+                            add_state(search_state_t{ctx, k_cur, k_tot - 1}, states_nxt, nodes_nxt);
                         }
                     }
 
-                    // if the whole pattern has been (mis-)matched, insertion has been handled above and (mis-)match and deletion are not applicable
-                    if (p_idx == p) continue;
-
-                    // in case of a direction switch, make sure we enter the new part with at least the minimum number of errors
-                    if (dir_switch && k_cur < S[p_idx].k_min) continue;
-                    
-                    if (can_add_error && k_cur < S[p_idx].k_max) {
-                        // we can still add an error in this part
-                        auto ext_ctx = dir == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
-                        
-                        // extend the pattern with every possible symbol
-                        while (ext_ctx.can_extend(*this)) {
-                            auto ctx_nxt = dir == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
-                            bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
-                            uint8_t k_nxt = k_cur + is_mismatch;
-                            uint8_t k_tot_nxt = k_tot - !is_mismatch;
-
-                            // match / mismatch
-                            add_to_nxt(search_state_t{ctx_nxt, k_nxt, k_tot_nxt});
-
-                            // insertion
-                            add_to_cur(search_state_t{ctx_nxt, k_cur + 1, k_tot + 1});
-                        }
-
-                        // deletion
-                        add_to_nxt(search_state_t{ctx, k_cur + 1, k_tot});
-                    } else if (dir == LEFT ? ctx.prepend(*this, P[pos]) : ctx.append(*this, P[pos])) {
-                        // match
-                        add_to_nxt(search_state_t{ctx, k_cur, k_tot - 1});
-                    }
+                    states_cur_len.shrink_to_fit();
+                    nodes_cur[len_idx] = nodes_set_t{};
                 }
 
                 if (p_idx == p) break;
@@ -2474,7 +2587,6 @@ public:
                 std::swap(states_cur, states_nxt);
 
                 nodes_nxt.clear();
-                states_nxt.clear();
             }
         }
 
