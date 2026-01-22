@@ -162,25 +162,18 @@ void measure_locate()
 
         if (filter_occurrences) {
             ips4o::sort(redundant_occurrences.begin(), redundant_occurrences.end());
+            static constexpr pos_t infty = std::numeric_limits<pos_t>::max();
+            aprx_occ_t<pos_t> prev {.pos = infty, .len = infty, .err = k + 1};
             int64_t window = 2 * k;
-
-            aprx_occ_t<pos_t> prev {
-                .pos = std::numeric_limits<pos_t>::max(),
-                .len = std::numeric_limits<pos_t>::max(),
-                .err = k + 1
-            };
 
             for (const auto& occ : redundant_occurrences) {
                 int64_t dist = abs_diff<int64_t>(occ.pos, prev.pos);
-
-                if (dist == 0) {
-                    continue;
-                }
+                if (dist == 0) continue;
 
                 if (dist <= window) {
-                    if (occ.err > prev.err || (occ.err == prev.err && occ.len >= prev.len)) {
-                        continue;
-                    }
+                    if (occ.err > prev.err ||
+                       (occ.err == prev.err && occ.len >= prev.len)
+                    ) continue;
 
                     occurrences.pop_back();
                 }
