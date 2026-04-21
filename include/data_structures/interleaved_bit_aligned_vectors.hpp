@@ -49,15 +49,16 @@ protected:
         std::is_same_v<val_t, uint32_t> ||
         std::is_same_v<val_t, uint64_t>);
 
-    // size (in bits) of the blocks that are read/written at once
-    static constexpr val_t data_block_bit_width = 8 * sizeof(val_t);
-
-    // mask that is use to quickly compute the left padding within a block when accessing/writing to a block
-    static constexpr uint64_t left_padding_mask = data_block_bit_width - 1;
+    using wide_t = constexpr_switch_t<
+        constexpr_case<sizeof(val_t) == 1,    uint16_t>,
+        constexpr_case<sizeof(val_t) == 2,    uint32_t>,
+        constexpr_case<sizeof(val_t) == 4,    uint64_t>,
+     /* constexpr_case<sizeof(val_t) == 8, */ __uint128_t>;
 
     uint64_t size_vectors = 0; // size of each stored vector
     uint64_t capacity_vectors = 0; // capacity of each stored vector
     uint64_t width_entry = 0; // sum of the widths (in bits) of all vectors
+    uint64_t bits_per_block = sizeof(wide_t) * 8;
 
     // [0 .. byte_size(capacity_vectors)] vector of bytes storing the interleaved vectors
     std::vector<char> data_vectors;
@@ -67,19 +68,9 @@ protected:
 
     // [0 .. num_vectors - 1] offsets[i] = offset (in bits) of the ith vectors entry within the region storing all ith entries
     std::array<uint64_t, num_vectors> offsets;
-    
-    // offset info
-    struct offset_info_t {
-        val_t left_excess; // the number of bits to the right of the data in the left block
-        val_t right_excess; // the number of bits of the data in the right block
-        val_t left_mask; // mask to mask of bits left and right of the data in the left block
-    };
 
-    /**
-     * @brief [0 .. num_vectors - 1][0 .. data_block_bit_width - 1] stores at position [vec_idx][o] the offset info for 
-     * accessing/writing to the vector with index vec_idx within a block with the offset o
-     */
-    std::array<std::array<offset_info_t, data_block_bit_width>, num_vectors> offset_info;
+    // [0 .. num_vectors - 1] masks that are used to mask off data of other vector entries when accessing a vector
+    std::array<wide_t, num_vectors> masks;
 
     /**
      * @brief initializes the interleaved_bit_aligned_vectors with the vector-widths stored in widths
@@ -102,18 +93,7 @@ protected:
             } else {
                 this->widths[vec_idx] = widths[vec_idx];
                 width_entry += widths[vec_idx];
-
-                for (uint8_t left_padding = 0; left_padding < data_block_bit_width; left_padding++) {
-                    offset_info_t& info = offset_info[vec_idx][left_padding];
-
-                    int64_t diff = int64_t{left_padding + widths[vec_idx]} - int64_t{data_block_bit_width};
-                    info.left_excess = std::max<int64_t>(-diff, 0);
-                    info.right_excess = std::max<int64_t>(diff, 0);
-
-                    info.left_mask = std::numeric_limits<val_t>::max() >> left_padding;
-                    info.left_mask &= std::numeric_limits<val_t>::max() << info.left_excess;
-                    info.left_mask = ~info.left_mask;
-                }
+                masks[vec_idx] = (wide_t{1} << widths[vec_idx]) - 1;
             }
         }
     }
@@ -185,14 +165,14 @@ public:
         return widths[vec_idx];
     }
 
-    inline val_t read_block(uint64_t blk_idx) const
+    inline wide_t read_block(uint64_t blk_idx) const
     {
-        return reinterpret_cast<const val_t*>(data_vectors.data())[blk_idx];
+        return reinterpret_cast<const wide_t*>(data_vectors.data())[blk_idx];
     }
 
-    inline val_t& block(uint64_t blk_idx)
+    inline wide_t& block(uint64_t blk_idx)
     {
-        return reinterpret_cast<val_t*>(data_vectors.data())[blk_idx];
+        return reinterpret_cast<wide_t*>(data_vectors.data())[blk_idx];
     }
 
     /**
@@ -300,6 +280,30 @@ public:
         }
     }
 
+    using block_info_t = std::tuple<
+        uint64_t, // block_idx
+        uint64_t // bit_offs
+    >;
+
+    protected:
+
+    /**
+     * @brief returns the block index and bit offset of the i-th entry of the vector with index vec_idx within its block
+     * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @param i entry index (0 <= i < size_vectors)
+     * @return the block index and bit offset of the i-th entry of the vector with index vec_idx within its block
+     */
+    template <uint8_t vec_idx>
+    inline block_info_t block_info(uint64_t i) const
+    {
+        static_assert(vec_idx < num_vectors);
+        uint64_t bit_pos = i * width_entry + offsets[vec_idx];
+        uint64_t block_idx = bit_pos / bits_per_block;
+        uint64_t bit_offs = bit_pos % bits_per_block;
+        return {block_idx, bit_offs};
+    }
+
+    public:
     /**
      * @brief sets the i-th entry in the vector with index vec_idx to v
      * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
@@ -309,22 +313,8 @@ public:
     template <uint8_t vec_idx>
     inline void set(uint64_t i, val_t v)
     {
-        static_assert(vec_idx < num_vectors);
-
-        uint64_t bit_pos = i * width_entry + offsets[vec_idx];
-        uint64_t left_block = bit_pos / data_block_bit_width;
-        uint64_t right_block = left_block + 1;
-        uint64_t left_padding = bit_pos & left_padding_mask;
-        const offset_info_t& info = offset_info[vec_idx][left_padding];
-
-        if (info.right_excess == 0) {
-            block(left_block) = (read_block(left_block) & info.left_mask) | (v << info.left_excess);
-        } else {
-            val_t right_mask = std::numeric_limits<val_t>::max() >> info.right_excess;
-            val_t right_shift = data_block_bit_width - info.right_excess;
-            block(left_block) = (read_block(left_block) & info.left_mask) | (v >> info.right_excess);
-            block(right_block) = (read_block(right_block) & right_mask) | (v << right_shift);
-        }
+        auto [block_idx, bit_offs] = block_info<vec_idx>(i);
+        block(block_idx) = (read_block(block_idx) & ~(masks[vec_idx] << bit_offs)) | (wide_t{v} << bit_offs);
     }
 
     /**
@@ -336,21 +326,8 @@ public:
     template <uint8_t vec_idx>
     inline val_t get(uint64_t i) const
     {
-        static_assert(vec_idx < num_vectors);
-
-        uint64_t bit_pos = i * width_entry + offsets[vec_idx];
-        uint64_t left_block = bit_pos / data_block_bit_width;
-        uint64_t right_block = left_block + 1;
-        uint64_t left_padding = bit_pos & left_padding_mask;
-        const offset_info_t& info = offset_info[vec_idx][left_padding];
-        val_t left_mask = std::numeric_limits<val_t>::max() >> left_padding;
-
-        if (info.right_excess == 0) {
-            return (read_block(left_block) & left_mask) >> info.left_excess;
-        } else {
-            return ((read_block(left_block) & left_mask) << info.right_excess) |
-                    (read_block(right_block) >> (data_block_bit_width - info.right_excess));
-        }
+        auto [block_idx, bit_offs] = block_info<vec_idx>(i);
+        return (read_block(block_idx) >> bit_offs) & masks[vec_idx];
     }
 
     /**

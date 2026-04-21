@@ -109,6 +109,8 @@ struct move_r_params {
     uint64_t* peak_memory_usage = nullptr; // variable to store the peak memory usage in (only for bidirectional indexes)
 };
 
+template <move_r_support support, typename sym_t, typename pos_t> class move_rb;
+
 /**
  * @brief move-r index, size O(r*(a/(a-1)))
  * @tparam support type of locate support
@@ -117,6 +119,7 @@ struct move_r_params {
  */
 template <move_r_support support = _locate_move, typename sym_t = char, typename pos_t = uint32_t>
 class move_r {
+    template <move_r_support _support, typename _sym_t, typename _pos_t> friend class move_rb;
 
 public:
     // check if the position type is supported

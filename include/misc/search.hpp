@@ -102,7 +102,7 @@ inline static pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, fnc_
     return left;
 }
 
-template <typename pos_t, direction search_dir, typename fnc_t>
+template <typename pos_t, direction_t search_dir, typename fnc_t>
 inline static pos_t exp_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
     if (left == right) [[unlikely]] return left;

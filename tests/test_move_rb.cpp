@@ -35,7 +35,7 @@ char max_uchar = std::numeric_limits<char>::max() - 2;
 uint64_t min_input_size = 1;
 uint64_t max_input_size = 100000;
 uint64_t max_pattern_length = 20;
-uint8_t mismatches_limit = 10;
+uint8_t mismatches_limit = 13;
 
 std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
 std::uniform_int_distribution<uint16_t> num_threads_distrib(1, max_num_threads);
@@ -76,7 +76,7 @@ void test_move_rb()
             pattern_pos = pattern_pos_distrib(gen_thr);
             pattern_length = std::min<pos_t>(input_size - pattern_pos, pattern_length_distrib(gen_thr));
             pos_t max_mismatches = std::uniform_int_distribution<pos_t>(0,
-                std::min<pos_t>(mismatches_limit, pattern_length - 1))(gen_thr);
+                std::clamp<int32_t>(int32_t{pattern_length} - 2, 0, mismatches_limit))(gen_thr);
             no_init_resize(pattern, pattern_length);
             for (pos_t i = 0; i < pattern_length; i++)
                 pattern[i] = input[pattern_pos + i];
@@ -84,13 +84,16 @@ void test_move_rb()
             for_each_constexpr<HAMMING_DISTANCE, EDIT_DISTANCE>([&](auto dist_metr){
                 correct_occurrences = locate<pos_t, dist_metr>(input, pattern, max_mismatches);
                 search_scheme_t scheme = suffix_filter_scheme(max_mismatches);
-                EXPECT_EQ(index.template count<dist_metr>(pattern, scheme), correct_occurrences.size());
+                if constexpr (dist_metr == HAMMING_DISTANCE)
+                    EXPECT_EQ(index.template count_hamming_dist(pattern, scheme), correct_occurrences.size());
                 occurrences = index.template locate<dist_metr>(pattern, scheme);
-                EXPECT_EQ(occurrences.size(), correct_occurrences.size());
                 ips4o::sort(occurrences.begin(), occurrences.end());
+                if constexpr (dist_metr == EDIT_DISTANCE) filter_aprx_occurrences<pos_t>(occurrences, max_mismatches);
+                EXPECT_EQ(occurrences.size(), correct_occurrences.size());
                 EXPECT_EQ(occurrences, correct_occurrences);
                 correct_occurrences.clear();
                 occurrences.clear();
+
             });
         }
     }

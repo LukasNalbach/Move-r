@@ -101,7 +101,7 @@ protected:
             } else {
                 this->widths[i] = widths[i];
                 width_entry += widths[i];
-                masks_get[i] = std::numeric_limits<val_t>::max() >> (8 * (sizeof(val_t) - widths[i]));
+                masks_get[i] = (uint64_t{1} << (8 * widths[i])) - 1;
                 masks_set[i] = ~masks_get[i];
             }
         }

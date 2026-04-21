@@ -125,13 +125,9 @@ void measure_count()
         patterns_file.read(pattern.data(), pattern_length);
         t2 = now();
 
-        if (dist_metr == HAMMING_DISTANCE) {
-            count = index.count_hamming_dist(pattern, search_scheme);
-        } else {
-            count = index.count_edit_dist(pattern, search_scheme);
-        }
-
+        count = index.count_hamming_dist(pattern, search_scheme);
         num_occurrences += count;
+        
         t3 = now();
         time_count += time_diff_ns(t2, t3);
 
@@ -201,7 +197,10 @@ int main(int argc, char** argv)
     arg = argv[arg_idx++];
     if (arg != "-s") help("");
     scheme_str = argv[arg_idx++];
-    bool is_default_scheme = scheme_str == "pigeon_hole" || scheme_str == "suffix_filter" || scheme_str == "01";
+    bool is_default_scheme =
+        scheme_str == "pigeon_hole" ||
+        scheme_str == "suffix_filter" ||
+        scheme_str == "01";
     if (!is_default_scheme) {
         if (std::filesystem::exists(scheme_str)) {
             std::string file_content;
@@ -246,6 +245,9 @@ int main(int argc, char** argv)
     index_file.seekg(0, std::ios::beg);
 
     if (_support == _count) {
+        if (dist_metr == EDIT_DISTANCE)
+            help("error: counting w.r.t. with edit distance is not supported");
+
         if (is_64_bit) {
             measure_count<uint64_t, _count>();
         } else {
