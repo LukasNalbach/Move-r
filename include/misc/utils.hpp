@@ -132,21 +132,21 @@ static void no_init_resize(std::vector<std::tuple<T, T, T>>& vec, size_t size)
     (*reinterpret_cast<std::vector<std::tuple<no_init<T>, no_init<T>, no_init<T>>>*>(&vec)).resize(size);
 }
 
-enum direction : uint8_t {
+enum direction_t : uint8_t {
     NO_DIR = 0,
     LEFT = 1,
     RIGHT = 2
 };
 
-template <direction dir>
-inline static constexpr direction flip()
+template <direction_t dir>
+inline static constexpr direction_t flip()
 {
     if constexpr (dir == LEFT) return RIGHT;
     if constexpr (dir == RIGHT) return LEFT;
     return NO_DIR;
 }
 
-inline static direction flip(direction dir)
+inline static direction_t flip(direction_t dir)
 {
     if (dir == LEFT) return RIGHT;
     if (dir == RIGHT) return LEFT;
@@ -242,3 +242,17 @@ struct function_traits<return_t(class_t::*)(args...) const> {
     template <size_t N>
     using argument_type = std::tuple_element_t<N, std::tuple<args...>>;
 };
+
+template <typename word_t>
+static int popcount(word_t x)
+{
+    static_assert(std::is_same_v<word_t, uint64_t> || std::is_same_v<word_t, __uint128_t>);
+    
+    if constexpr (std::is_same_v<word_t, __uint128_t>) {
+        uint64_t high = x >> 64;
+        uint64_t low = x;
+        return __builtin_popcountll(high) + __builtin_popcountll(low);
+    } else {
+        return __builtin_popcountll(x);
+    }
+}

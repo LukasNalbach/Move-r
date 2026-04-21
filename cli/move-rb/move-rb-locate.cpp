@@ -138,7 +138,6 @@ void measure_locate()
     std::string pattern;
     no_init_resize(pattern, pattern_length);
     std::vector<aprx_occ_t<pos_t>> occurrences;
-    std::vector<aprx_occ_t<pos_t>> redundant_occurrences;
     uint64_t checksum = 0;
     uint64_t baseline_alloc = malloc_count_current();
     malloc_count_reset_peak();
@@ -155,36 +154,14 @@ void measure_locate()
         t2 = now();
 
         if (dist_metr == HAMMING_DISTANCE) {
-            index.locate_hamming_dist(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){redundant_occurrences.emplace_back(occ);});
+            index.locate_hamming_dist(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){occurrences.emplace_back(occ);});
         } else {
-            index.locate_edit_dist(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){redundant_occurrences.emplace_back(occ);});
+            index.locate_edit_dist(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){occurrences.emplace_back(occ);});
         }
 
         if (filter_occurrences) {
-            ips4o::sort(redundant_occurrences.begin(), redundant_occurrences.end());
-            static constexpr pos_t infty = std::numeric_limits<pos_t>::max();
-            aprx_occ_t<pos_t> prev {.pos = infty, .len = infty, .err = k + 1};
-            int64_t window = 2 * k;
-
-            for (const auto& occ : redundant_occurrences) {
-                int64_t dist = abs_diff<int64_t>(occ.pos, prev.pos);
-                if (dist == 0) continue;
-
-                if (dist <= window) {
-                    if (occ.err > prev.err ||
-                       (occ.err == prev.err && occ.len >= prev.len)
-                    ) continue;
-
-                    occurrences.pop_back();
-                }
-
-                occurrences.emplace_back(occ);
-                prev = occ;
-            }
-
-            redundant_occurrences.clear();
-        } else {
-            std::swap(occurrences, redundant_occurrences);
+            ips4o::sort(occurrences.begin(), occurrences.end());
+            filter_aprx_occurrences<pos_t>(occurrences, k);
         }
         
         num_occurrences += occurrences.size();
@@ -203,9 +180,14 @@ void measure_locate()
                     dist = edit_dist_bounded<pos_t>(occ_view, pattern, k);
                 }
 
-                if (dist > k || occ.err != dist) {
-                    std::cout << "error: wrong approximate occurrence " << occ.pos <<
-                        " with length " << occ.len << " of pattern '" << pattern << "'" << std::endl;
+                if (dist > k) {
+                    std::cout << "error: wrong approximate occurrence " << occ.pos << ", '" << occ_view <<
+                        "' with length " << occ.len << " of pattern '" << pattern << "'" << std::endl;
+                    exit(-1);
+                } else if (occ.err != dist) {
+                    std::cout << "error: correct approximate occurrence " << occ.pos << ", '" << occ_view <<
+                        "' with length " << occ.len << " of pattern '" << pattern <<
+                        "' was reported with " << occ.err << " instead of " << dist << " errors" << std::endl;
                     exit(-1);
                 }
             }
@@ -216,7 +198,7 @@ void measure_locate()
                 ips4o::sort(occurrences.begin(), occurrences.end());
             }
 
-            for (auto occ : occurrences) {
+            for (const auto& occ : occurrences) {
                 output_file <<
                     "(pos=" << occ.pos <<
                     " len=" << occ.len <<
@@ -247,7 +229,8 @@ void measure_locate()
     std::cout << "locate time: " << format_time(time_locate) << std::endl;
     std::cout << "             " << format_time(time_locate / num_patterns) << "/pattern" << std::endl;
     std::cout << "             " << format_time(time_locate / (num_patterns * pattern_length)) << "/character" << std::endl;
-    std::cout << "             " << format_time(time_locate / num_occurrences) << "/occurrence" << std::endl;
+    if (num_occurrences != 0)
+      std::cout << "             " << format_time(time_locate / num_occurrences) << "/occurrence" << std::endl;
 
     if (mf.is_open()) {
         mf << "RESULT";
@@ -298,7 +281,10 @@ int main(int argc, char** argv)
     arg = argv[arg_idx++];
     if (arg != "-s") help("");
     scheme_str = argv[arg_idx++];
-    bool is_default_scheme = scheme_str == "pigeon_hole" || scheme_str == "suffix_filter" || scheme_str == "01";
+    bool is_default_scheme =
+        scheme_str == "pigeon_hole" ||
+        scheme_str == "suffix_filter" ||
+        scheme_str == "01";
     if (!is_default_scheme) {
         if (std::filesystem::exists(scheme_str)) {
             std::string file_content;

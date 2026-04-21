@@ -103,22 +103,24 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
         // index of the input interval in M_LF containing i.
         pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
 
-        /* if i is a bwt run end position (i = M_LF.p(x+1)-1) and SA_Phi^{-1}[x+1] != r'', then
-            SA[i] = Phi(SA_s[(x+1) mod r'])
-                  = Phi(M_Phi^{-1}.q(SA_Phi^{-1}[(x+1) mod r']))
-                  =     M_Phi^{-1}.p(SA_Phi^{-1}[(x+1) mod r'])
-        */
-        if (i == M_LF().p(x + 1) - 1) [[unlikely]] {
-            pos_t xp1 = (x + 1) == r_ ? 0 : (x + 1);
+        if constexpr (support == _locate_move) {
+            /* if i is a bwt run end position (i = M_LF.p(x+1)-1) and SA_Phi^{-1}[x+1] != r'', then
+                SA[i] = Phi(SA_s[(x+1) mod r'])
+                    = Phi(M_Phi^{-1}.q(SA_Phi^{-1}[(x+1) mod r']))
+                    =     M_Phi^{-1}.p(SA_Phi^{-1}[(x+1) mod r'])
+            */
+            if (i == M_LF().p(x + 1) - 1) [[unlikely]] {
+                pos_t xp1 = (x + 1) == r_ ? 0 : (x + 1);
 
-            if (SA_Phi_m1(xp1) != r__) [[unlikely]] {
-                return M_Phi_m1().p(SA_Phi_m1(xp1));
+                if (SA_Phi_m1(xp1) != r__) [[unlikely]] {
+                    return M_Phi_m1().p(SA_Phi_m1(xp1));
+                }
             }
-        }
 
-        // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
-        while (SA_Phi_m1(x) == r__) {
-            x--;
+            // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
+            while (SA_Phi_m1(x) == r__) {
+                x--;
+            }
         }
 
         // begin iterating at the start of the x-th run, because there is a

@@ -143,8 +143,9 @@ void measure_locate()
         if (check_correctness) {
             for (pos_t occ : occurrences) {
                 if (input.substr(occ, pattern_length) != pattern) {
-                    std::cout << "error: wrong occurrence: " << occ <<
-                        " of pattern '" << pattern << "'" << std::endl;
+                    std::cout << "error: wrong occurrence: " << occ << ", '" <<
+                        input.substr(occ, pattern_length) <<  "' of pattern '" <<
+                        pattern << "'" << std::endl;
                     exit(-1);
                 }
             }
@@ -165,7 +166,8 @@ void measure_locate()
     std::cout << "total number of occurrences: " << num_occurrences << std::endl;
     std::cout << "locate time: " << format_time(time_locate) << std::endl;
     std::cout << "             " << format_time(time_locate / num_patterns) << "/pattern" << std::endl;
-    std::cout << "             " << format_time(time_locate / num_occurrences) << "/occurrence" << std::endl;
+    if (num_occurrences != 0)
+      std::cout << "             " << format_time(time_locate / num_occurrences) << "/occurrence" << std::endl;
 
     if (mf.is_open()) {
         mf << "RESULT";

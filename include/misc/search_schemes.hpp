@@ -52,7 +52,7 @@ struct search_scheme_t {
     std::vector<search_t> S = {{{0, 0, 0}}};
 };
 
-static search_scheme_t pigeon_hole_scheme(uint8_t k)
+static const search_scheme_t pigeon_hole_scheme(uint8_t k)
 {
     uint8_t p = k + 1;
     std::vector<search_t> S;
@@ -81,7 +81,7 @@ static search_scheme_t pigeon_hole_scheme(uint8_t k)
     };
 }
 
-static search_scheme_t suffix_filter_scheme(uint8_t k)
+static const search_scheme_t suffix_filter_scheme(uint8_t k)
 {
     uint8_t p = k + 1;
     std::vector<search_t> S;
@@ -109,7 +109,7 @@ static search_scheme_t suffix_filter_scheme(uint8_t k)
     };
 }
 
-static search_scheme_t zero_one_scheme(uint8_t k)
+static const search_scheme_t zero_one_scheme(uint8_t k)
 {
     uint8_t p = k + 2;
     std::vector<search_t> S;
@@ -219,3 +219,101 @@ static search_scheme_t parse_search_scheme(const std::string& str)
         .S = std::move(S)
     };
 }
+
+class edit_dist_search
+{
+  protected:
+    const search_scheme_t& scheme;
+    const std::vector<search_step_t>& search_arr;
+    uint8_t search_idx;
+    std::vector<direction_t> dirs;
+    std::vector<bool> is_dir_switch;
+    std::vector<uint8_t> leftmost_prev_part;
+    std::vector<uint8_t> rightmost_prev_part;
+
+  public:
+    edit_dist_search(const search_scheme_t& scheme, uint8_t search_idx)
+        : scheme(scheme), search_arr(scheme.S[search_idx]), search_idx(search_idx)
+    {
+        dirs.reserve(scheme.p);
+        dirs.emplace_back((search_arr[1].part > search_arr[0].part) ? RIGHT : LEFT);
+
+        for (uint8_t i = 1; i < scheme.p; i++) {
+            dirs.emplace_back((search_arr[i].part > search_arr[i - 1].part) ? RIGHT : LEFT);
+        }
+
+        is_dir_switch.reserve(scheme.p);
+        is_dir_switch.emplace_back(false);
+
+        for (uint8_t i = 1; i < dirs.size(); i++) {
+            is_dir_switch.emplace_back(dirs[i] != dirs[i - 1]);
+        }
+
+        leftmost_prev_part.reserve(scheme.p);
+        rightmost_prev_part.reserve(scheme.p);
+        leftmost_prev_part.emplace_back(search_arr[0].part);
+        rightmost_prev_part.emplace_back(search_arr[0].part);        
+
+        for (uint8_t i = 1; i < scheme.p; i++) {
+            uint8_t cur_part = search_arr[i].part;
+
+            if (cur_part < leftmost_prev_part[i - 1]) {
+                leftmost_prev_part.emplace_back(cur_part);
+                rightmost_prev_part.emplace_back(rightmost_prev_part[i - 1]);
+            } else {
+                leftmost_prev_part.emplace_back(leftmost_prev_part[i - 1]);
+                rightmost_prev_part.emplace_back(cur_part);
+            }
+        }
+    }
+    
+    uint8_t lower_bound(uint8_t i) const
+    {
+        return search_arr[i].k_min;
+    }
+    
+    uint8_t upper_bound(uint8_t i) const
+    {
+        return search_arr[i].k_max;
+    }
+    
+    uint8_t part(uint8_t i) const
+    {
+        return search_arr[i].part;
+    }
+
+    uint8_t leftmost_previous_part(uint8_t idx) const
+    {
+        return leftmost_prev_part[idx - 1];
+    }
+
+    uint8_t rightmost_previous_part(uint8_t idx) const
+    {
+        return rightmost_prev_part[idx - 1];
+    }
+
+    direction_t part_dir(uint8_t i) const
+    {
+        return dirs[i];
+    }
+    
+    bool does_part_switch_dir(uint8_t i) const
+    {
+        return is_dir_switch[i];
+    }
+    
+    uint8_t num_parts() const
+    {
+        return scheme.p;
+    }
+    
+    uint8_t search_index() const
+    {
+        return search_idx;
+    }
+
+    bool is_edge(uint8_t i) const
+    {
+        return search_arr[i].part == 0 || search_arr[i].part == scheme.p - 1;
+    }
+};

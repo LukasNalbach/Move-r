@@ -302,7 +302,36 @@ static std::vector<aprx_occ_t<pos_t>> locate_edit_dist(const std::string& T, con
         if (occ.err <= k) Occ.emplace_back(occ);
     }
 
+    filter_aprx_occurrences<pos_t>(Occ, k);
     return Occ;
+}
+
+template <typename pos_t>
+static void filter_aprx_occurrences(std::vector<aprx_occ_t<pos_t>>& data, pos_t k)
+{
+    static constexpr pos_t infty = std::numeric_limits<pos_t>::max();
+    aprx_occ_t<pos_t> prev {.pos = infty, .len = infty, .err = k + 1};
+    int64_t window = 2 * k;
+    pos_t write = 0;
+
+    for (pos_t read = 0; read < data.size(); ++read) {
+        const auto& occ = data[read];
+        int64_t dist = abs_diff<int64_t>(occ.pos, prev.pos);
+        if (dist == 0) continue;
+
+        if (dist <= window) {
+            if (occ.err > prev.err ||
+               (occ.err == prev.err && occ.len >= prev.len)
+            ) continue;
+
+            if (write > 0) [[likely]] --write;
+        }
+
+        data[write++] = occ;
+        prev = occ;
+    }
+
+    data.resize(write);
 }
 
 enum distance_metric_t : int8_t {

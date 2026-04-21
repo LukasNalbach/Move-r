@@ -37,8 +37,10 @@
 #include <misc/strings.hpp>
 #include <move_r/move_r.hpp>
 #include <misc/search_schemes.hpp>
+#include <misc/sub_string.hpp>
+#include <misc/edit_distance_matrix.hpp>
 
-enum move_rb_query_support_t {
+enum move_rb_query_support_t : uint8_t {
     COUNT = 0,
     LOCATE = 1
 };
@@ -104,7 +106,7 @@ protected:
 
     // ############################# INTERNAL METHODS #############################
 
-    template <direction dir>
+    template <direction_t dir>
     const std::conditional_t<dir == LEFT, move_r_fwd_t, move_r_bwd_t>& index() const
     {
         if constexpr (dir == LEFT) {
@@ -114,7 +116,7 @@ protected:
         }
     }
 
-    template <direction dir>
+    template <direction_t dir>
     const sd_array<pos_t>& S_MLF_p() const
     {
         if constexpr (dir == LEFT) {
@@ -765,6 +767,8 @@ public:
     struct locate_context_t;
     struct extend_context_t;
 
+    protected:
+
     enum sample_t : uint8_t {
         NO_SAMPLE = 0,
         RUN_START = 1,
@@ -778,19 +782,20 @@ public:
         pos_t x; // index of the (sub-)run in L', whose start/end is the position of the SA-sample
     };
 
+    public:
     /**
      * @brief stores the variables needed to perform bidirectional pattern search and locate queries
      */
     template <move_rb_query_support_t query_support>
     struct search_context_t {
-        static_assert(!(support == _count && query_support == LOCATE));
-
+        friend class move_rb;
         friend class locate_context_t;
+        template <move_rb_query_support_t _query_support> friend class search_context_t;
 
     protected:
         // ############################# VARIABLES FOR THE SEARCH PHASE #############################
         
-        direction dir_lst; // last performed pattern extend direction
+        direction_t dir_lst; // last performed pattern extend direction
         sym_t sym_lst; // last-added symbol
         pos_t err; // number of errors (only used for approximate pattern matching output)
         pos_t m; // length of the currently matched pattern P
@@ -801,17 +806,27 @@ public:
 
         // ############################# VARIABLES FOR MAINTAINING SA-SAMPLE INFORMATION DURING SEARCH #############################
 
-        using sample_info_t = std::conditional_t<query_support == LOCATE, sample_info_pack_t, empty_t>;
+        using sample_info_t = std::conditional_t<query_support == LOCATE, sample_info_pack_t, std::monostate>;
+        using shift_t = std::conditional_t<query_support == LOCATE, pos_t, std::monostate>;
+        using dpth_t = std::conditional_t<query_support == LOCATE, pos_t, std::monostate>;
+        using rprtd_t = std::conditional_t<query_support == LOCATE, bool, std::monostate>;
+
+        shift_t shft; // right shift (in the text) of the occurrences
+        dpth_t dpth; // depth (additional length) of this context in the banded alignment matrix
+        rprtd_t rprtd; // true <=> this context has already been reported
         
         sample_info_t s_b, s_e; // sample info for the beginning/end of the SA-interval in T of the currently matched P
         sample_info_t s_b_R, s_e_R; // sample info for the beginning/end of the SA-interval in T^R of the reverse of the currently matched P
 
-        template <direction dir> inline pos_t& beg() {if constexpr (dir == LEFT) {return b;} else {return b_R;}}
-        template <direction dir> inline pos_t& end() {if constexpr (dir == LEFT) {return e;} else {return e_R;}}
-        template <direction dir> inline pos_t& beg_run() {if constexpr (dir == LEFT) {return b_;} else {return b_R_;}}
-        template <direction dir> inline pos_t& end_run() {if constexpr (dir == LEFT) {return e_;} else {return e_R_;}}
-        template <direction dir> inline sample_info_t& smpl_beg() requires(query_support == LOCATE) {if constexpr (dir == LEFT) {return s_b;} else {return s_b_R;}}
-        template <direction dir> inline sample_info_t& smpl_end() requires(query_support == LOCATE) {if constexpr (dir == LEFT) {return s_e;} else {return s_e_R;}}
+        template <direction_t dir, typename this_t>
+        static auto vars_impl(this_t&& t)
+        {
+            if constexpr (dir == LEFT) return std::forward_as_tuple(t.b, t.e, t.b_R, t.e_R, t.b_, t.e_, t.b_R_, t.e_R_, t.s_b, t.s_e, t.s_b_R, t.s_e_R);
+            else                       return std::forward_as_tuple(t.b_R, t.e_R, t.b, t.e, t.b_R_, t.e_R_, t.b_, t.e_, t.s_b_R, t.s_e_R, t.s_b, t.s_e);
+        }
+
+        template <direction_t dir> auto vars() {return vars_impl<dir>(*this);}
+        template <direction_t dir> auto const_vars() const {return vars_impl<dir>(*this);}
 
     public:
         search_context_t() {}
@@ -869,8 +884,9 @@ public:
              */
             inline static pos_t operator()(const search_context_t& ctx)
             {
-                pos_t hash = pos_hash<pos_t>(ctx.b);
-                hash_combine<pos_t>(hash, pos_hash<pos_t>(ctx.e));
+                auto [b, e] = ctx.forward_sa_interval();
+                pos_t hash = pos_hash<pos_t>(b);
+                hash_combine<pos_t>(hash, pos_hash<pos_t>(e));
                 return hash;
             }
         };
@@ -884,11 +900,16 @@ public:
             return sym_lst;
         }
 
+        inline direction_t last_direction() const
+        {
+            return dir_lst;
+        }
+
         /**
          * @brief returns a locate context for this search context
          * @return a locate context for this search context
          */
-        locate_context_t locate_phase() const requires (query_support == LOCATE)
+        locate_context_t locate_phase() const requires(query_support == LOCATE)
         {
             return locate_context_t(*this);
         }
@@ -914,6 +935,8 @@ public:
             e_R_ = idx.idx_bwd.M_LF().num_intervals() - 1;
 
             if constexpr (query_support == LOCATE) {
+                shft = 0;
+                dpth = 0;
                 s_b = { .t = RUN_START, .o = 0, .i = 0, .x = 0 };
                 s_e = { .t = RUN_END, .o = 0, .i = 0, .x = e_ };
                 s_b_R = { .t = RUN_START, .o = 0, .i = 0, .x = 0 };
@@ -929,23 +952,41 @@ public:
         {
             return m;
         }
-        
+
         /**
-         * @brief sets the length of the currently matched P to len (only used for approximate pattern matching)
-         * @param len length of the currently matched P
+         * @brief returns the depth (additional length) of this context in the banded alignment matrix
+         * @return depth
          */
-        inline void set_length(pos_t len)
+        inline pos_t depth() const requires(query_support == LOCATE)
         {
-            this->m = len;
+            return dpth;
         }
 
         /**
-         * @brief returns whether the context is valid (not empty)
-         * @return whether the context is valid (not empty)
+         * @brief sets the depth (additional length) of this context in the banded alignment matrix
+         * @param depth depth
          */
-        inline bool is_valid() const
+        inline void set_depth(pos_t depth) requires(query_support == LOCATE)
         {
-            return e >= b;
+            this->dpth = depth;
+        }
+
+        /**
+         * @brief returns true <=> this context has already been reported
+         * @return whether this context has already been reported
+         */
+        inline bool reported() const requires(query_support == LOCATE)
+        {
+            return rprtd;
+        }
+
+        /**
+         * @brief sets whether this context has already been reported
+         * @param reported whether this context has already been reported
+         */
+        inline void set_reported(bool reported) requires(query_support == LOCATE)
+        {
+            this->rprtd = reported;
         }
         
         /**
@@ -974,13 +1015,27 @@ public:
         {
             this->err = err;
         }
+        
+        /**
+         * @brief sets the number of errors to err (only used for approximate pattern matching)
+         * @param err number of errors
+         */
+        inline void set_shift(pos_t shft) requires(query_support == LOCATE)
+        {
+            this->shft = shft;
+        }
+        
+        inline pos_t shift() const requires(query_support == LOCATE)
+        {
+            return shft;
+        }
 
         /**
          * @brief returns the SA-interval in T/T^R of the currently matched P/P^R
-         * @tparam dir text direction
+         * @tparam dir text direction_t
          * @return suffix array interval in the forward text
          */
-        template <direction dir>
+        template <direction_t dir>
         inline std::tuple<pos_t, pos_t> sa_interval() const
         {
             if constexpr (dir == LEFT) {
@@ -1008,142 +1063,8 @@ public:
             return std::tuple<pos_t, pos_t>{b_R, e_R};
         }
 
-        /**
-         * @brief prepends sym to the currently matched P; if symP occurs in the input, true is
-         * returned and the query context is adjusted to store the information for symP; else,
-         * false is returned and the query context is not modified
-         * @param idx the index to query
-         * @param sym the symbol to prepend to P
-         * @return whether symP occurs in the input
-         */
-        inline bool prepend(const move_rb<support, sym_t, pos_t>& idx, sym_t sym)
-        {
-            return extend<LEFT>(idx, sym);
-        }
-
-        /**
-         * @brief appends sym to the currently matched P; if Psym occurs in the input, true is
-         * returned and the query context is adjusted to store the information for Psym; else,
-         * false is returned and the query context is not modified
-         * @param idx the index to query
-         * @param sym the symbol to append to P
-         * @return whether Psym occurs in the input
-         */
-        inline bool append(const move_rb<support, sym_t, pos_t>& idx, sym_t sym)
-        {
-            return extend<RIGHT>(idx, sym);
-        }
-
-        /**
-         * @brief extends the currently matched P with sym; if the extended P occurs in the input, true is
-         * returned and the query context is adjusted to store the information for the extended P; else,
-         * false is returned and the query context is not modified
-         * @tparam dir extend direction
-         * @param idx the index to query
-         * @param sym the symbol to extend the pattern with
-         * @return whether the extended P occurs in the input
-         */
-        template <direction dir>
-        inline bool extend(const move_rb<support, sym_t, pos_t>& idx, sym_t sym)
-        {
-            i_sym_t i_sym = idx.idx_fwd.map_symbol(sym);
-
-            // If i_sym does not occur in L', then P[i..m] does not occur in T
-            if (i_sym == 0) [[unlikely]] {
-                return false;
-            }
-
-            search_context_t ctx_old = *this;
-            bool result;
-
-            if constexpr (dir == LEFT) {
-                result = extend<LEFT>(
-                    idx, i_sym,
-                    b, e, b_R, e_R,
-                    b_, e_,
-                    s_b, s_e,
-                    s_b_R, s_e_R
-                );
-            } else {
-                result = extend<RIGHT>(
-                    idx, i_sym,
-                    b_R, e_R, b, e,
-                    b_R_, e_R_,
-                    s_b_R, s_e_R,
-                    s_b, s_e
-                );
-            }
-
-            if (result) [[likely]] {
-                m++;
-                dir_lst = dir;
-                sym_lst = sym;
-            } else {
-                *this = ctx_old;
-            }
-
-            return result;
-        }
-
-        /**
-         * @brief prepares the context to be prepended
-         * @param idx the index to query
-         * @param ext_ctx 
-         * @return extend context prepared for prepending the search context with every possible symbol in O(sigma) time
-         */
-        extend_context_t prepare_prepend(const move_rb<support, sym_t, pos_t>& idx) {
-            return prepare_extend<LEFT>(idx);
-        }
-
-        /**
-         * @brief prepares the context to be appended
-         * @param idx the index to query
-         * @param ext_ctx 
-         * @return extend context prepared for appending the search context with every possible symbol in O(sigma) time
-         */
-        extend_context_t prepare_append(const move_rb<support, sym_t, pos_t>& idx) {
-            return prepare_extend<RIGHT>(idx);
-        }
-
-        /**
-         * @brief prepares the context to be extended
-         * @tparam dir extend direction
-         * @param idx the index to query
-         * @param ext_ctx 
-         * @return extend context prepared for extending the search context with every possible symbol in O(sigma) time
-         */
-        template <direction dir>
-        extend_context_t prepare_extend(const move_rb<support, sym_t, pos_t>& idx) {
-            extend_context_t ext_ctx;
-
-            if constexpr (dir == LEFT) {
-                prepare_extend<LEFT>(idx, ext_ctx, b, e, b_, e_, s_b, s_e);
-            } else {
-                prepare_extend<RIGHT>(idx, ext_ctx, b_R, e_R, b_R_, e_R_, s_b_R, s_e_R);
-            }
-
-            return ext_ctx;
-        }
-
-        /**
-         * @brief prepends the context with the next symbol
-         * @param idx the index to query
-         * @param ext_ctx extend context to prepare
-         */
-        search_context_t prepend_next(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx) {
-            return extend_next<LEFT>(idx, ext_ctx);
-        }
-        
-        /**
-         * @brief appends the context with the next symbol
-         * @param idx the index to query
-         * @param ext_ctx extend context to prepare
-         */
-        search_context_t append_next(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx) {
-            return extend_next<RIGHT>(idx, ext_ctx);
-        }
-
     protected:
+        
         /**
          * @brief builds the array prev[0..max_sym] and next[0..max_sym],
          *        where prev[c] = select_c(L', rank_c(L', e_)) and
@@ -1156,11 +1077,11 @@ public:
          * @param b_ index of the input interval in M_LF of T(dir) containing b
          * @param e_ index of the input interval in M_LF of T(dir) containing e
          */
-        template<direction dir>
+        template<direction_t dir>
         inline void build_prev_next(
             const move_rb<support, sym_t, pos_t>& idx,
             std::array<int64_t, 256>& prev, std::array<int64_t, 256>& next,
-            i_sym_t max_sym, pos_t b_, pos_t e_
+            i_sym_t max_sym
         ) const {
             const auto& idx_dir = idx.index<dir>();
             pos_t blk_size = idx_dir.L_block_size();
@@ -1169,7 +1090,7 @@ public:
             std::fill_n(next.begin(), max_sym + 1, std::numeric_limits<int64_t>::max());
             std::fill_n(prev.begin(), max_sym + 1, std::numeric_limits<int64_t>::min());
 
-            // TODO: add optimized algorithm for small [b_, e_] intervals
+            const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s_b, s_e, s_b_R, s_e_R] = const_vars<dir>();
 
             pos_t blk = div_ceil<pos_t>(b_, blk_size);
             int64_t beg = b_;
@@ -1217,14 +1138,11 @@ public:
          * @param s_b SA-sample information at the beginning of the dir-SA-interval
          * @param s_e SA-sample information at the end of the dir-SA-interval
          */
-        template <direction dir>
-        inline void update_input_intervals_and_samples(
-            const move_rb<support, sym_t, pos_t>& idx,
-            const pos_t& b, const pos_t& e,
-            pos_t& b_, pos_t& e_,
-            sample_info_t& s_b, sample_info_t& s_e
-        ) const {
+        template <direction_t dir>
+        inline void update_input_intervals_and_samples(const move_rb<support, sym_t, pos_t>& idx)
+        {
             const auto& idx_dir = idx.index<dir>();
+            auto&& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s_b, s_e, s_b_R, s_e_R] = vars<dir>();
 
             if (dir_lst != NO_DIR && dir != dir_lst) {
                 if (b_ >= idx_dir.M_LF().num_intervals() || !(idx_dir.M_LF().p(b_) <= b && b < idx_dir.M_LF().p(b_ + 1))) {
@@ -1252,109 +1170,215 @@ public:
                 }
             }
         }
+        
+        template <direction_t dir>
+        inline void update_samples_stage_1(const move_rb<support, sym_t, pos_t>& idx, search_context_t& ctx) const
+        {
+            const auto& idx_dir = idx.index<dir>();
+            const auto& [b_old, e_old, b_R_old, e_R_old,
+                         b__old, e__old, b_R__old, e_R__old,
+                         s_b_old, s_e_old, s_b_R_old, s_e_R_old] = const_vars<dir>();
+            auto&& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s_b, s_e, s_b_R, s_e_R] = ctx.vars<dir>();
+
+            if (b_ != b__old) [[likely]] {
+                s_b = { .t = RUN_START, .o = 0, .i = 1, .x = b_ };
+            } else if (s_b_old.t == RUN_START) {
+                s_b = s_b_old;
+                s_b.i++;
+            } else if (s_b_old.t == RUN_END) {
+                pos_t p_1 = b_old + s_b_old.o;
+                pos_t y_1 = idx_dir.M_LF().p(b__old + 1);
+
+                if (p_1 < y_1) {
+                    s_b = s_b_old;
+                    s_b.i++;
+                } else {
+                    s_b = {
+                        .t = RUN_END,
+                        .o = y_1 - b_old - 1,
+                        .i = 1,
+                        .x = b__old
+                    };
+                }
+            } else {
+                s_b.t = NO_SAMPLE;
+            }
+
+            if (e_ != e__old) [[likely]] {
+                s_e = { .t = RUN_END, .o = 0, .i = 1, .x = e_ };
+            } else if (s_e_old.t == RUN_END) {
+                s_e = s_e_old;
+                s_e.i++;
+            } else if (s_e_old.t == RUN_START) {
+                pos_t p_2 = e_old - s_e_old.o;
+                pos_t y_2 = idx_dir.M_LF().p(e__old);
+
+                if (y_2 <= p_2) {
+                    s_e = s_e_old;
+                    s_e.i++;
+                } else {
+                    s_e = {
+                        .t = RUN_START,
+                        .o = e_old - y_2,
+                        .i = 1,
+                        .x = e__old
+                    };
+                }
+            } else {
+                s_e.t = NO_SAMPLE;
+            }
+        }
+
+        using prime_tuple_t = std::tuple<
+            pos_t, // b_prime
+            pos_t, // e_prime
+            pos_t, // b__prime
+            pos_t // e__prime
+        >;
+
+        template <direction_t dir>
+        inline void update_samples_stage_2(const move_rb<support, sym_t, pos_t>& idx, search_context_t& ctx, prime_tuple_t& prime) const
+        {
+            const auto& idx_dir = idx.index<dir>();
+            const auto& [b_old, e_old, b_R_old, e_R_old,
+                         b__old, e__old, b_R__old, e_R__old,
+                         s_b_old, s_e_old, s_b_R_old, s_e_R_old] = const_vars<dir>();
+            auto&& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s_b, s_e, s_b_R, s_e_R] = ctx.vars<dir>();
+            auto& [b_prime, e_prime, b__prime, e__prime] = prime;
+            
+            if (e - b != e_prime - b_prime) [[likely]] {
+                if (b_prime == b_old) {
+                    s_b = {
+                        .t = RUN_END,
+                        .o = idx_dir.M_LF().p(b__prime + 1) - 1 - b_prime,
+                        .i = 1,
+                        .x = b__prime
+                    };
+                }
+
+                if (e_prime == e_old) {
+                    s_e = {
+                        .t = RUN_START,
+                        .o = e_prime - idx_dir.M_LF().p(e__prime),
+                        .i = 1,
+                        .x = e__prime
+                    };
+                }
+            }
+
+            if (e - b != e_old - b_old) [[likely]] {
+                if (s_b_R_old.t) {
+                    pos_t p_1 = b_R_old + s_b_R_old.o;
+
+                    if (!(b_R <= p_1 && p_1 <= e_R)) {
+                        s_b_R.t = NO_SAMPLE;
+                    } else {
+                        s_b_R = s_b_R_old;
+                        s_b_R.o -= b_R - b_R_old;
+                    }
+                } else {
+                    s_b_R.t = NO_SAMPLE;
+                }
+
+                if (s_e_R_old.t) {
+                    pos_t p_2 = e_R_old - s_e_R_old.o;
+
+                    if (!(b_R <= p_2 && p_2 <= e_R)) {
+                        s_e_R.t = NO_SAMPLE;
+                    } else {
+                        s_e_R = s_e_R_old;
+                        s_e_R.o -= e_R_old - e_R;
+                    }
+                } else {
+                    s_e_R.t = NO_SAMPLE;
+                }
+            } else {
+                s_b_R = s_b_R_old;
+                s_e_R = s_e_R_old;
+            }
+
+            assert(s_b.t || s_e.t || s_b_R.t || s_e_R.t);
+        }
+
+    public:
+        using extend_res_t = std::tuple<search_context_t, bool>;
 
         /**
          * @brief extends the currently matched P with sym; if the extended P occurs in the input, true is
-         * returned and the query context is adjusted to store the context for the extended P; else,
-         * false is returned and the query context is not modified; let S be a string, then S(LEFT) = S and S(RIGHT) = S^R
-         * and !LEFT = RIGHT = !!RIGHT
+         * returned and the query context is adjusted to store the information for the extended P; else,
+         * false is returned and the query context is not modified
+         * @param idx the index to query
+         * @param sym the symbol to extend P with
+         * @param dir extend direction
+         * @return whether symP occurs in the input
+         */
+        inline extend_res_t extend(const move_rb<support, sym_t, pos_t>& idx, sym_t sym, direction_t dir)
+        {
+            if (dir == LEFT) {
+                return extend<LEFT>(idx, sym);
+            } else {
+                return extend<RIGHT>(idx, sym);
+            }
+        }
+
+        /**
+         * @brief extends the currently matched P with sym; if the extended P occurs in the input, true is
+         * returned and the query context is adjusted to store the information for the extended P; else,
+         * false is returned and the query context is not modified
          * @tparam dir extend direction
          * @param idx the index to query
-         * @param i_sym next (internal) symbol to match
-         * @param b Left interval limit of the suffix array interval of P(dir) in T(dir)
-         * @param e Right interval limit of the suffix array interval of P(dir) in T(dir)
-         * @param b_r Left interval limit of the suffix array interval of P(!dir) in T(!dir)
-         * @param e_r Right interval limit of the suffix array interval of P(!dir) in T(!dir)
-         * @param b_ index of the input interval in M_LF of T(dir) containing b
-         * @param e_ index of the input interval in M_LF of T(dir) containing e
-         * @param s_b SA-sample information at the beginning of the dir-SA-interval
-         * @param s_e SA-sample information at the end of the dir-SA-interval
-         * @param s_b_R SA-sample information at the beginning of the !dir-SA-interval
-         * @param s_e_R SA-sample information at the end of the !dir-SA-interval
+         * @param sym the symbol to extend the pattern with
          * @return whether the extended P occurs in the input
          */
-        template <direction dir>
-        bool extend(
-            const move_rb<support, sym_t, pos_t>& idx,
-            i_sym_t i_sym,
-            pos_t& b, pos_t& e, pos_t& b_R, pos_t& e_R,
-            pos_t& b_, pos_t& e_,
-            sample_info_t& s_b, sample_info_t& s_e,
-            sample_info_t& s_b_R, sample_info_t& s_e_R
-        ) const {
+        template <direction_t dir>
+        inline extend_res_t extend(const move_rb<support, sym_t, pos_t>& idx, sym_t sym)
+        {
             const auto& idx_dir = idx.index<dir>();
+            i_sym_t i_sym = idx.idx_fwd.map_symbol(sym);
 
-            update_input_intervals_and_samples<dir>(idx, b, e, b_, e_, s_b, s_e);
+            // If i_sym does not occur in L', then P[i..m] does not occur in T
+            if (i_sym == 0) [[unlikely]] {
+                return {search_context_t{}, false};
+            }
+
+            const auto& [b_old, e_old, b_R_old, e_R_old,
+                         b__old, e__old, b_R__old, e_R__old,
+                         s_b_old, s_e_old, s_b_R_old, s_e_R_old] = const_vars<dir>();
+            
+            update_input_intervals_and_samples<dir>(idx);
 
             std::array<int64_t, 256> prev;
             std::array<int64_t, 256> next;
-            build_prev_next<dir>(idx, prev, next, i_sym, b_, e_);
-            
-            pos_t b_old = b;
-            pos_t e_old = e;
-
-            pos_t b__old = b_;
-            pos_t e__old = e_;
-
-            pos_t b_R_old = b_R;
-            pos_t e_R_old = e_R;
+            build_prev_next<dir>(idx, prev, next, i_sym);
 
             if (next[i_sym] > prev[i_sym] || prev[i_sym] >= idx_dir.M_LF().num_intervals()) [[unlikely]] {
-                return false;
+                return {search_context_t{}, false};
             }
+
+            search_context_t ctx;
+            auto&& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s_b, s_e, s_b_R, s_e_R] = ctx.vars<dir>();
 
             b_ = next[i_sym];
             e_ = prev[i_sym];
 
-            if (b_ != b__old) {
+            if (b_ != b__old) [[likely]] {
                 b = idx_dir.M_LF().p(b_);
+            } else {
+                b = b_old;
             }
-
-            if (e_ != e__old) {
+            
+            if (e_ != e__old) [[likely]] {
                 e = idx_dir.M_LF().p(e_ + 1) - 1;
+            } else {
+                e = e_old;
             }
 
             if constexpr (query_support == LOCATE) {
-                if (b_ != b__old) {
-                    s_b = { .t = RUN_START, .o = 0, .i = 1, .x = b_ };
-                } else if (s_b.t == RUN_START) {
-                    s_b.i++;
-                } else if (s_b.t == RUN_END) {
-                    pos_t p_1 = b + s_b.o;
-                    pos_t y_1 = idx_dir.M_LF().p(b_ + 1);
-
-                    if (p_1 < y_1) {
-                        s_b.i++;
-                    } else {
-                        s_b.o = y_1 - b - 1;
-                        s_b.x = b_;
-                        s_b.i = 1;
-                    }
-                }
-
-                if (e_ != e__old) {
-                    s_e = { .t = RUN_END, .o = 0, .i = 1, .x = e_ };
-                } else if (s_e.t == RUN_END) {
-                    s_e.i++;
-                } else if (s_e.t == RUN_START) {
-                    pos_t p_2 = e - s_e.o;
-                    pos_t y_2 = idx_dir.M_LF().p(e_);
-
-                    if (y_2 <= p_2) {
-                        s_e.i++;
-                    } else {
-                        s_e.o = e - y_2;
-                        s_e.x = e_;
-                        s_e.i = 1;
-                    }
-                }
+                update_samples_stage_1<dir>(idx, ctx);
             }
 
-            pos_t b_prime = b;
-            pos_t e_prime = e;
-
-            pos_t b__prime = b_;
-            pos_t e__prime = e_;
+            prime_tuple_t prime{b, e, b_, e_};
+            b_R = b_R_old;
 
             for (i_sym_t i = 0; i < i_sym; i++) {
                 if (next[i] <= prev[i] && prev[i] < idx_dir.M_LF().num_intervals()) {
@@ -1400,52 +1424,36 @@ public:
             e_R = b_R + (e - b);
 
             if constexpr (query_support == LOCATE) {
-                if (e - b != e_prime - b_prime) {
-                    if (b_prime == b_old) {
-                        s_b = {
-                            .t = RUN_END,
-                            .o = idx_dir.M_LF().p(b__prime + 1) - 1 - b_prime,
-                            .i = 1,
-                            .x = b__prime
-                        };
-                    }
-
-                    if (e_prime == e_old) {
-                        s_e = {
-                            .t = RUN_START,
-                            .o = e_prime - idx_dir.M_LF().p(e__prime),
-                            .i = 1,
-                            .x = e__prime
-                        };
-                    }
-                }
-
-                if (e - b != e_old - b_old) {
-                    if (s_b_R.t != NO_SAMPLE) {
-                        pos_t p_1 = b_R_old + s_b_R.o;
-
-                        if (!(b_R <= p_1 && p_1 <= e_R)) {
-                            s_b_R.t = NO_SAMPLE;
-                        } else {
-                            s_b_R.o -= b_R - b_R_old;
-                        }
-                    }
-
-                    if (s_e_R.t != NO_SAMPLE) {
-                        pos_t p_2 = e_R_old - s_e_R.o;
-
-                        if (!(b_R <= p_2 && p_2 <= e_R)) {
-                            s_e_R.t = NO_SAMPLE;
-                        } else {
-                            s_e_R.o -= e_R_old - e_R;
-                        }
-                    }
-                }
-
-                assert(s_b.t || s_e.t || s_b_R.t || s_e_R.t);
+                update_samples_stage_2<dir>(idx, ctx, prime);
+                ctx.shft = shft;
+                ctx.dpth = dpth + 1;
             }
 
-            return true;
+            ctx.dir_lst = dir;
+            ctx.sym_lst = sym;
+            ctx.m = m + 1;
+            ctx.err = 0;
+
+            return {ctx, true};
+        }
+
+        /**
+         * @brief prepares the context to be extended
+         * @param idx the index to query
+         * @param dir extend direction
+         * @return extend context prepared for extending the search context with every possible symbol in O(sigma) time
+         */
+        extend_context_t prepare_extend_all(const move_rb<support, sym_t, pos_t>& idx, direction_t dir)
+        {
+            extend_context_t ext_ctx;
+
+            if (dir == LEFT) {
+                prepare_extend_all<LEFT>(idx, ext_ctx);
+            } else {
+                prepare_extend_all<RIGHT>(idx, ext_ctx);
+            }
+
+            return ext_ctx;
         }
 
         /**
@@ -1460,207 +1468,115 @@ public:
          * @param s_b SA-sample information at the beginning of the dir-SA-interval
          * @param s_e SA-sample information at the end of the dir-SA-interval
          */
-        template <direction dir>
-        void prepare_extend(
-            const move_rb<support, sym_t, pos_t>& idx,
-            extend_context_t& ext_ctx,
-            const pos_t b, const pos_t e, pos_t& b_, pos_t& e_,
-            sample_info_t& s_b, sample_info_t& s_e
-        ) {
-            static constexpr direction rev_dir = flip<dir>();
+        template <direction_t dir>
+        void prepare_extend_all(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx)
+        {
+            const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s_b, s_e, s_b_R, s_e_R] = const_vars<dir>();
+            auto& prev = ext_ctx.prev;
+            auto& next = ext_ctx.next;
 
-            update_input_intervals_and_samples<dir>(idx, b, e, b_, e_, s_b, s_e);
-            build_prev_next<dir>(idx, ext_ctx.prev, ext_ctx.next, idx.sigma, b_, e_);
-
-            ext_ctx.b_R_nxt = beg<rev_dir>() + (ext_ctx.next[0] <= ext_ctx.prev[0] &&
-                                                ext_ctx.prev[0] != idx.index<dir>().M_LF().num_intervals());
+            update_input_intervals_and_samples<dir>(idx);
+            build_prev_next<dir>(idx, prev, next, idx.sigma);
             
             ext_ctx.sym_nxt = 0;
+            ext_ctx.b_R_nxt = b_R + (next[0] <= prev[0] && prev[0] != idx.index<dir>().M_LF().num_intervals());
             ext_ctx.template next_symbol<dir>(idx);
         }
+        
+        /**
+         * @brief extends the context with the next symbol
+         * @param idx the index to query
+         * @param ext_ctx extend context to prepare
+         * @param dir extend direction
+         */
+        search_context_t extend_next(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx, direction_t dir)
+        {
+            if (dir == LEFT) {
+                return extend_next<LEFT>(idx, ext_ctx);
+            } else {
+                return extend_next<RIGHT>(idx, ext_ctx);
+            }
+        }
 
-    public:
         /**
          * @brief extends the context with the next symbol
          * @tparam dir extend direction
          * @param idx the index to query
          * @param ext_ctx extend context to prepare
          */
-        template <direction dir>
-        search_context_t extend_next(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx) {
+        template <direction_t dir>
+        search_context_t extend_next(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx) const
+        {
             const auto& idx_dir = idx.index<dir>();
-            static constexpr direction rev_dir = flip<dir>();
+            i_sym_t i_sym = ext_ctx.sym_nxt;
+            search_context_t ctx;
 
-            pos_t b_old, e_old;
+            const auto& [b_old, e_old, b_R_old, e_R_old,
+                         b__old, e__old, b_R__old, e_R__old,
+                         s_b_old, s_e_old, s_b_R_old, s_e_R_old] = const_vars<dir>();
 
-            if constexpr (dir == LEFT) {
-                b_old = b;
-                e_old = e;
+            auto&& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s_b, s_e, s_b_R, s_e_R] = ctx.vars<dir>();
+
+            b_ = ext_ctx.next[i_sym];
+            e_ = ext_ctx.prev[i_sym];
+
+            if (b_ != b__old) [[likely]] {
+                b = idx_dir.M_LF().p(b_);
             } else {
-                b_old = b_R;
-                e_old = e_R;
-            }
-
-            search_context_t ctx(idx.unmap_symbol(ext_ctx.sym_nxt));
-            ctx.set_errors(0);
-
-            ctx.beg_run<dir>() = ext_ctx.next[ext_ctx.sym_nxt];
-            ctx.end_run<dir>() = ext_ctx.prev[ext_ctx.sym_nxt];
-
-            if (idx_dir.L_(beg_run<dir>()) == ext_ctx.sym_nxt) [[unlikely]] {
-                ctx.beg<dir>() = beg<dir>();
-                
-                if constexpr (query_support == LOCATE) {
-                    if (smpl_beg<dir>().t == RUN_START) {
-                        ctx.smpl_beg<dir>() = smpl_beg<dir>();
-                        ctx.smpl_beg<dir>().i++;
-                    } else if (smpl_beg<dir>().t == RUN_END) {
-                        pos_t p_1 = beg<dir>() + smpl_beg<dir>().o;
-                        pos_t y_1 = idx_dir.M_LF().p(beg_run<dir>() + 1);
-
-                        if (p_1 < y_1) {
-                            ctx.smpl_beg<dir>() = smpl_beg<dir>();
-                            ctx.smpl_beg<dir>().i++;
-                        } else {
-                            ctx.smpl_beg<dir>() = {
-                                .t = RUN_END,
-                                .o = y_1 - beg<dir>() - 1,
-                                .i = 1,
-                                .x = beg_run<dir>()
-                            };
-                        }
-                    } else {
-                        ctx.smpl_beg<dir>().t = NO_SAMPLE;
-                    }
-                }
-            } else {
-                ctx.beg<dir>() = idx_dir.M_LF().p(ctx.beg_run<dir>());
-                if constexpr (query_support == LOCATE) ctx.smpl_beg<dir>() = { .t = RUN_START, .o = 0, .i = 1, .x = ctx.beg_run<dir>() };
-            }
-
-            if (idx_dir.L_(end_run<dir>()) == ext_ctx.sym_nxt) [[unlikely]] {
-                ctx.end<dir>() = end<dir>();
-                
-                if constexpr (query_support == LOCATE) {
-                    if (smpl_end<dir>().t == RUN_END) {
-                        ctx.smpl_end<dir>() = smpl_end<dir>();
-                        ctx.smpl_end<dir>().i++;
-                    } else if (smpl_end<dir>().t == RUN_START) {
-                        pos_t p_2 = end<dir>() - smpl_end<dir>().o;
-                        pos_t y_2 = idx_dir.M_LF().p(end_run<dir>());
-
-                        if (y_2 <= p_2) {
-                            ctx.smpl_end<dir>() = smpl_end<dir>();
-                            ctx.smpl_end<dir>().i++;
-                        } else {
-                            ctx.smpl_end<dir>() = {
-                                .t = RUN_START,
-                                .o = end<dir>() - y_2,
-                                .i = 1,
-                                .x = end_run<dir>()
-                            };
-                        }
-                    } else {
-                        ctx.smpl_end<dir>().t = NO_SAMPLE;
-                    }
-                }
-            } else {
-                ctx.end<dir>() = idx_dir.M_LF().p(ctx.end_run<dir>() + 1) - 1;
-                if constexpr (query_support == LOCATE) ctx.smpl_end<dir>() = { .t = RUN_END, .o = 0, .i = 1, .x = ctx.end_run<dir>() };
+                b = b_old;
             }
             
-            pos_t b_prime = ctx.beg<dir>();
-            pos_t e_prime = ctx.end<dir>();
-            
-            pos_t b__prime = ctx.beg_run<dir>();
-            pos_t e__prime = ctx.end_run<dir>();
-
-            if (ctx.beg_run<dir>() == ctx.end_run<dir>()) {
-                if (ctx.beg<dir>() == ctx.end<dir>()) {
-                    idx_dir.M_LF().move(ctx.beg<dir>(), ctx.beg_run<dir>());
-                    ctx.end<dir>() = ctx.beg<dir>();
-                    ctx.end_run<dir>() = ctx.beg_run<dir>();
-                } else {
-                    pos_t diff_eb = ctx.end<dir>() - ctx.beg<dir>();
-                    idx_dir.M_LF().move(ctx.beg<dir>(), ctx.beg_run<dir>());
-                    ctx.end<dir>() = ctx.beg<dir>() + diff_eb;
-                    ctx.end_run<dir>() = ctx.beg_run<dir>();
-
-                    while (ctx.end<dir>() >= idx_dir.M_LF().p(ctx.end_run<dir>() + 1)) {
-                        ctx.end_run<dir>()++;
-                    }
-                }
+            if (e_ != e__old) [[likely]] {
+                e = idx_dir.M_LF().p(e_ + 1) - 1;
             } else {
-                idx_dir.M_LF().move(ctx.beg<dir>(), ctx.beg_run<dir>());
-                idx_dir.M_LF().move(ctx.end<dir>(), ctx.end_run<dir>());
+                e = e_old;
             }
-
-            ctx.beg<rev_dir>() = ext_ctx.b_R_nxt;
-            ctx.end<rev_dir>() = ext_ctx.b_R_nxt + (ctx.end<dir>() - ctx.beg<dir>());
 
             if constexpr (query_support == LOCATE) {
-                if (ctx.end<dir>() - ctx.beg<dir>() != e_prime - b_prime) [[likely]] {
-                    if (b_prime == b_old) {
-                        ctx.smpl_beg<dir>() = {
-                            .t = RUN_END,
-                            .o = idx_dir.M_LF().p(b__prime + 1) - 1 - b_prime,
-                            .i = 1,
-                            .x = b__prime
-                        };
-                    }
+                update_samples_stage_1<dir>(idx, ctx);
+            }
 
-                    if (e_prime == e_old) {
-                        ctx.smpl_end<dir>() = {
-                            .t = RUN_START,
-                            .o = e_prime - idx_dir.M_LF().p(e__prime),
-                            .i = 1,
-                            .x = e__prime
-                        };
-                    }
-                }
+            prime_tuple_t prime{b, e, b_, e_};
 
-                if (ctx.end<dir>() - ctx.beg<dir>() != e_old - b_old) [[likely]] {
-                    if (smpl_beg<rev_dir>().t != NO_SAMPLE) {
-                        pos_t p_1 = beg<rev_dir>() + smpl_beg<rev_dir>().o;
-
-                        if (!(ctx.beg<rev_dir>() <= p_1 && p_1 <= ctx.end<rev_dir>())) {
-                            ctx.smpl_beg<rev_dir>().t = NO_SAMPLE;
-                        } else {
-                            ctx.smpl_beg<rev_dir>() = smpl_beg<rev_dir>();
-                            ctx.smpl_beg<rev_dir>().o -= ctx.beg<rev_dir>() - beg<rev_dir>();
-                        }
-                    } else {
-                        ctx.smpl_beg<rev_dir>().t = NO_SAMPLE;
-                    }
-
-                    if (smpl_end<rev_dir>().t != NO_SAMPLE) {
-                        pos_t p_2 = end<rev_dir>() - smpl_end<rev_dir>().o;
-
-                        if (!(ctx.beg<rev_dir>() <= p_2 && p_2 <= ctx.end<rev_dir>())) {
-                            ctx.smpl_end<rev_dir>().t = NO_SAMPLE;
-                        } else {
-                            ctx.smpl_end<rev_dir>() = smpl_end<rev_dir>();
-                            ctx.smpl_end<rev_dir>().o -= end<rev_dir>() - ctx.end<rev_dir>();
-                        }
-                    } else {
-                        ctx.smpl_end<rev_dir>().t = NO_SAMPLE;
-                    }
+            if (b_ == e_) {
+                if (b == e) {
+                    idx_dir.M_LF().move(b, b_);
+                    e = b;
+                    e_ = b_;
                 } else {
-                    ctx.smpl_beg<rev_dir>() = smpl_beg<rev_dir>();
-                    ctx.smpl_end<rev_dir>() = smpl_end<rev_dir>();
-                }
+                    pos_t diff_eb = e - b;
+                    idx_dir.M_LF().move(b, b_);
+                    e = b + diff_eb;
+                    e_ = b_;
 
-                assert(ctx.s_b.t   != NO_SAMPLE || ctx.s_e.t   != NO_SAMPLE ||
-                       ctx.s_b_R.t != NO_SAMPLE || ctx.s_e_R.t != NO_SAMPLE);
+                    while (e >= idx_dir.M_LF().p(e_ + 1)) {
+                        e_++;
+                    }
+                }
+            } else {
+                idx_dir.M_LF().move(b, b_);
+                idx_dir.M_LF().move(e, e_);
+            }
+
+            b_R = ext_ctx.b_R_nxt;
+            e_R = ext_ctx.b_R_nxt + (e - b);
+
+            b_R_ = b_R__old;
+            e_R_ = e_R__old;
+
+            if constexpr (query_support == LOCATE) {
+                update_samples_stage_2<dir>(idx, ctx, prime);
+                ctx.shft = shft;
+                ctx.dpth = dpth + 1;
             }
             
-            ext_ctx.b_R_nxt = ctx.end<rev_dir>() + 1;
+            ctx.sym_lst = idx.unmap_symbol(i_sym);
             ctx.dir_lst = dir;
             ctx.m = m + 1;
-            ext_ctx.template next_symbol<dir>(idx);
+            ctx.err = 0;
 
-            ctx.beg_run<rev_dir>() = 0;
-            ctx.end_run<rev_dir>() = 0;
+            ext_ctx.b_R_nxt = e_R + 1;
+            ext_ctx.template next_symbol<dir>(idx);
 
             return ctx;
         }
@@ -1671,7 +1587,7 @@ public:
      */
     struct locate_context_t {
         protected:
-        direction dir; // current locate direction
+        direction_t dir; // current locate direction_t
         pos_t occ_rem; // number of remaining occurrences to locate
         pos_t c; // initial position in the suffix array
         pos_t SA_c; // initial suffix SA[c] in the suffix array interval
@@ -1679,14 +1595,14 @@ public:
         pos_t SA_i; // current suffix SA[i] in the suffix array interval
         
         // index of the input inteval of M_Phi/M_Phi^{-1} containing SA_i
-        std::conditional_t<support == _locate_move, pos_t, empty_t> s_; 
+        std::conditional_t<support == _locate_move, pos_t, std::monostate> s_; 
 
         struct rlzsa_ctx_t {
             pos_t x_p, x_lp, x_cp, x_r, s_p; // variables for decoding the rlzsa
         };
 
-        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, empty_t> rlz_l; // rlzsa context for decoding to the left
-        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, empty_t> rlz_r; // rlzsa context for decoding to the right
+        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, std::monostate> rlz_l; // rlzsa context for decoding to the left
+        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, std::monostate> rlz_r; // rlzsa context for decoding to the right
 
     public:
         /**
@@ -1702,7 +1618,6 @@ public:
         {
             occ_rem = ctx.num_occ();
             dir = NO_DIR;
-            c = std::numeric_limits<pos_t>::max();
         }
 
         /**
@@ -1716,11 +1631,11 @@ public:
 
         inline pos_t compute_center(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx)
         {
-            if (ctx.s_b.t != NO_SAMPLE) {
+            if (ctx.s_b.t) {
                 c = ctx.b + ctx.s_b.o;
-            } else if (ctx.s_e.t != NO_SAMPLE) {
+            } else if (ctx.s_e.t) {
                 c = ctx.e - ctx.s_e.o;
-            } else if (ctx.s_b_R.t != NO_SAMPLE) {
+            } else if (ctx.s_b_R.t) {
                 if (ctx.s_b_R.t == RUN_START) {
                     c = idx._SA_sR_m1[ctx.s_b_R.x];
                 } else {
@@ -1733,7 +1648,7 @@ public:
                 for (pos_t j = 0; j < ctx.m - ctx.s_b_R.i; j++) {
                     idx.idx_fwd.M_LF().move(c, c_);
                 }
-            } else /* if (ctx.s_e_R.t != NO_SAMPLE) */ {
+            } else /* if (ctx.s_e_R.t) */ {
                 if (ctx.s_e_R.t == RUN_START) {
                     c = idx._SA_sR_m1[ctx.s_e_R.x];
                 } else {
@@ -1762,23 +1677,23 @@ public:
          */
         inline pos_t first_occ(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx)
         {
-            if (c == std::numeric_limits<pos_t>::max()) {
+            if (dir == NO_DIR) {
                 compute_center(idx, ctx);
             }
 
             i = c;
 
-            if (ctx.s_b.t != NO_SAMPLE) {
+            if (ctx.s_b.t) {
                 SA_i = (ctx.s_b.t == RUN_START ? idx.idx_fwd.SA_s(ctx.s_b.x) : idx.idx_fwd.SA_s_(ctx.s_b.x)) - ctx.s_b.i;
-            } else if (ctx.s_e.t != NO_SAMPLE) {
+            } else if (ctx.s_e.t) {
                 SA_i = (ctx.s_e.t == RUN_START ? idx.idx_fwd.SA_s(ctx.s_e.x) : idx.idx_fwd.SA_s_(ctx.s_e.x)) - ctx.s_e.i;
-            } else if (ctx.s_b_R.t != NO_SAMPLE) {
+            } else if (ctx.s_b_R.t) {
                 if (ctx.s_b_R.t == RUN_START) {
                     SA_i = idx.n - idx.idx_bwd.SA_s(ctx.s_b_R.x) - (ctx.m - ctx.s_b_R.i + 1);
                 } else {
                     SA_i = idx.n - idx.idx_bwd.SA_s_(ctx.s_b_R.x) - (ctx.m - ctx.s_b_R.i + 1);
                 }
-            } else /* if (ctx.s_e_R.t != NO_SAMPLE) */ {
+            } else /* if (ctx.s_e_R.t) */ {
                 if (ctx.s_e_R.t == RUN_START) {
                     SA_i = idx.n - idx.idx_bwd.SA_s(ctx.s_e_R.x) - (ctx.m - ctx.s_e_R.i + 1);
                 } else {
@@ -1871,7 +1786,7 @@ public:
             }
 
             occ_rem--;
-            return occ;
+            return occ + ctx.shft;
         }
 
         /**
@@ -1885,7 +1800,7 @@ public:
 
             if (occ_rem == ctx.num_occ()) {
                 first_occ(idx, ctx);
-                if constexpr (report_pos) report(c, SA_c); else report(SA_c);
+                if constexpr (report_pos) report(c, SA_c + ctx.shft); else report(SA_c + ctx.shft);
             }
 
             if constexpr (support == _locate_move) {
@@ -1893,7 +1808,7 @@ public:
                     while (i > ctx.b) {
                         idx.idx_fwd.M_Phi().move(SA_i, s_);
                         i--;
-                        if constexpr (report_pos) report(i, SA_i); else report(SA_i);
+                        if constexpr (report_pos) report(i, SA_i + ctx.shft); else report(SA_i + ctx.shft);
                     }
 
                     if (c < ctx.e) {
@@ -1908,10 +1823,12 @@ public:
                     while (i < ctx.e) {
                         idx.idx_fwd.M_Phi_m1().move(SA_i, s_);
                         i++;
-                        if constexpr (report_pos) report(i, SA_i); else report(SA_i);
+                        if constexpr (report_pos) report(i, SA_i + ctx.shft); else report(SA_i + ctx.shft);
                     }
                 }
             } else if constexpr (support == _locate_rlzsa) {
+                SA_i += ctx.shft;
+
                 if (dir == LEFT) {
                     idx.idx_fwd.report_rlzsa_left(i, ctx.b, SA_i,
                         rlz_l.x_p, rlz_l.x_lp, rlz_l.x_cp, rlz_l.x_r, rlz_l.s_p,
@@ -1920,7 +1837,7 @@ public:
                     if (c < ctx.e) [[likely]] {
                         i = c + 1;
                         dir = RIGHT;
-                        SA_i = SA_c;
+                        SA_i = SA_c + ctx.shft;
                     }
                 }
 
@@ -1982,10 +1899,10 @@ public:
         protected:
         /**
          * @brief advances sym_nxt to the next symbol the pattern can be extended with (or sigma, if it cannot be extended further)
-         * @tparam dir direction the context should be extended with
+         * @tparam dir direction_t the context should be extended with
          * @param idx the index to query
          */
-        template <direction dir>
+        template <direction_t dir>
         void next_symbol(const move_rb<support, sym_t, pos_t>& idx) {
             do {
                 sym_nxt++;
@@ -2000,7 +1917,7 @@ public:
      * @return search_context_t
      */
     template <move_rb_query_support_t query_support>
-    inline search_context_t<query_support> search() const
+    inline search_context_t<query_support> empty_context() const
     {
         return search_context_t<query_support>(*this);
     }
@@ -2046,7 +1963,6 @@ public:
     {
         pos_t m = P.size();
         pos_t k = scheme.k;
-        std::vector<pos_t> Occ;
 
         if (k == 0) {
             forward_index().locate(P, [&](pos_t occ){report({occ, m, 0});});
@@ -2081,10 +1997,9 @@ public:
     search_context_set_t<query_support> search_hamming_dist(const inp_t& P, const search_scheme_t& scheme) const
     {
         pos_t m = P.size();
-        if (m == 0) return {search<query_support>()};
-        pos_t k = scheme.k;
         pos_t p = scheme.p;
-        assert(p <= m);
+        if (m == 0) return {empty_context<query_support>()};
+        if (p >= m) throw std::runtime_error("p >= m");
 
         using search_state_t = std::tuple<
             search_context_t<query_support>, // ctx
@@ -2093,11 +2008,12 @@ public:
 
         using match_pos_t = std::tuple<
             pos_t, // p_idx
-            direction, // dir
+            direction_t, // dir
             pos_t, // part
             pos_t, // beg
             pos_t, // end
-            pos_t // pos
+            pos_t, // pos
+            pos_t // ext_rem
         >;
 
         using states_arr_t = std::vector<search_state_t>;
@@ -2105,12 +2021,30 @@ public:
         search_context_set_t<query_support> ctxts_set;
         states_arr_t states_cur;
         states_arr_t states_nxt;
-        auto empty_ctx = search<query_support>();
+        auto empty_ctx = empty_context<query_support>();
         pos_t part_len = m / p;
+
+        auto add_ctx = [&](search_context_t<query_support>& ctx){
+            if constexpr (query_support == LOCATE) {
+                auto it = ctxts_set.find(ctx);
+
+                if (it != ctxts_set.end()) {
+                    const auto& ctx_old = *it;
+
+                    if (!(ctx_old.s_b.t || ctx_old.s_e.t) && (ctx.s_b.t || ctx.s_e.t)) {
+                        it = ctxts_set.erase(it);
+                    }
+                }
+                
+                ctxts_set.emplace_hint(it, ctx);
+            } else {
+                ctxts_set.emplace(ctx);
+            }
+        };
 
         for (const search_t& S : scheme.S) {
             match_pos_t match_pos_cur;
-            auto& [p_idx, dir, part, beg, end, pos] = match_pos_cur;
+            auto& [p_idx, dir, part, beg, end, pos, ext_rem] = match_pos_cur;
 
             p_idx = 0;
             part = S[p_idx].part;
@@ -2118,11 +2052,11 @@ public:
             end = (part + 1) == p ? m : ((part + 1) * part_len);
             dir = S[p_idx + 1].part < part ? LEFT : RIGHT;
             pos = dir == LEFT ? end - 1 : beg;
+            ext_rem = dir == LEFT ? pos - beg : (end - pos - 1);
             states_cur.emplace_back(search_state_t{empty_ctx, 0});
 
-            match_pos_t match_pos_nxt {p_idx, dir, part, beg, end, pos};
-            auto& [p_idx_nxt, dir_nxt, part_nxt, beg_nxt, end_nxt, pos_nxt] = match_pos_nxt;
-            pos_t ext_rem;
+            match_pos_t match_pos_nxt {p_idx, dir, part, beg, end, pos, ext_rem};
+            auto& [p_idx_nxt, dir_nxt, part_nxt, beg_nxt, end_nxt, pos_nxt, ext_rem_nxt] = match_pos_nxt;
 
             while (true) {
                 pos_nxt = pos + (dir == LEFT ? -1 : 1);
@@ -2137,80 +2071,49 @@ public:
                         end_nxt = (part_nxt + 1) == p ? m : ((part_nxt + 1) * part_len);
                         pos_nxt = dir_nxt == LEFT ? end_nxt - 1 : beg_nxt;
                         ext_rem = end_nxt - beg_nxt;
-                    } else {
-                        ext_rem = std::numeric_limits<pos_t>::max();
                     }
-                } else {
-                    ext_rem = dir == LEFT ? pos - beg : (end - pos - 1);
                 }
-
+                
                 while (!states_cur.empty()) {
-                    auto [ctx, k_cur] = states_cur.back();
-                    states_cur.pop_back();
+                    auto [ctx, k_cur] = states_cur.back(); states_cur.pop_back();
                     
                     if (k_cur < S[p_idx].k_max && (p_idx_nxt == p || S[p_idx_nxt].k_min <= k_cur + 1 + ext_rem)) {
-                        auto ext_ctx = dir == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
+                        auto ext_ctx = ctx.prepare_extend_all(*this, dir);
 
                         while (ext_ctx.can_extend(*this)) {
-                            auto ctx_nxt = dir == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
+                            auto ctx_nxt = ctx.extend_next(*this, ext_ctx, dir);
                             bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
                             pos_t k_nxt = k_cur + is_mismatch;
 
                             if (p_idx_nxt == p) {
                                 ctx_nxt.set_errors(k_nxt);
-                                ctxts_set.emplace(ctx_nxt);
-                            } else if (is_mismatch || p_idx_nxt == p || S[p_idx_nxt].k_min <= k_nxt + ext_rem) {
+                                add_ctx(ctx_nxt);
+                            } else if (is_mismatch || S[p_idx_nxt].k_min <= k_nxt + ext_rem) {
                                 states_nxt.emplace_back(search_state_t{ctx_nxt, k_nxt});
                             }
                         }
-                    } else if (dir == LEFT ? ctx.prepend(*this, P[pos]) : ctx.append(*this, P[pos])) {
-                        if (p_idx_nxt == p) {
-                            ctx.set_errors(k_cur);
-                            ctxts_set.emplace(ctx);
-                        } else {
-                            states_nxt.emplace_back(search_state_t{ctx, k_cur});
+                    } else {
+                        auto [ctx_nxt, result] = ctx.extend(*this, P[pos], dir);
+
+                        if (result) {
+                            if (p_idx_nxt == p) {
+                                ctx_nxt.set_errors(k_cur);
+                                add_ctx(ctx_nxt);
+                            } else {
+                                states_nxt.emplace_back(search_state_t{ctx_nxt, k_cur});
+                            }
                         }
                     }
                 }
 
                 if (p_idx == p) [[unlikely]] break;
+                ext_rem_nxt = ext_rem - 1;
                 match_pos_cur = match_pos_nxt;
-                std::swap(states_cur, states_nxt);
+                states_cur.swap(states_nxt);
             }
         }
 
         return ctxts_set;
-    }
-
-    /**
-     * @brief counts a pattern with at most k mismatches (w.r.t. edit distance)
-     * @param P the pattern to search
-     * @param scheme the search scheme to use (provides k)
-     * @return number of occurrences of P in T with at most k mismatches (w.r.t. edit distance)
-     */
-    pos_t count_edit_dist(const inp_t& P, const search_scheme_t& scheme) const
-    {
-        pos_t m = P.size();
-        pos_t k = scheme.k;
-
-        if (k >= m) return n - 1;
-        if (k == 0) return forward_index().count(P);
-
-        auto ctxts_set = search_edit_dist<COUNT>(P, scheme);
-        auto ctxts_sorted = sort_contexts(ctxts_set);
-        pos_t count = 0;
-        iterate_fundamental_intervals<COUNT>(ctxts_sorted, [&](const auto& ctx){count += ctx.num_occ();});
-        return count;
-    }
-
-    template <move_rb_query_support_t query_support>
-    static std::vector<const search_context_t<query_support>*> sort_contexts(const search_context_set_t<query_support>& ctxts_set)
-    {
-        std::vector<const search_context_t<query_support>*> ctxts_sorted;
-        ctxts_sorted.reserve(ctxts_set.size());
-        for (const auto& ctx : ctxts_set) ctxts_sorted.emplace_back(&ctx);
-        ips4o::sort(ctxts_sorted.begin(), ctxts_sorted.end(), [](auto x, auto y){return *x < *y;});
-        return std::move(ctxts_sorted);
     }
 
     struct interval_t {pos_t beg; pos_t end; pos_t err; pos_t len;};
@@ -2243,11 +2146,10 @@ public:
         for (const auto* ctx : ctxts_sorted) {
             auto [beg, end] = ctx->forward_sa_interval();
             pos_t err = ctx->errors();
-            pos_t len = ctx->length();
+            pos_t len = ctx->depth();
 
             while (!iv_stack.empty() && iv_stack.back().end < beg) {
-                interval_t iv = iv_stack.back();
-                iv_stack.pop_back();
+                interval_t iv = iv_stack.back(); iv_stack.pop_back();
                 append_segment(iv);
 
                 if (!iv_stack.empty()) {
@@ -2271,8 +2173,7 @@ public:
         }
 
         while (!iv_stack.empty()) {
-            interval_t iv = iv_stack.back();
-            iv_stack.pop_back();
+            interval_t iv = iv_stack.back(); iv_stack.pop_back();
             append_segment(iv);
 
             if (!iv_stack.empty()) {
@@ -2281,17 +2182,6 @@ public:
         }
 
         return std::move(ivs);
-    }
-
-    template <move_rb_query_support_t query_support, typename fnc_t>
-    static void iterate_fundamental_intervals(const std::vector<const search_context_t<query_support>*>& ctxts_sorted, fnc_t fnc)
-    {
-        for (auto it = ctxts_sorted.begin(); it != ctxts_sorted.end();) {
-            const auto& ctx = **it;
-            auto [beg, end] = ctx.forward_sa_interval();
-            fnc(ctx);
-            do {it++;} while (it != ctxts_sorted.end() && std::get<0>((*it)->forward_sa_interval()) <= end);
-        }
     }
 
     /**
@@ -2303,7 +2193,7 @@ public:
      *               is an occurrence of P in T with at most k mismatches (w.r.t. edit distance)
      */
     template <typename report_fnc_t>
-    void locate_edit_dist(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const
+    void locate_edit_dist(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const requires(supports_locate)
     {
         pos_t k = scheme.k;
         pos_t m = P.size();
@@ -2313,12 +2203,17 @@ public:
             return;
         }
 
-        auto ctxts_set = search_edit_dist<LOCATE>(P, scheme);
-        auto ctxts_sorted = sort_contexts(ctxts_set);
+        auto ctxts_set = search_edit_dist_entry(P, scheme);
+        std::vector<const search_context_t<LOCATE>*> ctxts_sorted;
+        ctxts_sorted.reserve(ctxts_set.size());
+        for (const auto& ctx : ctxts_set) ctxts_sorted.emplace_back(&ctx);
+        ips4o::sort(ctxts_sorted.begin(), ctxts_sorted.end(), [](auto x, auto y){return *x < *y;});
         auto ivs = effective_intervals(ctxts_sorted);
         pos_t iv_idx = 0;
 
-        iterate_fundamental_intervals<LOCATE>(ctxts_sorted, [&](const auto& ctx){
+        for (auto it = ctxts_sorted.begin(); it != ctxts_sorted.end();) {
+            const auto& ctx = **it;
+            auto [beg, end] = ctx.forward_sa_interval();
             auto loc_ctx = ctx.locate_phase();
             pos_t cntr = loc_ctx.compute_center(*this, ctx);
             pos_t iv_idx_cntr = exp_search_max_leq<pos_t, RIGHT>(cntr, iv_idx, ivs.size() - 1, [&](pos_t x) {return ivs[x].beg;});
@@ -2336,7 +2231,8 @@ public:
             });
 
             iv_idx = std::max<pos_t>(iv_idx, iv_idx_cntr);
-        });
+            do {it++;} while (it != ctxts_sorted.end() && std::get<0>((*it)->forward_sa_interval()) <= end);
+        }
     }
 
     /**
@@ -2352,258 +2248,437 @@ public:
         return Occ;
     }
 
+    class cluster_t
+    {
+      private:
+        std::vector<uint16_t> dists;
+        std::vector<search_context_t<LOCATE>> nodes;
+
+        pos_t last_cell;
+        uint16_t k_max;
+        pos_t start_depth;
+        pos_t shift;
+
+      public:
+        cluster_t(pos_t size, pos_t k_max, pos_t start_depth, pos_t shift)
+            : dists(size, k_max + 1), nodes(size), last_cell(-1), k_max(k_max),
+            start_depth(start_depth), shift(shift) {}
+
+        void set_cell(pos_t idx, search_context_t<LOCATE> node, uint16_t dist)
+        {
+            nodes[idx] = std::move(node);
+            dists[idx] = dist;
+            last_cell = idx;
+        }
+
+        pos_t size() const
+        {
+            return dists.size();
+        }
+
+        std::vector<search_context_t<LOCATE>> report_centers_at_end()
+        {
+            std::vector<search_context_t<LOCATE>> centers;
+            centers.reserve(last_cell + 1);
+
+            for (pos_t i = 0; i <= last_cell; i++) {
+                if (!nodes[i].reported() &&
+                    dists[i] <= k_max &&
+                    (i == 0 || dists[i] <= dists[i - 1]) &&
+                    (i == last_cell || dists[i] <= dists[i + 1])
+                ) {
+                    nodes[i].set_reported(true);
+                    search_context_t<LOCATE> ctx = nodes[i];
+                    ctx.set_errors(dists[i]);
+                    ctx.set_depth(ctx.depth() + start_depth);
+                    ctx.set_shift(shift);
+                    centers.emplace_back(ctx);
+                }
+            }
+
+            return centers;
+        }
+
+        std::tuple<search_context_t<LOCATE>, bool> deepest_minimum(direction_t dir)
+        {
+            uint16_t k_min = k_max + 1;
+            pos_t max_best = -1;
+            pos_t min_best = -1;
+
+            for (pos_t i = 0; i <= last_cell; i++) {
+                if (dists[i] < k_min) {
+                    k_min = dists[i];
+                    max_best = i;
+                    min_best = i;
+                }
+                
+                if (dists[i] == k_min) {
+                    min_best = i;
+                }
+            }
+
+            search_context_t<LOCATE> ctx;
+
+            if (k_min <= k_max && !nodes[min_best].reported()) {
+                nodes[min_best].set_reported(true);
+                ctx = nodes[min_best];
+                ctx.set_errors(k_min);
+                ctx.set_depth(ctx.depth() + start_depth - (min_best - max_best));
+                ctx.set_shift(((dir == LEFT) ? (min_best - max_best) : 0) + shift);
+                return {ctx, true};
+            }
+            
+            return {ctx, false};
+        }
+
+        std::tuple<search_context_t<LOCATE>, bool> cluster_center(uint16_t k_min, std::vector<search_context_t<LOCATE>>& desc, std::vector<uint16_t>& init_dists)
+        {
+            desc.reserve(dists.size());
+            dists.reserve(dists.size());
+            search_context_t<LOCATE> ctx;
+            
+            for (pos_t i = 0; i <= last_cell; i++) {
+                if (dists[i] > k_max || dists[i] < k_min) continue;
+
+                if (((i == 0) || dists[i] <= dists[i - 1]) &&
+                    ((i == last_cell) || dists[i] <= dists[i + 1])
+                ) {
+                    if (!nodes[i].reported()) {
+                        ctx = nodes[i];
+                        ctx.set_errors(dists[i]);
+                        ctx.set_depth(ctx.depth() + start_depth);
+                        ctx.set_shift(shift);
+                    }
+                    
+                    init_dists.emplace_back(dists[i]);
+
+                    for (pos_t j = i + 1; j <= last_cell; j++) {
+                        desc.emplace_back(nodes[j]);
+                        init_dists.emplace_back(dists[j]);
+                    }
+
+                    for (pos_t k = 1; k < init_dists.size(); k++) {
+                        if (init_dists[k] < k_min && init_dists[k] <= init_dists[k - 1] &&
+                           (k == init_dists.size() - 1 || init_dists[k] <= init_dists[k + 1])
+                        ) {
+                            pos_t high = 0;
+                            pos_t low = init_dists.size() - 1;
+
+                            for (pos_t l = k; l-- > 0;) {
+                                if (init_dists[l] != init_dists[l + 1] + 1) {
+                                    high = l + 1;
+                                    break;
+                                }
+                            }
+                            
+                            for (pos_t l = k + 1; l < init_dists.size(); l++) {
+                                if (init_dists[l] != init_dists[l - 1] + 1) {
+                                    low = l - 1;
+                                    break;
+                                }
+                            }
+
+                            if (high != 0 && low != init_dists.size() - 1) {
+                                pos_t lC = low;
+                                pos_t hC = high;
+                                bool highest = true;
+
+                                while (lC > hC) {
+                                    if (highest) {
+                                        init_dists[hC] = std::min(k_max + 1, init_dists[hC - 1] + 1);
+                                        hC++;
+                                    } else {
+                                        init_dists[lC] = std::min(k_max + 1, init_dists[lC + 1] + 1);
+                                        lC--;
+                                    }
+
+                                    highest = !highest;
+                                }
+
+                                if (lC == hC) {
+                                    init_dists[lC] = std::min(init_dists[lC + 1] + 1, init_dists[lC - 1] + 1);
+                                }
+                            } else if (high == 0 && low != init_dists.size() - 1) {
+                                for (pos_t l = low; l-- > 0;) {
+                                    init_dists[l] = init_dists[l + 1] + 1;
+                                }
+                            } else if (high != 0 && low == init_dists.size() - 1) {
+                                for (pos_t l = high; l < init_dists.size(); l++) {
+                                    init_dists[l] = init_dists[l - 1] + 1;
+                                }
+                            }
+                        }
+                    }
+
+                    return {ctx, true};
+                }
+            }
+
+            return {ctx, false};
+        }
+    };
+
+    template <typename matrix_word_t>
+    using data_struct_ref_t = std::tuple<
+        const edit_dist_search&,
+        const std::vector<sub_string<pos_t>>&,
+        std::vector<std::vector<search_context_t<LOCATE>>>&,
+        std::vector<edit_distance_matrix<matrix_word_t>>&,
+        std::vector<edit_distance_matrix<matrix_word_t>>&,
+        search_context_set_t<LOCATE>&
+    >;
+
     /**
      * @brief executes a given search scheme for a pattern (w.r.t. edit distance)
      * @param scheme the search scheme to use
      * @return all search contexts of P in T with at most k mismatches (assuming the schearch scheme covers all error configurations)
      */
-    template <move_rb_query_support_t query_support>
-    search_context_set_t<query_support> search_edit_dist(const inp_t& P, const search_scheme_t& scheme) const
+    search_context_set_t<LOCATE> search_edit_dist_entry(const inp_t& P, const search_scheme_t& scheme) const requires(supports_locate)
+    {
+        static constexpr uint16_t k_limit_64 = edit_distance_matrix<uint64_t>::k_limit; // 10
+        static constexpr uint16_t k_limit_128 = edit_distance_matrix<uint128_t>::k_limit; // 20
+
+        if (scheme.k <= k_limit_64) {
+            return search_edit_dist<uint64_t>(P, scheme);
+        } else if (scheme.k <= k_limit_128) {
+            return search_edit_dist<uint128_t>(P, scheme);
+        } else {
+            throw std::runtime_error("cannot search patterns with more than " + std::to_string(k_limit_128) + " errors.");
+        }
+    }
+
+    /**
+     * @brief executes a given search scheme for a pattern (w.r.t. edit distance)
+     * @param scheme the search scheme to use
+     * @return all search contexts of P in T with at most k mismatches (assuming the schearch scheme covers all error configurations)
+     */
+    template <typename matrix_word_t>
+    search_context_set_t<LOCATE> search_edit_dist(const inp_t& P, const search_scheme_t& scheme) const requires(supports_locate)
     {
         pos_t m = P.size();
-        if (m == 0) return {search<query_support>()};
-        pos_t k = scheme.k;
         pos_t p = scheme.p;
-        assert(p <= m);
+        if (m == 0) return {empty_context<LOCATE>()};
+        if (p >= m) throw std::runtime_error("p >= m");
 
-        using search_state_t = std::tuple<
-            search_context_t<query_support>, // ctx
-            pos_t, // k_cur
-            pos_t // k_tot
-        >;
+        search_context_set_t<LOCATE> ctxts_set;
+        std::vector<edit_dist_search> searches;
+        std::vector<sub_string<pos_t>> parts;
+        searches.reserve(scheme.S.size());
+        parts.reserve(p);
 
-        using node_t = std::tuple<
-            pos_t, // b
-            pos_t, // e
-            pos_t, // k_cur
-            pos_t // st_idx
-        >;
-
-        using match_pos_t = std::tuple<
-            pos_t, // p_idx
-            direction, // dir
-            pos_t, // part
-            pos_t, // beg
-            pos_t, // end
-            pos_t // pos
-        >;
-
-        struct node_hash_t {
-            inline static pos_t operator()(const node_t& node)
-            {
-                const auto& [b, e, k_cur, st_idx] = node;
-                pos_t hash = pos_hash<pos_t>(b);
-                hash_combine<pos_t>(hash, pos_hash<pos_t>(e));
-                return hash;
-            }
-        };
-
-        struct node_eq_t {
-            inline static bool operator()(const node_t& node_1, const node_t& node_2)
-            {
-                const auto& [b_1, e_1, k_cur_1, st_idx_1] = node_1;
-                const auto& [b_2, e_2, k_cur_2, st_idx_2] = node_2;
-                return b_1 == b_2 && e_1 == e_2;
-            }
-        };
+        double part_len = (double) m / p;
         
-        using nodes_set_t = gtl::flat_hash_set<node_t, node_hash_t, node_eq_t>;
-        using nodes_set_arr_t = std::vector<nodes_set_t>;
-        using states_arr_t = std::vector<std::vector<search_state_t>>;
+        for (pos_t p_idx = 0; p_idx < p; p_idx++) {
+            pos_t part = scheme.S[0][p_idx].part;
+            pos_t beg = part * part_len;
+            pos_t end = (p_idx == p - 1 ? m : (part + 1) * part_len) - 1;
+            parts.emplace_back(sub_string<pos_t>(P, beg, end));
+        }
+        
+        for (pos_t s_idx = 0; s_idx < scheme.S.size(); s_idx++) {
+            searches.emplace_back(edit_dist_search(scheme, s_idx));
+        }
 
-        search_context_set_t<query_support> ctxts_set;
-        states_arr_t states_cur, states_nxt;
-        nodes_set_arr_t nodes_cur, nodes_nxt;
+        std::vector<std::vector<search_context_t<LOCATE>>> stacks;
+        stacks.resize(p);
+        
+        std::vector<edit_distance_matrix<matrix_word_t>> matrices_fwd, matrices_bwd;
+        matrices_fwd.resize(p);
+        matrices_bwd.resize(p);
 
-        auto state_to_node = [](const search_state_t& state){
-            const auto& [ctx, k_cur, k_tot] = state;
-            auto [b, e] = ctx.forward_sa_interval();
-            return node_t{b, e, k_cur, 0};
-        };
+        for (const edit_dist_search& search : searches) {
+            data_struct_ref_t<matrix_word_t> ds_ref(search, parts, stacks, matrices_fwd, matrices_bwd, ctxts_set);
 
-        auto add_state = [&](search_state_t&& state_new, states_arr_t& states, nodes_set_arr_t& nodes){
-            node_t node_new = state_to_node(state_new);
-            auto& [b_new, e_new, k_cur_new, st_idx_new] = node_new;
-            auto& [ctx_new, k_cur_new_st, k_tot_new] = state_new;
-            pos_t len_new = ctx_new.length();
-            auto it_node_old = nodes[len_new].find(node_new);
-
-            if (it_node_old == nodes[len_new].end()) {
-                st_idx_new = states[len_new].size();
-                nodes[len_new].emplace_hint(it_node_old, node_new);
-                states[len_new].emplace_back(std::move(state_new));
-            } else {
-                const auto& [b_old, e_old, k_cur_old, st_idx_old] = *it_node_old;
-
-                if (k_cur_new < k_cur_old) {
-                    auto& state_old = states[len_new][st_idx_old];
-                    auto& [ctx_old, k_cur_old_st, k_tot_old] = state_old;
-                    k_cur_old_st = k_cur_new_st;
-                    k_tot_old = k_tot_new;
-                    st_idx_new = st_idx_old;
-                    it_node_old = nodes[len_new].erase(it_node_old);
-                    nodes[len_new].emplace_hint(it_node_old, node_new);
-                }
+            for (pos_t p_idx = 0; p_idx < p; p_idx++) {
+                parts[search.part(p_idx)].set_direction(search.part_dir(p_idx));
             }
-        };
+            
+            auto ctx = empty_context<LOCATE>();
+            pos_t p_idx = 0;
 
-        auto empty_ctx = search<query_support>();
-        pos_t part_len = m / p;
-        pos_t len_bound = m + k + 1;
-        states_cur.resize(len_bound);
-        states_nxt.resize(len_bound);
-        nodes_cur.resize(len_bound);
-        nodes_nxt.resize(len_bound);
+            if (search.upper_bound(0) == 0) {
+                bool match = true;
 
-        for (const search_t& S : scheme.S) {
-            match_pos_t match_pos_lst;
-            auto& [p_idx_lst, dir_lst, part_lst, beg_lst, end_lst, pos_lst] = match_pos_lst;
+                for (; match && p_idx < parts.size(); p_idx++) {
+                    if (search.upper_bound(p_idx) > 0) break;
+                    const auto& part = parts[search.part(p_idx)];
 
-            match_pos_t match_pos_cur;
-            auto& [p_idx, dir, part, beg, end, pos] = match_pos_cur;
-
-            p_idx = 0;
-            part = S[p_idx].part;
-            beg = part * part_len;
-            end = (part + 1) == p ? m : ((part + 1) * part_len);
-            dir = S[p_idx + 1].part < part ? LEFT : RIGHT;
-            pos = dir == LEFT ? end - 1 : beg;
-            states_cur[0].emplace_back(search_state_t{empty_ctx, 0, m});
-
-            match_pos_t match_pos_nxt {p_idx, dir, part, beg, end, pos};
-            auto& [p_idx_nxt, dir_nxt, part_nxt, beg_nxt, end_nxt, pos_nxt] = match_pos_nxt;
-
-            bool dir_switch;
-            pos_t matches_left = m;
-
-            while (true) {
-                dir_switch = 1 < p_idx && dir != dir_lst;
-                pos_nxt = pos + (dir == LEFT ? -1 : 1);
-
-                if (!(beg <= pos_nxt && pos_nxt < end)) [[unlikely]] {
-                    p_idx_nxt = p_idx + 1;
-
-                    if (p_idx_nxt < p) [[likely]] {
-                        part_nxt = S[p_idx_nxt].part;
-                        dir_nxt = part_nxt < part ? LEFT : RIGHT;
-                        beg_nxt = part_nxt * part_len;
-                        end_nxt = (part_nxt + 1) == p ? m : ((part_nxt + 1) * part_len);
-                        pos_nxt = dir_nxt == LEFT ? end_nxt - 1 : beg_nxt;
+                    for (pos_t i = 0; match && i < part.size(); i++) {
+                        auto [ctx_nxt, match_nxt] = ctx.extend(*this, part[i], part.direction());
+                        if (match_nxt) ctx = ctx_nxt;
+                        match = match_nxt;
                     }
                 }
 
-                int32_t matches = m - matches_left;
-                pos_t len_min = std::max<int32_t>(matches - int32_t{k}, 0);
-                pos_t len_max = std::min<int32_t>(matches + int32_t{k}, m + k);
-
-                for (pos_t len_idx = len_min; len_idx <= len_max; len_idx++) {
-                    auto& states_cur_len = states_cur[len_idx];
-
-                    while (!states_cur_len.empty()) {
-                        auto [ctx, k_cur, k_tot] = states_cur_len.back();
-                        states_cur_len.pop_back();
-
-                        if (k_tot <= k) {
-                            ctx.set_errors(k_tot);
-                            auto it = ctxts_set.find(ctx);
-
-                            if (it == ctxts_set.end()) {
-                                ctxts_set.emplace_hint(it, ctx);
-                            } else {
-                                pos_t k_tot_old = it->errors();
-                                pos_t len_old = it->length();
-                                pos_t len = ctx.length();
-
-                                if (k_tot < k_tot_old || (k_tot == k_tot_old && len < len_old)) {
-                                    it = ctxts_set.erase(it);
-                                    ctxts_set.emplace_hint(it, ctx);
-                                }
-                            }
-                        }
-
-                        // if the whole pattern has been (mis-)matched and we cannot add errors, then we cannot extend this context
-                        if (k_cur == k && p_idx == p) continue;
-
-                        // if the total number of errors cannot be reduced to k (or lower) using all the remaining matches, we cannot add errors
-                        bool can_add_error = k_tot + 1 <= k + matches_left;
-
-                        // in case of a direction switch, insert each possible symbol on the side of the pattern facing the direction from before the switch;
-                        // or, after (mis-)matching the whole pattern, insert each possible symbol on the side facing the last extension
-                        if (can_add_error && (p_idx == p || (dir_switch && k_cur < S[p_idx_lst].k_max))) {
-                            auto ext_ctx = dir_lst == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
-                            
-                            // extend the pattern with every possible symbol
-                            while (ext_ctx.can_extend(*this)) {
-                                auto ctx_nxt = dir_lst == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
-
-                                // insertion
-                                add_state(search_state_t{ctx_nxt, k_cur + 1, k_tot + 1}, states_cur, nodes_cur);
-                            }
-                        }
-
-                        // if the whole pattern has been (mis-)matched, insertion has been handled above and (mis-)match and deletion are not applicable
-                        if (p_idx == p) continue;
-
-                        // in case of a direction switch, make sure we enter the new part with at least the minimum number of errors
-                        if (dir_switch && k_cur < S[p_idx].k_min) continue;
-                        
-                        if (can_add_error && k_cur < S[p_idx].k_max) {
-                            // we can still add an error in this part
-                            auto ext_ctx = dir == LEFT ? ctx.prepare_prepend(*this) : ctx.prepare_append(*this);
-                            
-                            // extend the pattern with every possible symbol
-                            while (ext_ctx.can_extend(*this)) {
-                                auto ctx_nxt = dir == LEFT ? ctx.prepend_next(*this, ext_ctx) : ctx.append_next(*this, ext_ctx);
-                                bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
-                                pos_t k_nxt = k_cur + is_mismatch;
-                                pos_t k_tot_nxt = k_tot - !is_mismatch;
-
-                                // match / mismatch
-                                add_state(search_state_t{ctx_nxt, k_nxt, k_tot_nxt}, states_nxt, nodes_nxt);
-
-                                // insertion
-                                add_state(search_state_t{ctx_nxt, k_cur + 1, k_tot + 1}, states_cur, nodes_cur);
-                            }
-
-                            // deletion
-                            add_state(search_state_t{ctx, k_cur + 1, k_tot}, states_nxt, nodes_nxt);
-                        } else if (dir == LEFT ? ctx.prepend(*this, P[pos]) : ctx.append(*this, P[pos])) {
-                            // match
-                            add_state(search_state_t{ctx, k_cur, k_tot - 1}, states_nxt, nodes_nxt);
-                        }
-                    }
-
-                    states_cur_len.shrink_to_fit();
-                    nodes_cur[len_idx] = nodes_set_t{};
-                }
-
-                if (p_idx == p) break;
-
-                match_pos_lst = match_pos_cur;
-                match_pos_cur = match_pos_nxt;
-                matches_left--;
-
-                std::swap(nodes_cur, nodes_nxt);
-                std::swap(states_cur, states_nxt);
-
-                nodes_nxt.clear();
+                if (!match) continue;
             }
+
+            rec_edit_dist_search<matrix_word_t>(ctx, p_idx, ds_ref, {}, {}, {}, {});
         }
 
         return ctxts_set;
     }
 
-    /**
-     * @brief counts a pattern with at most k mismatches (w.r.t. edit distance)
-     * @param P the pattern to search
-     * @param scheme the search scheme to use (provides k)
-     * @return number of occurrences of P in T with at most k mismatches (w.r.t. edit distance)
-     */
-    template <distance_metric_t dist_metr>
-    pos_t count(const inp_t& P, const search_scheme_t& scheme) const
-    {
-        if constexpr (dist_metr == HAMMING_DISTANCE) return count_hamming_dist(P, scheme);
-        if constexpr (dist_metr == EDIT_DISTANCE) return count_edit_dist(P, scheme);
+    template <typename matrix_word_t>
+    void rec_edit_dist_search(
+        search_context_t<LOCATE>& ctx, pos_t p_idx,
+        data_struct_ref_t<matrix_word_t>& ds_ref,
+        const std::vector<search_context_t<LOCATE>>& desc_prev_dir,
+        const std::vector<search_context_t<LOCATE>>& desc_diff_dir,
+        const std::vector<uint16_t>& dists_prev_dir,
+        const std::vector<uint16_t>& dists_diff_dir
+    ) const requires(supports_locate) {
+        auto& [search, parts, stacks, matrices_fwd, matrices_bwd, ctxts_set] = ds_ref;
+
+        const auto& part = parts[search.part(p_idx)];
+        pos_t k_max = search.upper_bound(p_idx);
+        direction_t dir = search.part_dir(p_idx);
+        bool dir_switch = search.does_part_switch_dir(p_idx);
+        auto& stack = stacks[p_idx];
+        auto& matrix = dir == RIGHT ? matrices_fwd[search.part(p_idx)] : matrices_bwd[search.part(p_idx)];
+
+        const auto& dists_dir = dir_switch ? dists_diff_dir : dists_prev_dir;
+        const auto& desc_dir = dir_switch ? desc_diff_dir : desc_prev_dir;
+        const auto& dists_rev_dir = dir_switch ? dists_prev_dir : dists_diff_dir;
+        const auto& desc_rev_dir = dir_switch ? desc_prev_dir : desc_diff_dir;
+
+        std::vector<uint16_t> dists_new;
+
+        if (dists_dir.empty()) {
+            dists_new.emplace_back(ctx.errors());
+        } else {
+            uint16_t prev_dist = dir_switch ? *min_element(dists_dir.begin(), dists_dir.end()) : dists_dir[0];
+            uint16_t add = ctx.errors() - prev_dist;
+            dists_new.reserve(dists_dir.size());
+
+            for (pos_t i = 0; i < dists_dir.size(); i++) {
+                dists_new.emplace_back(dists_dir[i] + add);
+            }
+        }
+
+        if (!matrix.is_initialized()) matrix.set_input(part, sigma, idx_fwd._map_int);
+        matrix.init(k_max, dists_new);
+        cluster_t cluster(matrix.last_col_size(), k_max, ctx.depth(), ctx.shift());
+
+        if (matrix.is_in_final_column(0)) {
+            auto ctx_copy = ctx;
+            ctx_copy.set_depth(0);
+            cluster.set_cell(0, ctx_copy, matrix(0, part.size()));
+        }
+
+        pos_t old_depth = 0;
+
+        if (!desc_dir.empty()) {
+            for (pos_t i = 0; i < desc_dir.size() && desc_dir[i].depth() < matrix.num_rows(); i++) {
+                if (branch_and_bound<matrix_word_t>(matrix, cluster, desc_dir[i], p_idx, ds_ref,
+                    dists_rev_dir, desc_rev_dir, {desc_dir.begin() + i + 1, desc_dir.end()})
+                ) return;
+            }
+
+            if (desc_dir.back().depth() == matrix.num_rows() - 1) return;
+            if (!dir_switch) ctx = desc_dir.back();
+            old_depth = desc_dir.back().depth();
+        }
+
+        auto ext_ctx = ctx.prepare_extend_all(*this, dir);
+
+        while (ext_ctx.can_extend(*this)) {
+            stack.emplace_back(ctx.extend_next(*this, ext_ctx, dir));
+            stack.back().set_depth(old_depth + 1);
+        }
+
+        while (!stack.empty()) {
+            auto ctx_cur = stack.back(); stack.pop_back();
+            if (branch_and_bound<matrix_word_t>(matrix, cluster, ctx_cur, p_idx, ds_ref, dists_rev_dir, desc_rev_dir, {})) continue;
+            auto ext_ctx_cur = ctx_cur.prepare_extend_all(*this, dir);
+
+            while (ext_ctx_cur.can_extend(*this)) {
+                stack.emplace_back(ctx_cur.extend_next(*this, ext_ctx_cur, dir));
+            }
+        }
+    }
+    
+    template <typename matrix_word_t>
+    bool branch_and_bound(
+        edit_distance_matrix<matrix_word_t>& matrix, cluster_t& cluster,
+        const search_context_t<LOCATE>& ctx, pos_t p_idx,
+        data_struct_ref_t<matrix_word_t>& ds_ref,
+        const std::vector<uint16_t>& dists_rev_dir,
+        const std::vector<search_context_t<LOCATE>>& desc_rev_dir,
+        const std::vector<search_context_t<LOCATE>>& desc_dir_rem
+    ) const requires(supports_locate) {
+        auto& [search, parts, stacks, matrices_fwd, matrices_bwd, ctxts_set] = ds_ref;
+
+        pos_t row = ctx.depth();
+        bool valid_dist = matrix.compute_row(row, ctx.last_added_symbol());
+
+        if (matrix.is_in_final_column(row)) {
+            pos_t cluster_idx = cluster.size() + row - matrix.num_rows();
+            cluster.set_cell(cluster_idx, ctx, matrix(row, matrix.num_cols() - 1));
+
+            if (!valid_dist || matrix.only_vertical_gaps_left(row)) {
+                const auto& k_min = search.lower_bound(p_idx);
+
+                if (search.is_edge(p_idx)) {
+                    if (p_idx + 1 == parts.size()) {
+                        auto centers = cluster.report_centers_at_end();
+
+                        for (auto& ctx_cur : centers) {
+                            if (ctx_cur.errors() >= k_min) {
+                                auto it = ctxts_set.find(ctx_cur);
+
+                                if (it != ctxts_set.end()) {
+                                    const auto& ctx_old = *it;
+
+                                    if (ctx_cur.errors() < ctx_old.errors() ||
+                                        (ctx_cur.errors() == ctx_old.errors() && ctx_cur.depth() > ctx_old.depth()) ||
+                                        (ctx_cur.errors() == ctx_old.errors() && ctx_cur.depth() == ctx_old.depth() && !(ctx_old.s_b.t || ctx_old.s_e.t) && (ctx_cur.s_b.t || ctx_cur.s_e.t))
+                                    ) {
+                                        it = ctxts_set.erase(it);
+                                        ctxts_set.emplace_hint(it, ctx_cur);
+                                    }
+                                } else {
+                                    ctxts_set.emplace(ctx_cur);
+                                }
+                            }
+                        }
+                    } else {
+                        auto [ctx_min, res] = cluster.deepest_minimum(search.part_dir(p_idx));
+
+                        if (res && ctx_min.errors() >= k_min)
+                            rec_edit_dist_search<matrix_word_t>(ctx_min, p_idx + 1, ds_ref, {}, desc_rev_dir, {}, dists_rev_dir);
+                    }
+
+                    return true;
+                }
+
+                std::vector<search_context_t<LOCATE>> desc_dir;
+                std::vector<uint16_t> dists_dir;
+                auto [ctx_cntr, res] = cluster.cluster_center(k_min, desc_dir, dists_dir);
+                if (!res) return true;
+
+                desc_dir.insert(desc_dir.end(), desc_dir_rem.begin(), desc_dir_rem.end());
+
+                for (pos_t i = 0; i < desc_dir.size(); i++) {
+                    desc_dir[i].set_depth(i + 1);
+                }
+
+                pos_t k_max = search.upper_bound(p_idx + 1);
+                while (dists_dir.back() > k_max) dists_dir.pop_back();
+
+                if (search.does_part_switch_dir(p_idx + 1) && !desc_dir.empty()) {
+                    pos_t depth_cntr = ctx_cntr.depth();
+                    ctx_cntr = desc_dir.back();
+                    ctx_cntr.set_depth(depth_cntr);
+                    ctx_cntr.set_errors(*std::min_element(dists_dir.begin(), dists_dir.end()));
+                }
+
+                rec_edit_dist_search<matrix_word_t>(ctx_cntr, p_idx + 1, ds_ref, desc_dir, desc_rev_dir, dists_dir, dists_rev_dir);
+                return true;
+            }
+        }
+
+        return !valid_dist;
     }
 
     /**
@@ -2615,7 +2690,7 @@ public:
      *               is an occurrence of P in T with at most k mismatches (w.r.t. dist_metr)
      */
     template <distance_metric_t dist_metr, typename report_fnc_t>
-    void locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const
+    void locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const requires(supports_locate)
     {
         if constexpr (dist_metr == HAMMING_DISTANCE) locate_hamming_dist(P, scheme, report);
         if constexpr (dist_metr == EDIT_DISTANCE) locate_edit_dist(P, scheme, report);
@@ -2628,7 +2703,7 @@ public:
      * @return occurrences of P in T with at most k mismatches (w.r.t. dist_metr)
      */
     template <distance_metric_t dist_metr>
-    std::vector<aprx_occ_t<pos_t>> locate(const inp_t& P, const search_scheme_t& scheme) const
+    std::vector<aprx_occ_t<pos_t>> locate(const inp_t& P, const search_scheme_t& scheme) const requires(supports_locate)
     {
         std::vector<aprx_occ_t<pos_t>> Occ;
         locate<dist_metr>(P, scheme, [&](aprx_occ_t<pos_t> occ){Occ.emplace_back(occ);});
