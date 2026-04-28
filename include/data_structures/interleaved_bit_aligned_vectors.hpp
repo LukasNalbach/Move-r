@@ -58,7 +58,6 @@ protected:
     uint64_t size_vectors = 0; // size of each stored vector
     uint64_t capacity_vectors = 0; // capacity of each stored vector
     uint64_t width_entry = 0; // sum of the widths (in bits) of all vectors
-    uint64_t bits_per_block = sizeof(wide_t) * 8;
 
     // [0 .. byte_size(capacity_vectors)] vector of bytes storing the interleaved vectors
     std::vector<char> data_vectors;
@@ -86,11 +85,12 @@ protected:
         data_vectors.shrink_to_fit();
 
         for (uint8_t vec_idx = 0; vec_idx < num_vectors; vec_idx++) {
-            offsets[vec_idx] = width_entry;
-
             if (widths[vec_idx] == 0) {
                 this->widths[vec_idx] = 0;
+                offsets[vec_idx] = 0;
+                masks[vec_idx] = 0;
             } else {
+                offsets[vec_idx] = width_entry;
                 this->widths[vec_idx] = widths[vec_idx];
                 width_entry += widths[vec_idx];
                 masks[vec_idx] = (wide_t{1} << widths[vec_idx]) - 1;
@@ -165,14 +165,14 @@ public:
         return widths[vec_idx];
     }
 
-    inline wide_t read_block(uint64_t blk_idx) const
+    inline wide_t read_block(uint64_t byte_idx) const
     {
-        return reinterpret_cast<const wide_t*>(data_vectors.data())[blk_idx];
+        return *reinterpret_cast<const wide_t*>(&data_vectors[byte_idx]);
     }
 
-    inline wide_t& block(uint64_t blk_idx)
+    inline wide_t& block(uint64_t byte_idx)
     {
-        return reinterpret_cast<wide_t*>(data_vectors.data())[blk_idx];
+        return *reinterpret_cast<wide_t*>(&data_vectors[byte_idx]);
     }
 
     /**
@@ -281,7 +281,7 @@ public:
     }
 
     using block_info_t = std::tuple<
-        uint64_t, // block_idx
+        uint64_t, // byte_idx
         uint64_t // bit_offs
     >;
 
@@ -298,9 +298,9 @@ public:
     {
         static_assert(vec_idx < num_vectors);
         uint64_t bit_pos = i * width_entry + offsets[vec_idx];
-        uint64_t block_idx = bit_pos / bits_per_block;
-        uint64_t bit_offs = bit_pos % bits_per_block;
-        return {block_idx, bit_offs};
+        uint64_t byte_idx = bit_pos / 8;
+        uint64_t bit_offs = bit_pos % 8;
+        return {byte_idx, bit_offs};
     }
 
     public:
@@ -313,8 +313,8 @@ public:
     template <uint8_t vec_idx>
     inline void set(uint64_t i, val_t v)
     {
-        auto [block_idx, bit_offs] = block_info<vec_idx>(i);
-        block(block_idx) = (read_block(block_idx) & ~(masks[vec_idx] << bit_offs)) | (wide_t{v} << bit_offs);
+        auto [byte_idx, bit_offs] = block_info<vec_idx>(i);
+        block(byte_idx) = (read_block(byte_idx) & ~(masks[vec_idx] << bit_offs)) | (wide_t{v} << bit_offs);
     }
 
     /**
@@ -326,8 +326,8 @@ public:
     template <uint8_t vec_idx>
     inline val_t get(uint64_t i) const
     {
-        auto [block_idx, bit_offs] = block_info<vec_idx>(i);
-        return (read_block(block_idx) >> bit_offs) & masks[vec_idx];
+        auto [byte_idx, bit_offs] = block_info<vec_idx>(i);
+        return (read_block(byte_idx) >> bit_offs) & masks[vec_idx];
     }
 
     /**
