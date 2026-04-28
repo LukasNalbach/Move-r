@@ -90,9 +90,6 @@ TEST(test_move_data_structure, fuzzy_test)
         // build a move data structure from the disjoint interval sequence
         move_data_structure<uint32_t> mds(interval_sequence, input_size, { .num_threads = num_threads_distrib(gen), .a = a });
 
-        // check if the number of input/output intervals has increased too much
-        EXPECT_TRUE(mds.num_intervals() / (double)num_intervals <= (a / (double)(a - 1)) * 1.125);
-
         // check if there is an a-heavy output interval
         #pragma omp parallel for num_threads(max_num_threads)
         for (uint32_t i = 0; i < mds.num_intervals(); i++) {

@@ -360,9 +360,18 @@ public:
     inline void set_parallel(pos_t i, T v)
     {
         static_assert(vec_idx < num_vectors);
+        char* dst = bases[vec_idx] + i * width_entry;
 
-        for (uint64_t byte = 0; byte < widths[vec_idx]; byte++) {
-            *reinterpret_cast<char*>(bases[vec_idx] + i * width_entry + byte) = *(reinterpret_cast<char*>(&v) + byte);
+        switch (widths[vec_idx]) {
+            case 1: {std::memcpy(dst, &v, 1); break;}
+            case 2: {std::memcpy(dst, &v, 2); break;}
+            case 3: {std::memcpy(dst, &v, 3); break;}
+            case 4: {std::memcpy(dst, &v, 4); break;}
+            case 5: {std::memcpy(dst, &v, 5); break;}
+            case 6: {std::memcpy(dst, &v, 6); break;}
+            case 7: {std::memcpy(dst, &v, 7); break;}
+            case 8: {std::memcpy(dst, &v, 8); break;}
+            default: __builtin_unreachable();
         }
     }
 

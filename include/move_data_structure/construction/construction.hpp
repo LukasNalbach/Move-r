@@ -170,19 +170,11 @@ public:
         }
 
         omp_set_num_threads(p);
-
-        /* set omega_offs <- min {omega in {8,16,24,32,40} | n/(k2^omega) <= epsilon}, which ensures
-         * k' <= k*(1+epsilon)*a/(a-1) */
-        for (uint8_t omega = 8; omega <= 40; omega += 8) {
-            if (n / ((pow(2, omega) - 1) * (double)k) <= epsilon) {
-                mds.omega_offs = omega;
-                break;
-            }
-        }
+        mds.omega_offs = 8 * byte_width(uint64_t{ (8.0 * n) / k});
 
         /* in order to store D_offs with at most omega_offs bits, we have to limit the interval length
          * to l_max = 2^omega_offs */
-        l_max = pow(2, mds.omega_offs) - 1;
+        l_max = (pos_t{1} << mds.omega_offs) - 1;
 
         // choose the correct construction method
         if constexpr (v == 1) {
