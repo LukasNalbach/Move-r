@@ -2106,7 +2106,7 @@ public:
                     }
                 }
 
-                if (p_idx == p) [[unlikely]] break;
+                if (states_nxt.empty() || p_idx == p) [[unlikely]] break;
                 ext_rem_nxt = ext_rem - 1;
                 match_pos_cur = match_pos_nxt;
                 states_cur.swap(states_nxt);
