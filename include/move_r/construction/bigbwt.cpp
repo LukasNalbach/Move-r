@@ -47,7 +47,7 @@ void move_r<support, sym_t, pos_t>::construction::bigbwt(bool delete_T)
 
     bool build_sa = is_bidirectional || has_rlzsa || has_lzendsa || p > 1;
 
-    system(("bigbwt " +
+    system(("taskset -c 0-$(($(nproc)-1)) bigbwt " +
         (std::string)(supports_locate ? (build_sa ? "-S " : "-s -e ") : "") +
         (std::string)(p > 1 ? ("-t " + std::to_string(p) + " ") : "") +
         prefix_tmp_files + (std::string)(log ? "" : " >log_1 >log_2")).c_str());
@@ -63,7 +63,7 @@ void move_r<support, sym_t, pos_t>::construction::bigbwt(bool delete_T)
     std::filesystem::remove(prefix_tmp_files + ".log");
     if (delete_T) std::filesystem::remove(prefix_tmp_files);
 
-    if (log) {
+    if (!log) {
         std::filesystem::remove("log_1");
         std::filesystem::remove("log_2");
     }

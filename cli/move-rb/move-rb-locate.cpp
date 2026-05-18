@@ -35,9 +35,7 @@ std::string scheme_str;
 distance_metric_t dist_metr = NO_METRIC;
 search_scheme_t search_scheme;
 bool output_occurrences = false;
-bool filter_occurrences = false;
 bool check_correctness = false;
-std::string input;
 std::ofstream mf;
 std::string path_index_file;
 std::string path_patterns_file;
@@ -59,11 +57,10 @@ void help(std::string msg)
     std::cout << "   -i <input_file>            input_file must be the file the index was built for" << std::endl;
     std::cout << "                              (required for the -c option)" << std::endl;
     std::cout << "   -c                         checks correctness of each pattern occurrence on <input_file>" << std::endl;
-    std::cout << "   -f                         filters out redundant occurrdences" << std::endl;
     std::cout << "   <metric>                   distance metric to use (hamming or edit)" << std::endl;
     std::cout << "   <scheme>                   search scheme to use (pigeon_hole, suffix_filter, 01 or path to a file)" << std::endl;
     std::cout << "   <mismatches>               maximum number of allowed mismatches; applies only to" << std::endl;
-    std::cout << "                              pigeon_hole suffix_filter and 01 search schemes" << std::endl;
+    std::cout << "                              pigeon_hole, suffix_filter and 01 search schemes" << std::endl;
     std::cout << "   -o <output_file>           write pattern occurrences to this file (in ASCII format; one line per pattern)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in move-rb-patterns format containing the patterns." << std::endl;
@@ -77,9 +74,7 @@ bool parse_args(char** argv, int argc)
     if (s == "-d") return false;
     arg_idx++;
 
-    if (s == "-f") {
-        filter_occurrences = true;
-    } else if (s == "-c") {
+    if (s == "-c") {
         check_correctness = true;
     } else if (s == "-m") {
         if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
@@ -116,15 +111,6 @@ void measure_locate()
     time = log_runtime(time);
     index.log_data_structure_sizes();
 
-    if (check_correctness) {
-        if (path_input_file == "") help("error: <input_file> not provided");
-        std::cout << std::endl << "loading input file" << std::flush;
-        no_init_resize(input, index.forward_index().input_size());
-        read_from_file(input_file, input.data(), input.size());
-        input_file.close();
-        time = log_runtime(time);
-    }
-    
     std::cout << std::endl << "searching patterns ... " << std::endl;
     std::string header;
     std::getline(patterns_file, header);
@@ -157,9 +143,6 @@ void measure_locate()
             index.locate_hamming_dist(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){occurrences.emplace_back(occ);});
         } else {
             index.locate_edit_dist(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){occurrences.emplace_back(occ);});
-        }
-
-        if (filter_occurrences) {
             ips4o::sort(occurrences.begin(), occurrences.end());
             filter_aprx_occurrences<pos_t>(occurrences, k);
         }
@@ -170,22 +153,27 @@ void measure_locate()
         time_locate += time_diff_ns(t2, t3);
 
         if (check_correctness) {
+            std::string occ_str;
+            occ_str.reserve(pattern_length + k);
+
             for (auto occ : occurrences) {
-                std::string_view occ_view(input.c_str() + occ.pos, occ.len);
+                no_init_resize(occ_str, occ.len);
+                input_file.seekg(occ.pos, std::ios::beg);
+                input_file.read(occ_str.data(), occ_str.size());
                 pos_t dist;
 
                 if (dist_metr == HAMMING_DISTANCE) {
-                    dist = hamming_dist_bounded<pos_t>(occ_view, pattern, k);
+                    dist = hamming_dist_bounded<pos_t>(occ_str, pattern, k);
                 } else {
-                    dist = edit_dist_bounded<pos_t>(occ_view, pattern, k);
+                    dist = edit_dist_bounded<pos_t>(occ_str, pattern, k);
                 }
 
                 if (dist > k) {
-                    std::cout << "error: wrong approximate occurrence " << occ.pos << ", '" << occ_view <<
+                    std::cout << "error: wrong approximate occurrence " << occ.pos << ", '" << occ_str <<
                         "' with length " << occ.len << " of pattern '" << pattern << "'" << std::endl;
                     exit(-1);
                 } else if (occ.err != dist) {
-                    std::cout << "error: correct approximate occurrence " << occ.pos << ", '" << occ_view <<
+                    std::cout << "error: correct approximate occurrence " << occ.pos << ", '" << occ_str <<
                         "' with length " << occ.len << " of pattern '" << pattern <<
                         "' was reported with " << occ.err << " instead of " << dist << " errors" << std::endl;
                     exit(-1);
@@ -194,7 +182,7 @@ void measure_locate()
         }
 
         if (output_occurrences) {
-            if (!filter_occurrences) {
+            if (dist_metr == HAMMING_DISTANCE) {
                 ips4o::sort(occurrences.begin(), occurrences.end());
             }
 
@@ -234,7 +222,7 @@ void measure_locate()
 
     if (mf.is_open()) {
         mf << "RESULT";
-        mf << " algo=count_move_rb_" << move_r_support_suffix(support);
+        mf << " algo=locate_move_rb_" << move_r_support_suffix(support);
         mf << " text=" << name_text_file;
         mf << " a=" << index.forward_index().balancing_parameter();
         mf << " n=" << index.forward_index().input_size();
@@ -264,6 +252,8 @@ void measure_locate()
         mf << std::endl;
         mf.close();
     }
+
+    if (check_correctness) input_file.close();
 }
 
 int main(int argc, char** argv)
@@ -307,6 +297,12 @@ int main(int argc, char** argv)
     } else {
         k = search_scheme.k;
     }
+    
+    if (dist_metr == EDIT_DISTANCE && k > 20)
+        help("error: k > 20 is not supported for edit distance");
+
+    if (check_correctness && path_input_file == "")
+        help("error: <input_file> not provided");
 
     path_index_file = argv[arg_idx];
     path_patterns_file = argv[arg_idx + 1];

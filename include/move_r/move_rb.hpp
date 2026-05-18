@@ -140,8 +140,7 @@ protected:
         auto time_start = time;
         bool log = params.log;
         uint64_t baseline_mem_usage = malloc_count_current();
-        std::string prefix_tmp_files = std::filesystem::temp_directory_path().string() +
-                "/" + random_alphanumeric_string(10);
+        std::string prefix_tmp_files = "move-r_" + random_alphanumeric_string(10);
         std::string input_file_name;
 
         if (bigbwt && params.file_input) {
@@ -279,7 +278,7 @@ protected:
             idx_fwd.set_alphabet_maps(map_int, map_ext);
 
             std::string old_sa_fwd_file_name = sa_fwd_file_name;
-            sa_fwd_file_name = prefix_tmp_files + ".sa_fwd";
+            sa_fwd_file_name = old_sa_fwd_file_name + "_fwd";
             std::filesystem::rename(old_sa_fwd_file_name, sa_fwd_file_name);
 
             if (log) {
@@ -2343,11 +2342,14 @@ public:
                 if (((i == 0) || dists[i] <= dists[i - 1]) &&
                     ((i == last_cell) || dists[i] <= dists[i + 1])
                 ) {
+                    bool res = false;
+
                     if (!nodes[i].reported()) {
                         ctx = nodes[i];
                         ctx.set_errors(dists[i]);
                         ctx.set_depth(ctx.depth() + start_depth);
                         ctx.set_shift(shift);
+                        res = true;
                     }
                     
                     init_dists.emplace_back(dists[i]);
@@ -2410,7 +2412,7 @@ public:
                         }
                     }
 
-                    return {ctx, true};
+                    return {ctx, res};
                 }
             }
 

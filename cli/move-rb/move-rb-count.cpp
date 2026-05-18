@@ -28,11 +28,10 @@
 #include <iostream>
 #include <move_r/move_rb.hpp>
 
-static constexpr int min_args = 6;
+static constexpr int min_args = 4;
 int arg_idx = 1;
 int64_t k = -1;
 std::string scheme_str;
-distance_metric_t dist_metr = NO_METRIC;
 search_scheme_t search_scheme;
 std::ofstream mf;
 std::string path_index_file;
@@ -47,14 +46,13 @@ bool output_occurrences;
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
-    std::cout << "move-rb-count: count all approximate occurrences of the input patterns." << std::endl << std::endl;
-    std::cout << "usage: move-rb-count [...] -d <metric> -s <scheme> [-k <mismatches>] <index_file> <patterns_file>" << std::endl;
+    std::cout << "move-rb-count: count all approximate occurrences of the input patterns w.r.t. hamming distance." << std::endl << std::endl;
+    std::cout << "usage: move-rb-count [...] -s <scheme> [-k <mismatches>] <index_file> <patterns_file>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
-    std::cout << "   <metric>                   distance metric to use (hamming or edit)" << std::endl;
     std::cout << "   <scheme>                   search scheme to use (pigeon_hole, suffix_filter, 01 or path to a file)" << std::endl;
     std::cout << "   <mismatches>               maximum number of allowed mismatches; applies only to" << std::endl;
-    std::cout << "                              pigeon_hole suffix_filter and 01 search schemes" << std::endl;
+    std::cout << "                              pigeon_hole, suffix_filter and 01 search schemes" << std::endl;
     std::cout << "   -o <output_file>           write pattern counts to this file (in ASCII format; one line per pattern)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in move-rb-patterns format containing the patterns." << std::endl;
@@ -188,13 +186,6 @@ int main(int argc, char** argv)
     while (parse_args(argv, argc));
 
     std::string arg = argv[arg_idx++];
-    if (arg != "-d") help("");
-    std::string dist_str = argv[arg_idx++];
-    if      (dist_str == "hamming") dist_metr = HAMMING_DISTANCE;
-    else if (dist_str == "edit")    dist_metr = EDIT_DISTANCE;
-    else help("error: invalid option after -d");
-
-    arg = argv[arg_idx++];
     if (arg != "-s") help("");
     scheme_str = argv[arg_idx++];
     bool is_default_scheme =
@@ -245,9 +236,6 @@ int main(int argc, char** argv)
     index_file.seekg(0, std::ios::beg);
 
     if (_support == _count) {
-        if (dist_metr == EDIT_DISTANCE)
-            help("error: counting w.r.t. with edit distance is not supported");
-
         if (is_64_bit) {
             measure_count<uint64_t, _count>();
         } else {

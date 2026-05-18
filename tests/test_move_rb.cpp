@@ -35,7 +35,7 @@ char max_uchar = std::numeric_limits<char>::max() - 2;
 uint64_t min_input_size = 1;
 uint64_t max_input_size = 100000;
 uint64_t max_pattern_length = 20;
-uint8_t mismatches_limit = 13;
+uint8_t mismatches_limit = 20;
 
 std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
 std::uniform_int_distribution<uint16_t> num_threads_distrib(1, max_num_threads);
@@ -93,7 +93,6 @@ void test_move_rb()
                 EXPECT_EQ(occurrences, correct_occurrences);
                 correct_occurrences.clear();
                 occurrences.clear();
-
             });
         }
     }

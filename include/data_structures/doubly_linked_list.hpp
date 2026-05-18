@@ -137,7 +137,7 @@ protected:
 
         other.hd = nullptr;
         other.tl = nullptr;
-        other.s = nullptr;
+        other.s = 0;
     }
 
 public:

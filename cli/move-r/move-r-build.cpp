@@ -48,7 +48,7 @@ void help(std::string msg)
     std::cout << "move-r-build: builds move-r." << std::endl << std::endl;
     std::cout << "usage: move-r-build [...] <input_file>" << std::endl;
     std::cout << "   -c <mode>           construction mode: sa or bigbwt (default: sa)" << std::endl;
-    std::cout << "   -o <base_name>      names the index file base_name.move-r (default: input_file)" << std::endl;
+    std::cout << "   -o <base_name>      names the index file base_name.move-r(-rlzsa) (default: input_file)" << std::endl;
     std::cout << "   -s <support>        support: count, locate_move, locate_rlzsa, locate_rlzsa_bin_search or locate_lzendsa" << std::endl;
     std::cout << "                       (default: locate_move)" << std::endl;
     std::cout << "   -p <integer>        number of threads to use during the construction of the index" << std::endl;
@@ -147,6 +147,7 @@ int main(int argc, char** argv)
     std::cout << std::setprecision(4);
     name_text_file = path_input_file.substr(path_input_file.find_last_of("/\\") + 1);
     path_index_file = path_prefix_index_file.append(".move-r");
+    if (support == _locate_rlzsa) path_index_file = path_index_file.append("-rlzsa");
 
     index_file.open(path_index_file);
     if (!index_file.good()) help("error: invalid input, could not create <index_file>");
