@@ -48,7 +48,7 @@ void help(std::string msg)
     std::cout << "move-rb-build: builds move-rb." << std::endl << std::endl;
     std::cout << "usage: move-rb-build [...] <input_file>" << std::endl;
     std::cout << "   -c <mode>           construction mode: sa or bigbwt (default: sa)" << std::endl;
-    std::cout << "   -o <base_name>      names the index file base_name.move-rb (default: input_file)" << std::endl;
+    std::cout << "   -o <base_name>      names the index file base_name.move-rb(-rlzsa) (default: input_file)" << std::endl;
     std::cout << "   -s <support>        support: count, locate_move or locate_rlzsa" << std::endl;
     std::cout << "                       (default: locate_move)" << std::endl;
     std::cout << "   -p <integer>        number of threads to use during the construction of the index" << std::endl;
@@ -141,6 +141,7 @@ int main(int argc, char** argv)
     std::cout << std::setprecision(4);
     name_text_file = path_input_file.substr(path_input_file.find_last_of("/\\") + 1);
     path_index_file = path_prefix_index_file.append(".move-rb");
+    if (support == _locate_rlzsa) path_index_file = path_index_file.append("-rlzsa");
 
     index_file.open(path_index_file);
     if (!index_file.good()) help("error: invalid input, could not create <index_file>");
@@ -159,7 +160,7 @@ int main(int argc, char** argv)
 
     if (mf_idx.is_open()) {
         mf_idx << "RESULT"
-            << " algo=build_move_r_" << move_r_support_suffix(support)
+            << " algo=build_move_rb_" << move_r_support_suffix(support)
             << " text=" << name_text_file
             << " num_threads=" << p
             << " a=" << a;

@@ -329,8 +329,7 @@ public:
     inline pos_t SA(uint16_t i_p, pos_t i)
     {
         if constexpr (bigbwt) {
-            if (i == 0)
-                return n - 1;
+            if (i == 0) [[unlikely]] return n - 1;
             return pos_t { SA_file_bufs[i_p][i - 1] };
         } else {
             return get_sa<sa_sint_t>()[i];
@@ -485,8 +484,7 @@ public:
         time = now();
         time_start = time;
         omp_set_num_threads(p);
-        prefix_tmp_files = std::filesystem::temp_directory_path().string() +
-            "/move-r_" + random_alphanumeric_string(10);
+        prefix_tmp_files = "move-r_" + random_alphanumeric_string(10);
         baseline_mem_usage = malloc_count_current();
         if (log) malloc_count_reset_peak();
     }

@@ -1544,7 +1544,7 @@ public:
         out.write((char*) &p_r, sizeof(uint16_t));
         out.write((char*) &_l_blk_size, sizeof(pos_t));
 
-        if (p_r > 0) {
+        if (p_r > 1) {
             out.write((char*) &_D_e[0], (p_r - 1) * 2 * sizeof(pos_t));
         }
 
@@ -1651,7 +1651,7 @@ public:
         in.read((char*) &p_r, sizeof(uint16_t));
         in.read((char*) &_l_blk_size, sizeof(pos_t));
 
-        if (p_r > 0) {
+        if (p_r > 1) {
             _D_e.resize(p_r - 1);
             in.read((char*) &_D_e[0], (p_r - 1) * 2 * sizeof(pos_t));
         }

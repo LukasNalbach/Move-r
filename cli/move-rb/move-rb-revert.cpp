@@ -117,7 +117,7 @@ void measure_revert()
 
     if (mf.is_open()) {
         mf << "RESULT";
-        mf << " algo=count_move_rb_" << move_r_support_suffix(support);
+        mf << " algo=revert_move_rb_" << move_r_support_suffix(support);
         mf << " text=" << name_text_file;
         mf << " a=" << index.forward_index().balancing_parameter();
         mf << " n=" << index.forward_index().input_size();
