@@ -81,7 +81,7 @@ void move_data_structure<pos_t>::construction::build_tin_tout_v5()
         uint16_t i_p = omp_get_thread_num();
 
         if (x[i_p] < x[i_p + 1]) {
-            T_in_v5[i_p].insert(&I[x[i_p]], &I[x[i_p + 1]]);
+            T_in_v5[i_p].insert(I.begin() + x[i_p], I.begin() + x[i_p + 1]);
         }
     }
 
