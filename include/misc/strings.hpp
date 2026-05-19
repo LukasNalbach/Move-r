@@ -101,10 +101,10 @@ static inp_t random_repetitive_input(
     double run_repetitiveness = prob_distrib(mt);
 
     std::uniform_int_distribution<uint64_t> repetition_length_distrib(
-        1, (repetition_repetitiveness * target_input_size) / 100);
+        1, std::max<double>(1.0, (repetition_repetitiveness * target_input_size) / 100));
 
     std::uniform_int_distribution<uint64_t> run_length_distrib(
-        1, (run_repetitiveness * target_input_size) / 200);
+        1, std::max<double>(1.0, ((run_repetitiveness * target_input_size) / 200)));
 
     std::discrete_distribution<uint8_t> next_operation_distrib({
         2 - (repetition_repetitiveness + run_repetitiveness),
