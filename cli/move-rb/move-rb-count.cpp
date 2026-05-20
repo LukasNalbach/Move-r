@@ -101,6 +101,10 @@ void measure_count()
     std::getline(patterns_file, header);
     uint64_t num_patterns = number_of_patterns(header);
     uint64_t pattern_length = patterns_length(header);
+
+    if (pattern_length < search_scheme.p)
+        help("error: pattern length < number of parts defined in the search scheme");
+
     uint64_t perc;
     uint64_t last_perc = 0;
     uint64_t num_occurrences = 0;

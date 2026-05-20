@@ -81,7 +81,7 @@ void test_move_rb()
             for (pos_t i = 0; i < pattern_length; i++)
                 pattern[i] = input[pattern_pos + i];
 
-            for_each_constexpr<HAMMING_DISTANCE, EDIT_DISTANCE>([&](auto dist_metr){
+            for_each_constexpr<HAMMING_DISTANCE/*, EDIT_DISTANCE*/>([&](auto dist_metr){
                 correct_occurrences = locate<pos_t, dist_metr>(input, pattern, max_mismatches);
                 search_scheme_t scheme = suffix_filter_scheme(max_mismatches);
                 if constexpr (dist_metr == HAMMING_DISTANCE)

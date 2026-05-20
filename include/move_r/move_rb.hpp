@@ -1833,7 +1833,8 @@ public:
 
         using search_state_t = std::tuple<
             search_context_t<query_support>, // ctx
-            pos_t // k_cur
+            pos_t, // k_cur
+            pos_t // match_pos_idx
         >;
 
         using match_pos_t = std::tuple<
@@ -1846,11 +1847,7 @@ public:
             pos_t // ext_rem
         >;
 
-        using states_arr_t = std::vector<search_state_t>;
-
         search_context_set_t<query_support> ctxts_set;
-        states_arr_t states_cur;
-        states_arr_t states_nxt;
         auto empty_ctx = empty_context<query_support>();
         pos_t part_len = m / p;
 
@@ -1873,73 +1870,79 @@ public:
         };
 
         for (const search_t& S : scheme.S) {
-            match_pos_t match_pos_cur;
-            auto& [p_idx, dir, part, beg, end, pos, ext_rem] = match_pos_cur;
+            std::vector<match_pos_t> match_pos;
+            match_pos.reserve(m);
 
-            p_idx = 0;
-            part = S[p_idx].part;
-            beg = part * part_len;
-            end = (part + 1) == p ? m : ((part + 1) * part_len);
-            dir = S[p_idx + 1].part < part ? LEFT : RIGHT;
-            pos = dir == LEFT ? end - 1 : beg;
-            ext_rem = dir == LEFT ? pos - beg : (end - pos - 1);
-            states_cur.emplace_back(search_state_t{empty_ctx, 0});
+            for (pos_t p_idx = 0; p_idx < p; p_idx++) {
+                pos_t part = S[p_idx].part;
+                pos_t beg = part * part_len;
+                pos_t end = (part + 1) == p ? m : ((part + 1) * part_len);
+                direction_t dir;
 
-            match_pos_t match_pos_nxt {p_idx, dir, part, beg, end, pos, ext_rem};
-            auto& [p_idx_nxt, dir_nxt, part_nxt, beg_nxt, end_nxt, pos_nxt, ext_rem_nxt] = match_pos_nxt;
-
-            while (true) {
-                pos_nxt = pos + (dir == LEFT ? -1 : 1);
-
-                if (!(beg <= pos_nxt && pos_nxt < end)) [[unlikely]] {
-                    p_idx_nxt = p_idx + 1;
-
-                    if (p_idx_nxt < p) [[likely]] {
-                        part_nxt = S[p_idx_nxt].part;
-                        dir_nxt = part_nxt < part ? LEFT : RIGHT;
-                        beg_nxt = part_nxt * part_len;
-                        end_nxt = (part_nxt + 1) == p ? m : ((part_nxt + 1) * part_len);
-                        pos_nxt = dir_nxt == LEFT ? end_nxt - 1 : beg_nxt;
-                        ext_rem = end_nxt - beg_nxt;
-                    }
+                if (p_idx == 0) {
+                    dir = p == 1 || S[p_idx + 1].part > part ? RIGHT : LEFT;
+                } else {
+                    dir = part < S[p_idx - 1].part ? LEFT : RIGHT;
                 }
-                
-                while (!states_cur.empty()) {
-                    auto [ctx, k_cur] = states_cur.back(); states_cur.pop_back();
-                    
-                    if (k_cur < S[p_idx].k_max && (p_idx_nxt == p || S[p_idx_nxt].k_min <= k_cur + 1 + ext_rem)) {
-                        auto ext_ctx = ctx.prepare_extend_all(*this, dir);
 
-                        while (ext_ctx.can_extend(*this)) {
-                            auto ctx_nxt = ctx.extend_next(*this, ext_ctx, dir);
-                            bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
-                            pos_t k_nxt = k_cur + is_mismatch;
-
-                            if (p_idx_nxt == p) {
-                                ctx_nxt.set_errors(k_nxt);
-                                add_ctx(ctx_nxt);
-                            } else if (is_mismatch || S[p_idx_nxt].k_min <= k_nxt + ext_rem) {
-                                states_nxt.emplace_back(search_state_t{ctx_nxt, k_nxt});
-                            }
-                        }
-                    } else {
-                        auto [ctx_nxt, result] = ctx.extend(*this, P[pos], dir);
-
-                        if (result) {
-                            if (p_idx_nxt == p) {
-                                ctx_nxt.set_errors(k_cur);
-                                add_ctx(ctx_nxt);
-                            } else {
-                                states_nxt.emplace_back(search_state_t{ctx_nxt, k_cur});
-                            }
-                        }
+                if (dir == LEFT) {
+                    for (pos_t pos = end; pos > beg; pos--) {
+                        pos_t cur_pos = pos - 1;
+                        match_pos.emplace_back(match_pos_t{p_idx, dir, part, beg, end, cur_pos, cur_pos - beg});
+                    }
+                } else {
+                    for (pos_t pos = beg; pos < end; pos++) {
+                        match_pos.emplace_back(match_pos_t{p_idx, dir, part, beg, end, pos, end - pos - 1});
                     }
                 }
 
-                if (states_nxt.empty() || p_idx == p) [[unlikely]] break;
-                ext_rem_nxt = ext_rem - 1;
-                match_pos_cur = match_pos_nxt;
-                states_cur.swap(states_nxt);
+                for (pos_t i = 0; i < m - 1; i++) {
+                    auto& [p_idx_cur, dir_cur, part_cur, beg_cur, end_cur, pos_cur, ext_rem_cur] = match_pos[i];
+                    auto& [p_idx_nxt, dir_nxt, part_nxt, beg_nxt, end_nxt, pos_nxt, ext_rem_nxt] = match_pos[i + 1];
+
+                    if (p_idx_nxt != p_idx_cur) {
+                        ext_rem_cur = end_nxt - beg_nxt;
+                    }
+                }
+            }
+
+            std::vector<search_state_t> states_stack;
+            states_stack.reserve(m);
+            states_stack.emplace_back(search_state_t{empty_ctx, 0, 0});
+
+            while (!states_stack.empty()) {
+                auto [ctx, k_cur, match_pos_idx] = states_stack.back(); states_stack.pop_back();
+                const auto& [p_idx, dir, part, beg, end, pos, ext_rem] = match_pos[match_pos_idx];
+                pos_t match_pos_idx_nxt = match_pos_idx + 1;
+                pos_t p_idx_nxt = match_pos_idx_nxt == m ? p : std::get<0>(match_pos[match_pos_idx_nxt]);
+
+                if (k_cur < S[p_idx].k_max && (p_idx_nxt == p || S[p_idx_nxt].k_min <= k_cur + 1 + ext_rem)) {
+                    auto ext_ctx = ctx.prepare_extend_all(*this, dir);
+
+                    while (ext_ctx.can_extend(*this)) {
+                        auto ctx_nxt = ctx.extend_next(*this, ext_ctx, dir);
+                        bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
+                        pos_t k_nxt = k_cur + is_mismatch;
+
+                        if (p_idx_nxt == p) {
+                            ctx_nxt.set_errors(k_nxt);
+                            add_ctx(ctx_nxt);
+                        } else if (is_mismatch || S[p_idx_nxt].k_min <= k_nxt + ext_rem) {
+                            states_stack.emplace_back(search_state_t{ctx_nxt, k_nxt, match_pos_idx_nxt});
+                        }
+                    }
+                } else {
+                    auto [ctx_nxt, result] = ctx.extend(*this, P[pos], dir);
+
+                    if (result) {
+                        if (p_idx_nxt == p) {
+                            ctx_nxt.set_errors(k_cur);
+                            add_ctx(ctx_nxt);
+                        } else {
+                            states_stack.emplace_back(search_state_t{ctx_nxt, k_cur, match_pos_idx_nxt});
+                        }
+                    }
+                }
             }
         }
 
