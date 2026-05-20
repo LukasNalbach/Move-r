@@ -346,14 +346,14 @@ public:
     inline uint64_t SAd(uint16_t i_p, pos_t i)
     {
         if constexpr (bigbwt) {
-            if (i <= 1) {
-                if (i == 0)
-                    return n_u64 - 1;
+            if (i <= 1) [[unlikely]] {
+                if (i == 0) [[unlikely]] return n_u64 - 1;
                 return SA_file_bufs[i_p][0] + 1;
             }
             return (SA_file_bufs[i_p][i - 1] + n_u64) - SA_file_bufs[i_p][i - 2];
         } else {
-            return i == 0 ? n_u64 - 1 : ((get_sa<sa_sint_t>()[i] + n) - get_sa<sa_sint_t>()[i - 1]);
+            if (i == 0) [[unlikely]] return n_u64 - 1;
+            return (get_sa<sa_sint_t>()[i] + n) - get_sa<sa_sint_t>()[i - 1];
         }
     }
 
