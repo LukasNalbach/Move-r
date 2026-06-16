@@ -109,8 +109,8 @@ int main(int argc, char* argv[])
 
         output_file.write(pattern.c_str(), pattern_length);
     }
-
-    input_file.close();
-    output_file.close();
+    
     time = log_runtime(time);
+    
+    return 0;
 }

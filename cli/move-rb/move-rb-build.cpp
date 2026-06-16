@@ -26,7 +26,7 @@
 
 #include <filesystem>
 #include <iostream>
-#include <move_r/move_rb.hpp>
+#include <move_rb/move_rb.hpp>
 
 int arg_idx = 1;
 uint64_t n;
@@ -167,26 +167,15 @@ int main(int argc, char** argv)
     }
 
     if (support == _count) {
-        if (n < UINT_MAX) {
-            build<uint32_t, _count>();
-        } else {
-            build<uint64_t, _count>();
-        }
+        if (n < UINT_MAX) build<uint32_t, _count>();
+        else              build<uint64_t, _count>();
     } else if (support == _locate_move) {
-        if (n < UINT_MAX) {
-            build<uint32_t, _locate_move>();
-        } else {
-            build<uint64_t, _locate_move>();
-        }
+        if (n < UINT_MAX) build<uint32_t, _locate_move>();
+        else              build<uint64_t, _locate_move>();
     } else if (support == _locate_rlzsa) {
-        if (n < UINT_MAX) {
-            build<uint32_t, _locate_rlzsa>();
-        } else {
-            build<uint64_t, _locate_rlzsa>();
-        }
+        if (n < UINT_MAX) build<uint32_t, _locate_rlzsa>();
+        else              build<uint64_t, _locate_rlzsa>();
     }
-
-    if (mf_idx.is_open()) mf_idx.close();
-    if (mf_mds.is_open()) mf_mds.close();
-    index_file.close();
+    
+    return 0;
 }

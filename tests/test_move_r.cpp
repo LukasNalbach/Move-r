@@ -211,23 +211,14 @@ TEST(test_move_r, fuzzy_test)
         double val = prob_distrib(gen);
 
         if (val < 1.0 / 3.0) {
-            if (prob_distrib(gen) < 0.5) {
-                test_move_r<uint32_t, _locate_move>();
-            } else {
-                test_move_r<uint64_t, _locate_move>();
-            }
+            if (prob_distrib(gen) < 0.5) test_move_r<uint32_t, _locate_move>();
+            else                         test_move_r<uint64_t, _locate_move>();
         } else if (val < 2.0 / 3.0) {
-            if (prob_distrib(gen) < 0.5) {
-                test_move_r<uint32_t, _locate_rlzsa>();
-            } else {
-                test_move_r<uint64_t, _locate_rlzsa>();
-            }
+            if (prob_distrib(gen) < 0.5) test_move_r<uint32_t, _locate_rlzsa>();
+            else                         test_move_r<uint64_t, _locate_rlzsa>();
         } else {
-            if (prob_distrib(gen) < 0.5) {
-                test_move_r<uint32_t, _locate_lzendsa>();
-            } else {
-                test_move_r<uint64_t, _locate_lzendsa>();
-            }
+            if (prob_distrib(gen) < 0.5) test_move_r<uint32_t, _locate_lzendsa>();
+            else                         test_move_r<uint64_t, _locate_lzendsa>();
         }
     }
 }

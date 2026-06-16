@@ -644,57 +644,58 @@ public:
      * @brief logs the index data structure sizes to the output stream out
      * @param out an output stream
      */
-    void log_data_structure_sizes(std::ostream& out) const
+    void log_data_structure_sizes(std::ostream& out, std::string suffix = "") const
     {
-        out << " size_index=" << size_in_bytes();
+        out << " size_index" << suffix << "=" << size_in_bytes();
+        out << " a=" << a;
 
         if constexpr (supports_bwsearch) {
             uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
-            out << " size_m_lf=" << _M_LF.size_in_bytes() - size_l_;
-            out << " size_l_=" << size_l_;
+            out << " size_m_lf" << suffix << "=" << _M_LF.size_in_bytes() - size_l_;
+            out << " size_l_" << suffix << "=" << size_l_;
             
             if constexpr (byte_alphabet) {
-                out << " size_l_prev=" << _L_prev.size_in_bytes();
-                out << " size_l_next=" << _L_next.size_in_bytes();
+                out << " size_l_prev" << suffix << "=" << _L_prev.size_in_bytes();
+                out << " size_l_next" << suffix << "=" << _L_next.size_in_bytes();
             } else {
-                out << " size_rs_l_=" << _RS_L_.size_in_bytes();
+                out << " size_rs_l_" << suffix << "=" << _RS_L_.size_in_bytes();
             }
         }
 
         if (int_alphabet && symbols_remapped) {
-            out << " size_map_int=" << size_map_int;
-            out << " size_map_ext=" << sizeof(sym_t) * sigma;
+            out << " size_map_int" << suffix << "=" << size_map_int;
+            out << " size_map_ext" << suffix << "=" << sizeof(sym_t) * sigma;
         }
 
         if constexpr (support == _locate_one || support == _locate_rlzsa ||
             support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd ||
             has_lzendsa
         ) {
-            out << " size_sa_s=" << _SA_s.size_in_bytes();
+            out << " size_sa_s" << suffix << "=" << _SA_s.size_in_bytes();
         }
 
         if constexpr (has_locate_move) {
             if constexpr (support == _locate_move_bi_fwd) {
-                out << " size_m_phi=" << _M_Phi.size_in_bytes();
+                out << " size_m_phi" << suffix << "=" << _M_Phi.size_in_bytes();
             }
 
-            out << " size_m_phim1=" << _M_Phi_m1.size_in_bytes();
-            out << " size_sa_phim1=" << _SA_Phi_m1.size_in_bytes();
+            out << " size_m_phim1" << suffix << "=" << _M_Phi_m1.size_in_bytes();
+            out << " size_sa_phim1" << suffix << "=" << _SA_Phi_m1.size_in_bytes();
         } else if constexpr (has_rlzsa) {
-            out << " size_r=" << _R.size_in_bytes();
-            out << " size_cpl=" << (z_c + 2) * sizeof(uint16_t);
-            out << " size_scp=" << _SCP_S.size_in_bytes();
-            out << " size_sr=" << _SR.size_in_bytes();
-            out << " size_lp=" << _LP.size_in_bytes();
-            out << " size_pt=" << _PT.size_in_bytes();
+            out << " size_r" << suffix << "=" << _R.size_in_bytes();
+            out << " size_cpl" << suffix << "=" << (z_c + 2) * sizeof(uint16_t);
+            out << " size_scp" << suffix << "=" << _SCP_S.size_in_bytes();
+            out << " size_sr" << suffix << "=" << _SR.size_in_bytes();
+            out << " size_lp" << suffix << "=" << _LP.size_in_bytes();
+            out << " size_pt" << suffix << "=" << _PT.size_in_bytes();
 
             if constexpr (!supports_bwsearch) {
-                out << " size_sa_delta=" << _SA_delta.size_in_bytes();
+                out << " size_sa_delta" << suffix << "=" << _SA_delta.size_in_bytes();
             }
         }
 
         if constexpr (support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd) {
-            out << " size_sa_s_=" << _SA_s_.size_in_bytes();
+            out << " size_sa_s_" << suffix << "=" << _SA_s_.size_in_bytes();
         }
     }
 
@@ -972,6 +973,15 @@ public:
     i_sym_t symbol_idx(sym_t sym) const
     {
         return *reinterpret_cast<i_sym_t*>(&sym);
+    }
+
+    /**
+     * @brief returns the map from the input alphabet to the internal effective alphabet
+     * @return the map from the input alphabet to the internal effective alphabet
+     */
+    inline const map_int_t& map_int() const
+    {
+        return _map_int;
     }
 
     /**

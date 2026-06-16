@@ -130,9 +130,8 @@ int main(int argc, char** argv)
     bool is_64_bit;
     index_file.read((char*) &is_64_bit, sizeof(is_64_bit));
 
-    if (!is_64_bit) {
-        random_access<int32_t>(index_file, file_name, len, num_queries, seed);
-    } else {
-        random_access<int64_t>(index_file, file_name, len, num_queries, seed);
-    }
+    if (!is_64_bit) random_access<int32_t>(index_file, file_name, len, num_queries, seed);
+    else            random_access<int64_t>(index_file, file_name, len, num_queries, seed);
+    
+    return 0;
 }

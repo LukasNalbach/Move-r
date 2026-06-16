@@ -154,4 +154,6 @@ int main(int argc, char** argv)
         << " z=" << z
         << " d=" << d
         << std::endl;
+    
+    return 0;
 }

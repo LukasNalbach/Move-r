@@ -25,7 +25,8 @@
  */
 
 #include <gtest/gtest.h>
-#include <move_r/move_rb.hpp>
+#include <move_rb/move_rb.hpp>
+#include <misc/approximate_pattern_matching.cpp>
 
 std::random_device rd;
 std::mt19937 gen(rd());
@@ -33,9 +34,9 @@ uint16_t max_num_threads = omp_get_max_threads();
 char min_uchar = std::numeric_limits<char>::min();
 char max_uchar = std::numeric_limits<char>::max() - 2;
 uint64_t min_input_size = 1;
-uint64_t max_input_size = 100000;
-uint64_t max_pattern_length = 20;
-uint8_t mismatches_limit = 20;
+uint64_t max_input_size = 10'000;
+uint64_t max_pattern_length = 100;
+uint64_t mismatches_limit = 20;
 
 std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
 std::uniform_int_distribution<uint16_t> num_threads_distrib(1, max_num_threads);
@@ -59,42 +60,42 @@ void test_move_rb()
     // generate patterns from the input and test count- and locate queries
     std::uniform_int_distribution<pos_t> pattern_pos_distrib(0, input_size - 1);
     std::uniform_int_distribution<pos_t> pattern_length_distrib(1, std::min<pos_t>(max_pattern_length, input_size));
-    pos_t num_queries = std::min<pos_t>(1000, std::max<pos_t>(100, input_size / 1000));
+    pos_t num_queries = std::min<pos_t>(1'000, std::max<pos_t>(100, input_size / 10));
     num_queries = std::max<pos_t>(1, num_queries / max_num_threads);
 
-    #pragma omp parallel num_threads(max_num_threads)
-    {
+    #pragma omp parallel for num_threads(max_num_threads), schedule(dynamic,1)
+    for (pos_t cur_query = 0; cur_query < num_queries; cur_query++) {
         std::random_device rd_thr;
         std::mt19937 gen_thr(rd_thr());
-        pos_t pattern_pos;
-        pos_t pattern_length;
+        pos_t pattern_pos = pattern_pos_distrib(gen_thr);
+        pos_t pattern_length = std::min<pos_t>(input_size - pattern_pos, pattern_length_distrib(gen_thr));
+        pos_t max_mismatches = std::uniform_int_distribution<pos_t>(0,
+            std::max<int32_t>(std::min<int32_t>(pattern_length / 2 - 1, mismatches_limit), 0))(gen_thr);
         std::string pattern;
-        std::vector<aprx_occ_t<pos_t>> correct_occurrences;
-        std::vector<aprx_occ_t<pos_t>> occurrences;
+        no_init_resize(pattern, pattern_length);
+        for (pos_t i = 0; i < pattern_length; i++)
+            pattern[i] = input[pattern_pos + i];
 
-        for (pos_t cur_query = 0; cur_query < num_queries; cur_query++) {
-            pattern_pos = pattern_pos_distrib(gen_thr);
-            pattern_length = std::min<pos_t>(input_size - pattern_pos, pattern_length_distrib(gen_thr));
-            pos_t max_mismatches = std::uniform_int_distribution<pos_t>(0,
-                std::clamp<int32_t>(int32_t{pattern_length} - 2, 0, mismatches_limit))(gen_thr);
-            no_init_resize(pattern, pattern_length);
-            for (pos_t i = 0; i < pattern_length; i++)
-                pattern[i] = input[pattern_pos + i];
+        for_each_constexpr<HAMMING_DISTANCE, EDIT_DISTANCE>([&](auto dist_metr){
+            auto correct_occurrences = locate<pos_t, dist_metr>(input, pattern, max_mismatches);
+            search_scheme_t scheme = suffix_filter_scheme(max_mismatches);
+            auto occurrences = index.template locate<dist_metr>(pattern, scheme);
+            ips4o::sort(occurrences.begin(), occurrences.end());
 
-            for_each_constexpr<HAMMING_DISTANCE/*, EDIT_DISTANCE*/>([&](auto dist_metr){
-                correct_occurrences = locate<pos_t, dist_metr>(input, pattern, max_mismatches);
-                search_scheme_t scheme = suffix_filter_scheme(max_mismatches);
-                if constexpr (dist_metr == HAMMING_DISTANCE)
-                    EXPECT_EQ(index.template count_hamming_dist(pattern, scheme), correct_occurrences.size());
-                occurrences = index.template locate<dist_metr>(pattern, scheme);
-                ips4o::sort(occurrences.begin(), occurrences.end());
-                if constexpr (dist_metr == EDIT_DISTANCE) filter_aprx_occurrences<pos_t>(occurrences, max_mismatches);
+            if constexpr (dist_metr == HAMMING_DISTANCE) {
+                EXPECT_EQ(index.count_hamming_dist(pattern, scheme), correct_occurrences.size());
                 EXPECT_EQ(occurrences.size(), correct_occurrences.size());
                 EXPECT_EQ(occurrences, correct_occurrences);
-                correct_occurrences.clear();
-                occurrences.clear();
-            });
-        }
+            } else {
+                for (const auto& occ : occurrences) {
+                    std::string_view occ_view(input.begin() + occ.pos, input.begin() + occ.pos + occ.len);
+                    EXPECT_LE(edit_dist_bounded<pos_t>(occ_view, pattern, max_mismatches), max_mismatches);
+                }
+
+                filter_aprx_occurrences(occurrences, max_mismatches);
+                EXPECT_TRUE(verify_edit_distance_coverage(occurrences, correct_occurrences, max_mismatches));
+            }
+        });
     }
 }
 
@@ -104,17 +105,11 @@ TEST(test_move_rb, fuzzy_test)
 
     while (time_diff_min(start_time, now()) < 60) {
         if (prob_distrib(gen) < 0.5) {
-            if (prob_distrib(gen) < 0.5) {
-                test_move_rb<uint32_t, _locate_move>();
-            } else {
-                test_move_rb<uint64_t, _locate_move>();
-            }
+            if (prob_distrib(gen) < 0.5) test_move_rb<uint32_t, _locate_move>();
+            else                         test_move_rb<uint64_t, _locate_move>();
         } else {
-            if (prob_distrib(gen) < 0.5) {
-                test_move_rb<uint32_t, _locate_rlzsa>();
-            } else {
-                test_move_rb<uint64_t, _locate_rlzsa>();
-            }
+            if (prob_distrib(gen) < 0.5) test_move_rb<uint32_t, _locate_rlzsa>();
+            else                         test_move_rb<uint64_t, _locate_rlzsa>();
         }
     }
 }

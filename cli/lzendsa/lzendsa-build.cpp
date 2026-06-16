@@ -155,4 +155,6 @@ int main(int argc, char** argv)
         << " h=" << h
         << " d=" << d
         << std::endl;
+
+    return 0;
 }

@@ -36,9 +36,6 @@ find_package(OpenMP REQUIRED)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/ips4o")
 set_target_properties(ips4o_example PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1)
 
-# concurrentqueue
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/concurrentqueue/")
-
 # libsais
 set(LIBSAIS_USE_OPENMP ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/libsais/")
@@ -99,16 +96,16 @@ add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
 target_link_libraries(move_r INTERFACE
   OpenMP::OpenMP_CXX sdsl libsais ips4o gtl sparse_map malloc_count
-  concurrentqueue emhash sux ordered rmq unordered_dense divsufsort divsufsort64
+  emhash sux ordered rmq unordered_dense divsufsort divsufsort64
 )
 
 option(MOVE_R_BUILD_CLI "Build cli programs" ON)
 option(MOVE_R_BUILD_LZENDSA_CLI "Builds Rlzsa binaries" ON)
 option(MOVE_R_BUILD_RLZSA_CLI "Builds Rlzsa binaries" ON)
-option(MOVE_R_BUILD_BENCH_CLI "Build the benchmark cli program" ON)
+option(MOVE_R_BUILD_BENCH_CLI "Build the benchmark cli program" OFF)
 option(MOVE_R_BUILD_EXAMPLES "Build the example programs" ON)
 option(MOVE_R_BUILD_TESTS "Build tests" ON)
-option(MOVE_R_BUILD_BENCH "Build program for benchmarking internal data structures" ON)
+option(MOVE_R_BUILD_BENCH "Build program for benchmarking internal data structures" OFF)
 
 ############################# move-r cli #############################
 
@@ -122,6 +119,7 @@ if(MOVE_R_BUILD_CLI)
   add_executable(move-rb-revert cli/move-rb/move-rb-revert.cpp)
   add_executable(move-rb-count cli/move-rb/move-rb-count.cpp)
   add_executable(move-rb-locate cli/move-rb/move-rb-locate.cpp)
+  add_executable(move-rb-random-ext cli/move-rb/move-rb-random-ext.cpp)
 
   add_executable(gen-patterns cli/tools/gen-patterns.cpp)
   add_executable(patterns-to-fasta cli/tools/patterns-to-fasta.cpp)
@@ -136,6 +134,7 @@ if(MOVE_R_BUILD_CLI)
   target_link_libraries(move-rb-revert PRIVATE move_r)
   target_link_libraries(move-rb-count PRIVATE move_r)
   target_link_libraries(move-rb-locate PRIVATE move_r)
+  target_link_libraries(move-rb-random-ext PRIVATE move_r)
 
   target_link_libraries(gen-patterns PRIVATE move_r)
   target_link_libraries(patterns-to-fasta PRIVATE move_r)
@@ -144,7 +143,7 @@ if(MOVE_R_BUILD_CLI)
   set_target_properties(
     move-r-build move-r-revert move-r-count move-r-locate 
     move-rb-build move-rb-revert move-rb-count move-rb-locate
-    gen-patterns patterns-to-fasta fasta-to-plain
+    move-rb-random-ext gen-patterns patterns-to-fasta fasta-to-plain
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/"
   )
 endif()
@@ -309,7 +308,7 @@ if(MOVE_R_BUILD_BENCH_CLI)
 
   ############################# move-r #############################
 
-  add_executable(move-r-bench cli/move-r/move-r-bench/move-r-bench.cpp)
+  add_executable(move-r-bench bench/move-r-bench/move-r-bench.cpp)
   target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index OnlineRlbwt)
   set_target_properties(move-r-bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
 endif()
@@ -334,7 +333,13 @@ if(MOVE_R_BUILD_TESTS)
   add_executable(test-move_r_int "${CMAKE_SOURCE_DIR}/tests/test_move_r_int.cpp")
   add_executable(test-move_rb "${CMAKE_SOURCE_DIR}/tests/test_move_rb.cpp")
   add_executable(test-move_data_structure "${CMAKE_SOURCE_DIR}/tests/test_move_data_structure.cpp")
+  add_executable(repro-edit "${CMAKE_SOURCE_DIR}/tests/repro_edit.cpp")
+  add_executable(repro-ham "${CMAKE_SOURCE_DIR}/tests/repro_ham.cpp")
+  add_executable(diag-edit "${CMAKE_SOURCE_DIR}/tests/diag_edit.cpp")
 
+  target_link_libraries(repro-edit PRIVATE move_r)
+  target_link_libraries(repro-ham PRIVATE move_r)
+  target_link_libraries(diag-edit PRIVATE move_r)
   target_link_libraries(test-move_r PRIVATE gtest_main move_r)
   target_link_libraries(test-move_r_int PRIVATE gtest_main move_r)
   target_link_libraries(test-move_rb PRIVATE gtest_main move_r)

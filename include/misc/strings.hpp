@@ -30,7 +30,6 @@
 #include <string>
 #include <random>
 #include <fstream>
-#include <ips4o.hpp>
 
 #include "utils.hpp"
 
@@ -52,25 +51,25 @@ static std::string random_alphanumeric_string(uint64_t length)
     return str_rand;
 }
 
-static uint64_t malloc_count_peak_memory_usage(std::ifstream& log_file)
+static uint64_t malloc_count_peak_memory_usage(std::ifstream& leftg_file)
 {
-    std::string log_file_content;
-    log_file.seekg(0, std::ios::end);
-    no_init_resize(log_file_content, log_file.tellg());
-    log_file.seekg(0, std::ios::beg);
-    log_file.read((char*) &log_file_content[0], log_file_content.size());
+    std::string leftg_file_content;
+    leftg_file.seekg(0, std::ios::end);
+    no_init_resize(leftg_file_content, leftg_file.tellg());
+    leftg_file.seekg(0, std::ios::beg);
+    leftg_file.read((char*) &leftg_file_content[0], leftg_file_content.size());
     int32_t pos = 0;
     uint64_t cur_peak = 0;
     std::string str_cur_peak;
 
-    while ((pos = log_file_content.find(", peak", pos)) != -1) {
-        while (!('0' <= log_file_content[pos] && log_file_content[pos] <= '9')) {
+    while ((pos = leftg_file_content.find(", peak", pos)) != -1) {
+        while (!('0' <= leftg_file_content[pos] && leftg_file_content[pos] <= '9')) {
             pos++;
         }
 
-        while (('0' <= log_file_content[pos] && log_file_content[pos] <= '9') || log_file_content[pos] == '.') {
-            if (log_file_content[pos] != '.') {
-                str_cur_peak.push_back(log_file_content[pos]);
+        while (('0' <= leftg_file_content[pos] && leftg_file_content[pos] <= '9') || leftg_file_content[pos] == '.') {
+            if (leftg_file_content[pos] != '.') {
+                str_cur_peak.push_back(leftg_file_content[pos]);
             }
 
             pos++;
@@ -146,203 +145,4 @@ static inp_t random_repetitive_input(
     }
 
     return input;
-}
-
-template <typename pos_t>
-struct aprx_occ_t {
-    pos_t pos;
-    pos_t len;
-    pos_t err;
-
-    bool operator<(const aprx_occ_t& other) const
-    {
-        return pos != other.pos ? pos < other.pos :
-              (err != other.err ? err < other.err :
-                                  len < other.len);
-    }
-
-    bool operator==(const aprx_occ_t& other) const = default;
-
-    friend std::ostream& operator<<(std::ostream& os, const aprx_occ_t& occ) {
-        return os << "(" << occ.pos << ", " << occ.len << ", " << occ.err << ")";
-    }
-};
-
-template <typename pos_t>
-static pos_t hamming_dist(const std::string_view str_1, const std::string_view str_2)
-{
-    assert(str_1.size() == str_2.size());
-    pos_t dist = 0;
-
-    for (pos_t i = 0; i < str_1.size(); i++) {
-        dist += str_1[i] != str_2[i];
-    }
-
-    return dist;
-}
-
-template <typename pos_t>
-static pos_t hamming_dist_bounded(const std::string_view str_1, const std::string_view str_2, pos_t k)
-{
-    assert(str_1.size() == str_2.size());
-    pos_t dist = 0;
-
-    for (pos_t i = 0; i < str_1.size() && dist <= k; i++) {
-        dist += str_1[i] != str_2[i];
-    }
-
-    return dist;
-}
-
-template <typename pos_t>
-static std::vector<aprx_occ_t<pos_t>> locate_hamming_dist(const std::string& T, const std::string& P, pos_t k)
-{
-    pos_t m = P.length();
-    pos_t n = T.length();
-
-    std::vector<aprx_occ_t<pos_t>> Occ;
-
-    for (pos_t i = 0; i <= n - m; i++) {
-        pos_t dist = hamming_dist_bounded<pos_t>(std::string_view(T.c_str() + i, m), P, k);
-        if (dist <= k) Occ.emplace_back(aprx_occ_t<pos_t>{.pos = i, .len = m, .err = dist});
-    }
-
-    return Occ;
-}
-
-template <typename pos_t>
-static pos_t edit_dist(const std::string_view T, const std::string_view P) {
-    pos_t n = T.size();
-    pos_t m = P.size();
-
-    std::vector<std::vector<pos_t>> dist(n + 1, std::vector<pos_t>(m + 1));
-
-    for (pos_t i = 0; i <= n; i++) dist[i][0] = i;
-    for (pos_t j = 0; j <= m; j++) dist[0][j] = j;
-
-    for (pos_t i = 1; i <= n; i++) {
-        char c1 = T[i - 1];
-
-        for (pos_t j = 1; j <= m; j++) {
-            char c2 = P[j - 1];
-            pos_t cost = c1 != c2;
-
-            dist[i][j] = std::min({
-                dist[i - 1][j] + 1,        // delete
-                dist[i][j - 1] + 1,        // insert
-                dist[i - 1][j - 1] + cost  // match / mismatch
-            });
-        }
-    }
-
-    return dist[n][m];
-}
-
-template <typename pos_t>
-static int64_t edit_dist_bounded(const std::string_view T, const std::string_view P, int64_t k) {
-    if (T.size() < P.size()) return edit_dist_bounded<pos_t>(P, T, k);
-
-    int64_t n = T.size();
-    int64_t m = P.size();
-    const pos_t infty = k + 1;
-    if (n - m > k) return infty;
-    std::vector<pos_t> prev(m + 1), curr(m + 1);
-
-    for (int64_t j = 0; j <= m; j++) {
-        prev[j] = (j <= k) ? j : infty;
-    }
-
-    for (int64_t i = 1; i <= n; i++) {
-        int64_t x = std::max<int64_t>(1, i - k);
-        int64_t y = std::min<int64_t>(m, i + k);
-        bool abort = true;
-
-        curr[x - 1] = infty;
-        if (i <= k) [[unlikely]] curr[0] = i;
-
-        for (int64_t j = x; j <= y; j++) {
-            curr[j] = std::min({
-                infty,                               // limit to k + 1
-                prev[j] + 1,                         // deletion
-                curr[j - 1] + 1,                     // insertion
-                prev[j - 1] + (T[i - 1] != P[j - 1]) // match / mismatch
-            });
-
-            if (curr[j] <= k) abort = false;
-        }
-        
-        if (abort) [[unlikely]] return infty;
-        if (y < m) [[likely]] curr[y + 1] = infty;
-        prev.swap(curr);
-    }
-
-    return prev[m];
-}
-
-template <typename pos_t>
-static std::vector<aprx_occ_t<pos_t>> locate_edit_dist(const std::string& T, const std::string& P, pos_t k)
-{
-    pos_t n = T.size();
-    pos_t m = P.size();
-
-    pos_t l_min = std::max<int64_t>(0, int64_t{m} - int64_t{k});
-    pos_t l_max = m + k;
-
-    std::vector<aprx_occ_t<pos_t>> Occ;
-
-    for (pos_t i = 0; i < n; i++) {
-        aprx_occ_t<pos_t> occ{.pos = i, .len = 0, .err = k + 1};
-
-        for (pos_t l = l_min; l <= l_max; l++) {
-            if (i + l > n) [[unlikely]] break;
-            pos_t err = edit_dist_bounded<pos_t>(std::string_view(T.c_str() + i, l), P, k);
-            if (err < occ.err || (err == occ.err && l < occ.len)) {occ.err = err; occ.len = l;}
-        }
-
-        if (occ.err <= k) Occ.emplace_back(occ);
-    }
-
-    filter_aprx_occurrences<pos_t>(Occ, k);
-    return Occ;
-}
-
-template <typename pos_t>
-static void filter_aprx_occurrences(std::vector<aprx_occ_t<pos_t>>& data, pos_t k)
-{
-    static constexpr pos_t infty = std::numeric_limits<pos_t>::max();
-    aprx_occ_t<pos_t> prev {.pos = infty, .len = infty, .err = k + 1};
-    int64_t window = 2 * k;
-    pos_t write = 0;
-
-    for (pos_t read = 0; read < data.size(); ++read) {
-        const auto& occ = data[read];
-        int64_t dist = abs_diff<int64_t>(occ.pos, prev.pos);
-        if (dist == 0) continue;
-
-        if (dist <= window) {
-            if (occ.err > prev.err ||
-               (occ.err == prev.err && occ.len >= prev.len)
-            ) continue;
-
-            if (write > 0) [[likely]] --write;
-        }
-
-        data[write++] = occ;
-        prev = occ;
-    }
-
-    data.resize(write);
-}
-
-enum distance_metric_t : int8_t {
-    NO_METRIC = -1,
-    HAMMING_DISTANCE = 0,
-    EDIT_DISTANCE = 1
-};
-
-template <typename pos_t, distance_metric_t dist_metr>
-static std::vector<aprx_occ_t<pos_t>> locate(const std::string& T, const std::string& P, pos_t k)
-{
-    if constexpr (dist_metr == HAMMING_DISTANCE) return locate_hamming_dist<pos_t>(T, P, k);
-    if constexpr (dist_metr == EDIT_DISTANCE) return locate_edit_dist<pos_t>(T, P, k);
 }

@@ -163,7 +163,6 @@ void move_r<support, sym_t, pos_t>::construction::preprocess_t(bool in_memory, b
 
         idx.sigma = idx._map_int.size() + 1;
         idx.size_map_int = malloc_count_current() - alloc_before;
-        p_ = 1;
         no_init_resize(idx._map_ext, idx.sigma);
         idx._map_ext[0] = 0;
         pos_t sym_cur = 1;
@@ -216,6 +215,7 @@ void move_r<support, sym_t, pos_t>::construction::build_rlbwt_c()
 
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
 
+    p_ = byte_alphabet ? p : 1;
     r_p.resize(p_ + 1, 0);
     uint8_t width_bwt = byte_alphabet ? 1 : byte_width(idx.sigma);
     RLBWT.resize(p_, interleaved_byte_aligned_vectors<uint32_t, uint32_t>({ width_bwt, 4 }));
