@@ -119,26 +119,9 @@ void measure_revert()
         mf << "RESULT";
         mf << " algo=revert_move_r_" << move_r_support_suffix(support);
         mf << " text=" << name_text_file;
-        mf << " a=" << index.balancing_parameter();
         mf << " n=" << index.input_size();
-        mf << " sigma=" << std::to_string(index.alphabet_size());
-        mf << " r=" << index.num_bwt_runs();
-        mf << " r_=" << index.M_LF().num_intervals();
-
-        if constexpr (idx_t::supports_multiple_locate) {
-            if constexpr (idx_t::has_locate_move) {
-                mf << " r__=" << index.M_Phi_m1().num_intervals();
-            } else if constexpr (idx_t::has_rlzsa) {
-                mf << " z=" << index.num_phrases_rlzsa();
-                mf << " z_l=" << index.num_literal_phrases_rlzsa();
-                mf << " z_c=" << index.num_copy_phrases_rlzsa();
-            } if constexpr (idx_t::has_lzendsa) {
-                mf << " z=" << index.num_phrases_lzendsa();
-            }
-        }
-
-        index.log_data_structure_sizes(mf);
         mf << " time_revert=" << time_revert;
+        index.log_data_structure_sizes(mf);
         mf << std::endl;
         mf.close();
     }
@@ -165,38 +148,23 @@ int main(int argc, char** argv)
     index_file.seekg(0, std::ios::beg);
 
     if (_support == _count) {
-        if (is_64_bit) {
-            measure_revert<uint64_t, _count>();
-        } else {
-            measure_revert<uint32_t, _count>();
-        }
+        if (is_64_bit) measure_revert<uint64_t, _count>();
+        else           measure_revert<uint32_t, _count>();
     } else if (_support == _locate_one) {
-        if (is_64_bit) {
-            measure_revert<uint64_t, _locate_one>();
-        } else {
-            measure_revert<uint32_t, _locate_one>();
-        }
+        if (is_64_bit) measure_revert<uint64_t, _locate_one>();
+        else           measure_revert<uint32_t, _locate_one>();
     } else if (_support == _locate_move) {
-        if (is_64_bit) {
-            measure_revert<uint64_t, _locate_move>();
-        } else {
-            measure_revert<uint32_t, _locate_move>();
-        }
+        if (is_64_bit) measure_revert<uint64_t, _locate_move>();
+        else           measure_revert<uint32_t, _locate_move>();
     } else if (_support == _locate_rlzsa) {
-        if (is_64_bit) {
-            measure_revert<uint64_t, _locate_rlzsa>();
-        } else {
-            measure_revert<uint32_t, _locate_rlzsa>();
-        }
+        if (is_64_bit) measure_revert<uint64_t, _locate_rlzsa>();
+        else           measure_revert<uint32_t, _locate_rlzsa>();
+    } else if (_support == _locate_lzendsa) {
+        if (is_64_bit) measure_revert<uint64_t, _locate_lzendsa>();
+        else           measure_revert<uint32_t, _locate_lzendsa>();
     } else if (_support == _locate_rlzsa_bin_search) {
         help("error: this index does not support revert");
-    } else if (_support == _locate_lzendsa) {
-        if (is_64_bit) {
-            measure_revert<uint64_t, _locate_lzendsa>();
-        } else {
-            measure_revert<uint32_t, _locate_lzendsa>();
-        }
     }
 
-    output_file.close();
+    return 0;
 }

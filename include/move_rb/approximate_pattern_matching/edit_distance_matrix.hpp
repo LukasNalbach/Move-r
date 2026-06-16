@@ -101,7 +101,8 @@ class edit_distance_matrix
         uint16_t j_end = std::min<uint16_t>(input.size(), word_size - max_first_col_size);
 
         for (uint16_t j = 0; j < j_end; j++) {
-            match_vectors[map_sym(input[j])] |= bitmask;
+            uint8_t i_sym = map_int[char_to_uchar(input[j])];
+            if (i_sym != 0) match_vectors[i_sym - 1] |= bitmask;
             bitmask <<= 1;
         }
 
@@ -118,7 +119,8 @@ class edit_distance_matrix
             uint16_t j_end = std::min<uint16_t>(input.size(), j_beg + blk_size);
 
             for (uint16_t j = j_beg; j < j_end; j++) {
-                match_vectors[beg_b + map_sym(input[j])] |= bitmask;
+                uint8_t i_sym = map_int[char_to_uchar(input[j])];
+                if (i_sym != 0) match_vectors[beg_b + i_sym - 1] |= bitmask;
                 bitmask <<= 1;
             }
         }

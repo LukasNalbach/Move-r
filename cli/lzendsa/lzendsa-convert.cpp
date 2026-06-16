@@ -106,9 +106,8 @@ int main(int argc, char** argv)
     input_file.read((char*) &is_64_bit, sizeof(uint8_t));
     output_file.write((char*) &is_64_bit, sizeof(uint8_t));
 
-    if (!is_64_bit) {
-        convert<int32_t>();
-    } else {
-        convert<int64_t>();
-    }
+    if (!is_64_bit) convert<int32_t>();
+    else            convert<int64_t>();
+
+    return 0;
 }

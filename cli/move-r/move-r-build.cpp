@@ -205,7 +205,5 @@ int main(int argc, char** argv)
         }
     }
 
-    if (mf_idx.is_open()) mf_idx.close();
-    if (mf_mds.is_open()) mf_mds.close();
-    index_file.close();
+    return 0;
 }

@@ -123,7 +123,7 @@ void move_r<support, sym_t, pos_t>::construction::build_r()
                 do {
                     tries++;
                     beg = (*pos_distrib[i_p])(mt);
-                    end = beg + seg_size;
+                    end = std::min<pos_t>(beg + seg_size, n);
                     score = 0;
                     it = T_s.lower_bound(segment { beg, 0 });
 

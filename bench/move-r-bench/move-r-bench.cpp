@@ -188,7 +188,6 @@ int main_bench_a(int argc, char** argv)
         bench_a<uint64_t, int64_t>();
     }
 
-    if (mf.is_open()) mf.close();
     return 0;
 }
 
@@ -240,7 +239,6 @@ int main_bench_indexes(int argc, char** argv)
     patterns_file_1.close();
     patterns_file_2.close();
 
-    if (mf.is_open()) mf.close();
     return 0;
 }
 

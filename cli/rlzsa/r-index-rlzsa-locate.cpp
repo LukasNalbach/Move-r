@@ -141,9 +141,8 @@ int main(int argc, char** argv)
     bool is_64_bit;
     index_file.read((char*) &is_64_bit, sizeof(uint8_t));
 
-    if (!is_64_bit) {
-        locate<int32_t>(index_file, patterns_file, file_name, input_file);
-    } else {
-        locate<int64_t>(index_file, patterns_file, file_name, input_file);
-    }
+    if (!is_64_bit) locate<int32_t>(index_file, patterns_file, file_name, input_file);
+    else            locate<int64_t>(index_file, patterns_file, file_name, input_file);
+    
+    return 0;
 }

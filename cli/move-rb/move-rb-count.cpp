@@ -26,7 +26,7 @@
 
 #include <filesystem>
 #include <iostream>
-#include <move_r/move_rb.hpp>
+#include <move_rb/move_rb.hpp>
 
 static constexpr int min_args = 4;
 int arg_idx = 1;
@@ -154,31 +154,13 @@ void measure_count()
         mf << "RESULT";
         mf << " algo=count_move_rb_" << move_r_support_suffix(support);
         mf << " text=" << name_text_file;
-        mf << " a=" << index.forward_index().balancing_parameter();
         mf << " n=" << index.forward_index().input_size();
-        mf << " sigma=" << std::to_string(index.forward_index().alphabet_size());
-        mf << " r=" << index.forward_index().num_bwt_runs();
-        mf << " r_rev=" << index.backward_index().num_bwt_runs();
-        mf << " r_=" << index.forward_index().M_LF().num_intervals();
-        mf << " r_rev_=" << index.backward_index().M_LF().num_intervals();
-
-        if constexpr (idx_t::supports_multiple_locate) {
-            if constexpr (idx_t::has_locate_move) {
-                mf << " r__=" << index.forward_index().M_Phi_m1().num_intervals();
-                mf << " r___=" << index.forward_index().M_Phi().num_intervals();
-            } else if constexpr (idx_t::has_rlzsa) {
-                mf << " z=" << index.forward_index().num_phrases_rlzsa();
-                mf << " z_l=" << index.forward_index().num_literal_phrases_rlzsa();
-                mf << " z_c=" << index.forward_index().num_copy_phrases_rlzsa();
-            }
-        }
-
         mf << " pattern_length=" << pattern_length;
-        index.log_data_structure_sizes(mf);
         mf << " num_patterns=" << num_patterns;
         mf << " max_mismatches=" << k;
         mf << " num_occurrences=" << num_occurrences;
         mf << " time_count=" << time_count;
+        index.log_data_structure_sizes(mf);
         mf << std::endl;
         mf.close();
     }
@@ -240,22 +222,15 @@ int main(int argc, char** argv)
     index_file.seekg(0, std::ios::beg);
 
     if (_support == _count) {
-        if (is_64_bit) {
-            measure_count<uint64_t, _count>();
-        } else {
-            measure_count<uint32_t, _count>();
-        }
+        if (is_64_bit) measure_count<uint64_t, _count>();
+        else           measure_count<uint32_t, _count>();
     } else if (_support == _locate_move) {
-        if (is_64_bit) {
-            measure_count<uint64_t, _locate_move>();
-        } else {
-            measure_count<uint32_t, _locate_move>();
-        }
+        if (is_64_bit) measure_count<uint64_t, _locate_move>();
+        else           measure_count<uint32_t, _locate_move>();
     } else if (_support == _locate_rlzsa) {
-        if (is_64_bit) {
-            measure_count<uint64_t, _locate_rlzsa>();
-        } else {
-            measure_count<uint32_t, _locate_rlzsa>();
-        }
+        if (is_64_bit) measure_count<uint64_t, _locate_rlzsa>();
+        else           measure_count<uint32_t, _locate_rlzsa>();
     }
+    
+    return 0;
 }

@@ -173,29 +173,12 @@ void measure_locate()
         mf << "RESULT";
         mf << " algo=locate_move_r_" << move_r_support_suffix(support);
         mf << " text=" << name_text_file;
-        mf << " a=" << index.balancing_parameter();
         mf << " n=" << index.input_size();
-        mf << " sigma=" << std::to_string(index.alphabet_size());
-        mf << " r=" << index.num_bwt_runs();
-        mf << " r_=" << index.M_LF().num_intervals();
-
-        if constexpr (idx_t::supports_multiple_locate) {
-            if constexpr (idx_t::has_locate_move) {
-                mf << " r__=" << index.M_Phi_m1().num_intervals();
-            } else if constexpr (idx_t::has_rlzsa) {
-                mf << " z=" << index.num_phrases_rlzsa();
-                mf << " z_l=" << index.num_literal_phrases_rlzsa();
-                mf << " z_c=" << index.num_copy_phrases_rlzsa();
-            } if constexpr (idx_t::has_lzendsa) {
-                mf << " z=" << index.num_phrases_lzendsa();
-            }
-        }
-
         mf << " pattern_length=" << pattern_length;
-        index.log_data_structure_sizes(mf);
         mf << " num_patterns=" << num_patterns;
         mf << " num_occurrences=" << num_occurrences;
         mf << " time_locate=" << time_locate;
+        index.log_data_structure_sizes(mf);
         mf << std::endl;
         mf.close();
     }
@@ -229,28 +212,18 @@ int main(int argc, char** argv)
     if (_support == _count || _support == _locate_one) {
         help("error: this index does not support locate");
     } else if (_support == _locate_move) {
-        if (is_64_bit) {
-            measure_locate<uint64_t, _locate_move>();
-        } else {
-            measure_locate<uint32_t, _locate_move>();
-        }
+        if (is_64_bit) measure_locate<uint64_t, _locate_move>();
+        else           measure_locate<uint32_t, _locate_move>();
     } else if (_support == _locate_rlzsa) {
-        if (is_64_bit) {
-            measure_locate<uint64_t, _locate_rlzsa>();
-        } else {
-            measure_locate<uint32_t, _locate_rlzsa>();
-        }
+        if (is_64_bit) measure_locate<uint64_t, _locate_rlzsa>();
+        else           measure_locate<uint32_t, _locate_rlzsa>();
     } else if (_support == _locate_rlzsa_bin_search) {
-        if (is_64_bit) {
-            measure_locate<uint64_t, _locate_rlzsa_bin_search>();
-        } else {
-            measure_locate<uint32_t, _locate_rlzsa_bin_search>();
-        }
+        if (is_64_bit) measure_locate<uint64_t, _locate_rlzsa_bin_search>();
+        else           measure_locate<uint32_t, _locate_rlzsa_bin_search>();
     } else if (_support == _locate_lzendsa) {
-        if (is_64_bit) {
-            measure_locate<uint64_t, _locate_lzendsa>();
-        } else {
-            measure_locate<uint32_t, _locate_lzendsa>();
-        }
+        if (is_64_bit) measure_locate<uint64_t, _locate_lzendsa>();
+        else           measure_locate<uint32_t, _locate_lzendsa>();
     }
+
+    return 0;
 }

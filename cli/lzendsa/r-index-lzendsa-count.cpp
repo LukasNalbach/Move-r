@@ -112,9 +112,8 @@ int main(int argc, char** argv)
     bool is_64_bit;
     index_file.read((char*) &is_64_bit, sizeof(uint8_t));
 
-    if (!is_64_bit) {
-        count<int32_t>(index_file, patterns_file, file_name);
-    } else {
-        count<int64_t>(index_file, patterns_file, file_name);
-    }
+    if (!is_64_bit) count<int32_t>(index_file, patterns_file, file_name);
+    else            count<int64_t>(index_file, patterns_file, file_name);
+    
+    return 0;
 }

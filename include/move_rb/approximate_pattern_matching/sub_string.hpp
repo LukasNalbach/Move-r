@@ -29,11 +29,11 @@
 #include <cstdint>
 #include <string>
 
-#include "utils.hpp"
+#include <misc/utils.hpp>
 
 template <typename pos_t>
 class sub_string {
-  private:
+  protected:
     const std::string& string;
     pos_t start = 1;
     pos_t end = 0;
