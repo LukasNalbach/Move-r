@@ -32,13 +32,23 @@
 // The number of patterns in each file is auto-calibrated (using a move_rb index)
 // so that running that file's operation takes approximately a target duration.
 
+#include <algorithm>
+#include <cerrno>
+#include <chrono>
+#include <climits>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include <poll.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <move_rb/move_rb.hpp>
 
@@ -55,6 +65,8 @@ bool gen_count = true;             // generate the count-pattern files
 bool gen_locate = true;            // generate the locate-pattern files
 uint64_t min_patterns = 1;         // at least this many patterns per file
 uint64_t seed = 0;                 // RNG seed (0 => random)
+double   timeout_seconds = 10.0;      // per-pattern query timeout (0 => disabled)
+uint64_t max_consecutive_skips = 10; // give up on a (k, m) after this many timeouts in a row
 
 std::vector<int64_t>  ks = {4, 7, 10, 13};
 std::vector<uint64_t> ms = {10, 20, 40, 80, 160, 320, 640, 1280};
@@ -83,9 +95,12 @@ void help(std::string msg)
     std::cout << "   --only <ops>      restrict to count or locate files: count, locate or count,locate (default: both)" << std::endl;
     std::cout << "   --min <N>         minimum number of patterns per file (default: 1)" << std::endl;
     std::cout << "   --seed <s>        seed for the random pattern positions (default: random)" << std::endl;
+    std::cout << "   --timeout <s>     per-pattern query timeout in seconds; a query exceeding it is run" << std::endl;
+    std::cout << "                     in a forked child, SIGKILLed and the pattern discarded (0 = off, default: 10)" << std::endl;
+    std::cout << "   --max-skips <N>   give up on a (k,m) after this many consecutive timeouts (default: 10)" << std::endl;
     std::cout << "   <input_file>      the text the index was built for" << std::endl;
     std::cout << "   <move_rb_index>   a move_rb index (.move-rb or .move-rb-rlzsa) of <input_file>" << std::endl;
-    std::cout << "   <target_seconds>  target count/locate duration per pattern file, in seconds (e.g. 0.5)" << std::endl;
+    std::cout << "   <target_seconds>  target count/locate duration per pattern file, in seconds" << std::endl;
     exit(0);
 }
 
@@ -104,6 +119,80 @@ search_scheme_t make_scheme(int64_t k)
     if (scheme_str == "min_u")         return min_u_scheme(k);
     if (scheme_str == "01")            return zero_one_scheme(k);
     return min_u_scheme(k); // default: min_u
+}
+
+/**
+ * @brief runs a query in a forked child process, enforcing a wall-clock timeout
+ * @tparam query_fnc_t a callable returning the query's result count
+ * @param timeout_ns the timeout in nanoseconds; 0 disables it (the query runs in-process)
+ * @param query the query to run (executed in the child process when a timeout is set)
+ * @return the result count if the query finished in time, or std::nullopt if it was killed for
+ *         exceeding the timeout (or could not be run out-of-process)
+ *
+ * The index is read-only, so the child shares it copy-on-write and only the resulting count is
+ * sent back through a pipe. On timeout the child is SIGKILLed, so a runaway query is stopped
+ * immediately and the OS reclaims all of its resources (rather than letting it run on in the
+ * background). The child uses _exit() so it never flushes the parent's stdio buffers.
+ */
+template <typename query_fnc_t>
+std::optional<uint64_t> run_with_timeout(uint64_t timeout_ns, query_fnc_t query)
+{
+    if (timeout_ns == 0) return query(); // timeout disabled: run in-process
+
+    int fds[2];
+    if (pipe(fds) != 0) return query(); // pipe failed: fall back to in-process
+
+    pid_t pid = fork();
+
+    if (pid < 0) { // fork failed: fall back to in-process
+        close(fds[0]);
+        close(fds[1]);
+        return query();
+    }
+
+    if (pid == 0) {
+        // child: run the query, send the count back and exit without running any cleanup
+        close(fds[0]);
+        uint64_t c = query();
+        ssize_t written = write(fds[1], &c, sizeof(c));
+        (void) written;
+        close(fds[1]);
+        _exit(0);
+    }
+
+    // parent: wait for the child's result, but at most timeout_ns
+    close(fds[1]);
+    std::optional<uint64_t> result;
+
+    auto deadline = now() + std::chrono::nanoseconds(timeout_ns);
+    pollfd pfd;
+    pfd.fd = fds[0];
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    bool timed_out = false;
+
+    while (true) {
+        int64_t remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now()).count();
+        if (remaining_ms <= 0) { timed_out = true; break; }
+        if (remaining_ms > INT_MAX) remaining_ms = INT_MAX;
+
+        int pr = poll(&pfd, 1, (int) remaining_ms);
+        if (pr < 0) { if (errno == EINTR) continue; timed_out = true; break; } // poll error
+        if (pr == 0) { timed_out = true; break; }                              // timeout elapsed
+        break;                                                                 // child produced output
+    }
+
+    if (!timed_out) {
+        uint64_t c = 0;
+        // a short read means the child died before sending a full result -> treat as a failure
+        if (read(fds[0], &c, sizeof(c)) == (ssize_t) sizeof(c)) result = c;
+    } else {
+        kill(pid, SIGKILL); // stop the runaway query
+    }
+
+    close(fds[0]);
+    waitpid(pid, nullptr, 0); // reap the child (also after SIGKILL)
+    return result;
 }
 
 // ############################# GENERATION #############################
@@ -130,6 +219,7 @@ void generate()
     uint64_t text_size = tf.tellg();
 
     const uint64_t target_ns = (uint64_t) (target_seconds * 1e9);
+    const uint64_t timeout_ns = (uint64_t) (timeout_seconds * 1e9);
     std::mt19937_64 rng(seed != 0 ? seed : std::random_device{}());
 
     std::vector<query_type_t> types;
@@ -156,7 +246,7 @@ void generate()
                 std::vector<aprx_occ_t<pos_t>> occ;
                 std::uniform_int_distribution<uint64_t> pos_distrib(0, text_size - m - 1);
 
-                uint64_t n = 0, total_ns = 0, total_occ = 0;
+                uint64_t n = 0, total_ns = 0, total_occ = 0, skipped = 0, consecutive_skips = 0;
 
                 // add patterns until the accumulated time reaches the target
                 // (a single very expensive pattern still yields one pattern)
@@ -165,10 +255,10 @@ void generate()
                     tf.read(pattern.data(), m);
 
                     auto t1 = now();
-                    uint64_t c;
-                    if (type.is_count) {
-                        c = index.count_hamming_dist(pattern, scheme); // count is hamming-distance only
-                    } else {
+                    std::optional<uint64_t> c = run_with_timeout(timeout_ns, [&]() -> uint64_t {
+                        if (type.is_count) {
+                            return index.count_hamming_dist(pattern, scheme); // count is hamming-distance only
+                        }
                         occ.clear();
                         if (type.is_edit) {
                             index.template locate<EDIT_DISTANCE>(pattern, scheme,
@@ -179,13 +269,35 @@ void generate()
                             index.template locate<HAMMING_DISTANCE>(pattern, scheme,
                                 [&](aprx_occ_t<pos_t> o) { occ.emplace_back(o); });
                         }
-                        c = occ.size();
+                        return occ.size();
+                    });
+                    uint64_t elapsed_ns = time_diff_ns(t1);
+
+                    // the query exceeded the timeout: discard this pattern and try another, unless
+                    // too many in a row time out (then this (k, m) is just too slow to benchmark)
+                    if (!c.has_value()) {
+                        skipped++;
+                        if (++consecutive_skips > max_consecutive_skips) {
+                            std::cerr << "giving up on " << type.op << "-" << type.metric
+                                      << " k" << k << " m" << m << " after " << consecutive_skips
+                                      << " consecutive timeouts" << std::endl;
+                            break;
+                        }
+                        continue;
                     }
-                    total_occ += c;
-                    total_ns += time_diff_ns(t1);
+                    consecutive_skips = 0;
+
+                    total_occ += *c;
+                    total_ns += elapsed_ns;
 
                     buffer.append(pattern);
                     n++;
+                }
+
+                if (n == 0) {
+                    std::cerr << "warning: no pattern for " << type.op << "-" << type.metric
+                              << " k" << k << " m" << m << " completed within the timeout; "
+                              << "writing an empty pattern file" << std::endl;
                 }
 
                 std::string fname = (std::filesystem::path(out_dir) / (text_name + ".patterns-" +
@@ -196,10 +308,12 @@ void generate()
                 of.close();
 
                 std::cout << type.op << "-" << type.metric << " k" << k << " m" << m
-                          << ": " << n << " patterns, "
-                          << (total_ns / 1e9) << "s ("
-                          << (total_ns / n) / 1e3 << " us/pattern, "
-                          << (total_occ / n) << " occ/pattern)" << std::endl;
+                          << ": " << n << " patterns";
+                if (skipped > 0) std::cout << " (" << skipped << " skipped)";
+                std::cout << ", " << (total_ns / 1e9) << "s";
+                if (n > 0) std::cout << " (" << (total_ns / n) / 1e3 << " us/pattern, "
+                                     << (total_occ / n) << " occ/pattern)";
+                std::cout << std::endl;
             }
         }
     }
@@ -220,6 +334,8 @@ int main(int argc, char** argv)
         else if (o == "-s") scheme_str = need("-s");
         else if (o == "--min")  min_patterns = std::stoull(need("--min"));
         else if (o == "--seed") seed = std::stoull(need("--seed"));
+        else if (o == "--timeout")   timeout_seconds = std::stod(need("--timeout"));
+        else if (o == "--max-skips") max_consecutive_skips = std::stoull(need("--max-skips"));
         else if (o == "-k") { ks.clear(); for (auto& v : split_csv(need("-k"))) ks.push_back(std::stoll(v)); }
         else if (o == "-m") { ms.clear(); for (auto& v : split_csv(need("-m"))) ms.push_back(std::stoull(v)); }
         else if (o == "--only") {
@@ -238,6 +354,7 @@ int main(int argc, char** argv)
     target_seconds = std::stod(argv[i++]);
 
     if (target_seconds <= 0) help("error: <target_seconds> must be > 0");
+    if (timeout_seconds < 0) help("error: --timeout must be >= 0");
     if (min_patterns < 1) min_patterns = 1;
     if (scheme_str != "pigeon_hole" && scheme_str != "suffix_filter" &&
         scheme_str != "min_u" && scheme_str != "01")
