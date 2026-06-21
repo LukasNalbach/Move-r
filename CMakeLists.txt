@@ -243,7 +243,7 @@ if(MOVE_R_BUILD_BENCH)
   ############################# move-r #############################
 
   move_r_add_tool(move-r-bench bench/move-r-bench/move-r-bench.cpp
-    "${CMAKE_BINARY_DIR}/cli/" rcomp r-index-f r-index OnlineRlbwt)
+    "${CMAKE_BINARY_DIR}/bench/" rcomp r-index-f r-index OnlineRlbwt)
 endif()
 
 ############################# move_rb approximate-pattern-matching benchmark #############################
@@ -270,9 +270,9 @@ if(MOVE_R_BUILD_BENCH)
   target_link_libraries(br_index INTERFACE sdsl divsufsort divsufsort64)
 
   move_r_add_tool(move-rb-bench bench/move_rb_bench/move-rb-bench.cpp
-    "${CMAKE_BINARY_DIR}/cli/" br_index bmove)
+    "${CMAKE_BINARY_DIR}/bench/" br_index bmove)
   move_r_add_tool(move-rb-queries bench/move_rb_bench/move-rb-queries.cpp
-    "${CMAKE_BINARY_DIR}/cli/")
+    "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
 ############################# move-r internal bench #############################
