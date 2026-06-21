@@ -381,7 +381,7 @@ static std::vector<aprx_occ_t<pos_t>> locate_edit_dist_bp(
 
             if (b_m >= 0 && b_m < W) {
                 word_t lo = b_m >= 1 ? (word_t(2) << b_m) - 2 : 0;
-                int64_t err = base + popcount<word_t>(vp & lo) - popcount<word_t>(vn & lo);
+                int64_t err = base + ::popcount(vp & lo) - ::popcount(vn & lo);
                 consider(j, std::min(err, infty));
             }
         }

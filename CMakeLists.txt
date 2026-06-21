@@ -65,11 +65,11 @@ endif()
 
 # sdsl
 set(INCLUDE_DIRS "$ENV{HOME}/include" "$ENV{HOME}/local/include" "/usr/include" "/usr/local/include")
-set(LIB_DIRS "$ENV{HOME}/lib" "$ENV{HOME}/local/lib /usr/lib" "/usr/local/lib")
-find_path(SDSL_INCLUDE_DIR NAMES sdsl PATHS ${INCLUDE_DIRS})
-find_library(SDSL_LIBRARY NAMES sdsl PATHS ${LIB_DIRS})
-find_library(DIVSUFSORT_LIBRARY NAMES divsufsort PATHS ${LIB_DIRS})
-find_library(DIVSUFSORT64_LIBRARY NAMES divsufsort64 PATHS ${LIB_DIRS})
+set(LIB_DIRS "$ENV{HOME}/lib" "$ENV{HOME}/local/lib" "/usr/lib" "/usr/local/lib")
+find_path(SDSL_INCLUDE_DIR NAMES sdsl HINTS ${INCLUDE_DIRS})
+find_library(SDSL_LIBRARY NAMES sdsl HINTS ${LIB_DIRS})
+find_library(DIVSUFSORT_LIBRARY NAMES divsufsort HINTS ${LIB_DIRS})
+find_library(DIVSUFSORT64_LIBRARY NAMES divsufsort64 HINTS ${LIB_DIRS})
 
 if(NOT SDSL_INCLUDE_DIR OR NOT SDSL_LIBRARY)
   message(FATAL_ERROR "SDSL library not found")
