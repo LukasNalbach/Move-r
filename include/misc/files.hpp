@@ -30,7 +30,7 @@
 #include <string>
 #include <iostream>
 #include <fstream>
-#include <limits>
+#include <climits>
 
 /**
  * @brief prints an error message about a malformed patterns-file header and exits
