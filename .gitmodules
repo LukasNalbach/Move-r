@@ -54,3 +54,15 @@
 [submodule "external/googletest"]
 	path = external/googletest
 	url = https://github.com/google/googletest.git
+[submodule "external/b-move"]
+	path = external/b-move
+	url = https://github.com/biointec/b-move.git
+[submodule "external/br-index"]
+	path = external/br-index
+	url = https://github.com/U-Ar/br-index.git
+[submodule "external/fmt"]
+	path = external/fmt
+	url = https://github.com/fmtlib/fmt.git
+[submodule "external/parallel-hashmap"]
+	path = external/parallel-hashmap
+	url = https://github.com/greg7mdp/parallel-hashmap.git

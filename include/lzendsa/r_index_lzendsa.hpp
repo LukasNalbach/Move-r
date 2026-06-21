@@ -33,8 +33,12 @@
 
 #include <algorithms/build_sa_and_bwt.hpp>
 #include <custom_r_index/custom_r_index.hpp>
-#include <algorithms/sparse_sa_bin_search.cpp>
+#include <algorithms/sparse_sa_bin_search.tpp>
 
+/**
+ * @brief an r-index combined with an LZ-End encoding of the differential suffix array for locating
+ * @tparam int_t signed integer type of the suffix array entries
+ */
 template<typename int_t = int32_t>
 class r_index_lzendsa {
 
@@ -45,6 +49,13 @@ protected:
 public:
     r_index_lzendsa() = default;
 
+    /**
+     * @brief builds the index from the input text
+     * @param input the input text
+     * @param h the maximum phrase length (default: 8192)
+     * @param use_bigbwt whether to use Big-BWT to build the suffix array and BWT
+     * @param log whether to print log messages
+     */
     r_index_lzendsa(std::string& input, int_t h = 8192, bool use_bigbwt = false, bool log = false)
     {
         auto time_start = now();
@@ -55,45 +66,48 @@ public:
         uint64_t n = sa.size();
 
         // build r-index
-        if (log) time = now();
-        if (log) std::cout << "building r-index" << std::flush;
+        log_phase_start(log, time, "building r-index");
         r_idx = custom_r_index::index<_run_ends>(bwt, sa, true);
         bwt.clear();
         bwt.shrink_to_fit();
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
 
         // construct differential suffix array (DSA)
-        if (log) std::cout << "building Differential Suffix Array (DSA)" << std::flush;
+        log_phase_start(log, time, "building Differential Suffix Array (DSA)");
         auto& dsa = sa;
 
         for (uint64_t i = n - 1; i > 0; i--) {
             dsa[i] = sa[i] - sa[i - 1];
         }
 
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
         
         // compute lzend parsing
-        if (log) std::cout << "building LZ-End parsing:" << std::endl;
+        log_message(log, "building LZ-End parsing:\n");
         std::vector<lzend_phr_t<int_t>> lzend_phrases = construct_lzend_of_reverse<int_t>(dsa, h, log);
-        if (log) time = now();
 
-        if (log) std::cout << "transforming DSA to SA" << std::flush;
+        log_phase_start(log, time, "transforming DSA to SA");
 
         // make SA out of DSA
         for (uint64_t i = 1; i < n; i++) {
             sa[i] = dsa[i] + dsa[i - 1];
         }
 
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
 
         // construct lzend encoding
-        if (log) std::cout << "Encoding LZ-End parsing" << std::flush;
+        log_phase_start(log, time, "Encoding LZ-End parsing");
         lzendsa_enc = lzendsa_encoding(lzend_phrases, n, h);
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
         
-        if (log) std::cout << "r-index-lzendsa built in " << format_time(time_diff_ns(time_start, now())) << std::endl;
+        log_message(log, "r-index-lzendsa built in " + format_time(time_diff_ns(time_start, now())) + "\n");
     }
 
+    /**
+     * @brief locates the occurrences of pattern in the input
+     * @param pattern the pattern to locate
+     * @return the starting positions of the occurrences of pattern in the input
+     */
     std::vector<int_t> locate(const std::string &pattern) const
     {
         auto [beg, end, last_value] = r_idx.count_and_get_occ(pattern);
@@ -114,59 +128,104 @@ public:
         return result;
     }
 
-    // return a reference to the r_index
+    /**
+     * @brief returns a reference to the r-index
+     * @return the r-index
+     */
     const custom_r_index::index<_run_ends>& r_index() const
     {
         return r_idx;
     }
 
-    // return a reference to the lzendsa_encoding
+    /**
+     * @brief returns a reference to the LZ-End encoding
+     * @return the LZ-End encoding
+     */
     const lzendsa_encoding& sa_encoding() const
     {
         return lzendsa_enc;
     }
 
+    /**
+     * @brief counts the occurrences of pattern in the input
+     * @param pattern the pattern to count
+     * @return the suffix array interval [beg, end] of the pattern
+     */
     std::pair<uint64_t, uint64_t> count(std::string &pattern) const
     {
         return r_idx.count(pattern);
     }
 
+    /**
+     * @brief returns the size of the input text
+     * @return the size of the input text
+     */
     uint64_t input_size() const
     {
         return lzendsa_enc.input_size();
     }
 
+    /**
+     * @brief returns the number of phrases in the LZ-End encoding
+     * @return the number of phrases
+     */
     uint64_t num_phrases() const
     {
         return lzendsa_enc.num_phrases();
     }
 
+    /**
+     * @brief returns the number of suffix array samples (one per BWT run)
+     * @return the number of suffix array samples
+     */
     uint64_t num_samples() const
     {
         return r_idx.num_bwt_runs();
     }
 
+    /**
+     * @brief returns the i-th suffix array sample
+     * @param i a sample index
+     * @return the i-th suffix array sample
+     */
     uint64_t sample(uint64_t i) const
     {
         return r_idx.sample(i);
     }
 
+    /**
+     * @brief returns the position in the suffix array of the i-th sample
+     * @param i a sample index
+     * @return the position in SA of the i-th sample
+     */
     uint64_t sample_pos(uint64_t i) const
     {
         return r_idx.sample_pos(i);
     }
 
+    /**
+     * @brief returns the size of the data structure in bytes
+     * @return the size of the data structure in bytes
+     */
     uint64_t size_in_bytes() const
     {
         return sizeof(this) + lzendsa_enc.size_in_bytes() + r_idx.size_in_bytes();
     }
 
+    /**
+     * @brief serializes the index to an output stream
+     * @param out output stream
+     */
     void serialize(std::ostream &out) const
     {
         lzendsa_enc.serialize(out);
         r_idx.serialize(out);
     }
 
+    /**
+     * @brief loads the index from an input stream
+     * @param in input stream
+     */
     void load(std::istream &in)
     {
         lzendsa_enc.load(in);

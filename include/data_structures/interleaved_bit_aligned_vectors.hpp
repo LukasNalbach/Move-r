@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <iostream>
@@ -33,6 +34,25 @@
 
 #include <misc/utils.hpp>
 #include <misc/files.hpp>
+
+/**
+ * @brief atomically overwrites the bits selected by submask of the 64-bit word with the
+ *        corresponding bits of subval (all other bits of the word are preserved); this makes
+ *        concurrent writes to disjoint bit-fields that share a 64-bit word race-free
+ * @param word reference to the aligned 64-bit word to update
+ * @param submask mask selecting the bits to overwrite
+ * @param subval new values for the selected bits (must be zero outside submask)
+ */
+static inline void atomic_store_bits(uint64_t& word, uint64_t submask, uint64_t subval)
+{
+    uint64_t expected = __atomic_load_n(&word, __ATOMIC_RELAXED);
+    uint64_t desired;
+
+    do {
+        desired = (expected & ~submask) | subval;
+    } while (!__atomic_compare_exchange_n(&word, &expected, desired,
+        true, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+}
 
 /**
  * @brief variable-width word-packed interleaved vectors (the maximum supported width is 64 bits)
@@ -71,6 +91,10 @@ protected:
     // [0 .. num_vectors - 1] masks that are used to mask off data of other vector entries when accessing a vector
     std::array<wide_t, num_vectors> masks;
 
+    // padding (in bytes) appended to data_vectors so that the wide (block) read/write and the aligned
+    // 64-bit atomic-word writes (set_parallel) of the last entry stay in bounds (independent of size)
+    static constexpr uint64_t padding = std::max<uint64_t>(sizeof(wide_t), sizeof(uint64_t));
+
     /**
      * @brief initializes the interleaved_bit_aligned_vectors with the vector-widths stored in widths
      * @param widths vector containing the widths (in bits) of the interleaved arrays
@@ -100,6 +124,8 @@ protected:
 
     /**
      * @brief returns the combined size (in bytes) of all vectors for a given vector size
+     * @param size number of entries per vector
+     * @return the combined size (in bytes) of all vectors
      */
     uint64_t byte_size(uint64_t size) const
     {
@@ -156,7 +182,7 @@ public:
 
     /**
      * @brief returns the width in bits of the vector with index vec_idx
-     * @param vec_idx vector index
+     * @tparam vec_idx vector index
      * @return its witdth in bits
      */
     template <uint8_t vec_idx>
@@ -165,11 +191,21 @@ public:
         return widths[vec_idx];
     }
 
+    /**
+     * @brief reads the wide_t-sized block of data starting at byte byte_idx
+     * @param byte_idx byte index into the interleaved data
+     * @return the wide_t-sized block of data starting at byte byte_idx
+     */
     inline wide_t read_block(uint64_t byte_idx) const
     {
         return *reinterpret_cast<const wide_t*>(&data_vectors[byte_idx]);
     }
 
+    /**
+     * @brief returns a writable reference to the wide_t-sized block of data starting at byte byte_idx
+     * @param byte_idx byte index into the interleaved data
+     * @return reference to the wide_t-sized block of data starting at byte byte_idx
+     */
     inline wide_t& block(uint64_t byte_idx)
     {
         return *reinterpret_cast<wide_t*>(&data_vectors[byte_idx]);
@@ -178,6 +214,7 @@ public:
     /**
      * @brief returns a pointer of type T to the ith byte in the data of the interleved vectors
      * @tparam T type
+     * @param i byte index into the interleaved data
      * @return pointer of type T to the ith byte in the data of the interleved vectors
      */
     template <typename T = char>
@@ -208,10 +245,14 @@ public:
             uint64_t num_old_bytes = byte_size(capacity_vectors);
             uint64_t num_new_bytes = byte_size(capacity);
 
+            // pad by padding bytes so the wide (block) and aligned 64-bit (set_parallel) read/write of
+            // the last entry stays in bounds
             std::vector<char> new_data_vectors;
-            no_init_resize(new_data_vectors, num_new_bytes);
-            uint64_t last_block_idx = num_new_bytes / sizeof(val_t) - 1;
-            reinterpret_cast<val_t*>(new_data_vectors.data())[last_block_idx] = 0;
+            no_init_resize(new_data_vectors, num_new_bytes + padding);
+
+            for (uint64_t i = num_old_bytes; i < num_new_bytes + padding; i++) {
+                new_data_vectors[i] = 0;
+            }
 
             #pragma omp parallel for num_threads(num_threads)
             for (uint64_t i = 0; i < num_old_bytes; i++) {
@@ -275,7 +316,7 @@ public:
     {
         if (size_vectors < capacity_vectors) {
             capacity_vectors = std::max<uint64_t>(2, size_vectors);
-            data_vectors.resize(byte_size(capacity_vectors));
+            data_vectors.resize(byte_size(capacity_vectors) + padding);
             data_vectors.shrink_to_fit();
         }
     }
@@ -307,27 +348,91 @@ public:
     /**
      * @brief sets the i-th entry in the vector with index vec_idx to v
      * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @tparam T type of the value to store
      * @param i entry index (0 <= i < size_vectors)
      * @param v value to store
      */
-    template <uint8_t vec_idx>
-    inline void set(uint64_t i, val_t v)
+    template <uint8_t vec_idx, typename T = val_t>
+    inline void set(uint64_t i, T v)
     {
         auto [byte_idx, bit_offs] = block_info<vec_idx>(i);
-        block(byte_idx) = (read_block(byte_idx) & ~(masks[vec_idx] << bit_offs)) | (wide_t{v} << bit_offs);
+        block(byte_idx) = (read_block(byte_idx) & ~(masks[vec_idx] << bit_offs)) | ((wide_t(v) & masks[vec_idx]) << bit_offs);
+    }
+
+    /**
+     * @brief alias for set(); provided for API-compatibility with interleaved_byte_aligned_vectors
+     *        (bit-packed entries are always written safely, so there is no separate unsafe path)
+     * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @tparam T type of the value to store
+     * @param i entry index (0 <= i < size_vectors)
+     * @param v value to store
+     */
+    template <uint8_t vec_idx, typename T = val_t>
+    inline void set_unsafe(uint64_t i, T v)
+    {
+        set<vec_idx, T>(i, v);
+    }
+
+    /**
+     * @brief sets the i-th entry in the vector with index vec_idx to v; unlike set(), this may be
+     *        called concurrently for distinct entries (or distinct vectors of the same entry), even
+     *        when their bit-fields share a byte. Concurrent writes to the same (i, vec_idx) field are 
+     *        not supported.
+     * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @tparam T type of the value to store
+     * @param i entry index (0 <= i < size_vectors)
+     * @param v value to store
+     */
+    template <uint8_t vec_idx, typename T = val_t>
+    inline void set_parallel(uint64_t i, T v)
+    {
+        static_assert(vec_idx < num_vectors);
+
+        // a field of <= 64 bits spans at most two 64-bit words; write each word's portion
+        // atomically so concurrent writes to neighbouring fields sharing a word do not race
+        uint64_t bit_pos = i * width_entry + offsets[vec_idx];
+        uint64_t width = widths[vec_idx];
+        uint64_t val = uint64_t(val_t(v)) & uint64_t(masks[vec_idx]);
+
+        uint64_t* words = reinterpret_cast<uint64_t*>(data_vectors.data());
+        uint64_t word_idx = bit_pos >> 6; // bit_pos / 64
+        uint64_t bit_offs = bit_pos & 63; // bit_pos % 64
+        uint64_t bits_lo = std::min<uint64_t>(64 - bit_offs, width); // bits stored in the first word
+
+        uint64_t mask_lo = (bits_lo == 64 ? ~uint64_t{0} : ((uint64_t{1} << bits_lo) - 1)) << bit_offs;
+        atomic_store_bits(words[word_idx], mask_lo, (val << bit_offs) & mask_lo);
+
+        if (bits_lo < width) { // the field continues in the next 64-bit word
+            uint64_t mask_hi = (uint64_t{1} << (width - bits_lo)) - 1;
+            atomic_store_bits(words[word_idx + 1], mask_hi, (val >> bits_lo) & mask_hi);
+        }
     }
 
     /**
      * @brief returns the i-th entry in the vector with index vec_idx
      * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @tparam T type to return the entry as
      * @param i entry index (0 <= i < size_vectors)
      * @return the i-th entry in the vector with index vec_idx
      */
-    template <uint8_t vec_idx>
-    inline val_t get(uint64_t i) const
+    template <uint8_t vec_idx, typename T = val_t>
+    inline T get(uint64_t i) const
     {
         auto [byte_idx, bit_offs] = block_info<vec_idx>(i);
-        return (read_block(byte_idx) >> bit_offs) & masks[vec_idx];
+        return T((read_block(byte_idx) >> bit_offs) & masks[vec_idx]);
+    }
+
+    /**
+     * @brief alias for get(); provided for API-compatibility with interleaved_byte_aligned_vectors
+     * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @tparam T type to return the entry as
+     * @param i entry index (0 <= i < size_vectors)
+     * @return the i-th entry in the vector with index vec_idx
+     */
+    template <uint8_t vec_idx, typename T = val_t>
+    inline T get_unsafe(uint64_t i) const
+    {
+        return get<vec_idx, T>(i);
     }
 
     /**
@@ -337,13 +442,31 @@ public:
     inline void emplace_back(std::array<val_t, num_vectors> vals)
     {
         if (size_vectors == capacity_vectors) {
-            reserve(1.5 * size_vectors);
+            reserve(size_vectors + std::max<uint64_t>(1, size_vectors / 2));
         }
 
         for_constexpr<0, num_vectors, 1>([&](auto vec_idx) {
             set<vec_idx>(size_vectors, vals[vec_idx]);
         });
 
+        size_vectors++;
+    }
+
+    /**
+     * @brief appends a single value to the end of the interleaved vectors, setting only the vector
+     *        with index vec_idx (the other vectors of the new entry are left zero-initialized)
+     * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @tparam T type of the value to append
+     * @param val value to append
+     */
+    template <uint8_t vec_idx = 0, typename T = val_t>
+    inline void emplace_back(T val)
+    {
+        if (size_vectors == capacity_vectors) {
+            reserve(size_vectors + std::max<uint64_t>(1, size_vectors / 2));
+        }
+
+        set<vec_idx, T>(size_vectors, val);
         size_vectors++;
     }
 
@@ -370,12 +493,12 @@ public:
 
             for_constexpr<0, num_vectors, 1>([&](auto vec_idx){
                 if (widths[vec_idx] != 0) {
-                    std::cout << get<vec_idx>(i) << (vec_idx == last_used_vec ? "" : ", ");
+                    std::cout << get<vec_idx>(i) << (vec_idx == last_used_vec ? "" : " ");
                 }
             });
 
             std::cout << closing_bracket_str;
-            if (i != size_vectors - 1) std::cout << ", ";
+            if (i != size_vectors - 1) std::cout << " ";
         }
         
         std::cout << std::endl;
@@ -391,7 +514,8 @@ public:
         out.write((char*) widths.data(), num_vectors * sizeof(uint64_t));
 
         if (size_vectors > 0) {
-            write_to_file(out, data_vectors.data(), data_vectors.size());
+            // write only the bytes actually holding entries (capacity and padding are scratch)
+            write_to_file(out, data_vectors.data(), byte_size(size_vectors));
         }
     }
 
@@ -408,16 +532,26 @@ public:
 
         if (old_size > 0) {
             resize_no_init(old_size);
-            read_from_file(in, data_vectors.data(), data_vectors.size());
+            read_from_file(in, data_vectors.data(), byte_size(old_size));
         }
     }
 
+    /**
+     * @brief serializes the interleaved vectors to an output stream
+     * @param os output stream
+     * @return the output stream
+     */
     std::ostream& operator>>(std::ostream& os) const
     {
         serialize(os);
         return os;
     }
 
+    /**
+     * @brief loads the interleaved vectors from an input stream
+     * @param is input stream
+     * @return the input stream
+     */
     std::istream& operator<<(std::istream& is)
     {
         load(is);

@@ -42,6 +42,10 @@ std::string path_input_file;
 std::string name_text_file;
 std::string path_index_file;
 
+/**
+ * @brief prints the usage information and exits
+ * @param msg an optional error message printed before the usage information
+ */
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
@@ -61,6 +65,11 @@ void help(std::string msg)
     exit(0);
 }
 
+/**
+ * @brief parses the next command-line argument(s)
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ */
 void parse_args(char** argv, int argc)
 {
     std::string s = argv[arg_idx];
@@ -111,6 +120,11 @@ void parse_args(char** argv, int argc)
     }
 }
 
+/**
+ * @brief builds the index and writes it to disk
+ * @tparam pos_t index integer type
+ * @tparam support the move-r locate-support type
+ */
 template <typename pos_t, move_r_support support>
 void build()
 {
@@ -125,17 +139,25 @@ void build()
         .name_text_file = name_text_file
     });
 
-    std::cout << "serializing the index" << std::flush;
     auto time = now();
+    log_phase_start(true, time, "serializing the index");
     index.serialize(index_file);
-    log_runtime(time);
+    log_phase_end(true, time);
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     if (argc < 2) help("");
     while (arg_idx < argc - 1) parse_args(argv, argc);
     path_input_file = argv[arg_idx];
+    if (!std::filesystem::exists(path_input_file) || !std::filesystem::is_regular_file(path_input_file))
+        help("error: <input_file> does not exist");
     if (path_prefix_index_file == "") path_prefix_index_file = path_input_file;
 
     std::cout << std::setprecision(4);

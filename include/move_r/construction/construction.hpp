@@ -30,6 +30,7 @@
 #include <gtl/btree.hpp>
 #include <hash_table5.hpp>
 #include <move_r/move_r.hpp>
+#include <misc/strings.hpp>
 #include <lzendsa/lzendsa_construction.hpp>
 
 enum rlbwt_build_mode {
@@ -73,17 +74,12 @@ public:
     uint64_t baseline_mem_usage = 0; // memory allocation at the start of the construction
     uint64_t bigbwt_peak_mem_usage = 0; // peak memory usage during the execution of Big-BWT
     uint8_t min_valid_char = 0; // the minimum valid character that is allowed to occur in T
-    pos_t size_R = 0; // size of the reference (R) in the rlzsa
-    pos_t size_R_target = 0; // target size for R
-    pos_t seg_size = 0; // (maximum) size of each segment from SA^d to be included in R
-    pos_t num_cand_segs = 0; // number of candidate segments that are considered in each iteration during the construction of R
     void* sa_vector; // pointer to the suffix array (used only for bidirectional forward indexes)
     std::string* sa_file_name; // name of the suffix array file (used only for bidirectional forward indexes)
 
     // ############################# INDEX VARIABLES #############################
 
     pos_t n = 0; // the length of T
-    uint64_t n_u64 = 0; // the length of T
     pos_t r = 0; // r, the number of runs in L
     pos_t r_ = 0; // r', the number of input/output intervals in M_LF
     pos_t r__ = 0; // r'', the number of input/output intervals in M_Phi^{-1}
@@ -130,98 +126,38 @@ public:
     /** [0..p-1] file buffers (of each thread) for reading the suffix array file output by bigbwt */
     std::vector<sdsl::int_vector_buffer<40>> SA_file_bufs;
 
-    /** type of hash map for storing the frequencies of values in SA^d */
-    template <typename sad_t>
-    using sad_freq_t = emhash5::HashMap<sad_t, pos_t, std::identity>;
-    
-    /** hashmap (for sad_t = uint32_t) mapping each value in SA^d (+n) to its frequency in SA^d */
-    sad_freq_t<uint32_t> SAd_freq_32;
-    /** [0..p-1] hashmaps ... (for sad_t = uint64_t; see SAd_freq_32) */
-    sad_freq_t<uint64_t> SAd_freq_64;
+    /**
+     * @brief builds the rlzsa; the construction is embedded in the rlzsa data structure (see
+     *        rlzsa_opt/construction.hpp) and does not depend on this construction object: it receives the data
+     *        it needs through parameters (a function SAd(i_p, i) returning SA^d[i] for the in-memory case, a
+     *        reference to I_Phi^{-1}, n, r, and the optional rlzsa_construction_params). For the bigbwt case
+     *        it reads SA^d itself from the suffix-array file (sa_file_path). It builds idx._rlzsa.
+     * @tparam bigbwt true <=> read suffix array values from the file output by bigbwt
+     * @tparam sa_sint_t signed integer type to use for the suffix array entries
+     */
+    template <bool bigbwt, typename sa_sint_t>
+    void construct_rlzsa()
+    {
+        // SA^d[i] = SA[i] - SA[i-1] + n (with SA[-1] := -1, i.e. SA^d[0] = n - 1) read from the in-memory
+        // suffix array; only used for the in-memory case (for bigbwt the construction reads the SA file)
+        auto SAd = [this](uint16_t /*i_p*/, pos_t i) -> uint64_t {
+            if (i == 0) [[unlikely]] return uint64_t { n } - 1;
+            return (get_sa<sa_sint_t>()[i] + n) - get_sa<sa_sint_t>()[i - 1];
+        };
 
-    struct segment {
-        pos_t beg;
-        pos_t end;
-    };
-
-    /** comparator for segment in T_s */
-    struct cmp_ts {
-        bool operator()(const segment& s1, const segment& s2) const { return s1.beg < s2.beg; }
-    };
-
-    using ts_t = gtl::btree_set<segment, cmp_ts>; // type of T_s
-    using ts_it_t = ts_t::iterator; // type of iterator in T_s
-
-    /** B-tree storing the selected segments from SA^d to be included in the reference (R) for the rlzsa; stores pairs (pos,len)
-     * to represent segments SA^d[pos..pos+len) in ascending order of their starting position (pos) in SA^d */
-    ts_t T_s;
-
-    // gap between two consecutive segments
-    struct gap {
-        pos_t beg_prev;
-        float score;
-    };
-
-    /** comparator for gaps in T_g */
-    struct cmp_tg {
-        bool operator()(const gap& g1, const gap& g2) const
-        {
-            return g1.score > g2.score || (g1.score == g2.score && g1.beg_prev < g2.beg_prev);
-        }
-    };
-
-    /** B-tree storing the gaps between the selected segments; stores pairs (beg_prev,score), where beg_prev is the starting
-     * position of the segment preceding the gap, and score is the length of the connected segment resulting from closing the
-     * gap divided by the length of the gap; the gaps ordered descendingly by their score */
-    gtl::btree_set<gap, cmp_tg> T_g;
-
-    /** [0..size_R-1] rev(R) (for sad_t = uint32_t) */
-    std::vector<uint32_t> revR_32;
-    /** [0..size_R-1] rev(R) (for sad_t = uint64_t) */
-    std::vector<uint64_t> revR_64;
-
-    /** type of move-r index for finding copy phrases in the rlzsa factorization */
-    template <typename sad_t, typename irr_pos_t>
-    using idx_revr_t = move_r<_locate_one, sad_t, irr_pos_t>;
-
-    /** index for finding maximum length copy phrases in the rlzsa factorization (for sad_t = uint32_t and irr_pos_t = uint32_t) */
-    idx_revr_t<uint32_t, uint32_t> idx_revR_32_32;
-    /** index for finding maximum length copy phrases in the rlzsa factorization (for sad_t = uint64_t and irr_pos_t = uint32_t) */
-    idx_revr_t<uint64_t, uint32_t> idx_revR_64_32;
-    /** index for finding maximum length copy phrases in the rlzsa factorization (for sad_t = uint64_t and irr_pos_t = uint64_t) */
-    idx_revr_t<uint64_t, uint64_t> idx_revR_64_64;
-
-    /** [0..p-1] stores at position i_p in ascending order the lengths of rlzsa
-     * copy phrases in SA^d[n_p[i_p]..n_p[i_p+1]-1] */
-    std::vector<std::vector<uint16_t>> _CPL;
-    /** [0..p-1] stores at position i_p in ascending order the starting positions (in R) of rlzsa
-     * copy phrases in SA^d[n_p[i_p]..n_p[i_p+1]-1] */
-    std::vector<interleaved_byte_aligned_vectors<pos_t, pos_t>> _SR;
-    /** [0..p-1] stores at position i_p in ascending order the literal phrases of the rlzsa
-     * in SA^d[n_p[i_p]..n_p[i_p+1]-1] */
-    std::vector<interleaved_byte_aligned_vectors<pos_t, pos_t>> _LP;
-    /** [0..p-1] stores at position i_p in ascending order the types of phrases of the rlzsa in SA^d[n_p[i_p]..n_p[i_p+1]-1];
-     * i.e, PT[i_p][i] = 0 <=> the i-th phrase in SA^d[n_p[i_p]..n_p[i_p+1]-1] is literal */
-    std::vector<sdsl::bit_vector> _PT;
-    /** [0..p-1] stores at position i_p a file buffer with the same content as CPL[i_p]*/
-    std::vector<sdsl::int_vector_buffer<>> CPL_file_bufs;
-    /** [0..p-1] stores at position i_p a file buffer with the same content as SR[i_p]*/
-    std::vector<sdsl::int_vector_buffer<>> SR_file_bufs;
-    /** [0..p-1] stores at position i_p a file buffer with the same content as LP[i_p]*/
-    std::vector<sdsl::int_vector_buffer<>> LP_file_bufs;
-    /** [0..p-1] stores at position i_p a file buffer with the same content as PT[i_p]*/
-    std::vector<sdsl::int_vector_buffer<>> PT_file_bufs;
-    /** [0..p] z_p[0] < z_p[1] < ... < z_p[p] = z; z_p[i_p] = number of phrases in the rlzsa starting before n_p[i_p] in SA^d */
-    std::vector<pos_t> z_p;
-    /** [0..p] zl_p[0] < zl_p[1] < ... < zl_p[p] = z_l; zl_p[i_p] = number of literal phrases in the rlzsa starting before n_p[i_p] in SA^d */
-    std::vector<pos_t> zl_p;
-    /** [0..p] zc_p[0] < zc_p[1] < ... < zc_p[p] = z_c; zc_p[i_p] = number of copy phrases in the rlzsa starting before n_p[i_p] in SA^d */
-    std::vector<pos_t> zc_p;
+        typename rlzsa_opt<pos_t>::template construction<decltype(SAd)> rlzsa_construction(
+            idx._rlzsa, SAd, I_Phi_m1, n, r,
+            { .num_threads = p, .mode = mode, .log = log,
+              .sa_file_path = bigbwt ? (prefix_tmp_files + ".sa") : std::string() });
+        rlzsa_construction.build();
+    }
 
     // ############################# COMMON MISC METHODS #############################
 
     /**
      * @brief returns T at index i interpreted as type
+     * @tparam type type to reinterpret the symbol at index i as
+     * @param i an index into T
      * @return T at index i
      */
     template <typename type>
@@ -317,12 +253,14 @@ public:
         }
     }
 
-    // ############################# rlzsa MISC METHODS #############################
+    // ############################# SUFFIX ARRAY ACCESS #############################
 
     /**
      * @brief returns SA[i]
      * @tparam bigbwt true <=> read SA[i] from SA_file
      * @tparam sa_sint_t suffix array signed integer type
+     * @param i_p [0..p-1] thread index
+     * @param i [0..n-1] suffix array index
      * @return SA[i]
      */
     template <bool bigbwt, typename sa_sint_t>
@@ -333,144 +271,6 @@ public:
             return pos_t { SA_file_bufs[i_p][i - 1] };
         } else {
             return get_sa<sa_sint_t>()[i];
-        }
-    }
-
-    /**
-     * @brief returns SA^d[i]
-     * @tparam bigbwt true <=> read SA[i] and SA[i-1] from SA_file
-     * @tparam sa_sint_t suffix array signed integer type
-     * @return SA^d[i]
-     */
-    template <bool bigbwt, typename sa_sint_t>
-    inline uint64_t SAd(uint16_t i_p, pos_t i)
-    {
-        if constexpr (bigbwt) {
-            if (i <= 1) [[unlikely]] {
-                if (i == 0) [[unlikely]] return n_u64 - 1;
-                return SA_file_bufs[i_p][0] + 1;
-            }
-            return (SA_file_bufs[i_p][i - 1] + n_u64) - SA_file_bufs[i_p][i - 2];
-        } else {
-            if (i == 0) [[unlikely]] return n_u64 - 1;
-            return (get_sa<sa_sint_t>()[i] + n) - get_sa<sa_sint_t>()[i - 1];
-        }
-    }
-
-    /**
-     * @brief returns SAd_freq
-     * @tparam sad_t type of the values in SA^d
-     * @return SAd_freq
-     */
-    template <typename sad_t>
-    constexpr sad_freq_t<sad_t>& get_SAd_freq()
-    {
-        if constexpr (std::is_same_v<sad_t, uint32_t>) {
-            return SAd_freq_32;
-        } else {
-            return SAd_freq_64;
-        }
-    }
-
-    /**
-     * @brief returns idx_revR
-     * @tparam sad_t type of the values in SA^d
-     * @return idx_revR
-     */
-    template <typename sad_t, typename irr_pos_t>
-    constexpr idx_revr_t<sad_t, irr_pos_t>& get_idx_revR()
-    {
-        if constexpr (std::is_same_v<sad_t, uint32_t>) {
-            return idx_revR_32_32;
-        } else {
-            if constexpr (std::is_same_v<irr_pos_t, uint32_t>) {
-                return idx_revR_64_32;
-            } else {
-                return idx_revR_64_64;
-            }
-        }
-    }
-
-    /**
-     * @brief returns revR
-     * @tparam sad_t type of the values in SA^d
-     * @return revR
-     */
-    template <typename sad_t>
-    constexpr std::vector<sad_t>& get_revR()
-    {
-        if constexpr (std::is_same_v<sad_t, uint32_t>) {
-            return revR_32;
-        } else {
-            return revR_64;
-        }
-    }
-
-    /**
-     * @brief returns CPL[i_p][i]
-     * @tparam space controls, whether to read CPL from a file
-     * @param i_p [0..p-1] thread index
-     * @param i [zc_p[i_p]..zc_p[i_p+1]-1] index in CPL[i_p]
-     * @return CPL[i_p][i]
-     */
-    template <bool space>
-    inline uint16_t CPL(uint16_t i_p, pos_t i)
-    {
-        if constexpr (space) {
-            return CPL_file_bufs[i_p][i];
-        } else {
-            return _CPL[i_p][i];
-        }
-    }
-
-    /**
-     * @brief returns SR[i_p][i]
-     * @tparam space controls, whether to read SR from a file
-     * @param i_p [0..p-1] thread index
-     * @param i [zc_p[i_p]..zc_p[i_p+1]-1] index in SR[i_p]
-     * @return SR[i_p][i]
-     */
-    template <bool space>
-    inline pos_t SR(uint16_t i_p, pos_t i)
-    {
-        if constexpr (space) {
-            return SR_file_bufs[i_p][i];
-        } else {
-            return _SR[i_p][i];
-        }
-    }
-
-    /**
-     * @brief returns LP[i_p][i]
-     * @tparam space controls, whether to read LP from a file
-     * @param i_p [0..p-1] thread index
-     * @param i [zl_p[i_p]..zl_p[i_p+1]-1] index in LP[i_p]
-     * @return LP[i_p][i]
-     */
-    template <bool space>
-    inline pos_t LP(uint16_t i_p, pos_t i)
-    {
-        if constexpr (space) {
-            return LP_file_bufs[i_p][i];
-        } else {
-            return _LP[i_p][i];
-        }
-    }
-
-    /**
-     * @brief returns PT[i_p][i]
-     * @tparam space controls, whether to read PT from a file
-     * @param i_p [0..p-1] thread index
-     * @param i [z_p[i_p]..z_p[i_p+1]-1] index in PT[i_p]
-     * @return PT[i_p][i]
-     */
-    template <bool space>
-    inline bool PT(uint16_t i_p, pos_t i)
-    {
-        if constexpr (space) {
-            return PT_file_bufs[i_p][i];
-        } else {
-            return _PT[i_p][i];
         }
     }
 
@@ -497,7 +297,44 @@ public:
         if (p > 1 && 1000 * p > n) {
             p = std::max<pos_t>(1, n / 1000);
             p_ = std::min<uint16_t>(p_, p);
-            if (log) std::cout << "warning: p > n/1000, setting p to n/1000 ~ " << std::to_string(p) << std::endl;
+            log_message(log, "warning: p > n/1000, setting p to n/1000 ~ " + std::to_string(p) + "\n");
+        }
+    }
+
+    /**
+     * @brief starts a construction phase: resets the phase timer and prints msg (if logging)
+     * @param msg message describing the phase
+     */
+    void log_phase_start(const std::string& msg)
+    {
+        ::log_phase_start(log, time, msg);
+    }
+
+    /**
+     * @brief ends a construction phase: writes the elapsed time to mf_idx under the key mf_key
+     *        (if mf_key is non-empty) and logs the runtime (if logging)
+     * @param mf_key measurement-file key for the elapsed time (empty => not written)
+     */
+    void log_phase_end(const std::string& mf_key = "")
+    {
+        ::log_phase_end(log, time, mf_idx, mf_key);
+    }
+
+    /**
+     * @brief ends a move-data-structure construction phase: closes the mf_mds RESULT line,
+     *        writes the elapsed time and the resulting interval count to mf_idx, and prints a newline.
+     *        The move data structure itself logs its own progress, so no runtime is logged here.
+     * @param time_key measurement-file key for the elapsed time
+     * @param count_key measurement-file key for the interval count
+     * @param count number of intervals in the built move data structure
+     */
+    void log_mds_phase_end(const std::string& time_key, const std::string& count_key, pos_t count)
+    {
+        if (log) {
+            if (mf_mds != nullptr) *mf_mds << std::endl;
+            if (mf_idx != nullptr)
+                *mf_idx << " " << time_key << "=" << time_diff_ns(time, now()) << " " << count_key << "=" << count;
+            std::cout << std::endl;
         }
     }
 
@@ -526,6 +363,7 @@ public:
      */
     void log_finished()
     {
+        if (!log) return;
         uint64_t time_construction = time_diff_ns(time_start, now());
         uint64_t peak_mem_usage = std::max(malloc_count_peak() - baseline_mem_usage, bigbwt_peak_mem_usage);
 
@@ -547,6 +385,7 @@ public:
      */
     void log_statistics()
     {
+        if (!log) return;
         double n_r = std::round(100.0 * (n / (double)r)) / 100.0;
         if (mf_idx != nullptr) {
             *mf_idx << " n=" << n;
@@ -628,7 +467,7 @@ public:
             if (!is_bidirectional && params.file_input) unmap_t(false);
         }
 
-        if (log) log_finished();
+        log_finished();
         
         if (params.peak_memory_usage != nullptr) {
             *params.peak_memory_usage = std::max({
@@ -658,6 +497,10 @@ public:
         this->delete_T = delete_T;
         read_parameters(params);
         prepare_phase_1();
+        // reserve 0 for the suffix-array sentinel: for a byte alphabet preprocess_t remaps the symbols starting
+        // at min_valid_char, so this keeps the smallest input symbol distinct from the sentinel (for an integer
+        // alphabet the symbols are remapped to [1, sigma) regardless, so min_valid_char is not used)
+        min_valid_char = 1;
         T.push_back(0);
         n = T.size();
         idx.n = n;
@@ -669,7 +512,7 @@ public:
             if (idx.symbols_remapped && !delete_T) unmap_t(true);
         }
 
-        if (log) log_finished();
+        log_finished();
         
         if (params.peak_memory_usage != nullptr) {
             *params.peak_memory_usage = std::max({
@@ -723,6 +566,7 @@ public:
 
     /**
      * @brief constructs the index from a suffix array and a bwt
+     * @tparam sa_sint_t signed integer type of the suffix array entries
      */
     template <typename sa_sint_t>
     void construct_from_sa_and_l()
@@ -735,19 +579,14 @@ public:
         prepare_phase_1();
         prepare_phase_2();
         build_rlbwt_c<_bwt, sa_sint_t>();
-        if (log) log_statistics();
+        log_statistics();
 
-        if constexpr (supports_bwsearch) {
-            build_ilf();
-            build_mlf();
-        }
+        build_ilf();
+        build_mlf();
 
         if constexpr (supports_locate) {
             build_iphim1_sas_from_sa<false, sa_sint_t>();
-
-            if constexpr (supports_locate && supports_bwsearch) {
-                build_l__sas();
-            }
+            build_l__sas();
         } else {
             build_l__sas();
         }
@@ -766,20 +605,12 @@ public:
                 build_de();
             } else if constexpr (has_rlzsa) {
                 construct_rlzsa<false, sa_sint_t>();
-
-                if constexpr (!supports_bwsearch) {
-                    build_sa_delta<false, sa_sint_t>();
-                }
-            } else if constexpr (has_lzendsa) {
-                construct_lzendsa<false, sa_sint_t>();
             }
         }
 
-        if constexpr (supports_bwsearch) {
-            build_l_prev_next();
-        }
+        build_l_prev_next();
 
-        if (log) log_finished();
+        log_finished();
     }
 
     /**
@@ -789,7 +620,7 @@ public:
     {
         if constexpr (std::is_same_v<pos_t, uint64_t>) {
             construct_from_sa<int64_t>();
-        } else if (n <= std::numeric_limits<int32_t>::max()) {
+        } else if (n <= INT_MAX) {
             construct_from_sa<int32_t>();
         } else {
             construct_from_sa<int64_t>();
@@ -798,7 +629,7 @@ public:
 
     /**
      * @brief constructs the index using the suffix array
-     * @param sa_sint_t signed integer type to use for the suffix array entries
+     * @tparam sa_sint_t signed integer type to use for the suffix array entries
      */
     template <typename sa_sint_t>
     void construct_from_sa()
@@ -808,14 +639,12 @@ public:
         prepare_phase_2();
         build_sa<sa_sint_t>();
         build_rlbwt_c<_sa, sa_sint_t>();
-        if (log) log_statistics();
+        log_statistics();
 
-        if constexpr (supports_bwsearch) {
-            build_ilf();
-            if (_space) store_rlbwt();
-            build_mlf();
-            if (_space) load_rlbwt();
-        }
+        build_ilf();
+        if (_space) store_rlbwt();
+        build_mlf();
+        if (_space) load_rlbwt();
 
         if constexpr (supports_locate) {
             if (support == _locate_bi_bwd) {
@@ -824,12 +653,7 @@ public:
                 build_iphim1_sas_from_sa<false, sa_sint_t>();
             }
 
-            if constexpr (supports_bwsearch) {
-                build_l__sas();
-            } else {
-                RLBWT.clear();
-                RLBWT.shrink_to_fit();
-            }
+            build_l__sas();
 
             if constexpr (supports_multiple_locate) {
                 if constexpr (has_locate_move) {
@@ -860,42 +684,30 @@ public:
                         if constexpr (byte_alphabet) load_l_prev_next();
                         else load_rsl_();
                     }
-                } else if constexpr (has_rlzsa || has_lzendsa) {
-                    if constexpr (supports_bwsearch) {
-                        if (_space && support != _locate_bi_bwd) {
-                            store_sas_idx();
-                            if (is_bidirectional) store_sas__idx();
-                        }
-                        if constexpr (byte_alphabet) build_l_prev_next();
-                        else build_rsl_();
-                        if (_space) {
-                            if constexpr (byte_alphabet) store_l_prev_next();
-                            else store_rsl_();
-                        }
-                        if (_space) store_mlf();
+                } else if constexpr (has_rlzsa) {
+                    if (_space && support != _locate_bi_bwd) {
+                        store_sas_idx();
+                        if (is_bidirectional) store_sas__idx();
                     }
-                    
-                    if constexpr (has_rlzsa) {
-                        sort_iphim1();
-                        construct_rlzsa<false, sa_sint_t>();
-
-                        if constexpr (!supports_bwsearch) {
-                            build_sa_delta<false, sa_sint_t>();
-                        }
-                    } else {
-                        construct_lzendsa<false, sa_sint_t>();
+                    if constexpr (byte_alphabet) build_l_prev_next();
+                    else build_rsl_();
+                    if (_space) {
+                        if constexpr (byte_alphabet) store_l_prev_next();
+                        else store_rsl_();
                     }
+                    if (_space) store_mlf();
 
-                    if constexpr (supports_bwsearch) {
-                        if (_space) {
-                            load_sas_idx();
-                            if (is_bidirectional) load_sas__idx();
-                        }
-                        if (_space) load_mlf();
-                        if (_space) {
-                            if constexpr (byte_alphabet) load_l_prev_next();
-                            else load_rsl_();
-                        }
+                    sort_iphim1();
+                    construct_rlzsa<false, sa_sint_t>();
+
+                    if (_space) {
+                        load_sas_idx();
+                        if (is_bidirectional) load_sas__idx();
+                    }
+                    if (_space) load_mlf();
+                    if (_space) {
+                        if constexpr (byte_alphabet) load_l_prev_next();
+                        else load_rsl_();
                     }
                 } else if constexpr (support == _locate_bi_bwd) {
                     build_l_prev_next();
@@ -929,17 +741,15 @@ public:
         prepare_phase_2();
         bigbwt(delete_T);
         build_rlbwt_c<_bwt_file, int32_t>();
-        if (log) log_statistics();
+        log_statistics();
 
-        if constexpr (supports_bwsearch) {
-            build_ilf();
-            store_rlbwt();
-            build_mlf();
-            load_rlbwt();
-        }
+        build_ilf();
+        store_rlbwt();
+        build_mlf();
+        load_rlbwt();
 
         if constexpr (supports_locate) {
-            if (is_bidirectional || has_rlzsa || has_lzendsa || p > 1) {
+            if (is_bidirectional || has_rlzsa || p > 1) {
                 if (support == _locate_bi_bwd) {
                     build_sas_from_sa<true, int32_t>();
                 } else {
@@ -948,10 +758,8 @@ public:
             } else {
                 read_iphim1_bigbwt();
             }
-            
-            if constexpr (supports_bwsearch) {
-                build_l__sas();
-            }
+
+            build_l__sas();
 
             if constexpr (supports_multiple_locate) {
                 if constexpr (has_locate_move) {
@@ -977,35 +785,20 @@ public:
                     load_mlf();
                     if constexpr (support == _locate_move_bi_fwd) load_mphi();
                     load_l_prev_next();
-                } else if constexpr (has_rlzsa || has_lzendsa) {
-                    if constexpr (supports_bwsearch) {
-                        store_sas_idx();
-                        if (is_bidirectional) store_sas__idx();
-                        build_l_prev_next();
-                        store_l_prev_next();
-                        store_mlf();
-                    }
+                } else if constexpr (has_rlzsa) {
+                    store_sas_idx();
+                    if (is_bidirectional) store_sas__idx();
+                    build_l_prev_next();
+                    store_l_prev_next();
+                    store_mlf();
 
                     sort_iphim1();
+                    construct_rlzsa<true, int32_t>();
 
-                    if constexpr (has_rlzsa) {
-                        construct_rlzsa<true, int32_t>();
-
-                        if constexpr (!supports_bwsearch) {
-                            build_sa_delta<true, int32_t>();
-                        }
-                    } else if (n <= std::numeric_limits<int32_t>::max()) {
-                        construct_lzendsa<true, int32_t>();
-                    } else {
-                        construct_lzendsa<true, int64_t>();
-                    }
-
-                    if constexpr (supports_bwsearch) {
-                        load_mlf();
-                        load_l_prev_next();
-                        load_sas_idx();
-                        if (is_bidirectional) load_sas__idx();
-                    }
+                    load_mlf();
+                    load_l_prev_next();
+                    load_sas_idx();
+                    if (is_bidirectional) load_sas__idx();
                 } else if constexpr (support == _locate_bi_bwd) {
                     build_l_prev_next();
                 }
@@ -1013,7 +806,7 @@ public:
                 build_l_prev_next();
             }
 
-            if (has_rlzsa || has_lzendsa || p > 1 || is_bidirectional) {
+            if (has_rlzsa || p > 1 || is_bidirectional) {
                 SA_file_bufs.clear();
                 SA_file_bufs.shrink_to_fit();
 
@@ -1028,60 +821,6 @@ public:
             build_l_prev_next();
         }
     };
-
-    /**
-     * @brief builds the rlzsa
-     * @tparam bigbwt true <=> read suffix array values from the file output by bigbwt
-     * @tparam sa_sint_t signed integer type to use for the suffix array entries
-     */
-    template <bool bigbwt, typename sa_sint_t>
-    void construct_rlzsa()
-    {
-        size_R_target = std::min<pos_t>(std::max<pos_t>(1, n / 3), 5.2 * r);
-        seg_size = std::min<pos_t>(3072, size_R_target);
-
-        if constexpr (std::is_same_v<pos_t, uint32_t>) {
-            construct_rlzsa<bigbwt, uint32_t, uint32_t, sa_sint_t>();
-        } else if (2 * n <= std::numeric_limits<uint32_t>::max()) {
-            construct_rlzsa<bigbwt, uint32_t, uint32_t, sa_sint_t>();
-        } else if (size_R_target + seg_size <= std::numeric_limits<uint32_t>::max()) {
-            construct_rlzsa<bigbwt, uint64_t, uint32_t, sa_sint_t>();
-        } else {
-            construct_rlzsa<bigbwt, uint64_t, uint64_t, sa_sint_t>();
-        }
-    }
-
-    /**
-     * @brief builds the lzendsa
-     * @tparam bigbwt true <=> read suffix array values from the file output by bigbwt
-     * @tparam sa_sint_t signed integer type to use for the suffix array entries
-     */
-    template <bool bigbwt, typename sa_sint_t>
-    void construct_lzendsa();
-
-    /**
-     * @brief builds the rlzsa
-     * @tparam bigbwt true <=> read suffix array values from the file output by bigbwt
-     * @tparam sad_t type of the values in SA^d
-     * @tparam irr_pos_t position type (pos_t) for the index of rev(R)
-     * @tparam sa_sint_t signed integer type to use for the suffix array entries
-     */
-    template <bool bigbwt, typename sad_t, typename irr_pos_t, typename sa_sint_t>
-    void construct_rlzsa()
-    {
-        bool _space = bigbwt || mode == _suffix_array_space;
-        build_freq_sad<bigbwt, sad_t, sa_sint_t>();
-        build_r<bigbwt, sad_t, sa_sint_t>();
-        if (_space) store_r();
-        build_idx_rev_r<sad_t, irr_pos_t>();
-
-        if (_space) {
-            load_r();
-            build_rlzsa_factorization<bigbwt, true, sad_t, irr_pos_t, sa_sint_t>();
-        } else {
-            build_rlzsa_factorization<bigbwt, false, sad_t, irr_pos_t, sa_sint_t>();
-        }
-    }
 
     // ############################# COMMON CONSTRUCTION METHODS #############################
 
@@ -1117,7 +856,7 @@ public:
     void build_mlf();
 
     /**
-     * @brief builds SA_s and SA_s' from SA
+     * @brief builds SA_s and SA_e from SA
      * @tparam bigbwt true <=> read I_Phi from the SA file output by Big-BWT
      * @tparam sa_sint_t suffix array signed integer type
      */
@@ -1125,7 +864,7 @@ public:
     void build_sas_from_sa();
 
     /**
-     * @brief builds I_Phi^{m1} and SA_s and SA_s' from SA
+     * @brief builds I_Phi^{m1} and SA_s and SA_e from SA
      * @tparam bigbwt true <=> read I_Phi from the SA file output by Big-BWT
      * @tparam sa_sint_t suffix array signed integer type
      */
@@ -1243,12 +982,12 @@ public:
     void load_sas_idx();
 
     /**
-     * @brief stores SA_s' to disk
+     * @brief stores SA_e to disk
      */
     void store_sas__idx();
 
     /**
-     * @brief loads SA_s' from disk
+     * @brief loads SA_e from disk
      */
     void load_sas__idx();
 
@@ -1281,7 +1020,7 @@ public:
 
     /**
      * @brief reads T from t_file
-     * @param file_name name of the file containing T
+     * @param T_file_name name of the file containing T
      */
     void read_t_from_file(std::string& T_file_name);
 
@@ -1320,67 +1059,14 @@ public:
      * @param delete_T delete T file
      */
     void bigbwt(bool delete_T);
-
-    // ############################# rlzsa CONSTRUCTION METHODS #############################
-
-    /**
-     * @brief builds freq_SAd
-     * @tparam bigbwt true <=> read suffix array values from the file output by bigbwt
-     * @tparam sad_t type of the values in SA^d
-     * @tparam sa_sint_t signed integer type to use for the suffix array entries
-     */
-    template <bool bigbwt, typename sad_t, typename sa_sint_t>
-    void build_freq_sad();
-
-    /**
-     * @brief builds R and rev(R)
-     * @tparam bigbwt true <=> read suffix array values from the file output by bigbwt
-     * @tparam sad_t type of the values in SA^d
-     * @tparam sa_sint_t signed integer type to use for the suffix array entries
-     */
-    template <bool bigbwt, typename sad_t, typename sa_sint_t>
-    void build_r();
-
-    /**
-     * @brief builds the move-r index of rev(R)
-     * @tparam sad_t type of the values in SA^d
-     * @tparam irr_pos_t position type (pos_t) for the index of rev(R)
-     */
-    template <typename sad_t, typename irr_pos_t>
-    void build_idx_rev_r();
-
-    /**
-     * @brief builds the rlzsa factorization
-     * @tparam bigbwt true <=> read suffix array values from the file output by bigbwt
-     * @tparam space true <=> store rlzsa data structures in files during the construction
-     * @tparam sad_t type of the values in SA^d
-     * @tparam irr_pos_t position type (pos_t) for the index of rev(R)
-     * @tparam sa_sint_t signed integer type to use for the suffix array entries
-     */
-    template <bool bigbwt, bool space, typename sad_t, typename irr_pos_t, typename sa_sint_t>
-    void build_rlzsa_factorization();
-
-    /**
-     * @brief builds SA_delta
-     * @tparam sa_sint_t signed integer type to use for the suffix array entries
-     */
-    template <bool bigbwt, typename sa_sint_t>
-    void build_sa_delta();
-
-    /**
-     * @brief stores R to disk
-     */
-    void store_r();
-
-    /**
-     * @brief loads R from disk
-     */
-    void load_r();
 };
 
-#include "bigbwt.cpp"
-#include "common.cpp"
-#include "rlzsa.cpp"
-#include "lzendsa.cpp"
-#include "libsais.cpp"
-#include "load_store.cpp"
+#include "common.tpp"
+#include "bigbwt.tpp"
+#include "rlbwt.tpp"
+#include "move_lf.tpp"
+#include "move_phi.tpp"
+#include <rlzsa_opt/construction.hpp>
+#include <rlzsa_opt/construction.tpp>
+#include "suffix_array.tpp"
+#include "load_store.tpp"

@@ -32,7 +32,7 @@
 #include <vector>
 
 #include <data_structures/hybrid_bit_vector.hpp>
-#include <data_structures/interleaved_byte_aligned_vectors.hpp>
+#include <data_structures/interleaved_bit_aligned_vectors.hpp>
 #include <misc/utils.hpp>
 #include <misc/search.hpp>
 
@@ -40,8 +40,8 @@
  * @brief a rank-select data structure using hybrid bit vectors (either sd_array or plain bit vector), or the rs data structure
  * @tparam sym_t symbol type
  * @tparam pos_t position type
- * @tparam build_rank_support
- * @tparam build_select_support
+ * @tparam build_rank_support whether to build rank support
+ * @tparam build_select_support whether to build select support
  */
 template <typename sym_t, typename pos_t = uint32_t, bool build_rank_support = true, bool build_select_support = true>
 class rank_select_support {
@@ -109,21 +109,26 @@ protected:
      * @brief [0..sigma-1] vec_idx[v] stores the position in hyb_bit_vecs of the the bit vector marking
      *        the occurrences of v in the input, if freq(v) > min_occ_vec; else vec_idx[v] = sigma
      */
-    interleaved_byte_aligned_vectors<pos_t, pos_t> vec_idx;
+    interleaved_bit_aligned_vectors<pos_t> vec_idx;
 
     /**
      * @brief [0..sigma-1] stores at position v the sum of the frequencies of all v' < v with freq(v') > min_occ_vec
      */
-    interleaved_byte_aligned_vectors<pos_t, pos_t> c_arr;
+    interleaved_bit_aligned_vectors<pos_t> c_arr;
 
     /**
      * @brief stores at position i the position of the j-th occurrence of v
      *        in the input, where c_arr[v] <= i < c_arr[v+1] and j = i - c_arr[v] + 1
      */
-    interleaved_byte_aligned_vectors<pos_t, pos_t> occs;
+    interleaved_bit_aligned_vectors<pos_t> occs;
 
     // ##########################################################
 
+    /**
+     * @brief maps a symbol to its (unsigned) internal index
+     * @param sym a symbol
+     * @return the (unsigned) internal index of sym
+     */
     pos_t symbol_idx(sym_t sym) const
     {
         if constexpr (str_input) {
@@ -135,6 +140,7 @@ protected:
 
     /**
      * @brief builds the bit vectors
+     * @tparam read_fnc_t type of the read function
      * @param read function to read the input with; it is called with i in [l,r]
      * as a parameter and must return the value of the input at index i
      * @param l left range limit (l <= r)
@@ -144,7 +150,7 @@ protected:
     void build(read_fnc_t read, pos_t l, pos_t r)
     {
         input_size = r - l + 1;
-        uint8_t bytes_per_entry = 0;
+        uint64_t bits_per_entry = 0; // tight bit-width for c_arr/occs entries (values in [0,input_size])
         pos_t alphabet_range = byte_alphabet ? 256 : sigma;
         freq.resize(alphabet_range, 0);
 
@@ -153,8 +159,8 @@ protected:
         }
 
         if constexpr (int_alphabet) {
-            bytes_per_entry = byte_width(input_size);
-            c_arr = interleaved_byte_aligned_vectors<pos_t, pos_t>({ bytes_per_entry });
+            bits_per_entry = std::bit_width(uint64_t(input_size));
+            c_arr = interleaved_bit_aligned_vectors<pos_t>({ bits_per_entry });
             c_arr.resize_no_init(alphabet_range + 1);
             c_arr.template set_parallel<0, pos_t>(0, 0);
         }
@@ -191,7 +197,7 @@ protected:
 
         if constexpr (int_alphabet) {
             min_occ_vec_tmp = std::min<pos_t>(min_occ_vec, max_occ_plain);
-            vec_idx = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(sigma) });
+            vec_idx = interleaved_bit_aligned_vectors<pos_t>({ std::bit_width(uint64_t(sigma)) });
             vec_idx.resize_no_init(sigma);
             no_init_resize(occ_idx, alphabet_range);
         } else {
@@ -229,7 +235,7 @@ protected:
         }
 
         if constexpr (int_alphabet) {
-            occs = interleaved_byte_aligned_vectors<pos_t, pos_t>({ bytes_per_entry });
+            occs = interleaved_bit_aligned_vectors<pos_t>({ bits_per_entry });
             occs.resize_no_init(c_arr[alphabet_range]);
         }
 
@@ -300,6 +306,7 @@ public:
 
     /**
      * @brief builds the data structure by reading the input using the function read
+     * @tparam read_fnc_t type of the read function
      * @param read function to read the input with; it is called with i in [l,r]
      * as a parameter and must return the value of the input at index i
      * @param l left range limit (l <= r)
@@ -336,6 +343,7 @@ public:
 
     /**
      * @brief builds the data structure by reading the input using the function read
+     * @tparam read_fnc_t type of the read function
      * @param read function to read the input with; it is called with i in [l,r]
      * as a parameter and must return the value of the input at index i
      * @param alphabet_size maximum value in the input + 1 (should also be the number of distinct
@@ -641,12 +649,22 @@ public:
         }
     }
 
+    /**
+     * @brief serializes the rank_select_support to an output stream
+     * @param os output stream
+     * @return the output stream
+     */
     std::ostream& operator>>(std::ostream& os) const
     {
         serialize(os);
         return os;
     }
 
+    /**
+     * @brief loads the rank_select_support from an input stream
+     * @param is input stream
+     * @return the input stream
+     */
     std::istream& operator<<(std::istream& is)
     {
         load(is);

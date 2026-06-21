@@ -41,10 +41,13 @@
 #include <misc/files.hpp>
 #include <misc/search.hpp>
 #include <misc/log.hpp>
-#include <misc/files.hpp>
 #include <ordered/btree/map.hpp>
 #include <rmq/rmq.hpp>
 
+/**
+ * @brief an LZ-End phrase: the source phrase it extends, its length and its extension symbol
+ * @tparam int_t signed integer type
+ */
 template <typename int_t = int32_t>
 struct lzend_phr_t {
     int_t lnk; // phrase id, where the source ends (a new phrase can extend multiple phrases)
@@ -52,17 +55,34 @@ struct lzend_phr_t {
     int_t ext; // extension
 };
 
+/**
+ * @brief a (value, index) pair used for constructing the transformed reverse differential suffix array
+ * @tparam int_t signed integer type
+ */
 template <typename int_t = int32_t>
 struct input_val_idx_pair_t { // used for constructing the transformed reverse delta suffix array
     int_t value;
     int_t index;
 
+    /**
+     * @brief orders pairs by their value
+     * @param other another pair
+     * @return whether this pair's value is smaller than other's value
+     */
     bool operator<(const input_val_idx_pair_t& other) const
     {
         return value < other.value;
     }
 };
 
+/**
+ * @brief computes the LZ-End parsing of the reversed differential suffix array
+ * @tparam int_t signed integer type of the suffix array entries
+ * @param dsa the differential suffix array
+ * @param h the maximum phrase length (-1 for unbounded; default: 8192)
+ * @param log whether to print log messages
+ * @return the LZ-End parsing of the reversed differential suffix array
+ */
 template <typename int_t = int32_t>
 std::vector<lzend_phr_t<int_t>> construct_lzend_of_reverse(std::vector<int_t>& dsa, int_t h = 8192, bool log = false)
 {
@@ -73,7 +93,7 @@ std::vector<lzend_phr_t<int_t>> construct_lzend_of_reverse(std::vector<int_t>& d
     // the order of the values is preserved, but the distances between the values are reduced to one.
     // This transformation makes the construction of the suffix array of the reversed DSA faster,
     // because the suffix array construction time rises linearly with the size of the given alphabet.
-    if (log) std::cout << "reversing and compactifying alphabet of DSA" << std::flush;
+    log_phase_start(log, time, "reversing and compactifying alphabet of DSA");
 
     std::vector<input_val_idx_pair_t<int_t>> value_index_pairs;
     value_index_pairs.reserve(n);
@@ -111,10 +131,10 @@ std::vector<lzend_phr_t<int_t>> construct_lzend_of_reverse(std::vector<int_t>& d
     // return the new alphabet size, because it is important to know for the sa construction
     int_t alphabet_size = new_value + 1;
 
-    if (log) time = log_runtime(time);
+    log_phase_end(log, time);
 
     // construct suffix array of the reversed DSA
-    if (log) std::cout << "building SA of rev(DSA)" << std::flush;
+    log_phase_start(log, time, "building SA of rev(DSA)");
     std::vector<int_t> sa;
     no_init_resize(sa, n);
     
@@ -124,10 +144,10 @@ std::vector<lzend_phr_t<int_t>> construct_lzend_of_reverse(std::vector<int_t>& d
         libsais64_long(rev_dsa.data(), sa.data(), n, alphabet_size, 0);
     }
 
-    if (log) time = log_runtime(time);
+    log_phase_end(log, time);
 
     // construct PLCP of rev(DSA)
-    if (log) std::cout << "building PLCP of rev(DSA)" << std::flush;
+    log_phase_start(log, time, "building PLCP of rev(DSA)");
     std::vector<int_t> isa;
     no_init_resize(isa, n);
     auto& plcp = isa;
@@ -138,14 +158,14 @@ std::vector<lzend_phr_t<int_t>> construct_lzend_of_reverse(std::vector<int_t>& d
         libsais64_plcp_int(rev_dsa.data(), sa.data(), plcp.data(), n);
     }
 
-    if (log) time = log_runtime(time);
+    log_phase_end(log, time);
 
     // discard rev(DSA)
     rev_dsa.clear();
     rev_dsa.shrink_to_fit();
 
     // construct LCP of rev(DSA)
-    if (log) std::cout << "building LCP of rev(DSA)" << std::flush;
+    log_phase_start(log, time, "building LCP of rev(DSA)");
     std::vector<int_t> lcp;
     no_init_resize(lcp, n);
 
@@ -155,29 +175,29 @@ std::vector<lzend_phr_t<int_t>> construct_lzend_of_reverse(std::vector<int_t>& d
         libsais64_lcp(plcp.data(), sa.data(), lcp.data(), n);
     }
 
-    if (log) time = log_runtime(time);
+    log_phase_end(log, time);
 
     // construct RMQ data structure
-    if (log) std::cout << "building RMQ of LCP" << std::flush;
+    log_phase_start(log, time, "building RMQ of LCP");
     rmq::RMQ<int_t> rmq(lcp.data(), n);
-    if (log) time = log_runtime(time);
+    log_phase_end(log, time);
 
     // construct permuted ISA (PISA) of rev(DSA)
-    if (log) std::cout << "building permuted ISA (PISA) of rev(DSA)" << std::flush;
+    log_phase_start(log, time, "building permuted ISA (PISA) of rev(DSA)");
     auto& pisa = isa;
 
     for (int_t i = 0; i < n; i++) {
         pisa[n - sa[i] - 1] = i;
     }
 
-    if (log) time = log_runtime(time);
+    log_phase_end(log, time);
 
     // discard SA of rev(DSA)
     sa.clear();
     sa.shrink_to_fit();
 
     // construct_lzend_of_reverse
-    if (log) std::cout << "building LZ-End parsing of rev(DSA)" << std::flush;
+    log_phase_start(log, time, "building LZ-End parsing of rev(DSA)");
 
     // initialize predecessor/successor
     ordered::btree::Map<int_t, int_t> marked;
@@ -257,7 +277,7 @@ std::vector<lzend_phr_t<int_t>> construct_lzend_of_reverse(std::vector<int_t>& d
         }
     }
 
-    if (log) time = log_runtime(time);
+    log_phase_end(log, time);
 
     return parsing;
 }

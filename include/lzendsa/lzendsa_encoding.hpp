@@ -36,7 +36,8 @@
 #include <data_structures/interleaved_byte_aligned_vectors.hpp>
 
 /**
- * This lzendsa_encoding is designed to be rather small (3 words per phrase) while being simple and enabling efficient extraction.
+ * @brief a compact LZ-End encoding of (the differential) suffix array; designed to be rather small (3 words per
+ *        phrase) while being simple and enabling efficient extraction
  */
 class lzendsa_encoding {
 
@@ -55,11 +56,18 @@ protected:
      * It essentially serves as a constant-time select operation (index of the j-th 1) and a
      * log(z)-time rank operation over the end positions (number of 1s in a given interval).
      * The first phrase ends at position 0, so end_positions[0] = 0 holds. */
-    interleaved_byte_aligned_vectors<uint64_t, uint64_t, 1> end_positions;
+    interleaved_bit_aligned_vectors<uint64_t, 1> end_positions;
 
 public:
     lzendsa_encoding() = default;
 
+    /**
+     * @brief builds the encoding from an LZ-End factorization
+     * @tparam int_t signed integer type of the factorization
+     * @param lzend_phrases the LZ-End phrases
+     * @param n the number of symbols in the uncompressed text
+     * @param h the maximum phrase length (default: 8192)
+     */
     template <typename int_t>
     lzendsa_encoding(const std::vector<lzend_phr_t<int_t>>& lzend_phrases,int64_t n, int64_t h = 8192)
         : n(n), h(h), z(lzend_phrases.size())
@@ -77,8 +85,8 @@ public:
             std::bit_width(uint64_t{max_ext - min_ext}) // bit-width of the extensions vector
         });
 
-        end_positions = interleaved_byte_aligned_vectors<uint64_t, uint64_t, 1>({
-            byte_width(uint64_t{n})
+        end_positions = interleaved_bit_aligned_vectors<uint64_t, 1>({
+            std::bit_width(uint64_t{n})
         });
 
         sources_extensions.resize_no_init(z);
@@ -95,54 +103,99 @@ public:
         }
     }
 
+    /**
+     * @brief returns the maximum phrase length
+     * @return the maximum phrase length
+     */
     inline int64_t maximum_phrase_length() const
     {
         return h;
     }
 
+    /**
+     * @brief returns the source (index of the extended phrase) of the i-th phrase
+     * @param i a phrase index
+     * @return the source of the i-th phrase
+     */
     inline int64_t source(int64_t i) const
     {
         return sources_extensions.get<0>(i);
     }
 
+    /**
+     * @brief returns the extension (last value) of the i-th phrase
+     * @param i a phrase index
+     * @return the extension of the i-th phrase
+     */
     inline int64_t extension(int64_t i) const
     {
         return min_ext + int64_t{sources_extensions.get<1>(i)};
     }
 
+    /**
+     * @brief returns the end position of the i-th phrase
+     * @param i a phrase index
+     * @return the end position of the i-th phrase
+     */
     inline int64_t end_position(int64_t i) const
     {
         return end_positions.get<0>(i);
     }
-    
+
+    /**
+     * @brief returns the number of phrases
+     * @return the number of phrases
+     */
     inline uint64_t num_phrases() const
     {
         return z;
     }
 
+    /**
+     * @brief returns the number of symbols in the uncompressed text
+     * @return the size of the uncompressed text
+     */
     inline uint64_t input_size() const
     {
         return n;
     }
 
+    /**
+     * @brief returns the size of the data structure in bytes
+     * @return the size of the data structure in bytes
+     */
     uint64_t size_in_bytes() const
     {
         return sizeof(this) + sources_extensions.size_in_bytes() + end_positions.size_in_bytes();
     }
 
-    // returns the phrase that contains index
+    /**
+     * @brief returns the index of the phrase that contains the given index
+     * @param index a position in the uncompressed text
+     * @return the index of the phrase containing index
+     */
     int64_t phrase_containing(int64_t index) const
     {
         return bin_search_min_geq<uint64_t>(index, 0, z - 1, [&](uint64_t x) { return end_position(x); });
     }
 
-    // returns the phrase that ends at or precedes index
+    /**
+     * @brief returns the index of the phrase that ends at or precedes the given index
+     * @param index a position in the uncompressed text
+     * @return the index of the phrase ending at or preceding index
+     */
     int64_t phrase_preceding_or_ending_at(int64_t index) const
     {
         return bin_search_max_leq<uint64_t>(index, 0, z - 1, [&](uint64_t x) { return end_position(x); });
     }
 
-    // extraction method
+    /**
+     * @brief extracts the differential values in the range [beg, end] and reports them from right to left
+     * @tparam report_fnc_t type of the report function
+     * @param beg left range limit
+     * @param end right range limit
+     * @param report function that is called with every extracted differential value
+     */
     template <typename report_fnc_t>
     void extract_deltas(int64_t beg, int64_t end, report_fnc_t report) const
     {
@@ -218,6 +271,13 @@ public:
         }
     }
 
+    /**
+     * @brief extracts the differential values in the range [beg, end]
+     * @tparam out_t output value type
+     * @param beg left range limit
+     * @param end right range limit
+     * @return the differential values in the range [beg, end]
+     */
     template <typename out_t>
     std::vector<out_t> extract_deltas(int64_t beg, int64_t end) const
     {
@@ -228,7 +288,16 @@ public:
         return result;
     }
 
-    // extraction method
+    /**
+     * @brief reconstructs the (absolute) values in the range [beg, end] from the differential values, given the
+     *        value at position end, and reports them from right to left
+     * @tparam out_t output value type
+     * @tparam report_fnc_t type of the report function
+     * @param beg left range limit
+     * @param end right range limit
+     * @param sa_end the (absolute) value at position end
+     * @param report function that is called with every reconstructed value
+     */
     template <typename out_t, typename report_fnc_t>
     void extract(int64_t beg, int64_t end, int64_t sa_end, report_fnc_t report) const
     {
@@ -237,7 +306,15 @@ public:
         extract_deltas(beg + 1, end, [&](out_t delta){val -= delta; report(val);});
     }
 
-    // extraction method
+    /**
+     * @brief reconstructs the (absolute) values in the range [beg, end] from the differential values, given the
+     *        value at position end
+     * @tparam out_t output value type
+     * @param beg left range limit
+     * @param end right range limit
+     * @param sa_end the (absolute) value at position end
+     * @return the reconstructed values in the range [beg, end]
+     */
     template <typename out_t>
     std::vector<out_t> extract(int64_t beg, int64_t end, int64_t sa_end) const
     {
@@ -248,27 +325,25 @@ public:
         return result;
     }
 
-    void log_contents() const
+    /**
+     * @brief logs the contents of the encoding (sources, extensions and end positions)
+     */
+    void log_data_structures() const
     {
         std::cout << "z_end = " << z << std::endl;
         std::cout << "h = " << h << std::endl;
 
-        std::cout << "sources:       ";
-        for (uint64_t i = 0; i < z - 1; i++)
-            std::cout << source(i) << ", ";
-        std::cout << source(z - 1) << std::endl;
-
-        std::cout << "extensions:    ";
-        for (uint64_t i = 0; i < z - 1; i++)
-            std::cout << extension(i) << ", ";
-        std::cout << extension(z - 1) << std::endl;
-
-        std::cout << "end_positions: ";
-        for (uint64_t i = 0; i < z - 1; i++)
-            std::cout << end_position(i) << ", ";
-        std::cout << end_position(z - 1) << std::endl;
+        aligned_log log;
+        log.add_row("sources:", z, [&](uint64_t i) { return source(i); });
+        log.add_row("extensions:", z, [&](uint64_t i) { return extension(i); });
+        log.add_row("end_positions:", z, [&](uint64_t i) { return end_position(i); });
+        log.print();
     }
 
+    /**
+     * @brief loads the encoding from an input stream
+     * @param in input stream
+     */
     void load(std::istream& in)
     {
         in.read((char*) &n, sizeof(n));
@@ -279,6 +354,10 @@ public:
         end_positions.load(in);
     }
 
+    /**
+     * @brief serializes the encoding to an output stream
+     * @param out output stream
+     */
     void serialize(std::ostream& out) const
     {
         out.write((char*) &n, sizeof(n));
@@ -289,6 +368,9 @@ public:
         end_positions.serialize(out);
     }
 
+    /**
+     * @brief logs the sizes of the individual data structures of the encoding
+     */
     void log_data_structure_sizes() const {
         std::cout << "sources: " << format_size((sources_extensions.width<0>() * z) / 8) << std::endl;
         std::cout << "extensions: " << format_size((sources_extensions.width<1>() * z) / 8) << std::endl;

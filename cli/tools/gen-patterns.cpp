@@ -29,11 +29,16 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <random>
 #include <misc/utils.hpp>
 #include <misc/log.hpp>
 #include <misc/files.hpp>
 #include <vector>
 
+/**
+ * @brief prints the usage information and exits
+ * @param msg an optional error message printed before the usage information
+ */
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
@@ -47,6 +52,12 @@ void help(std::string msg)
     exit(0);
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char* argv[])
 {
     if (argc < 5 || 6 < argc) help("invalid input: wrong number of arguments");
@@ -59,9 +70,9 @@ int main(int argc, char* argv[])
     int64_t num_patterns = atoi(argv[3]);
     int64_t pattern_length = atoi(argv[2]);
 
-    if (pattern_length < 0 || pattern_length >= input_size)
-        help("Error: length must be >= 1 and <= file length");
-    if (num_patterns < 0) help("Error: number of patterns must be >= 1");
+    if (pattern_length < 1 || pattern_length >= input_size)
+        help("Error: length must be >= 1 and < file length");
+    if (num_patterns < 1) help("Error: number of patterns must be >= 1");
 
     std::ofstream output_file(argv[4]);
     if (!output_file.is_open()) help("invalid input: could not create <patterns_file>");
@@ -80,7 +91,8 @@ int main(int argc, char* argv[])
     output_file << "# number=" << num_patterns << " length=" << pattern_length << " file=" << basename << " forbidden=\n";
     input_file.seekg(0, std::ios::beg);
 
-    std::cout << "generating " << num_patterns << " patterns of length " << pattern_length << std::flush;
+    auto time = now();
+    log_phase_start(true, time, "generating " + std::to_string(num_patterns) + " patterns of length " + std::to_string(pattern_length));
     std::uniform_int_distribution<uint64_t> pattern_pos_distrib(0, input_size - pattern_length - 1);
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -88,7 +100,6 @@ int main(int argc, char* argv[])
     std::string pattern;
     no_init_resize(pattern, pattern_length);
     bool found_forbidden = false;
-    auto time = now();
 
     for (int64_t i = 0; i < num_patterns; i++) {
         do {
@@ -110,7 +121,7 @@ int main(int argc, char* argv[])
         output_file.write(pattern.c_str(), pattern_length);
     }
     
-    time = log_runtime(time);
-    
+    log_phase_end(true, time);
+
     return 0;
 }

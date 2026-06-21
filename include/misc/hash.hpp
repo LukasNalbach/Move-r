@@ -28,6 +28,11 @@
 
 #include <cstdint>
 
+/**
+ * @brief hashes a 32-bit value (murmur3 finalizer)
+ * @param x a 32-bit value
+ * @return the hash of x
+ */
 inline static uint32_t hash_32(uint32_t x)
 {
     x ^= x >> 16;
@@ -38,6 +43,11 @@ inline static uint32_t hash_32(uint32_t x)
     return x;
 }
 
+/**
+ * @brief hashes a 64-bit value (splitmix64)
+ * @param x a 64-bit value
+ * @return the hash of x
+ */
 inline static uint64_t hash_64(uint64_t x)
 {
     x += 0x9e3779b97f4a7c15ULL;
@@ -46,6 +56,12 @@ inline static uint64_t hash_64(uint64_t x)
     return x ^ (x >> 31);
 }
 
+/**
+ * @brief hashes a position (using hash_32 or hash_64 depending on pos_t)
+ * @tparam pos_t unsigned integer position type (uint32_t or uint64_t)
+ * @param x a position
+ * @return the hash of x
+ */
 template <class pos_t>
 inline static pos_t pos_hash(pos_t x)
 {
@@ -61,6 +77,12 @@ inline static pos_t pos_hash(pos_t x)
 static constexpr uint64_t GOLDEN_RATIO_64 = 0x9e3779b97f4a7c15ULL;
 static constexpr uint32_t GOLDEN_RATIO_32 = 0x9e3779b9UL;
 
+/**
+ * @brief combines the hash value hash with the value x (boost-style hash_combine)
+ * @tparam pos_t unsigned integer type (uint32_t or uint64_t)
+ * @param hash the hash value to update
+ * @param x the value to combine into hash
+ */
 template <class pos_t>
 inline static void hash_combine(pos_t& hash, pos_t x)
 {

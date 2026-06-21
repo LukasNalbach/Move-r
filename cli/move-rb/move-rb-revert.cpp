@@ -38,6 +38,10 @@ std::ifstream index_file;
 std::ofstream output_file;
 std::ofstream mf;
 
+/**
+ * @brief prints the usage information and exits
+ * @param msg an optional error message printed before the usage information
+ */
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
@@ -54,6 +58,11 @@ void help(std::string msg)
     exit(0);
 }
 
+/**
+ * @brief parses the next command-line argument(s)
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ */
 void parse_args(char** argv, int argc)
 {
     std::string s = argv[arg_idx];
@@ -77,16 +86,21 @@ void parse_args(char** argv, int argc)
     }
 }
 
+/**
+ * @brief loads the index and benchmarks reverting the index
+ * @tparam pos_t index integer type
+ * @tparam support the move-r locate-support type
+ */
 template <typename pos_t, move_r_support support>
 void measure_revert()
 {
     std::cout << std::setprecision(4);
-    std::cout << "loading the index" << std::flush;
     auto t1 = now();
+    log_phase_start(true, t1, "loading the index");
     using idx_t = move_rb<support, char, pos_t>;
     idx_t index;
     index.load(index_file);
-    log_runtime(t1);
+    log_phase_end(true, t1);
     index_file.close();
     std::cout << std::endl;
     index.log_data_structure_sizes();
@@ -127,10 +141,17 @@ void measure_revert()
     }
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     if (argc < 3) help("");
     while (arg_idx < argc - 2) parse_args(argv, argc);
+    if (arg_idx + 2 > argc) help("error: missing <index_file> and/or <output_file>");
 
     path_index_file = argv[arg_idx];
     path_outputfile = argv[arg_idx + 1];
@@ -156,12 +177,7 @@ int main(int argc, char** argv)
     } else if (_support == _locate_rlzsa) {
         if (is_64_bit) measure_revert<uint64_t, _locate_rlzsa>();
         else           measure_revert<uint32_t, _locate_rlzsa>();
-    } else if (_support == _locate_lzendsa) {
-        if (is_64_bit) measure_revert<uint64_t, _locate_lzendsa>();
-        else           measure_revert<uint32_t, _locate_lzendsa>();
-    } else if (_support == _locate_rlzsa_bin_search) {
-        help("error: this index does not support revert");
     }
-    
+
     return 0;
 }

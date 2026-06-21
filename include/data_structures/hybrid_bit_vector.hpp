@@ -35,6 +35,9 @@
 /**
  * @brief hybrid bit vector (either an sd_array or a plain bit vector)
  * @tparam pos_t unsigned integer type
+ * @tparam build_rank_support whether to build rank support
+ * @tparam build_select_0_support whether to build select-0 support
+ * @tparam build_select_1_support whether to build select-1 support
  */
 template <typename pos_t = uint32_t, bool build_rank_support = false, bool build_select_0_support = false, bool build_select_1_support = false>
 class hybrid_bit_vector {
@@ -66,7 +69,7 @@ public:
 
     /**
      * @brief constructs a new hybrid_bit_vector from a bit vector
-     * @param bit_vector a bit vector
+     * @param plain_bit_vec a bit vector
      */
     hybrid_bit_vector(const sdsl::bit_vector& plain_bit_vec)
     {
@@ -79,7 +82,7 @@ public:
 
     /**
      * @brief constructs a new hybrid_bit_vector from a bit vector
-     * @param bit_vector a bit vector
+     * @param plain_bit_vec a bit vector
      */
     hybrid_bit_vector(sdsl::bit_vector&& plain_bit_vec)
     {
@@ -108,6 +111,10 @@ public:
         sd_arr = sd_array<pos_t>(std::move(sd_vec));
     }
 
+    /**
+     * @brief returns whether the bit vector has been initialized
+     * @return whether the bit vector has been initialized
+     */
     inline bool is_initialized() const
     {
         return sd_arr.has_value() || plain_bit_vec.has_value();
@@ -325,7 +332,7 @@ public:
         if (empty()) return;
 
         for (uint64_t i = 0; i < size() - 1; i++) {
-            std::cout << operator[](i) << ", ";
+            std::cout << operator[](i) << " ";
         }
 
         std::cout << operator[](size() - 1) << std::endl;
@@ -377,12 +384,22 @@ public:
         }
     }
 
+    /**
+     * @brief serializes the hybrid_bit_vector to an output stream
+     * @param os output stream
+     * @return the output stream
+     */
     std::ostream& operator>>(std::ostream& os) const
     {
         serialize(os);
         return os;
     }
 
+    /**
+     * @brief loads the hybrid_bit_vector from an input stream
+     * @param is input stream
+     * @return the input stream
+     */
     std::istream& operator<<(std::istream& is)
     {
         load(is);

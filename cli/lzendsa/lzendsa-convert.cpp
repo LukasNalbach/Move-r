@@ -37,6 +37,9 @@ std::ifstream input_file;
 std::ofstream output_file;
 int64_t d = -1;
 
+/**
+ * @brief prints the usage information and exits
+ */
 void help()
 {
     std::cout << "lzendsa-convert: converts an r-index-lzendsa index to an lzendsa index." << std::endl << std::endl;
@@ -81,6 +84,12 @@ void convert()
     output_index.serialize(output_file);
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     std::set<std::string> allowed_value_options;
@@ -96,10 +105,11 @@ int main(int argc, char** argv)
 
     for (Option value_option : parsed_args.value_options) {
         if (value_option.name == "-d") {
-            d = std::stol(value_option.value);
+            d = parse_int_arg(value_option.value, "-d");
         }
     }
 
+    require_file(parsed_args.last_param.at(0));
     input_file.open(parsed_args.last_param.at(0));
     output_file.open(parsed_args.last_param.at(1));
     bool is_64_bit;

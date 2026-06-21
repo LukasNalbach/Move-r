@@ -32,15 +32,16 @@
 #include <move_data_structure/move_data_structure.hpp>
 #include <move_data_structure/move_data_structure_l_.hpp>
 #include <data_structures/rank_select_support.hpp>
-#include <lzendsa/lzendsa_encoding.hpp>
+#include <rlzsa_opt/rlzsa_opt.hpp>
 #include <misc/utils.hpp>
 #include <misc/files.hpp>
 #include <misc/search.hpp>
 #include <misc/log.hpp>
-#include <misc/strings.hpp>
 #include <omp.h>
 #include <tsl/sparse_map.h>
+#include <functional>
 #include <type_traits>
+#include <variant>
 
 /**
  * @brief type of locate support
@@ -50,9 +51,6 @@ enum move_r_support {
     _locate_one, // support for computing exaclty one occurrence per pattern
     _locate_move, // locate support is implemented using a move data structure to answer Phi^{-1}-queries
     _locate_rlzsa, // locate support is implemented by relative lepel-ziv encoding the differential suffix array
-    _locate_rlzsa_bin_search, // count and locate is implemented by relative lepel-ziv encoding the differential
-                              // suffix array and performing binary search over the suffix array
-    _locate_lzendsa, // locate support is implemented by LZ-end encoding the differential suffix array
 
     // ############################# INTERNAL (DON'T USE) #############################
     _count_bi, // internal mode (don't use)
@@ -70,6 +68,11 @@ enum move_r_construction_mode {
     _suffix_array_space // builds the suffix array and stores some data structures on disk
 };
 
+/**
+ * @brief returns the file-name suffix associated with a locate-support type
+ * @param support a locate-support type
+ * @return the file-name suffix for the given locate-support type
+ */
 static std::string move_r_support_suffix(move_r_support support)
 {
     std::string support_suffix;
@@ -78,8 +81,6 @@ static std::string move_r_support_suffix(move_r_support support)
         case _count: support_suffix = ""; break;
         case _locate_move: support_suffix = "move"; break;
         case _locate_rlzsa: support_suffix = "rlzsa"; break;
-        case _locate_rlzsa_bin_search: support_suffix = "rlzsa_bin_search"; break;
-        case _locate_lzendsa: support_suffix = "lzendsa"; break;
         default: break;
     }
 
@@ -97,7 +98,6 @@ struct move_r_params {
     /* alphabet size of the input; if set to 0, the symbols in the input are maped to a compact alphabet; else
        (alphabet_size != 0), the input must already have a compact alphabet, and the symbols are not remapped */
     uint64_t alphabet_size = 0;
-    uint16_t delta = 0; // SA-sampling rate (only for _locate_rlzsa_bin_search); if set to 0, the SA-sampling will be ~10% of the index size
     bool log = false; // controls, whether to print log messages
     std::ostream* mf_idx = nullptr; // measurement file for the index construciton
     std::ostream* mf_mds = nullptr; // measurement file for the move data structure construction
@@ -155,9 +155,7 @@ public:
         
     static constexpr bool supports_locate = support != _count && support != _count_bi; // true <=> the index supports locate
     static constexpr bool supports_multiple_locate = supports_locate && support != _locate_one && support != _locate_bi_bwd; // true <=> the index supports locating multiple occurrences
-    static constexpr bool supports_bwsearch = support != _locate_rlzsa_bin_search; // true <=> the index uses backward search for answering count queries
-    static constexpr bool has_rlzsa = support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd || support == _locate_rlzsa_bin_search; // true <=> the index has an rlzsa
-    static constexpr bool has_lzendsa = support == _locate_lzendsa; // true <=> the index has an lzendsa
+    static constexpr bool has_rlzsa = support == _locate_rlzsa || support == _locate_rlzsa_bi_fwd; // true <=> the index has an rlzsa
     static constexpr bool has_locate_move = support == _locate_move || support == _locate_move_bi_fwd; // true the index uses move data structures for Phi/Phi^{-1}
     static constexpr bool str_input = std::is_same_v<sym_t, char>; // true <=> the input is a string
     static constexpr bool int_input = !str_input; // true <=> the input is an iteger vector
@@ -169,17 +167,11 @@ public:
     using inp_t = std::conditional_t<str_input, std::string, std::vector<sym_t>>; // input container type
     using rsl_t = rank_select_support<i_sym_t, pos_t, true, true>; // type of RS_L'
 
-    // sample rate of the copy phrases in the rlzsa
-    static constexpr pos_t sample_rate_scp = 4;
-
     // maximum distance to scan over L' to find the first and last occurrences of sym in L'[\hat{b},\hat{e}]
     static constexpr pos_t max_scan_l_ = 128;
 
     // space-time tradeoff parameter for the size of blocks in L' (for L_prev and L_next)
     static constexpr pos_t _l_blk_size_factor = 4;
-
-    // default overall size of the SA-delta-samples relative to the index size
-    static constexpr double default_relative_sampling_size = 0.1;
 
     // ############################# INDEX VARIABLES #############################
 
@@ -190,17 +182,11 @@ protected:
     pos_t r_ = 0; // r', the number of input/output intervals in M_LF
     pos_t r__ = 0; // r'', the number of input/output intervals in M_Phi^{-1}
     pos_t r___ = 0; // r''', the number of input/output intervals in M_Phi
-    pos_t z = 0; // z, the number of phrases in the rlzsa
-    pos_t z_l = 0; // z_l, the number of literal phrases in the rlzsa
-    pos_t z_c = 0; // z_c, the number of copy-phrases in the rlzsa
-    pos_t z_end = 0; // z_end, the number of phrases in the lzendsa
-    pos_t delta = 0; // SA-sample rate (for _locate_rlzsa_bin_search)
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))+z), 2 <= a
     uint16_t p_r = 1; // maximum possible number of threads to use while reverting the index
     pos_t _l_blk_size = 0; // size of the blocks in L' (for L_prev and L_next)
     pos_t _num_blks_l_ = 0; // number of blocks (of size _l_blk_size) in L' (for L_prev and L_next)
     uint8_t omega_idx = 0; // word width of SA_Phi^{-1}
-    pos_t last_sa = 0; // SA[n - 1]
 
     /* true <=> the characters of the input have been remapped internally */
     bool symbols_remapped = false;
@@ -221,46 +207,29 @@ protected:
 
     /* [0..num_blocks_L_() * L_block_size() - 1], stores at position blk * sigma + sym
     the position of the last occurrence of sym before block blk in L' */
-    interleaved_byte_aligned_vectors<pos_t, pos_t> _L_prev;
+    interleaved_bit_aligned_vectors<pos_t> _L_prev;
     /* [0..num_blocks_L_() * L_block_size() - 1], stores at position blk * sigma + sym
     the position of the first occurrence of sym after or in block blk in L' */
-    interleaved_byte_aligned_vectors<pos_t, pos_t> _L_next;
+    interleaved_bit_aligned_vectors<pos_t> _L_next;
 
     // The Move Data Structure for Phi^{-1}.
     move_data_structure<pos_t> _M_Phi_m1;
     // The Move Data Structure for Phi.
     move_data_structure<pos_t> _M_Phi;
     // [0..r'-1] stores at position x the index of the output interval of M_Phi^{-1} that starts with SA_s[x] = SA[M_LF.p[x]]
-    interleaved_byte_aligned_vectors<pos_t, pos_t> _SA_Phi_m1;
+    interleaved_bit_aligned_vectors<pos_t> _SA_Phi_m1;
 
     /* [0..p_r-1], where D_e[i] = <x,j>, where x in [0,r'-1] and j is minimal, s.t. SA_s[x]=j > i* lfloor (n-1)/p rfloor;
     see the parallel revert algorithm to understand why this is useful. */
     std::vector<std::pair<pos_t, pos_t>> _D_e;
 
     // stores the suffix array values at the starting positions of the input intervals of M_LF, i.e, SA_s[i] = SA[M_LF.p[i]]
-    interleaved_byte_aligned_vectors<pos_t, pos_t> _SA_s;
-    // stores the suffix array values at the end positions of the input intervals of M_LF, i.e, SA_s'[i] = SA[M_LF.p[i + 1] - 1]
-    interleaved_byte_aligned_vectors<pos_t, pos_t> _SA_s_;
-    // reference for SA^d (differential suffix array)
-    interleaved_byte_aligned_vectors<uint64_t, pos_t> _R;
-    // bit vector storing the phrase types of the rlzsa, i.e, PT[i] = 1 <=> phrase i is literal
-    plain_bit_vector<pos_t, true, true, true> _PT;
-    // compressed bit vector marking the sampled starting positions in SA^d of the copy phrases of the rlzsa
-    sd_array<pos_t> _SCP_S;
-    // lengths of the copy phrases of the rlzsa
-    std::vector<uint16_t> _CPL;
-    // starting positions in R of the copy phrases of the rlzsa
-    interleaved_byte_aligned_vectors<pos_t, pos_t> _SR;
-    // literal phrases of the rlzsa
-    interleaved_byte_aligned_vectors<pos_t, pos_t> _LP;
+    interleaved_bit_aligned_vectors<pos_t> _SA_s;
+    // stores the suffix array values at the end positions of the input intervals of M_LF, i.e, SA_e[i] = SA[M_LF.p[i + 1] - 1]
+    interleaved_bit_aligned_vectors<pos_t> _SA_e;
 
-    // LZ-End encoding of the differential suffix array
-    lzendsa_encoding _lzendsa;
-
-    // [0..n / delta - 1] stores evenly-spaced SA-samples, i.e, SA_delta[i] = SA[i * delta] (for _locate_rlzsa_bin_search)
-    interleaved_byte_aligned_vectors<pos_t, pos_t> _SA_delta;
-
-    const inp_t* input = nullptr;
+    // relative-Lempel-Ziv encoding of the differential suffix array (standalone, see rlzsa_opt/rlzsa_opt.hpp)
+    rlzsa_opt<pos_t> _rlzsa;
 
     // ############################# INTERNAL METHODS #############################
 
@@ -317,6 +286,11 @@ public:
 
     // ############################# MISC PUBLIC METHODS #############################
 
+    /**
+     * @brief sets the internal and external alphabet maps (only for bidirectional indexes)
+     * @param map_int the map from the input alphabet to the internal effective alphabet
+     * @param map_ext the map from the internal effective alphabet to the input alphabet
+     */
     void set_alphabet_maps(map_int_t& map_int, map_ext_t& map_ext) requires(is_bidirectional)
     {
         symbols_remapped = true;
@@ -371,12 +345,21 @@ public:
     }
 
     /**
+     * @brief returns a reference to the embedded rlzsa
+     * @return the embedded rlzsa
+     */
+    inline const rlzsa_opt<pos_t>& rlzsa() const requires(has_rlzsa)
+    {
+        return _rlzsa;
+    }
+
+    /**
      * @brief returns the number of phrases in the rlzsa
      * @return number of phrases in the rlzsa
      */
     inline pos_t num_phrases_rlzsa() const requires(has_rlzsa)
     {
-        return z;
+        return _rlzsa.num_phrases();
     }
 
     /**
@@ -385,7 +368,7 @@ public:
      */
     inline pos_t num_literal_phrases_rlzsa() const requires(has_rlzsa)
     {
-        return z_l;
+        return _rlzsa.num_literal_phrases();
     }
 
     /**
@@ -394,16 +377,7 @@ public:
      */
     inline pos_t num_copy_phrases_rlzsa() const requires(has_rlzsa)
     {
-        return z_c;
-    }
-
-    /**
-     * @brief returns the number of phrases in the rlzsa
-     * @return number of phrases in the rlzsa
-     */
-    inline pos_t num_phrases_lzendsa() const requires(has_lzendsa)
-    {
-        return z_end;
+        return _rlzsa.num_copy_phrases();
     }
 
     /**
@@ -433,11 +407,6 @@ public:
         return p_r;
     }
 
-    inline void set_input(inp_t& input) requires (support == _locate_rlzsa_bin_search)
-    {
-        this->input = &input;
-    }
-
     /**
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
@@ -454,15 +423,8 @@ public:
             _M_Phi_m1.size_in_bytes() +
             _SA_Phi_m1.size_in_bytes() +
             _SA_s.size_in_bytes() +
-            _SA_s_.size_in_bytes() +
-            _SA_delta.size_in_bytes() +
-            _R.size_in_bytes() +
-            (z_c + 2) * sizeof(uint16_t) + // CPL
-            _SCP_S.size_in_bytes() +
-            _SR.size_in_bytes() +
-            _LP.size_in_bytes() +
-            _PT.size_in_bytes() +
-            _lzendsa.size_in_bytes();
+            _SA_e.size_in_bytes() +
+            _rlzsa.size_in_bytes();
     }
 
     /**
@@ -480,136 +442,121 @@ public:
         if (M_LF().num_intervals() != 0) std::cout << ", a = " << a;
         std::cout << std::endl;
 
-        std::cout << std::endl << "T:  ";
+        // formats an external symbol, printing the terminator (0) as '$'
+        auto external_sym = [&](sym_t sym) {
+            std::ostringstream s;
+            if (sym == 0) s << '$'; else s << sym;
+            return s.str();
+        };
+
+        std::cout << std::endl;
         auto T = revert_range();
-        for (auto sym : T) std::cout << sym << ", ";
-        std::cout << "$" << std::endl;
+
+        // capture T's symbols (followed by the terminator) before T is remapped in place below
+        std::vector<std::string> T_syms;
+        T_syms.reserve(n);
+        for (auto sym : T) T_syms.push_back(external_sym(sym));
+        T_syms.push_back("$");
 
         for (pos_t i = 0; i < n; i++) {
             *reinterpret_cast<i_sym_t*>(&T[i]) = map_symbol(T[i]);
         }
 
-        std::cout << "SA: ";
-        log_contents(move_r<_locate_move, sym_t, pos_t>(T).SA_range());
-            
-        auto report_external_sym = [&](sym_t sym){
-            std::cout << (sym == 0 ? '$' : sym);
-        };
-        
-        std::cout << "L:  ";
+        auto SA = move_r<_locate_move, sym_t, pos_t>(T).SA_range();
         auto L = BWT_range();
-        for (pos_t i = 0; i < n - 1; i++)
-            { report_external_sym(L[i]); std::cout << ", "; }
-        report_external_sym(L[n - 1]);
-        std::cout << std::endl << std::endl;
+
+        aligned_log log;
+        log.add_row("T:", T_syms.size(), [&](pos_t i) { return T_syms[i]; });
+        log.add_row("SA:", SA.size(), [&](pos_t i) { return SA[i]; });
+        log.add_row("L:", L.size(), [&](pos_t i) { return external_sym(L[i]); });
+        log.print();
+        std::cout << std::endl;
 
         if (M_LF().num_intervals() != 0) {
             std::cout << "M_LF: " << "r' = " << r_ << std::endl;
-            M_LF().log_contents();
-            std::cout << std::endl;
 
-            auto report_internal_sym = [&](i_sym_t sym){
-                std::cout << (sym == 0 ? '$' : unmap_symbol(sym));
+            // unmaps an internal symbol of L', printing the terminator (0) as '$'
+            auto internal_sym = [&](i_sym_t sym) {
+                std::ostringstream s;
+                if (sym == 0) s << '$'; else s << unmap_symbol(sym);
+                return s.str();
             };
 
-            std::cout << "L': ";
-            for (pos_t i = 0; i < r_ - 1; i++)
-                { report_internal_sym(L_(i)); std::cout << ", "; }
-            report_internal_sym(L_(r_ - 1));
+            // L' is logged as the first row of the M_LF block, aligned above its p, q and idx arrays
+            aligned_log log;
+            log.add_row("L':", r_, [&](pos_t i) { return internal_sym(L_(i)); });
+            log.add_row("p:", r_, [&](pos_t i) { return M_LF().p(i); });
+            log.add_row("q:", r_, [&](pos_t i) { return M_LF().q(i); });
+            log.add_row("idx:", r_, [&](pos_t i) { return M_LF().idx(i); });
+            log.print();
 
             std::cout << std::endl;
             std::cout << "L' block size = " << _l_blk_size << std::endl;
-            std::cout << "L'_prev: ";
-            _L_prev.log_contents();
-            std::cout << "L'_next: ";
-            _L_next.log_contents();
-            std::cout << std::endl;
+
+            // L'_prev and L'_next are logged in one block so they share a single, contiguous index
+            // header, even though their lengths differ
+            aligned_log log_prev_next;
+            log_prev_next.add_row("L'_prev:", _L_prev.size(), [&](pos_t i) { return _L_prev[i]; });
+            log_prev_next.add_row("L'_next:", _L_next.size(), [&](pos_t i) { return _L_next[i]; });
+            log_prev_next.print();
         }
 
         if constexpr (has_locate_move) {
-            std::cout << "M_Phi^{-1}: " << "r'' = " << r__ << std::endl;
-            M_Phi_m1().log_contents();
             std::cout << std::endl;
+            std::cout << "M_Phi^{-1}: " << "r'' = " << r__ << std::endl;
+            M_Phi_m1().log_data_structures();
         }
 
         if constexpr (support == _locate_move_bi_fwd) {
-            std::cout << "M_Phi: " << "r''' = " << r___ << std::endl;
-            M_Phi().log_contents();
             std::cout << std::endl;
+            std::cout << "M_Phi: " << "r''' = " << r___ << std::endl;
+            M_Phi().log_data_structures();
+        }
+
+        // for a bidirectional (move_rb) sub-index, SA_s and SA_e are instead logged by move_rb,
+        // aligned in pairs with SA_s_pos and SA_e_pos
+        if constexpr (!is_bidirectional) {
+            if constexpr (support == _locate_move) {
+                std::cout << std::endl;
+                aligned_log log;
+                log.add_row("SA_s:", r_, [&](pos_t i) { return SA_s(i); });
+                log.print();
+            } else {
+                std::cout << std::endl;
+                log_indexed("SA_s:", _SA_s);
+                std::cout << std::endl;
+                log_indexed("SA_e:", _SA_e);
+            }
         }
 
         if (!_SA_Phi_m1.empty()) {
-            std::cout << "SA_Phi^{-1}: ";
-            _SA_Phi_m1.log_contents();
-        }
-
-        if (!_SA_s.empty()) {
-            std::cout << "SA_s:  ";
-            _SA_s.log_contents();
-        }
-
-        if (!_SA_s_.empty()) {
-            std::cout << "SA_s': ";
-            _SA_s_.log_contents();
-        }
-
-        if (!_SA_delta.empty()) {
-            std::cout << "delta = " << delta << std::endl;
-            std::cout << "_SA_delta: ";
-            _SA_delta.log_contents();
-        }
-
-        if (z != 0) {
             std::cout << std::endl;
-            std::cout << "z = " << z << ", ";
-            std::cout << "z_l = " << z_l << ", ";
-            std::cout << "z_c = " << z_c << std::endl;
-            std::cout << "SCP_S sampling rate = " << sample_rate_scp << std::endl;
-            std::cout << std::endl;
-
-            std::cout << "R: ";
-            auto report_R = [&](pos_t i){ std::cout << int32_t{_R[i]} - int32_t{n}; };
-            for (pos_t i = 0; i < _R.size() - 1; i++) { report_R(i); std::cout << ", "; }
-            report_R(_R.size() - 1); std::cout << std::endl;
-            
-            std::cout << "PT: ";
-            log_contents(_PT);
-            std::cout << "SCP_S: ";
-            log_contents(_SCP_S);
-            std::cout << "CPL: ";
-            log_contents(_CPL);
-            std::cout << "SR: ";
-            _SR.log_contents();
-
-            std::cout << "LP: ";
-            auto report_LP = [&](pos_t i){ std::cout << int32_t{_LP[i]} - int32_t{n}; };
-            for (pos_t i = 0; i < _LP.size() - 1; i++) { report_LP(i); std::cout << ", "; }
-            report_LP(_R.size() - 1); std::cout << std::endl;
+            log_indexed("SA_Phi^{-1}:", _SA_Phi_m1);
         }
 
-        if (z_end != 0) {
-            _lzendsa.log_contents();
+        if (!_rlzsa.empty()) {
+            std::cout << std::endl;
+            _rlzsa.log_data_structures();
         }
     }
 
     /**
      * @brief logs the index data structure sizes to cout
+     * @param print_index_size whether to also log the overall index size
      */
     void log_data_structure_sizes(bool print_index_size = true) const
     {
         if (print_index_size) std::cout << "index size: " << format_size(size_in_bytes()) << std::endl;
 
-        if constexpr (supports_bwsearch) {
-            uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
-            std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes() - size_l_) << std::endl;
-            std::cout << "L': " << format_size(size_l_) << std::endl;
+        uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
+        std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes() - size_l_) << std::endl;
+        std::cout << "L': " << format_size(size_l_) << std::endl;
 
-            if (byte_alphabet) {
-                std::cout << "L'_prev & L'_next: " << format_size(
-                    _L_prev.size_in_bytes() + _L_next.size_in_bytes()) << std::endl;
-            } else {
-                std::cout << "RS_L': " << format_size(_RS_L_.size_in_bytes()) << std::endl;
-            }
+        if (byte_alphabet) {
+            std::cout << "L'_prev & L'_next: " << format_size(
+                _L_prev.size_in_bytes() + _L_next.size_in_bytes()) << std::endl;
+        } else {
+            std::cout << "RS_L': " << format_size(_RS_L_.size_in_bytes()) << std::endl;
         }
 
         if (int_alphabet && symbols_remapped) {
@@ -621,45 +568,31 @@ public:
         if (!_M_Phi_m1.empty()) std::cout << "M_Phi^{-1}: " << format_size(_M_Phi_m1.size_in_bytes()) << std::endl;
         if (!_SA_Phi_m1.empty()) std::cout << "SA_Phi^{-1}: " << format_size(_SA_Phi_m1.size_in_bytes()) << std::endl;
 
-        if (z != 0) {
-            std::cout << "R: " << format_size(_R.size_in_bytes()) << std::endl;
-            std::cout << "CPL: " << format_size((z_c + 2) * sizeof(uint16_t)) << std::endl;
-            std::cout << "SCP_S: " << format_size(_SCP_S.size_in_bytes()) << std::endl;
-            std::cout << "SR: " << format_size(_SR.size_in_bytes()) << std::endl;
-            std::cout << "LP: " << format_size(_LP.size_in_bytes()) << std::endl;
-            std::cout << "PT: " << format_size(_PT.size_in_bytes()) << std::endl;
-        }
+        if (!_rlzsa.empty()) _rlzsa.log_data_structure_sizes();
 
-        if (!_SA_delta.empty()) std::cout << "SA_delta: " << format_size(_SA_delta.size_in_bytes()) << std::endl;
         if (!_SA_s.empty()) std::cout << "SA_s: " << format_size(_SA_s.size_in_bytes()) << std::endl;
-        if (!_SA_s_.empty()) std::cout << "SA_s': " << format_size(_SA_s_.size_in_bytes()) << std::endl;
-
-        if (z_end != 0) {
-            std::cout << "lzendsa:" << std::endl;
-            _lzendsa.log_data_structure_sizes();
-        }
+        if (!_SA_e.empty()) std::cout << "SA_e: " << format_size(_SA_e.size_in_bytes()) << std::endl;
     }
 
     /**
      * @brief logs the index data structure sizes to the output stream out
      * @param out an output stream
+     * @param suffix suffix appended to each measurement key
      */
     void log_data_structure_sizes(std::ostream& out, std::string suffix = "") const
     {
         out << " size_index" << suffix << "=" << size_in_bytes();
         out << " a=" << a;
 
-        if constexpr (supports_bwsearch) {
-            uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
-            out << " size_m_lf" << suffix << "=" << _M_LF.size_in_bytes() - size_l_;
-            out << " size_l_" << suffix << "=" << size_l_;
-            
-            if constexpr (byte_alphabet) {
-                out << " size_l_prev" << suffix << "=" << _L_prev.size_in_bytes();
-                out << " size_l_next" << suffix << "=" << _L_next.size_in_bytes();
-            } else {
-                out << " size_rs_l_" << suffix << "=" << _RS_L_.size_in_bytes();
-            }
+        uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
+        out << " size_m_lf" << suffix << "=" << _M_LF.size_in_bytes() - size_l_;
+        out << " size_l_" << suffix << "=" << size_l_;
+
+        if constexpr (byte_alphabet) {
+            out << " size_l_prev" << suffix << "=" << _L_prev.size_in_bytes();
+            out << " size_l_next" << suffix << "=" << _L_next.size_in_bytes();
+        } else {
+            out << " size_rs_l_" << suffix << "=" << _RS_L_.size_in_bytes();
         }
 
         if (int_alphabet && symbols_remapped) {
@@ -668,8 +601,7 @@ public:
         }
 
         if constexpr (support == _locate_one || support == _locate_rlzsa ||
-            support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd ||
-            has_lzendsa
+            support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd
         ) {
             out << " size_sa_s" << suffix << "=" << _SA_s.size_in_bytes();
         }
@@ -682,20 +614,11 @@ public:
             out << " size_m_phim1" << suffix << "=" << _M_Phi_m1.size_in_bytes();
             out << " size_sa_phim1" << suffix << "=" << _SA_Phi_m1.size_in_bytes();
         } else if constexpr (has_rlzsa) {
-            out << " size_r" << suffix << "=" << _R.size_in_bytes();
-            out << " size_cpl" << suffix << "=" << (z_c + 2) * sizeof(uint16_t);
-            out << " size_scp" << suffix << "=" << _SCP_S.size_in_bytes();
-            out << " size_sr" << suffix << "=" << _SR.size_in_bytes();
-            out << " size_lp" << suffix << "=" << _LP.size_in_bytes();
-            out << " size_pt" << suffix << "=" << _PT.size_in_bytes();
-
-            if constexpr (!supports_bwsearch) {
-                out << " size_sa_delta" << suffix << "=" << _SA_delta.size_in_bytes();
-            }
+            _rlzsa.log_data_structure_sizes(out, suffix);
         }
 
         if constexpr (support == _locate_rlzsa_bi_fwd || support == _locate_bi_bwd) {
-            out << " size_sa_s_" << suffix << "=" << _SA_s_.size_in_bytes();
+            out << " size_sa_e" << suffix << "=" << _SA_e.size_in_bytes();
         }
     }
 
@@ -752,8 +675,8 @@ public:
      * @brief returns the position of the first occurrence of i_sym
      *        after or in the x-th block (of size L_block_size()) in L'
      * @param blk [0..num_blocks_L_() - 1] block index
-     * @param sym [0..alphabet_size() - 1] symbol
-     * @return L_next[blk * sigma + sym]
+     * @param i_sym [0..alphabet_size() - 1] symbol
+     * @return L_next[blk * sigma + i_sym]
      */
     inline pos_t L_next(pos_t blk, pos_t i_sym) const
         requires(byte_alphabet)
@@ -776,137 +699,13 @@ public:
      * @brief returns the position of the last occurrence of i_sym
      *        before the x-th block (of size L_block_size()) in L'
      * @param blk [0..num_blocks_L_() - 1] block index
-     * @param sym [0..alphabet_size() - 1] symbol
+     * @param i_sym [0..alphabet_size() - 1] symbol
      * @return L_prev[blk * sigma + i_sym]
      */
     inline pos_t L_prev(pos_t blk, pos_t i_sym) const
         requires(byte_alphabet)
     {
         return _L_prev[blk * sigma + i_sym];
-    }
-
-    /**
-     * @brief returns a reference to R
-     * @return R
-     */
-    inline const interleaved_byte_aligned_vectors<uint64_t, pos_t>& R() const requires(has_rlzsa)
-    {
-        return _R;
-    }
-
-    /**
-     * @brief returns a reference to PT
-     * @return PT
-     */
-    inline const plain_bit_vector<pos_t, true, true, true>& PT() const requires(has_rlzsa)
-    {
-        return _PT;
-    }
-
-    /**
-     * @brief returns a reference to CPL
-     * @return CPL
-     */
-    inline const std::vector<uint16_t>& CPL() const requires(has_rlzsa)
-    {
-        return _CPL;
-    }
-
-    /**
-     * @brief returns a reference to SCP_S
-     * @return SCP_S
-     */
-    inline const sd_array<pos_t>& SCP_S() const requires(has_rlzsa)
-    {
-        return _SCP_S;
-    }
-
-    /**
-     * @brief returns a reference to SR
-     * @return SR
-     */
-    inline const interleaved_byte_aligned_vectors<pos_t, pos_t>& SR() const requires(has_rlzsa)
-    {
-        return _SR;
-    }
-
-    /**
-     * @brief returns a reference to LP
-     * @return LP
-     */
-    inline const interleaved_byte_aligned_vectors<pos_t, pos_t>& LP() const requires(has_rlzsa)
-    {
-        return _LP;
-    }
-
-    /**
-     * @brief returns R[x]
-     * @param x [0..|R|-1] index in R
-     * @return R[x]
-     */
-    inline uint64_t R(pos_t x) const requires(has_rlzsa)
-    {
-        return _R[x];
-    }
-
-    /**
-     * @brief returns PT[x]
-     * @param x [0..z-1] index in PT
-     * @return PT[x]
-     */
-    inline bool PT(pos_t x) const requires(has_rlzsa)
-    {
-        return _PT[x];
-    }
-
-    /**
-     * @brief returns CPL[x]
-     * @param x [0..z_c-1] index in CPL
-     * @return CPL[x]
-     */
-    inline uint16_t CPL(pos_t x) const requires(has_rlzsa)
-    {
-        return _CPL[x];
-    }
-
-    /**
-     * @brief returns SCP_S[x]
-     * @param x [0..z_c/sample_rate_scp-1] index in SCP_S
-     * @return SCP_S[x]
-     */
-    inline pos_t SCP_S(pos_t x) const requires(has_rlzsa)
-    {
-        return _SCP_S.select_1(x + 1);
-    }
-
-    /**
-     * @brief returns SR[x]
-     * @param x [0..z_r-1] index in SR
-     * @return SR[x]
-     */
-    inline pos_t SR(pos_t x) const requires(has_rlzsa)
-    {
-        return _SR[x];
-    }
-
-    /**
-     * @brief returns LP[x]
-     * @param x [0..z_l-1] index in LP
-     * @return LP[x]
-     */
-    inline pos_t LP(pos_t x) const requires(has_rlzsa)
-    {
-        return _LP[x];
-    }
-
-    /**
-     * @brief returns LP[x]
-     * @param x [0..z_l-1] index in LP
-     * @return LP[x]
-     */
-    inline const lzendsa_encoding& lzend() const requires(has_lzendsa)
-    {
-        return _lzendsa;
     }
 
     /**
@@ -936,12 +735,12 @@ public:
     }
 
     /**
-     * @brief returns SA_s'[x]
+     * @brief returns SA_e[x]
      * @param x [0..r'-1] the end position of the x-th input
      * interval in M_LF must be an end position of a bwt run
-     * @return SA_s'[x]
+     * @return SA_e[x]
      */
-    inline pos_t SA_s_(pos_t x) const
+    inline pos_t SA_e(pos_t x) const
         requires(support != _count && support != _count_bi && support != _locate_rlzsa)
     {
         if constexpr (support == _locate_move) {
@@ -951,7 +750,7 @@ public:
                 return M_Phi_m1().p(SA_Phi_m1(x + 1));
             }
         } else {
-            return _SA_s_[x];
+            return _SA_e[x];
         }
     }
 
@@ -1037,14 +836,14 @@ public:
 
     /**
      * @brief returns L[i], where $ = 0, so if the input contained 0, the output is not equal to the real bwt
-     * @param x [0..input size]
+     * @param i [0..input size]
      * @return L[i]
      */
     inline sym_t BWT(pos_t i) const;
 
     /**
      * @brief returns SA[i]
-     * @param x [0..input size]
+     * @param i [0..input size]
      * @return SA[i]
      */
     pos_t SA(pos_t i) const
@@ -1054,16 +853,55 @@ public:
      * @brief stores the variables needed to perform count- and locate-queries
      */
     struct query_context_t {
+        /**
+         * @brief stores the variables needed to locate via Phi^{-1}-move-queries
+         */
+        struct phi_move_context_t {
+            pos_t i;  // current position in the suffix array interval
+            pos_t s;  // current suffix SA[i]
+            pos_t s_; // index of the input interval of M_Phi^{-1} containing s
+        };
+
     protected:
         pos_t l; // length of the currently matched pattern
         pos_t b, e, b_, e_, hat_b_ap_y, hat_e_ap_z; // variables for backward search
         int64_t y, z; // variables for backward search
-        pos_t i; // current position in the suffix array interval
-        pos_t s; // current suffix s = SA[i] in the suffix array interval
-        pos_t s_; // index of the input inteval of M_Phi^{-1} containing s
-        pos_t x_p, x_lp, x_cp, x_r, s_np; // variables for decoding the rlzsa
+
+        // decoding context for the rlzsa (present iff the index has an rlzsa); dec.pos() is the current
+        // position in the suffix array interval and dec.value() the current suffix SA[dec.pos()]
+        [[no_unique_address]] std::conditional_t<has_rlzsa,
+            typename rlzsa_opt<pos_t>::decode_context_t, std::monostate> dec;
+
+        // context for the Phi^{-1}-move-based locate variant (present iff has_locate_move)
+        [[no_unique_address]] std::conditional_t<has_locate_move,
+            phi_move_context_t, std::monostate> phi;
 
         const move_r<support, sym_t, pos_t>* idx; // index to query
+
+        /**
+         * @brief returns the current position in the suffix array interval
+         * @return the current position
+         */
+        inline pos_t pos() const
+        {
+            if constexpr (has_rlzsa) return dec.pos();
+            else return phi.i; // has_locate_move
+        }
+
+        /**
+         * @brief sets the current position in the suffix array interval; for the rlzsa, this also (re-)binds
+         * the decoding context to the index's rlzsa
+         * @param i the position to set
+         */
+        inline void set_pos(pos_t i)
+        {
+            if constexpr (has_rlzsa) {
+                dec = idx->_rlzsa.decode();
+                dec.set_pos(i);
+            } else if constexpr (has_locate_move) {
+                phi.i = i;
+            }
+        }
 
     public:
         /**
@@ -1083,7 +921,7 @@ public:
         {
             idx->init_backward_search(b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z);
             l = 0;
-            i = b;
+            set_pos(b);
         }
 
         /**
@@ -1111,7 +949,7 @@ public:
         inline pos_t num_occ_rem() const
             requires(supports_multiple_locate)
         {
-            return e >= i ? e - i + 1 : 0;
+            return e >= pos() ? e - pos() + 1 : 0;
         }
 
         /**
@@ -1127,7 +965,7 @@ public:
          * @brief prepends sym to the currently matched pattern P; if symP occurs in the input, true is
          * returned and the query context is adjusted to store the information for the pattern symP; else,
          * false is returned and the query context is not modified
-         * @param sym
+         * @param sym the symbol to prepend
          * @return whether symP occurs in the input
          */
         bool prepend(sym_t sym);
@@ -1136,7 +974,7 @@ public:
          * @brief reports the next occurrence of the currently matched pattern
          * @return next occurrence
          */
-        inline pos_t next_occ() requires(supports_multiple_locate && !has_lzendsa);
+        inline pos_t next_occ() requires(supports_multiple_locate);
 
         /**
          * @brief reports one occurrence of the currently matched pattern
@@ -1146,7 +984,8 @@ public:
 
         /**
          * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
-         * @return vector containing the occurrences
+         * @tparam report_fnc_t type of the report function
+         * @param report function that is called with every remaining occurrence as a parameter
          */
         template <typename report_fnc_t>
         void locate(report_fnc_t report) requires(supports_multiple_locate);
@@ -1244,111 +1083,6 @@ public:
         pos_t& hat_b_ap_y, int64_t& y) const requires(has_locate_move);
 
     /**
-     * @brief prepares the variables to decode SA[i] and advance to the right
-     * @param i current position in the suffix array
-     * @param x_p phrase-index of the phrase of the rlzsa contianing i
-     * @param x_lp literal-phrase index of the current or current or next literal phrase of the rlzsa
-     * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzsa
-     * @param x_r position in R inside the current copy-phrase (or the starting position in R of the current or next copy phrase) of the rlzsa
-     * @param s_np starting position in the rlzsa of the next phrase of the rlzsa
-     */
-    inline void init_rlzsa(
-        pos_t i,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const requires(has_rlzsa);
-
-    /**
-     * @brief takes an rlzsa context for advancing to the right and prepares it to advance to the left
-     * @param x_p phrase-index of the phrase of the rlzsa contianing i
-     * @param x_lp literal-phrase index of the current or current or next literal phrase of the rlzsa
-     * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzsa
-     * @param x_r position in R inside the current copy-phrase (or the starting position in R of the current or next copy phrase) of the rlzsa
-     * @param s_p starting position in the rlzsa of the next phrase of the rlzsa
-     */
-    void turn_rlzsa_left(
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_p) const requires(has_rlzsa);
-
-    /**
-     * @brief decodes and stores SA[i] in s and prepares the context to decode
-     * SA[i-1]; the context must be prepared to decode SA[i]
-     * @param i [0..n-1] position in the suffix array
-     * @param s variable to store SA[i] in
-     * @param x_p phrase-index of the phrase of the rlzsa contianing i
-     * @param x_lp literal-phrase index of the current or next literal phrase of the rlzsa
-     * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzsa
-     * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzsa
-     * @param s_cp starting position in the rlzsa of the current phrase of the rlzsa
-     */
-    inline void prev_rlzsa(
-        pos_t& i, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_cp) const requires(has_rlzsa);
-
-    /**
-     * @brief decodes and stores SA[i] in s and prepares the context to decode
-     * SA[i+1]; the context must be prepared to decode SA[i]
-     * @param i [0..n-1] position in the suffix array
-     * @param s variable to store SA[i] in
-     * @param x_p phrase-index of the phrase of the rlzsa contianing i
-     * @param x_lp literal-phrase index of the current or next literal phrase of the rlzsa
-     * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzsa
-     * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzsa
-     * @param s_np starting position in the rlzsa of the next phrase of the rlzsa
-     */
-    inline void next_rlzsa(
-        pos_t& i, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const requires(has_rlzsa);
-
-    /**
-     * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
-     * @param i current position in the suffix array
-     * @param e right interval limit of the suffix array interval
-     * @param s current suffix array value
-     * @param x_p phrase-index of the phrase of the rlzsa contianing i
-     * @param x_lp literal-phrase index of the current or next literal phrase of the rlzsa
-     * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzsa
-     * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzsa
-     * @param s_np starting position in the rlzsa of the next phrase of the rlzsa
-     * @param report function that is called with every value SA[j] as a parameter, where j in [i,e]; the values are reported from left to right
-     */
-    template <typename report_fnc_t>
-    inline void report_rlzsa_left(
-        pos_t& i, pos_t b, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
-        report_fnc_t report) const requires(has_rlzsa);
-
-    /**
-     * @brief locates the remaining (not yet reported) occurrences of the currently matched pattern
-     * @param i current position in the suffix array
-     * @param e right interval limit of the suffix array interval
-     * @param s current suffix array value
-     * @param x_p phrase-index of the phrase of the rlzsa contianing i
-     * @param x_lp literal-phrase index of the current or next literal phrase of the rlzsa
-     * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzsa
-     * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzsa
-     * @param s_np starting position in the rlzsa of the next phrase of the rlzsa
-     * @param report function that is called with every value SA[j] as a parameter, where j in [i,e]; the values are reported from left to right
-     */
-    template <typename report_fnc_t>
-    inline void report_rlzsa_right(
-        pos_t& i, pos_t e, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np,
-        report_fnc_t report) const requires(has_rlzsa);
-
-    /**
-     * @brief advances the rlzsa context to the right up to position e
-     * @param i current position in the suffix array
-     * @param e position in the suffix array to advance the context to
-     * @param s current suffix array value
-     * @param x_p phrase-index of the phrase of the rlzsa contianing i
-     * @param x_lp literal-phrase index of the current or next literal phrase of the rlzsa
-     * @param x_cp copy-phrase index of the current or next copy-phrase of the rlzsa
-     * @param x_r position in R inside the current copy-phrase (or the starting position in R of the next copy phrase) of the rlzsa
-     * @param s_np starting position in the rlzsa of the next phrase of the rlzsa
-     */
-    inline void skip_rlzsa_right(
-        pos_t& i, pos_t e, pos_t& s,
-        pos_t& x_p, pos_t& x_lp, pos_t& x_cp, pos_t& x_r, pos_t& s_np) const requires(has_rlzsa);
-
-    /**
      * @brief returns the number of occurrences of P in the input
      * @param P the pattern to count in the input
      * @return the number of occurrences of P in the input
@@ -1357,6 +1091,7 @@ public:
 
     /**
      * @brief locates the pattern P in the input
+     * @tparam report_fnc_t type of the report function
      * @param P the pattern to locate in the input
      * @param report function that is called with every occurrence of P in the input as a parameter
      */
@@ -1379,6 +1114,7 @@ public:
 
     // ############################# RETRIEVE-RANGE METHODS #############################
 
+    /** @brief parameters for the retrieve-range methods (BWT_range, revert_range, SA_range) */
     struct retrieve_params {
         pos_t l = 1; // left range limit
         pos_t r = 0; // right range limit
@@ -1437,6 +1173,7 @@ public:
     /**
      * @brief reports the characters in the bwt in the range [l,r] (0 <= l <= r <= input size), else if l > r, then all
      * characters of the bwt are reported (default); $ = 0, so if the input contained 0, the output is not equal to the real bwt
+     * @tparam report_fnc_t type of the report function
      * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = L[i]; if num_threads = 1,
      * then the values are reported from left to right, if num_threads > 1, the order may vary
      * @param params parameters
@@ -1475,11 +1212,12 @@ public:
      * @brief reports the characters in the input in the range [l,r] (0 <= l <= r < input size), else if l > r, then
      * all characters of the input are reported (default); if num_threads = 1, then the values are reported from right
      * to left, if num_threads > 1, the order may vary
+     * @tparam report_fnc_t type of the report function
      * @param report function that is called with every tuple (i,c) as a parameter, where i in [l,r] and c = input[i]
      * @param params parameters
      */
     template <typename report_fnc_t>
-    void revert_range(report_fnc_t report, retrieve_params params = {}) const requires(supports_bwsearch);
+    void revert_range(report_fnc_t report, retrieve_params params = {}) const;
 
     /**
      * @brief reverts the input in the range [l,r] blockwise and writes it to the file out (0 <= l <= r < input size),
@@ -1512,6 +1250,7 @@ public:
      * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
      * whole suffix array is reported (default); if num_threads = 1, then the values are reported from left to right,
      * if num_threads > 1, the order may vary
+     * @tparam report_fnc_t type of the report function
      * @param report function that is called with every tuple (i,s) as a parameter, where i in [l,r] and s = SA[i]
      * @param params parameters
      */
@@ -1595,34 +1334,15 @@ public:
                 _SA_Phi_m1.serialize(out);
             } else {
                 _SA_s.serialize(out);
-                _SA_s_.serialize(out);
+                _SA_e.serialize(out);
             }
         } else if constexpr (has_rlzsa) {
-            out.write((char*) &z, sizeof(pos_t));
-            out.write((char*) &z_l, sizeof(pos_t));
-            out.write((char*) &z_c, sizeof(pos_t));
-
             _SA_s.serialize(out);
-            _SA_s_.serialize(out);
-            _R.serialize(out);
-            _SCP_S.serialize(out);
-            write_to_file(out, (char*) &_CPL[0], (z_c + 2) * sizeof(uint16_t));
-            _SR.serialize(out);
-            _LP.serialize(out);
-            _PT.serialize(out);
-
-            if constexpr (!supports_bwsearch) {
-                out.write((char*) &delta, sizeof(pos_t));
-                out.write((char*) &last_sa, sizeof(pos_t));
-                _SA_delta.serialize(out);
-            }
+            _SA_e.serialize(out);
+            _rlzsa.serialize(out);
         } else if constexpr (support == _locate_bi_bwd) {
             _SA_s.serialize(out);
-            _SA_s_.serialize(out);
-        } else if constexpr (has_lzendsa) {
-            _SA_s.serialize(out);
-            out.write((char*) &z_end, sizeof(pos_t));
-            _lzendsa.serialize(out);
+            _SA_e.serialize(out);
         }
 
         std::streamoff offs_end = out.tellp() - pos_data_structure_offsets;
@@ -1713,47 +1433,37 @@ public:
                 _SA_Phi_m1.load(in);
             } else {
                 _SA_s.load(in);
-                _SA_s_.load(in);
+                _SA_e.load(in);
             }
         } else if constexpr (has_rlzsa)
         {
-            in.read((char*) &z, sizeof(pos_t));
-            in.read((char*) &z_l, sizeof(pos_t));
-            in.read((char*) &z_c, sizeof(pos_t));
-
             _SA_s.load(in);
-            _SA_s_.load(in);
-            _R.load(in);
-            _SCP_S.load(in);
-            no_init_resize(_CPL, z_c + 2);
-            read_from_file(in, (char*) &_CPL[0], (z_c + 2) * sizeof(uint16_t));
-            _SR.load(in);
-            _LP.load(in);
-            _PT.load(in);
-            
-            if constexpr (!supports_bwsearch) {
-                in.read((char*) &delta, sizeof(pos_t));
-                in.read((char*) &last_sa, sizeof(pos_t));
-                _SA_delta.load(in);
-            }
+            _SA_e.load(in);
+            _rlzsa.load(in);
         } else if constexpr (support == _locate_bi_bwd) {
             _SA_s.load(in);
-            _SA_s_.load(in);
-        } else if constexpr (has_lzendsa) {
-            _SA_s.load(in);
-            in.read((char*) &z_end, sizeof(pos_t));
-            _lzendsa.load(in);
+            _SA_e.load(in);
         }
 
         in.seekg(pos_data_structure_offsets + offs_end, std::ios::beg);
     }
 
+    /**
+     * @brief stores the index to an output stream
+     * @param os output stream
+     * @return the output stream
+     */
     std::ostream& operator>>(std::ostream& os) const
     {
         serialize(os);
         return os;
     }
 
+    /**
+     * @brief reads a serialized index from an input stream
+     * @param is input stream
+     * @return the input stream
+     */
     std::istream& operator<<(std::istream& is)
     {
         load(is);
@@ -1762,4 +1472,4 @@ public:
 };
 
 #include "construction/construction.hpp"
-#include "queries.cpp"
+#include "queries.tpp"

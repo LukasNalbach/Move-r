@@ -30,10 +30,13 @@
 #include <set>
 #include <string>
 
-#include "malloc_count.h"
+#include <malloc_count.h>
 #include <misc/cli.hpp>
 #include <lzendsa/r_index_lzendsa.hpp>
 
+/**
+ * @brief prints the usage information and exits
+ */
 void help()
 {
     std::cout << "r-index-lzendsa-locate: locates all occurences of the provided patterns." << std::endl << std::endl;
@@ -112,6 +115,12 @@ void locate(std::ifstream& index_file, std::ifstream& patterns_file, std::string
         << std::endl;
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     std::set<std::string> allowed_value_options;
@@ -137,6 +146,9 @@ int main(int argc, char** argv)
         }
     }
 
+    require_file(a.last_param.at(0));
+    require_file(a.last_param.at(1));
+    if (!input_file.empty()) require_file(input_file);
     std::ifstream index_file(a.last_param.at(0));
     std::ifstream patterns_file(a.last_param.at(1));
     bool is_64_bit;

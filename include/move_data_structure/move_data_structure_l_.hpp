@@ -31,6 +31,7 @@
 /**
  * @brief move data structure, additionally stores a string interleaved with the arrays needed for move queries
  * @tparam pos_t unsigned integer type of the interval starting positions
+ * @tparam l_t type of the values stored in the interleaved string L_
  */
 template <typename pos_t = uint32_t, typename l_t = char>
 class move_data_structure_l_ : public move_data_structure<pos_t> {
@@ -45,6 +46,7 @@ class move_data_structure_l_ : public move_data_structure<pos_t> {
      * @param n n = p_k + d_j
      * @param delete_i whether I can be deleted during the construction
      * @param params construction parameters
+     * @param omega_l_ word width (in bytes) of one entry in L_
      */
     void build(pair_arr_t& I, pos_t n, bool delete_i, mds_params params, uint8_t omega_l_)
     {
@@ -61,6 +63,7 @@ public:
      * @param I a disjoint interval sequence
      * @param n n = p_k + d_j
      * @param params construction parameters
+     * @param omega_l_ word width (in bytes) of one entry in L_
      */
     move_data_structure_l_(pair_arr_t&& I, pos_t n, mds_params params = {}, uint8_t omega_l_ = sizeof(l_t))
     {
@@ -72,6 +75,7 @@ public:
      * @param I a disjoint interval sequence
      * @param n n = p_k + d_j
      * @param params construction parameters
+     * @param omega_l_ word width (in bytes) of one entry in L_
      */
     move_data_structure_l_(pair_arr_t& I, pos_t n, mds_params params = {}, uint8_t omega_l_ = sizeof(l_t))
     {

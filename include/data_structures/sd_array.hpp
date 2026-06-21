@@ -105,7 +105,7 @@ public:
     sd_array(const sd_array& other) { copy_from_other(other); }
     sd_array& operator=(sd_array&& other) { move_from_other(std::move(other)); return *this; }
     sd_array& operator=(const sd_array& other) { copy_from_other(other); return *this; }
-    
+
     ~sd_array() { reset(); }
 
     /**
@@ -120,7 +120,7 @@ public:
 
     /**
      * @brief constructs a new sd_array from an sd_vector
-     * @param bit_vector an sd_vector
+     * @param sd_vector an sd_vector
      */
     sd_array(const sdsl::sd_vector<>& sd_vector)
     {
@@ -131,7 +131,7 @@ public:
     /**
      * @brief constructs a new sd_array for an sd_vector and
      *        moves the sd_vector into the sd_array
-     * @param bit_vector an sd_vector
+     * @param sd_vector an sd_vector
      */
     sd_array(sdsl::sd_vector<>&& sd_vector)
     {
@@ -282,7 +282,7 @@ public:
         if (empty()) return;
 
         for (uint64_t i = 0; i < size() - 1; i++) {
-            std::cout << operator[](i) << ", ";
+            std::cout << operator[](i) << " ";
         }
 
         std::cout << operator[](size() - 1) << std::endl;
@@ -307,12 +307,22 @@ public:
         setup();
     }
 
+    /**
+     * @brief serializes the sd_array to an output stream
+     * @param os output stream
+     * @return the output stream
+     */
     std::ostream& operator>>(std::ostream& os) const
     {
         serialize(os);
         return os;
     }
 
+    /**
+     * @brief loads the sd_array from an input stream
+     * @param is input stream
+     * @return the input stream
+     */
     std::istream& operator<<(std::istream& is)
     {
         load(is);

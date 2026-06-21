@@ -40,8 +40,12 @@
 #include "lzendsa_encoding.hpp"
 
 #include <algorithms/build_sa_and_bwt.hpp>
-#include <algorithms/sparse_sa_bin_search.cpp>
+#include <algorithms/sparse_sa_bin_search.tpp>
 
+/**
+ * @brief a self-index based on an LZ-End encoding of the differential suffix array, with evenly-spaced SA-samples
+ * @tparam int_t signed integer type of the suffix array entries
+ */
 template <typename int_t = int32_t>
 class lzendsa {
 
@@ -58,21 +62,28 @@ protected:
 
     const std::string* input;
 
+    /**
+     * @brief builds the evenly-spaced SA-sampling
+     * @param sa the suffix array
+     * @param d the sampling parameter (every d-th position is sampled); if d <= 0, it is chosen so that the
+     *          samples take about default_relative_sampling_size of the index size
+     * @param log whether to print log messages
+     */
     void build_sampling(const std::vector<int_t>& sa, int_t d, bool log)
     {
         uint64_t n = sa.size();
         
         if (d <= 0) {
             uint64_t target_sampling_size_in_bits = (lzendsa_enc.size_in_bytes() * 8) * default_relative_sampling_size;
-            d = n / (target_sampling_size_in_bits / std::bit_width(uint64_t{n}));
+            uint64_t divisor = std::max<uint64_t>(1, target_sampling_size_in_bits / std::bit_width(uint64_t{n}));
+            d = std::max<uint64_t>(1, n / divisor);
         }
 
         this->d = d;
 
         // construct the SA sampling
-        if (log) std::cout << "building SA-Samples, d = " << d << std::flush;
-
         auto time = now();
+        log_phase_start(log, time, "building SA-Samples, d = " + std::to_string(d));
         uint64_t num_samples = n / d;
         sa_samples = interleaved_bit_aligned_vectors<uint64_t, 1>({ std::bit_width(uint64_t{n}) });
         sa_samples.resize_no_init(num_samples);
@@ -81,13 +92,20 @@ protected:
             sa_samples.set<0>(i, sa[i * d]);
         }
 
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
     }
 
 public:
     lzendsa() = default;
 
-    // call when the suffix array of the input text is not yet calculated
+    /**
+     * @brief builds the index from the input text (computing the suffix array internally)
+     * @param input the input text
+     * @param d the SA-sampling parameter (if <= 0, it is chosen automatically)
+     * @param h the maximum phrase length (default: 8192)
+     * @param use_bigbwt whether to use Big-BWT to build the suffix array
+     * @param log whether to print log messages
+     */
     lzendsa(std::string& input, int_t d = -1, int_t h = 8192, bool use_bigbwt = false, bool log = false)
     {
         auto time_start = now();
@@ -99,8 +117,7 @@ public:
         last_sa = sa[n - 1];
 
         // build DSA from SA
-        if (log) time = now();
-        if (log) std::cout << "building DSA from SA" << std::flush;
+        log_phase_start(log, time, "building DSA from SA");
         std::vector<int_t> dsa;
         no_init_resize(dsa, n);
         dsa[0] = sa[0];
@@ -109,7 +126,7 @@ public:
             dsa[i] = sa[i] - sa[i - 1];
         }
 
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
 
         // construct lzend parsing of DSA
         auto lzend_phrases = construct_lzend_of_reverse<int_t>(dsa, h, log);
@@ -124,55 +141,98 @@ public:
         build_sampling(sa, d, log);
     }
 
+    /**
+     * @brief builds the index from a precomputed LZ-End encoding and suffix array
+     * @param lzendsa_enc the LZ-End encoding of the differential suffix array
+     * @param sa the suffix array
+     * @param d the SA-sampling parameter (if <= 0, it is chosen automatically)
+     * @param log whether to print log messages
+     */
     lzendsa(const lzendsa_encoding& lzendsa_enc, const std::vector<int_t>& sa, int_t d = -1, bool log = false)
     {
         this->lzendsa_enc = lzendsa_enc;
         build_sampling(sa, d, log);
     }
 
+    /**
+     * @brief stores a pointer to the input text (needed for count/locate queries)
+     * @param str the input text
+     */
     void set_input(const std::string& str)
     {
         input = &str;
     }
 
-    // return a reference to the lzendsa_encoding
+    /**
+     * @brief returns a reference to the LZ-End encoding
+     * @return the LZ-End encoding
+     */
     const lzendsa_encoding& sa_encoding() const
     {
         return lzendsa_enc;
     }
 
+    /**
+     * @brief returns the number of suffix array samples (including the last-SA sample)
+     * @return the number of suffix array samples
+     */
     uint64_t num_samples() const
     {
         return sa_samples.size() + 1;
     }
 
-    // return the index-th suffix array sample
+    /**
+     * @brief returns the index-th suffix array sample
+     * @param index a sample index
+     * @return the index-th suffix array sample
+     */
     int_t sample(uint64_t index) const
     {
         return index == sa_samples.size() ? last_sa : sa_samples[index];
     }
 
-    // return the position in SA of the index-th suffix array sample
+    /**
+     * @brief returns the position in the suffix array of the index-th sample
+     * @param index a sample index
+     * @return the position in SA of the index-th sample
+     */
     int_t sample_pos(uint64_t index) const
     {
         return index == sa_samples.size() ? input_size() - 1 : (index * d);
     }
 
+    /**
+     * @brief returns the size of the input text
+     * @return the size of the input text
+     */
     uint64_t input_size() const
     {
         return lzendsa_enc.input_size();
     }
 
+    /**
+     * @brief returns the number of phrases in the LZ-End encoding
+     * @return the number of phrases
+     */
     uint64_t num_phrases() const
     {
         return lzendsa_enc.num_phrases();
     }
 
+    /**
+     * @brief returns the SA-sampling parameter
+     * @return the SA-sampling parameter
+     */
     int_t delta() const
     {
         return d;
     }
 
+    /**
+     * @brief counts the occurrences of pattern in the input
+     * @param pattern the pattern to count
+     * @return the suffix array interval [beg, end] of the pattern (beg > end if it does not occur)
+     */
     std::tuple<uint64_t, uint64_t> count(const std::string& pattern) const
     {
         auto [beg, end] = binary_sa_search_and_extract<int_t>(*input, pattern, num_samples(),
@@ -183,6 +243,13 @@ public:
         return {beg, end};
     }
 
+    /**
+     * @brief locates the occurrences of pattern in the input
+     * @tparam out_t output value type
+     * @tparam report_fnc_t type of the report function
+     * @param pattern the pattern to locate
+     * @param report function that is called with every occurrence of pattern
+     */
     template <typename out_t, typename report_fnc_t>
     void locate(const std::string& pattern, report_fnc_t report) const
     {
@@ -191,7 +258,13 @@ public:
             [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, auto report){
                 lzendsa_enc.template extract<out_t>(b, e, sa_e, report);}, report, true, true);
     }
-    
+
+    /**
+     * @brief locates the occurrences of pattern in the input
+     * @tparam out_t output value type
+     * @param pattern the pattern to locate
+     * @return the occurrences of pattern in the input
+     */
     template <typename out_t>
     std::vector<out_t> locate(const std::string& pattern) const
     {
@@ -200,7 +273,13 @@ public:
         return result;
     }
 
-    // returns multiple consecutive suffix array values
+    /**
+     * @brief returns the suffix array values in the range [beg, end]
+     * @tparam out_t output value type
+     * @param beg left range limit
+     * @param end right range limit
+     * @return the suffix array values in the range [beg, end]
+     */
     template <typename out_t>
     std::vector<out_t> sa_values(int64_t beg, int64_t end) const
     {
@@ -277,13 +356,19 @@ public:
         return rng;
     }
 
-    // return the size of the whole data structure in bytes
+    /**
+     * @brief returns the size of the whole data structure in bytes
+     * @return the size of the data structure in bytes
+     */
     uint64_t size_in_bytes() const
     {
         return sizeof(this) + lzendsa_enc.size_in_bytes() + sa_samples.size_in_bytes();
     }
 
-    // load the lzendsa construction from a stream
+    /**
+     * @brief loads the index from an input stream
+     * @param in input stream
+     */
     void load(std::istream& in)
     {
         in.read((char*) &d, sizeof(d));
@@ -292,7 +377,10 @@ public:
         sa_samples.load(in);
     }
 
-    // serialize the lzendsa construction to the output stream
+    /**
+     * @brief serializes the index to an output stream
+     * @param out output stream
+     */
     void serialize(std::ostream& out)
     {
         out.write((char*) &d, sizeof(d));

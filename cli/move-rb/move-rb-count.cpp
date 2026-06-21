@@ -43,6 +43,10 @@ std::string path_output_file;
 std::ofstream output_file;
 bool output_occurrences;
 
+/**
+ * @brief prints the usage information and exits
+ * @param msg an optional error message printed before the usage information
+ */
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
@@ -50,20 +54,26 @@ void help(std::string msg)
     std::cout << "usage: move-rb-count [...] -s <scheme> [-k <mismatches>] <index_file> <patterns_file>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
-    std::cout << "   <scheme>                   search scheme to use (pigeon_hole, suffix_filter, 01 or path to a file)" << std::endl;
+    std::cout << "   <scheme>                   search scheme to use (pigeon_hole, suffix_filter, min_u, 01 or path to a file)" << std::endl;
     std::cout << "   <mismatches>               maximum number of allowed mismatches; applies only to" << std::endl;
-    std::cout << "                              pigeon_hole, suffix_filter and 01 search schemes" << std::endl;
+    std::cout << "                              pigeon_hole, suffix_filter, min_u and 01 search schemes" << std::endl;
     std::cout << "   -o <output_file>           write pattern counts to this file (in ASCII format; one line per pattern)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in move-rb-patterns format containing the patterns." << std::endl;
     exit(0);
 }
 
+/**
+ * @brief parses the next command-line argument(s)
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return whether there are further options to parse
+ */
 bool parse_args(char** argv, int argc)
 {
     if (arg_idx >= argc - min_args) return false;
     std::string s = argv[arg_idx];
-    if (s == "-d") return false;
+    if (s == "-s") return false;
     arg_idx++;
 
     if (s == "-m") {
@@ -83,17 +93,35 @@ bool parse_args(char** argv, int argc)
     return true;
 }
 
+/**
+ * @brief returns the next command-line argument, exiting with an error if there is none
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @param what a description of the expected argument (used in the error message)
+ * @return the next argument
+ */
+const char* next_arg(int argc, char** argv, const std::string& what)
+{
+    if (arg_idx >= argc) help("error: missing " + what);
+    return argv[arg_idx++];
+}
+
+/**
+ * @brief loads the index and benchmarks counting the input patterns
+ * @tparam pos_t index integer type
+ * @tparam support the move-r locate-support type
+ */
 template <typename pos_t, move_r_support support>
 void measure_count()
 {
     std::cout << std::setprecision(4);
-    std::cout << "loading the index" << std::flush;
     auto time = now();
+    log_phase_start(true, time, "loading the index");
     using idx_t = move_rb<support, char, pos_t>;
     idx_t index;
     index.load(index_file);
     index_file.close();
-    time = log_runtime(time);
+    log_phase_end(true, time);
     index.log_data_structure_sizes();
     
     std::cout << std::endl << "searching patterns ... " << std::endl;
@@ -166,17 +194,24 @@ void measure_count()
     }
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     if (argc - 1 < min_args) help("");
     while (parse_args(argv, argc));
 
-    std::string arg = argv[arg_idx++];
-    if (arg != "-s") help("");
-    scheme_str = argv[arg_idx++];
+    std::string arg = next_arg(argc, argv, "'-s <scheme>'");
+    if (arg != "-s") help("error: expected '-s <scheme>'");
+    scheme_str = next_arg(argc, argv, "<scheme>");
     bool is_default_scheme =
         scheme_str == "pigeon_hole" ||
         scheme_str == "suffix_filter" ||
+        scheme_str == "min_u" ||
         scheme_str == "01";
     if (!is_default_scheme) {
         if (std::filesystem::exists(scheme_str)) {
@@ -190,17 +225,19 @@ int main(int argc, char** argv)
     }
     
     if (is_default_scheme) {
-        arg = argv[arg_idx++];
-        if (arg != "-k") help("");
-        k = atoi(argv[arg_idx++]);
+        arg = next_arg(argc, argv, "'-k <mismatches>'");
+        if (arg != "-k") help("error: expected '-k <mismatches>'");
+        k = atoi(next_arg(argc, argv, "<mismatches>"));
         if (k < 0) help("error: invalid k value");
         if      (scheme_str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k);
         else if (scheme_str == "suffix_filter") search_scheme = suffix_filter_scheme(k);
+        else if (scheme_str == "min_u")         search_scheme = min_u_scheme(k);
         else if (scheme_str == "01")            search_scheme = zero_one_scheme(k);
     } else {
         k = search_scheme.k;
     }
 
+    if (arg_idx + 2 > argc) help("error: missing <index_file> and/or <patterns_file>");
     path_index_file = argv[arg_idx];
     path_patterns_file = argv[arg_idx + 1];
 
