@@ -111,6 +111,11 @@ public:
         assert(run_heads.size() == R);
     }
 
+    /**
+     * @brief returns the i-th character of the string
+     * @param i a position
+     * @return the i-th character of the string
+     */
     unsigned char operator[](uint64_t i) const
     {
         assert(i < n);
@@ -279,6 +284,10 @@ public:
         return result;
     }
 
+    /**
+     * @brief returns the length of the string
+     * @return the length of the string
+     */
     uint64_t size() const { return n; }
 
     /*
@@ -311,8 +320,16 @@ public:
         return runs_per_letter[c].gapAt(run_heads.rank(i, c));
     }
 
+    /**
+     * @brief returns the number of runs in the string
+     * @return the number of runs in the string
+     */
     uint64_t number_of_runs() const { return R; }
 
+    /**
+     * @brief returns the size of the structure in bytes
+     * @return the size of the structure in bytes
+     */
     uint64_t size_in_bytes() const
     {
         uint64_t bytes = sizeof(this) + runs.size_in_bytes() + run_heads.size_in_bytes();
@@ -365,6 +382,10 @@ public:
         run_heads.load(in);
     }
 
+    /**
+     * @brief returns the string as a plain std::string
+     * @return the string as a plain std::string
+     */
     std::string toString() const
     {
         std::string s;

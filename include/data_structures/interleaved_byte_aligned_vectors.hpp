@@ -56,7 +56,7 @@ class interleaved_byte_aligned_vectors {
     static_assert(num_vectors > 0);
 
 protected:
-    static constexpr uint64_t block_size = sizeof(uint128_t); // size (in bytes) of the blocks that are copied at once
+    static constexpr uint64_t block_size = sizeof(__uint128_t); // size (in bytes) of the blocks that are copied at once
 
     uint64_t size_vectors = 0; // size of each stored vector
     uint64_t capacity_vectors = 0; // capacity of each stored vector
@@ -223,7 +223,7 @@ public:
 
     /**
      * @brief returns the width in bytes of the vector with index vec_idx
-     * @param vec_idx vector index
+     * @tparam vec_idx vector index
      * @return its witdth in bytes
      */
     template <uint8_t vec_idx>
@@ -337,6 +337,7 @@ public:
      * @brief sets the i-th entry in the vector with index vec_idx to v (cannot be executed in parallel for multiple
      * different positions in the vectors)
      * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @tparam T type of the value to store
      * @param i entry index (0 <= i < size_vectors)
      * @param v value to store
      */
@@ -353,6 +354,7 @@ public:
      * @brief sets the i-th entry in the vector with index vec_idx to v (can be executed in parallel for multiple
      * different positions in the vectors)
      * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @tparam T type of the value to store
      * @param i entry index (0 <= i < size_vectors)
      * @param v value to store
      */
@@ -393,6 +395,7 @@ public:
     /**
      * @brief returns the i-th entry in the vector with index vec_idx
      * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @tparam T type to return the entry as
      * @param i entry index (0 <= i < size_vectors)
      * @return value
      */
@@ -407,7 +410,7 @@ public:
      * @brief interprets the memory location of the i-th entry in the vector with index vec_idx as an object of type
      * T and returns it (if sizeof(T) > widths[vec_idx], the returned value contains data from subsequent entries)
      * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
-     * @tparam pos_t type to treat the i-th entry in the vector with index vec_idx as
+     * @tparam T type to treat the i-th entry in the vector with index vec_idx as
      * @param i entry index (0 <= i < size_vectors)
      * @return value
      */
@@ -428,7 +431,7 @@ public:
     inline void emplace_back(T val)
     {
         if (size_vectors == capacity_vectors) {
-            reserve(1.5 * size_vectors);
+            reserve(size_vectors + std::max<uint64_t>(1, size_vectors / 2));
         }
 
         set<vec_idx, T>(size_vectors, val);
@@ -447,7 +450,7 @@ public:
     inline void emplace_back_unsafe(T val)
     {
         if (size_vectors == capacity_vectors) {
-            reserve(1.5 * size_vectors);
+            reserve(size_vectors + std::max<uint64_t>(1, size_vectors / 2));
         }
 
         set_unsafe<vec_idx, T>(size_vectors, val);
@@ -456,6 +459,7 @@ public:
 
     /**
      * @brief appends a tuple of values to the end of the interleaved vectors
+     * @tparam Ts types of the values in the tuple
      * @param vals tuple of values
      */
     template <typename... Ts>
@@ -464,7 +468,7 @@ public:
         static_assert(std::tuple_size<std::tuple<Ts...>>::value <= num_vectors);
 
         if (size_vectors == capacity_vectors) {
-            reserve(1.5 * size_vectors);
+            reserve(size_vectors + std::max<uint64_t>(1, size_vectors / 2));
         }
 
         for_constexpr<0, sizeof...(Ts), 1>([&](auto vec_idx) {
@@ -478,6 +482,7 @@ public:
      * @brief unsafely appends a tuple of values to the end of the interleaved vectors (if
      * there exists a vec_idx \in [0,sizeof...(Ts...)) s.t. sizeof(Ts...[vec_idx]) > widths[vec_idx],
      * this is unsafe, because subsequent entries are overwritten)
+     * @tparam Ts types of the values in the tuple
      * @param vals tuple of values
      */
     template <typename... Ts>
@@ -486,7 +491,7 @@ public:
         static_assert(std::tuple_size<std::tuple<Ts...>>::value <= num_vectors);
 
         if (size_vectors == capacity_vectors) {
-            reserve(1.5 * size_vectors);
+            reserve(size_vectors + std::max<uint64_t>(1, size_vectors / 2));
         }
 
         for_constexpr<0, sizeof...(Ts), 1>([&](auto vec_idx) {
@@ -536,12 +541,12 @@ public:
 
             for_constexpr<0, num_vectors, 1>([&](auto vec_idx){
                 if (widths[vec_idx] != 0) {
-                    std::cout << get<vec_idx>(i) << (vec_idx == last_used_vec ? "" : ", ");
+                    std::cout << get<vec_idx>(i) << (vec_idx == last_used_vec ? "" : " ");
                 }
             });
 
             std::cout << closing_bracket_str;
-            if (i != size_vectors - 1) std::cout << ", ";
+            if (i != size_vectors - 1) std::cout << " ";
         }
         
         std::cout << std::endl;
@@ -591,12 +596,22 @@ public:
         }
     }
 
+    /**
+     * @brief serializes the interleaved vectors to an output stream
+     * @param os output stream
+     * @return the output stream
+     */
     std::ostream& operator>>(std::ostream& os) const
     {
         serialize(os);
         return os;
     }
 
+    /**
+     * @brief loads the interleaved vectors from an input stream
+     * @param is input stream
+     * @return the input stream
+     */
     std::istream& operator<<(std::istream& is)
     {
         load(is);

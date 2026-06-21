@@ -42,6 +42,10 @@ std::string path_input_file;
 std::string name_text_file;
 std::string path_index_file;
 
+/**
+ * @brief prints the usage information and exits
+ * @param msg an optional error message printed before the usage information
+ */
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
@@ -49,7 +53,7 @@ void help(std::string msg)
     std::cout << "usage: move-r-build [...] <input_file>" << std::endl;
     std::cout << "   -c <mode>           construction mode: sa or bigbwt (default: sa)" << std::endl;
     std::cout << "   -o <base_name>      names the index file base_name.move-r(-rlzsa) (default: input_file)" << std::endl;
-    std::cout << "   -s <support>        support: count, locate_move, locate_rlzsa, locate_rlzsa_bin_search or locate_lzendsa" << std::endl;
+    std::cout << "   -s <support>        support: count, locate_move or locate_rlzsa" << std::endl;
     std::cout << "                       (default: locate_move)" << std::endl;
     std::cout << "   -p <integer>        number of threads to use during the construction of the index" << std::endl;
     std::cout << "                       (default: all threads)" << std::endl;
@@ -61,6 +65,11 @@ void help(std::string msg)
     exit(0);
 }
 
+/**
+ * @brief parses the next command-line argument(s)
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ */
 void parse_args(char** argv, int argc)
 {
     std::string s = argv[arg_idx];
@@ -91,10 +100,6 @@ void parse_args(char** argv, int argc)
             support = _locate_move;
         } else if (support_str == "locate_rlzsa") {
             support = _locate_rlzsa;
-        } else if (support_str == "locate_rlzsa_bin_search") {
-            support = _locate_rlzsa_bin_search;
-        } else if (support_str == "locate_lzendsa") {
-            support = _locate_lzendsa;
         } else help("error: unknown mode provided with -s option");
     } else if (s == "-a") {
         if (arg_idx >= argc - 1) help("error: missing parameter after -a option");
@@ -115,6 +120,11 @@ void parse_args(char** argv, int argc)
     }
 }
 
+/**
+ * @brief builds the index and writes it to disk
+ * @tparam pos_t index integer type
+ * @tparam support the move-r locate-support type
+ */
 template <typename pos_t, move_r_support support>
 void build()
 {
@@ -129,18 +139,26 @@ void build()
         .name_text_file = name_text_file
     });
 
-    std::cout << "serializing the index" << std::flush;
     auto time = now();
+    log_phase_start(true, time, "serializing the index");
     index.serialize(index_file);
-    log_runtime(time);
+    log_phase_end(true, time);
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     if (argc < 2) help("");
     while (arg_idx < argc - 1) parse_args(argv, argc);
 
     path_input_file = argv[arg_idx];
+    if (!std::filesystem::exists(path_input_file) || !std::filesystem::is_regular_file(path_input_file))
+        help("error: <input_file> does not exist");
     if (path_prefix_index_file == "")
         path_prefix_index_file = path_input_file;
 
@@ -190,18 +208,6 @@ int main(int argc, char** argv)
             build<uint32_t, _locate_rlzsa>();
         } else {
             build<uint64_t, _locate_rlzsa>();
-        }
-    } else if (support == _locate_rlzsa_bin_search) {
-        if (n < UINT_MAX) {
-            build<uint32_t, _locate_rlzsa_bin_search>();
-        } else {
-            build<uint64_t, _locate_rlzsa_bin_search>();
-        }
-    } else if (support == _locate_lzendsa) {
-        if (n < UINT_MAX) {
-            build<uint32_t, _locate_lzendsa>();
-        } else {
-            build<uint64_t, _locate_lzendsa>();
         }
     }
 

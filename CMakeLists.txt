@@ -19,6 +19,7 @@ endif()
 
 message("building in ${CMAKE_BUILD_TYPE} mode")
 
+# compile flags
 set(move_r_debug_flags "-Wall -Wextra -Wpedantic -ggdb")
 set(move_r_release_flags "-w -march=native -DNDEBUG")
 
@@ -26,6 +27,16 @@ set(CMAKE_CXX_FLAGS_DEBUG           "${move_r_debug_flags} -O0")
 set(CMAKE_CXX_FLAGS_RELEASE         "${move_r_release_flags} -Ofast")
 set(CMAKE_CXX_FLAGS_MINSIZEREL      "${move_r_release_flags} -Os")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO  "${move_r_debug_flags} -Ofast")
+
+# options
+option(MOVE_R_BUILD_CLI "Build cli programs" ON)
+option(MOVE_R_BUILD_LZENDSA_CLI "Builds LZend-SA binaries" ON)
+option(MOVE_R_BUILD_RLZSA_CLI "Builds RLZ-SA binaries" ON)
+option(MOVE_R_BUILD_BENCH "Build the Move-r benchmark cli program" ON)
+option(MOVE_R_BUILD_EXAMPLES "Build the example programs" ON)
+option(MOVE_R_BUILD_TESTS "Build tests" ON)
+option(MOVE_R_BUILD_INTERNAL_BENCH "Build programs for benchmarking Move-r's internal data structures" ON)
+option(MOVE_R_USE_MALLOC_COUNT "Track memory usage via malloc_count (overrides malloc/free)" ON)
 
 ############################# move-r dependencies #############################
 
@@ -42,9 +53,15 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/external/libsais/")
 
 # malloc_count
 add_library(malloc_count INTERFACE)
-target_sources(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/malloc_count/malloc_count.c")
 target_include_directories(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/malloc_count/")
-target_link_libraries(malloc_count INTERFACE dl)
+if(MOVE_R_USE_MALLOC_COUNT)
+  target_sources(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/malloc_count/malloc_count.c")
+  target_link_libraries(malloc_count INTERFACE dl)
+  target_compile_definitions(malloc_count INTERFACE MOVE_R_USE_MALLOC_COUNT=1)
+else()
+  target_sources(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/cmake/malloc_count_stub.c")
+  target_compile_definitions(malloc_count INTERFACE MOVE_R_USE_MALLOC_COUNT=0)
+endif()
 
 # sdsl
 set(INCLUDE_DIRS "$ENV{HOME}/include" "$ENV{HOME}/local/include" "/usr/include" "/usr/local/include")
@@ -99,135 +116,52 @@ target_link_libraries(move_r INTERFACE
   emhash sux ordered rmq unordered_dense divsufsort divsufsort64
 )
 
-option(MOVE_R_BUILD_CLI "Build cli programs" ON)
-option(MOVE_R_BUILD_LZENDSA_CLI "Builds Rlzsa binaries" ON)
-option(MOVE_R_BUILD_RLZSA_CLI "Builds Rlzsa binaries" ON)
-option(MOVE_R_BUILD_BENCH_CLI "Build the benchmark cli program" OFF)
-option(MOVE_R_BUILD_EXAMPLES "Build the example programs" ON)
-option(MOVE_R_BUILD_TESTS "Build tests" ON)
-option(MOVE_R_BUILD_BENCH "Build program for benchmarking internal data structures" OFF)
+function(move_r_add_tool name src outdir)
+  add_executable(${name} "${src}")
+  target_link_libraries(${name} PRIVATE move_r ${ARGN})
+  set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${outdir}")
+endfunction()
 
 ############################# move-r cli #############################
 
 if(MOVE_R_BUILD_CLI)
-  add_executable(move-r-build cli/move-r/move-r-build.cpp)
-  add_executable(move-r-revert cli/move-r/move-r-revert.cpp)
-  add_executable(move-r-count cli/move-r/move-r-count.cpp)
-  add_executable(move-r-locate cli/move-r/move-r-locate.cpp)
+  foreach(tool move-r-build move-r-revert move-r-count move-r-locate move-r-query)
+    move_r_add_tool(${tool} cli/move-r/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
+  endforeach()
 
-  add_executable(move-rb-build cli/move-rb/move-rb-build.cpp)
-  add_executable(move-rb-revert cli/move-rb/move-rb-revert.cpp)
-  add_executable(move-rb-count cli/move-rb/move-rb-count.cpp)
-  add_executable(move-rb-locate cli/move-rb/move-rb-locate.cpp)
-  add_executable(move-rb-random-ext cli/move-rb/move-rb-random-ext.cpp)
+  foreach(tool move-rb-build move-rb-revert move-rb-count move-rb-locate move-rb-random-ext move-rb-query)
+    move_r_add_tool(${tool} cli/move-rb/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
+  endforeach()
 
-  add_executable(gen-patterns cli/tools/gen-patterns.cpp)
-  add_executable(patterns-to-fasta cli/tools/patterns-to-fasta.cpp)
-  add_executable(fasta-to-plain cli/tools/fasta-to-plain.cpp)
-
-  target_link_libraries(move-r-build PRIVATE move_r)
-  target_link_libraries(move-r-revert PRIVATE move_r)
-  target_link_libraries(move-r-count PRIVATE move_r)
-  target_link_libraries(move-r-locate PRIVATE move_r)
-
-  target_link_libraries(move-rb-build PRIVATE move_r)
-  target_link_libraries(move-rb-revert PRIVATE move_r)
-  target_link_libraries(move-rb-count PRIVATE move_r)
-  target_link_libraries(move-rb-locate PRIVATE move_r)
-  target_link_libraries(move-rb-random-ext PRIVATE move_r)
-
-  target_link_libraries(gen-patterns PRIVATE move_r)
-  target_link_libraries(patterns-to-fasta PRIVATE move_r)
-  target_link_libraries(fasta-to-plain PRIVATE move_r)
-
-  set_target_properties(
-    move-r-build move-r-revert move-r-count move-r-locate 
-    move-rb-build move-rb-revert move-rb-count move-rb-locate
-    move-rb-random-ext gen-patterns patterns-to-fasta fasta-to-plain
-    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/"
-  )
+  move_r_add_tool(gen-patterns cli/tools/gen-patterns.cpp "${CMAKE_BINARY_DIR}/cli/")
+  move_r_add_tool(print-data-structures cli/tools/print-data-structures.cpp "${CMAKE_BINARY_DIR}/cli/")
 endif()
 
 if(MOVE_R_BUILD_LZENDSA_CLI)
-  add_executable(lzendsa-build cli/lzendsa/lzendsa-build.cpp)
-  add_executable(lzendsa-convert cli/lzendsa/lzendsa-convert.cpp)
-  add_executable(lzendsa-count cli/lzendsa/lzendsa-count.cpp)
-  add_executable(lzendsa-locate cli/lzendsa/lzendsa-locate.cpp)
-  add_executable(lzendsa-random-access cli/lzendsa/lzendsa-random-access.cpp)
-
-  add_executable(r-index-lzendsa-build cli/lzendsa/r-index-lzendsa-build.cpp)
-  add_executable(r-index-lzendsa-count cli/lzendsa/r-index-lzendsa-count.cpp)
-  add_executable(r-index-lzendsa-locate cli/lzendsa/r-index-lzendsa-locate.cpp)
-
-  target_link_libraries(lzendsa-build PRIVATE move_r)
-  target_link_libraries(lzendsa-convert PRIVATE move_r)
-  target_link_libraries(lzendsa-count PRIVATE move_r)
-  target_link_libraries(lzendsa-locate PRIVATE move_r)
-  target_link_libraries(lzendsa-random-access PRIVATE move_r)
-
-  target_link_libraries(r-index-lzendsa-build PRIVATE move_r)
-  target_link_libraries(r-index-lzendsa-count PRIVATE move_r)
-  target_link_libraries(r-index-lzendsa-locate PRIVATE move_r)
-
-  set_target_properties(
-    lzendsa-build lzendsa-convert lzendsa-count lzendsa-locate lzendsa-random-access
-    r-index-lzendsa-build r-index-lzendsa-count r-index-lzendsa-locate
-    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/"
-  )
+  foreach(tool lzendsa-build lzendsa-convert lzendsa-count lzendsa-locate lzendsa-random-access
+               r-index-lzendsa-build r-index-lzendsa-count r-index-lzendsa-locate)
+    move_r_add_tool(${tool} cli/lzendsa/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
+  endforeach()
 endif()
 
 if(MOVE_R_BUILD_RLZSA_CLI)
-  add_executable(rlzsa-build cli/rlzsa/rlzsa-build.cpp)
-  add_executable(rlzsa-convert cli/rlzsa/rlzsa-convert.cpp)
-  add_executable(rlzsa-count cli/rlzsa/rlzsa-count.cpp)
-  add_executable(rlzsa-locate cli/rlzsa/rlzsa-locate.cpp)
-  add_executable(rlzsa-random-access cli/rlzsa/rlzsa-random-access.cpp)
-  
-  add_executable(r-index-rlzsa-build cli/rlzsa/r-index-rlzsa-build.cpp)
-  add_executable(r-index-rlzsa-count cli/rlzsa/r-index-rlzsa-count.cpp)
-  add_executable(r-index-rlzsa-locate cli/rlzsa/r-index-rlzsa-locate.cpp)
-
-  target_link_libraries(rlzsa-build PRIVATE move_r)
-  target_link_libraries(rlzsa-convert PRIVATE move_r)
-  target_link_libraries(rlzsa-count PRIVATE move_r)
-  target_link_libraries(rlzsa-locate PRIVATE move_r)
-  target_link_libraries(rlzsa-random-access PRIVATE move_r)
-
-  target_link_libraries(r-index-rlzsa-build PRIVATE move_r)
-  target_link_libraries(r-index-rlzsa-count PRIVATE move_r)
-  target_link_libraries(r-index-rlzsa-locate PRIVATE move_r)
-  
-  set_target_properties(
-    rlzsa-build rlzsa-convert rlzsa-count rlzsa-locate rlzsa-random-access
-    r-index-rlzsa-build r-index-rlzsa-count r-index-rlzsa-locate
-    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/"
-  )
+  foreach(tool rlzsa-build rlzsa-convert rlzsa-count rlzsa-locate rlzsa-random-access
+               r-index-rlzsa-build r-index-rlzsa-count r-index-rlzsa-locate)
+    move_r_add_tool(${tool} cli/rlzsa/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
+  endforeach()
 endif()
 
 ############################# move-r examples #############################
 
 if(MOVE_R_BUILD_EXAMPLES)
-  add_executable(example-move_data_structure examples/move_data_structure.cpp)
-  add_executable(example-move_r-queries examples/move_r-queries.cpp)
-  add_executable(example-move_r-retrieval examples/move_r-retrieval.cpp)
-  add_executable(example-move_r-store-load examples/move_r-store-load.cpp)
-
-  target_link_libraries(example-move_data_structure PRIVATE move_r)
-  target_link_libraries(example-move_r-queries PRIVATE move_r)
-  target_link_libraries(example-move_r-retrieval PRIVATE move_r)
-  target_link_libraries(example-move_r-store-load PRIVATE move_r)
-  
-  set_target_properties(
-    example-move_data_structure example-move_r-queries
-    example-move_r-retrieval example-move_r-store-load
-    PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples/"
-  )
+  foreach(ex move_data_structure move_r-queries move_r-retrieval move_r-store-load move-rb-queries)
+    move_r_add_tool(example-${ex} examples/${ex}.cpp "${CMAKE_BINARY_DIR}/examples/")
+  endforeach()
 endif()
 
 ############################# move-r benchmark cli #############################
 
-if(MOVE_R_BUILD_BENCH_CLI)
+if(MOVE_R_BUILD_BENCH)
   # rcomp
   add_library(rcomp INTERFACE)
   target_include_directories(rcomp INTERFACE "${CMAKE_SOURCE_DIR}/external/rcomp/include/")
@@ -308,18 +242,44 @@ if(MOVE_R_BUILD_BENCH_CLI)
 
   ############################# move-r #############################
 
-  add_executable(move-r-bench bench/move-r-bench/move-r-bench.cpp)
-  target_link_libraries(move-r-bench PRIVATE move_r rcomp r-index-f r-index OnlineRlbwt)
-  set_target_properties(move-r-bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
+  move_r_add_tool(move-r-bench bench/move-r-bench/move-r-bench.cpp
+    "${CMAKE_BINARY_DIR}/cli/" rcomp r-index-f r-index OnlineRlbwt)
+endif()
+
+############################# move_rb approximate-pattern-matching benchmark #############################
+
+if(MOVE_R_BUILD_BENCH)
+  file(GLOB bmove_sources CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/external/b-move/src/*.cpp")
+  list(REMOVE_ITEM bmove_sources
+    "${CMAKE_SOURCE_DIR}/external/b-move/src/build.cpp"
+    "${CMAKE_SOURCE_DIR}/external/b-move/src/buildhelpers.cpp"
+    "${CMAKE_SOURCE_DIR}/external/b-move/src/locate.cpp")
+  add_library(bmove STATIC ${bmove_sources})
+  target_include_directories(bmove PUBLIC
+    "${CMAKE_SOURCE_DIR}/external/b-move/src"
+    "${CMAKE_SOURCE_DIR}/external/fmt/include"
+    "${CMAKE_SOURCE_DIR}/external/parallel-hashmap")
+  target_compile_definitions(bmove PUBLIC
+    ALPHABET=5 LF_MOVE_BIT_PACKED PHI_MOVE PHI_MOVE_BALANCED PHI_MOVE_BIT_PACKED FMT_HEADER_ONLY)
+  target_compile_options(bmove PUBLIC -O3 -fno-fast-math -fno-strict-aliasing)
+  target_link_libraries(bmove PUBLIC sdsl divsufsort divsufsort64)
+  set_target_properties(bmove PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+  add_library(br_index INTERFACE)
+  target_include_directories(br_index INTERFACE "${CMAKE_SOURCE_DIR}/external/br-index/src")
+  target_link_libraries(br_index INTERFACE sdsl divsufsort divsufsort64)
+
+  move_r_add_tool(move-rb-bench bench/move_rb_bench/move-rb-bench.cpp
+    "${CMAKE_BINARY_DIR}/cli/" br_index bmove)
+  move_r_add_tool(move-rb-queries bench/move_rb_bench/move-rb-queries.cpp
+    "${CMAKE_BINARY_DIR}/cli/")
 endif()
 
 ############################# move-r internal bench #############################
 
-if(MOVE_R_BUILD_BENCH)
-  add_executable(bench-int-rank-select bench/bench_int_rank_select.cpp)
-  target_link_libraries(bench-int-rank-select PRIVATE move_r)
-  set_target_properties(bench-int-rank-select PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bench/")
+if(MOVE_R_BUILD_INTERNAL_BENCH)
+  move_r_add_tool(bench-int-rank-select bench/bench_int_rank_select.cpp
+    "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
 ############################# move-r tests #############################
@@ -329,23 +289,20 @@ if(MOVE_R_BUILD_TESTS)
   include(GoogleTest)
   enable_testing()
 
-  add_executable(test-move_r "${CMAKE_SOURCE_DIR}/tests/test_move_r.cpp")
-  add_executable(test-move_r_int "${CMAKE_SOURCE_DIR}/tests/test_move_r_int.cpp")
-  add_executable(test-move_rb "${CMAKE_SOURCE_DIR}/tests/test_move_rb.cpp")
-  add_executable(test-move_data_structure "${CMAKE_SOURCE_DIR}/tests/test_move_data_structure.cpp")
+  set_target_properties(gtest gtest_main gmock gmock_main
+    PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "")
 
-  target_link_libraries(test-move_r PRIVATE gtest_main move_r)
-  target_link_libraries(test-move_r_int PRIVATE gtest_main move_r)
-  target_link_libraries(test-move_rb PRIVATE gtest_main move_r)
-  target_link_libraries(test-move_data_structure PRIVATE gtest_main move_r)
+  foreach(s move_r move_rb move_data_structure data_structures sa_index)
+    move_r_add_tool(test-${s} "${CMAKE_SOURCE_DIR}/tests/test_${s}.cpp"
+      "${CMAKE_BINARY_DIR}/tests/" gtest_main)
+  endforeach()
 
-  set_target_properties(
-    test-move_r test-move_r_int test-move_rb test-move_data_structure
-    PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-    "${CMAKE_BINARY_DIR}/tests/"
-  )
+  target_compile_definitions(test-move_rb PRIVATE
+    MIN_U_SCHEME_DIR="${CMAKE_SOURCE_DIR}/search_schemes/min_u")
 
   gtest_discover_tests(test-move_r)
-  gtest_discover_tests(test-move_r_int)
+  gtest_discover_tests(test-move_rb)
   gtest_discover_tests(test-move_data_structure)
+  gtest_discover_tests(test-data_structures)
+  gtest_discover_tests(test-sa_index)
 endif()

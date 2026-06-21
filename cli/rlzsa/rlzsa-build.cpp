@@ -23,7 +23,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "malloc_count.h"
+#include <malloc_count.h>
 
 #include <cstdint>
 #include <fstream>
@@ -34,6 +34,9 @@
 #include <misc/cli.hpp>
 #include <rlzsa/rlzsa.hpp>
 
+/**
+ * @brief prints the usage information and exits
+ */
 void help()
 {
     std::cout << "rlzsa-build: builds the rlzsa-index from the input file." << std::endl << std::endl;
@@ -45,6 +48,12 @@ void help()
     std::cout << "   --f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     std::set<std::string> allowed_value_options;
@@ -67,6 +76,7 @@ int main(int argc, char** argv)
     o.append(".rlzsa");
     std::string filepath = parsed_args.last_param.at(0);
     std::string file_name = filepath.substr(filepath.find_last_of("/\\") + 1);
+    require_file(filepath);
     bool use_bigbwt = false;
     bool use64 = false;
     int64_t d = -1;
@@ -85,7 +95,7 @@ int main(int argc, char** argv)
         }
 
         if (value_option.name == "-d") {
-            d = std::stol(value_option.value);
+            d = parse_int_arg(value_option.value, "-d");
         }
     }
 

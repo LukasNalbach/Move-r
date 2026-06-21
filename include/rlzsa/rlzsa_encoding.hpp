@@ -40,6 +40,11 @@
 #include <sdsl/csa_bitcompressed.hpp>
 #include <sdsl/suffix_array_algorithm.hpp>
 
+/**
+ * @brief a standalone relative-Lempel-Ziv encoding of the differential suffix array (unoptimized; the move-r
+ *        optimized variant is rlzsa_opt in include/rlzsa_opt/)
+ * @tparam int_t signed integer type of the suffix array entries
+ */
 template <typename int_t = int32_t>
 class rlzsa_encoding {
 
@@ -57,6 +62,14 @@ protected:
 public:
     rlzsa_encoding() = default;
 
+    /**
+     * @brief builds the rlzsa encoding from the suffix array and the differential suffix array
+     * @param SA the suffix array
+     * @param DSA the differential suffix array (consumed during the construction)
+     * @param reference_size the target size of the reference R
+     * @param add_literal_phrase_after_each_copy_phrase whether to add a literal phrase after each copy phrase
+     * @param log whether to print log messages
+     */
     rlzsa_encoding(
         const std::vector<int_t>& SA,
         std::vector<int_t>&& DSA,
@@ -66,7 +79,7 @@ public:
     ) {
         n = DSA.size();
         auto time = now();
-        if (log) std::cout << "sorting DSA" << std::flush;
+        log_phase_start(log, time, "sorting DSA");
 
         for (uint64_t i = 1; i < n; i++) {
             DSA[i] += n;
@@ -81,8 +94,8 @@ public:
 
         ips4o::sort(alphabet.begin(), alphabet.end()); // sort the values in DSA
 
-        if (log) time = log_runtime(time);
-        if (log) std::cout << "building DSA alphabet map" << std::flush;
+        log_phase_end(log, time);
+        log_phase_start(log, time, "building DSA alphabet map");
 
         auto it = std::unique(alphabet.begin(), alphabet.end()); // remove duplicates in DSA
         alphabet.resize(std::distance(alphabet.begin(), it));
@@ -103,16 +116,16 @@ public:
             }
         }
 
-        if (log) time = log_runtime(time);
-        if (log) std::cout << "mapping DSA to its effective alphabet" << std::flush;
+        log_phase_end(log, time);
+        log_phase_start(log, time, "mapping DSA to its effective alphabet");
 
         // map DSA to its effective alphabet
         for (uint64_t i = 0; i < n; i++) {
             DSA[i] = alphabet_map[DSA[i]];
         }
 
-        if (log) time = log_runtime(time);
-        if (log) std::cout << "building suffix array of DSA" << std::flush;
+        log_phase_end(log, time);
+        log_phase_start(log, time, "building suffix array of DSA");
 
         std::vector<int_t> sa_dsa;
         sa_dsa.resize(n);
@@ -124,8 +137,8 @@ public:
         }
 
         sa_dsa.resize(n);
-        if (log) time = log_runtime(time);
-        if (log) std::cout << "building inverse suffix array of DSA" << std::flush;
+        log_phase_end(log, time);
+        log_phase_start(log, time, "building inverse suffix array of DSA");
 
         sdsl::int_vector<> ISA_sad;
         ISA_sad.width(8 * byte_width(n));
@@ -135,10 +148,10 @@ public:
             ISA_sad[sa_dsa[i]] = i;
         }
 
-        if (log) time = log_runtime(time);
-        if (log) std::cout << "counting frequencies of k-mers in DSA" << std::flush;
+        log_phase_end(log, time);
+        log_phase_start(log, time, "counting frequencies of k-mers in DSA");
 
-        uint64_t segment_size = std::min<uint64_t>(4096, reference_size);
+        uint64_t segment_size = std::max<uint64_t>(1, std::min<uint64_t>(4096, reference_size)); // >= 1 to avoid a division by zero for tiny inputs
         uint64_t num_segments = n / segment_size;
         std::vector<uint64_t> selected_segments;
         uint64_t k = std::min<uint64_t>(8, reference_size);
@@ -189,8 +202,8 @@ public:
             num_groups = g;
         }
 
-        if (log) time = log_runtime(time);
-        if (log) std::cout << "counting frequencies of k-mers per segment of DSA" << std::flush;
+        log_phase_end(log, time);
+        log_phase_start(log, time, "counting frequencies of k-mers per segment of DSA");
 
         {
             uint64_t num_segments_to_select = reference_size / segment_size;
@@ -211,8 +224,8 @@ public:
                 }
             }
 
-            if (log) time = log_runtime(time);
-            if (log) std::cout << "building R" << std::flush;
+            log_phase_end(log, time);
+            log_phase_start(log, time, "building R");
 
             selected_segments.resize(num_segments_to_select);
             sdsl::bit_vector is_segment_selected;
@@ -271,7 +284,7 @@ public:
         }
 
         {
-            R.width(8 * byte_width(n));
+            R.width(8 * byte_width(2 * n));
             R.resize(segment_size * selected_segments.size());
             uint64_t j = 0;
 
@@ -296,8 +309,8 @@ public:
 
         ISA_sad.resize(0);
 
-        if (log) time = log_runtime(time);
-        if (log) std::cout << "building FM-Index for R" << std::flush;
+        log_phase_end(log, time);
+        log_phase_start(log, time, "building FM-Index for R");
 
         sdsl::int_vector<> revR;
         revR.width(8 * byte_width(2 * n));
@@ -311,8 +324,8 @@ public:
         sdsl::construct_im(FM_rrev, revR, 0);
         revR.resize(0);
 
-        if (log) time = log_runtime(time);
-        if (log) std::cout << "building rlzsa parsing" << std::flush;
+        log_phase_end(log, time);
+        log_phase_start(log, time, "building rlzsa parsing");
 
         S.width(8 * byte_width(n));
         PS.width(8 * byte_width(n));
@@ -398,8 +411,8 @@ public:
 			PL[z] = 1;
         }
         
+        log_phase_end(log, time);
         if (log) {
-            time = log_runtime(time);
             std::cout << "z: " << z << ", ";
             std::cout << "n/z: " << n / (double) z << ", ";
             std::cout << "z_l/z: " << z_l / (double) z << std::endl;
@@ -407,16 +420,33 @@ public:
         }
     }
     
+    /**
+     * @brief returns the number of phrases in the rlzsa
+     * @return the number of phrases
+     */
     uint64_t num_phrases() const
     {
         return z;
     }
 
+    /**
+     * @brief returns the size of the input
+     * @return the size of the input
+     */
     uint64_t input_size() const
     {
         return n;
     }
 
+    /**
+     * @brief extracts the suffix array values in the range [l, r], reporting each value
+     * @tparam out_t output value type
+     * @tparam report_fnc_t type of the report function
+     * @param l left range limit
+     * @param r right range limit
+     * @param report function that is called with every extracted value (or (position, value))
+     * @param sa_l SA[l], if already known (-1 if it has to be decoded; default: -1)
+     */
     template <typename out_t, typename report_fnc_t>
     void extract(uint64_t l, uint64_t r, report_fnc_t report, int64_t sa_l = -1) const
     {
@@ -508,9 +538,13 @@ public:
         }
     }
 
-    /*
-     * locate all occurrences of P and return them in an array
-     * (space consuming if result is big).
+    /**
+     * @brief extracts and returns the suffix array values in the range [l, r]
+     * @tparam out_t output value type
+     * @param l left range limit
+     * @param r right range limit
+     * @param sa_l SA[l], if already known (-1 if it has to be decoded; default: -1)
+     * @return the suffix array values in the range [l, r]
      */
     template <typename out_t>
     std::vector<out_t> extract(uint64_t l, uint64_t r, int64_t sa_l = -1) const
@@ -521,6 +555,10 @@ public:
         return result;
     }
 
+    /**
+     * @brief serializes the encoding to an output stream
+     * @param out output stream
+     */
     void serialize(std::ostream& out) const
     {
         out.write((char*) &n, sizeof(uint64_t));
@@ -532,6 +570,10 @@ public:
         S.serialize(out);
     }
 
+    /**
+     * @brief loads the encoding from an input stream
+     * @param in input stream
+     */
     void load(std::istream& in)
     {
         in.read((char*) &n, sizeof(uint64_t));
@@ -543,6 +585,10 @@ public:
         S.load(in);
     }
 
+    /**
+     * @brief returns the size of the data structure in bytes
+     * @return the size of the data structure in bytes
+     */
     uint64_t size_in_bytes() const
     {
         uint64_t size = 0;

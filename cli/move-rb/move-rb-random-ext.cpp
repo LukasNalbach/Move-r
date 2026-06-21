@@ -16,8 +16,12 @@ std::string path_patterns_file;
 std::ifstream index_file;
 std::ifstream patterns_file;
 std::string name_text_file;
-move_rb_query_support_t query_mode = COUNT;
+query_support_t query_mode = COUNT;
 
+/**
+ * @brief prints the usage information and exits
+ * @param msg an optional error message printed before the usage information
+ */
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
@@ -29,6 +33,12 @@ void help(std::string msg)
     exit(0);
 }
 
+/**
+ * @brief parses the next command-line argument(s)
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return whether there are further options to parse
+ */
 bool parse_args(char** argv, int argc)
 {
     if (arg_idx >= argc - min_args) return false;
@@ -53,17 +63,17 @@ bool parse_args(char** argv, int argc)
     return true;
 }
 
-template <typename pos_t, move_r_support support, move_rb_query_support_t query_support>
+template <typename pos_t, move_r_support support, query_support_t query_support>
 void measure_random_ext()
 {
     std::cout << std::setprecision(4);
-    std::cout << "loading the index" << std::flush;
     auto time = now();
+    log_phase_start(true, time, "loading the index");
     using idx_t = move_rb<support, char, pos_t>;
     idx_t index;
     index.load(index_file);
     index_file.close();
-    time = log_runtime(time);
+    log_phase_end(true, time);
     index.log_data_structure_sizes();
 
     std::cout << std::endl << "searching patterns via random extensions ... " << std::endl;
@@ -100,7 +110,7 @@ void measure_random_ext()
         std::uniform_int_distribution<uint64_t> start_dist(0, pattern_length - 1);
         uint64_t start_pos = start_dist(gen);
         typename idx_t::template search_context_t<query_support> ctx(index);
-        auto [next_ctx, success] = ctx.template extend<LEFT>(index, pattern[start_pos]);
+        auto [next_ctx, success] = ctx.template extend<LEFT>(pattern[start_pos]);
         ctx = next_ctx;
         uint64_t left_bound = start_pos;
         uint64_t right_bound = start_pos;
@@ -131,7 +141,7 @@ void measure_random_ext()
                 next_char_idx = right_bound;
             }
 
-            auto [extended_ctx, ext_success] = ctx.extend(index, pattern[next_char_idx], dir);
+            auto [extended_ctx, ext_success] = ctx.extend(pattern[next_char_idx], dir);
             success = ext_success;
             if (success) {
                 ctx = extended_ctx;
@@ -143,7 +153,7 @@ void measure_random_ext()
 
             if constexpr (query_support == LOCATE) {
                 auto loc_ctx = ctx.locate_phase();
-                loc_ctx.locate(index, ctx, [&](pos_t occ) {
+                loc_ctx.locate([&](pos_t occ) {
                     checksum += occ;
                 });
             } else {
@@ -166,7 +176,8 @@ void measure_random_ext()
     std::cout << "search time: " << format_time(time_search) << std::endl;
     std::cout << "             " << format_time(time_search / num_patterns) << "/pattern" << std::endl;
     std::cout << "             " << format_time(time_search / (num_patterns * pattern_length)) << "/character" << std::endl;
-    std::cout << "             " << format_time(time_search / num_occurrences) << "/occurrence" << std::endl;
+    if (num_occurrences != 0)
+        std::cout << "             " << format_time(time_search / num_occurrences) << "/occurrence" << std::endl;
 
     if (mf.is_open()) {
         mf << "RESULT";
@@ -183,10 +194,17 @@ void measure_random_ext()
     }
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     if (argc - 1 < min_args) help("");
     while (parse_args(argv, argc));
+    if (arg_idx + min_args > argc) help("error: missing <index_file> and/or <patterns_file>");
 
     path_index_file = argv[arg_idx];
     path_patterns_file = argv[arg_idx + 1];

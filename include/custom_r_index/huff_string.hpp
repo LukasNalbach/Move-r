@@ -26,6 +26,10 @@ protected:
 public:
     huff_string() { }
 
+    /**
+     * @brief builds the Huffman-compressed string from s
+     * @param s the input string (a terminator is appended internally)
+     */
     huff_string(std::string& s)
     {
         s.push_back(0);
@@ -34,17 +38,32 @@ public:
         assert(wt.size() == s.size() - 1);
     }
 
+    /**
+     * @brief returns the i-th character of the string
+     * @param i a position
+     * @return the i-th character of the string
+     */
     unsigned char operator[](uint64_t i) const
     {
         assert(i < wt.size());
         return wt[i];
     }
 
+    /**
+     * @brief returns the length of the string
+     * @return the length of the string
+     */
     uint64_t size() const
     {
         return wt.size();
     }
 
+    /**
+     * @brief returns the number of occurrences of c before position i
+     * @param i a position
+     * @param c a character
+     * @return the number of occurrences of c in the prefix of length i
+     */
     uint64_t rank(uint64_t i, unsigned char c) const
     {
         assert(i <= wt.size());
@@ -59,6 +78,10 @@ public:
         return wt.select(i + 1, c);
     }
 
+    /**
+     * @brief returns the size of the structure in bytes
+     * @return the size of the structure in bytes
+     */
     uint64_t size_in_bytes() const
     {
         return sizeof(this) + sdsl::size_in_bytes(wt);

@@ -27,6 +27,7 @@
 #pragma once
 
 #include <cmath>
+#include <data_structures/interleaved_bit_aligned_vectors.hpp>
 #include <data_structures/interleaved_byte_aligned_vectors.hpp>
 #include <misc/utils.hpp>
 #include <omp.h>
@@ -60,7 +61,7 @@ protected:
     uint8_t omega_idx = 0; // word width of D_idx
     uint8_t omega_offs = 0; // word width of D_offs
     uint8_t omega_l_ = 0; // word width of L_
-    interleaved_byte_aligned_vectors<pos_t, pos_t> data; // interleaved vectors storing D_p, D_idx and D_offs (and L', for M_LF)
+    interleaved_bit_aligned_vectors<pos_t> data; // interleaved vectors storing D_p, D_idx and D_offs (and L', for M_LF)
 
 public:
     move_data_structure() = default;
@@ -171,25 +172,23 @@ protected:
      * @brief resizes the move data structure to size k_
      * @param n maximum value
      * @param k_ size
+     * @param omega_l_ word width (in bits) of L_ (0 if L_ is not stored)
      */
     void resize(pos_t n, pos_t k_, uint8_t omega_l_)
     {
         this->n = n;
         this->k_ = k_;
 
-        omega_p = byte_width(n + 1) * 8;
-        omega_idx = byte_width(k_ + 1) * 8;
+        // tight bit-widths: D_p in [0,n], D_idx in [0,k'], D_offs in [0,2^omega_offs) (omega_offs is
+        // already a tight bit-width, see construction.hpp), L_ in [0,2^omega_l_)
+        omega_p = std::bit_width(uint64_t(n));
+        omega_idx = std::bit_width(uint64_t(k_));
         this->omega_l_ = omega_l_;
 
         if (omega_l_ > 0) {
-            data = interleaved_byte_aligned_vectors<pos_t, pos_t>({ (uint8_t)(omega_p / 8),
-                (uint8_t)(omega_idx / 8),
-                (uint8_t)(omega_offs / 8),
-                (uint8_t)(omega_l_ / 8) });
+            data = interleaved_bit_aligned_vectors<pos_t>({ omega_p, omega_idx, omega_offs, omega_l_ });
         } else {
-            data = interleaved_byte_aligned_vectors<pos_t, pos_t>({ (uint8_t)(omega_p / 8),
-                (uint8_t)(omega_idx / 8),
-                (uint8_t)(omega_offs / 8) });
+            data = interleaved_bit_aligned_vectors<pos_t>({ omega_p, omega_idx, omega_offs });
         }
 
         data.resize_no_init(k_ + 1);
@@ -300,19 +299,13 @@ public:
     /**
      * @brief logs all data structures
      */
-    void log_contents() const
+    void log_data_structures() const
     {
-        std::cout << "p:   ";
-        for (pos_t i = 0; i < k_ - 1; i++) std::cout << p(i) << ", ";
-        std::cout << p(k_ - 1) << std::endl;
-
-        std::cout << "q:   ";
-        for (pos_t i = 0; i < k_ - 1; i++) std::cout << q(i) << ", ";
-        std::cout << q(k_ - 1) << std::endl;
-
-        std::cout << "idx: ";
-        for (pos_t i = 0; i < k_ - 1; i++) std::cout << idx(i) << ", ";
-        std::cout << idx(k_ - 1) << std::endl;
+        aligned_log log;
+        log.add_row("p:", k_, [&](pos_t i) { return p(i); });
+        log.add_row("q:", k_, [&](pos_t i) { return q(i); });
+        log.add_row("idx:", k_, [&](pos_t i) { return idx(i); });
+        log.print();
     }
 
     /**

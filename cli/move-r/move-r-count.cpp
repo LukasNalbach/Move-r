@@ -35,13 +35,14 @@ std::string path_patterns_file;
 std::ifstream index_file;
 std::ifstream patterns_file;
 std::string name_text_file;
-std::string path_input_file;
-std::ifstream input_file;
-std::string input;
 std::string path_output_file;
 std::ofstream output_file;
 bool output_occurrences;
 
+/**
+ * @brief prints the usage information and exits
+ * @param msg an optional error message printed before the usage information
+ */
 void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
@@ -49,14 +50,17 @@ void help(std::string msg)
     std::cout << "usage: move-r-count [...] <index_file> <patterns_file>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
-    std::cout << "   -i <input_file>            input_file must be the file the index was built for" << std::endl;
-    std::cout << "                              (only for locate_rlzsa_bin_search)" << std::endl;
     std::cout << "   -o <output_file>           write pattern counts to this file (in ASCII format; one line per pattern)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in pizza&chili format containing the patterns." << std::endl;
     exit(0);
 }
 
+/**
+ * @brief parses the next command-line argument(s)
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ */
 void parse_args(char** argv, int argc)
 {
     std::string s = argv[arg_idx];
@@ -68,11 +72,6 @@ void parse_args(char** argv, int argc)
         mf.open(path_m_file, std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
         if (!mf.good()) help("error: cannot open nor create <m_file>");
         name_text_file = argv[arg_idx++];
-    } else if (s == "-i") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -i option.");
-        path_input_file = argv[arg_idx++];
-        input_file.open(path_input_file);
-        if (!input_file.good()) help("error: cannot open <input_file>");
     } else if (s == "-o") {
         if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
         output_occurrences = true;
@@ -82,29 +81,24 @@ void parse_args(char** argv, int argc)
     }
 }
 
+/**
+ * @brief loads the index and benchmarks counting the input patterns
+ * @tparam pos_t index integer type
+ * @tparam support the move-r locate-support type
+ */
 template <typename pos_t, move_r_support support>
 void measure_count()
 {
     std::cout << std::setprecision(4);
-    std::cout << "loading the index" << std::flush;
     auto time = now();
+    log_phase_start(true, time, "loading the index");
     using idx_t = move_r<support, char, pos_t>;
     idx_t index;
     index.load(index_file);
     index_file.close();
-    time = log_runtime(time);
+    log_phase_end(true, time);
     index.log_data_structure_sizes();
-    
-    if constexpr (support == _locate_rlzsa_bin_search) {
-        if (path_input_file == "") help("error: <input_file> not provided");
-        std::cout << std::endl << "loading input file" << std::flush;
-        no_init_resize(input, index.input_size());
-        read_from_file(input_file, input.data(), input.size());
-        index.set_input(input);
-        input_file.close();
-        time = log_runtime(time);
-    }
-    
+
     std::cout << std::endl << "searching patterns ... " << std::endl;
     std::string header;
     std::getline(patterns_file, header);
@@ -163,10 +157,17 @@ void measure_count()
     }
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     if (argc < 3) help("");
     while (arg_idx < argc - 2) parse_args(argv, argc);
+    if (arg_idx + 2 > argc) help("error: missing <index_file> and/or <patterns_file>");
 
     path_index_file = argv[arg_idx];
     path_patterns_file = argv[arg_idx + 1];
@@ -200,12 +201,6 @@ int main(int argc, char** argv)
     } else if (_support == _locate_rlzsa) {
         if (is_64_bit) measure_count<uint64_t, _locate_rlzsa>();
         else           measure_count<uint32_t, _locate_rlzsa>();
-    } else if (_support == _locate_rlzsa_bin_search) {
-        if (is_64_bit) measure_count<uint64_t, _locate_rlzsa_bin_search>();
-        else           measure_count<uint32_t, _locate_rlzsa_bin_search>();
-    } else if (_support == _locate_lzendsa) {
-        if (is_64_bit) measure_count<uint64_t, _locate_lzendsa>();
-        else           measure_count<uint32_t, _locate_lzendsa>();
     }
 
     return 0;

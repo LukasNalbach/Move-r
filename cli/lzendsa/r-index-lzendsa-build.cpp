@@ -23,7 +23,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "malloc_count.h"
+#include <malloc_count.h>
 
 #include <cstdint>
 #include <fstream>
@@ -34,6 +34,9 @@
 #include <misc/cli.hpp>
 #include <lzendsa/r_index_lzendsa.hpp>
 
+/**
+ * @brief prints the usage information and exits
+ */
 void help()
 {
     std::cout << "r-index-lzendsa-build: builds the r-index-lzendsa-Index from the input file." << std::endl << std::endl;
@@ -46,6 +49,12 @@ void help()
     std::cout << "   --lzend-samples use SA-samples at end positions of LZ-End phrases instead of the SA-samples in the r-index" << std::endl;
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     std::set<std::string> allowed_value_options;
@@ -69,6 +78,7 @@ int main(int argc, char** argv)
     o.append(".r-index-lzendsa");
     std::string filepath = parsed_args.last_param.at(0);
     std::string file_name = filepath.substr(filepath.find_last_of("/\\") + 1);
+    require_file(filepath);
     bool use_bigbwt = false;
     bool use64 = false;
     int64_t h = 8192;
@@ -87,7 +97,7 @@ int main(int argc, char** argv)
         }
 
         if (value_option.name == "-h") {
-            h = std::stol(value_option.value);
+            h = parse_int_arg(value_option.value, "-h");
         }
     }
 

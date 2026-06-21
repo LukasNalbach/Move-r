@@ -30,6 +30,17 @@
 
 #include "utils.hpp"
 
+/**
+ * @brief binary-searches the largest index in [left, right] whose value is <= value (the value_at sequence
+ *        must be ascending); assumes value_at(left) <= value
+ * @tparam pos_t unsigned integer index type
+ * @tparam fnc_t type of the value_at function
+ * @param value the value to compare against
+ * @param left left search boundary (inclusive)
+ * @param right right search boundary (inclusive)
+ * @param value_at function mapping an index to its value
+ * @return the largest index in [left, right] with value_at(index) <= value
+ */
 template <typename pos_t, typename fnc_t>
 inline static pos_t bin_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
@@ -48,6 +59,17 @@ inline static pos_t bin_search_max_leq(pos_t value, pos_t left, pos_t right, fnc
     return left;
 }
 
+/**
+ * @brief binary-searches the smallest index in [left, right] whose value is >= value (the value_at sequence
+ *        must be ascending); assumes value_at(right) >= value
+ * @tparam pos_t unsigned integer index type
+ * @tparam fnc_t type of the value_at function
+ * @param value the value to compare against
+ * @param left left search boundary (inclusive)
+ * @param right right search boundary (inclusive)
+ * @param value_at function mapping an index to its value
+ * @return the smallest index in [left, right] with value_at(index) >= value
+ */
 template <typename pos_t, typename fnc_t>
 inline static pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
@@ -66,6 +88,17 @@ inline static pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, fnc
     return left;
 }
 
+/**
+ * @brief binary-searches the largest index in [left, right] whose value is < value (the value_at sequence
+ *        must be ascending); assumes value_at(left) < value
+ * @tparam pos_t unsigned integer index type
+ * @tparam fnc_t type of the value_at function
+ * @param value the value to compare against
+ * @param left left search boundary (inclusive)
+ * @param right right search boundary (inclusive)
+ * @param value_at function mapping an index to its value
+ * @return the largest index in [left, right] with value_at(index) < value
+ */
 template <typename pos_t, typename fnc_t>
 inline static pos_t bin_search_max_lt(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
@@ -84,6 +117,17 @@ inline static pos_t bin_search_max_lt(pos_t value, pos_t left, pos_t right, fnc_
     return left;
 }
 
+/**
+ * @brief binary-searches the smallest index in [left, right] whose value is > value (the value_at sequence
+ *        must be ascending); assumes value_at(right) > value
+ * @tparam pos_t unsigned integer index type
+ * @tparam fnc_t type of the value_at function
+ * @param value the value to compare against
+ * @param left left search boundary (inclusive)
+ * @param right right search boundary (inclusive)
+ * @param value_at function mapping an index to its value
+ * @return the smallest index in [left, right] with value_at(index) > value
+ */
 template <typename pos_t, typename fnc_t>
 inline static pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {
@@ -102,6 +146,18 @@ inline static pos_t bin_search_min_gt(pos_t value, pos_t left, pos_t right, fnc_
     return left;
 }
 
+/**
+ * @brief exponential search (starting at one end of [left, right]) for the largest index whose value is <= value;
+ *        faster than a plain binary search when the result is close to the start of the search direction
+ * @tparam pos_t unsigned integer index type
+ * @tparam search_dir direction to search from (LEFT starts at right, RIGHT starts at left)
+ * @tparam fnc_t type of the value_at function
+ * @param value the value to compare against
+ * @param left left search boundary (inclusive)
+ * @param right right search boundary (inclusive)
+ * @param value_at function mapping an index to its value
+ * @return the largest index in [left, right] with value_at(index) <= value
+ */
 template <typename pos_t, direction_t search_dir, typename fnc_t>
 inline static pos_t exp_search_max_leq(pos_t value, pos_t left, pos_t right, fnc_t value_at)
 {

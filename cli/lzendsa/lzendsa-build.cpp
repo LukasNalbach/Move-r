@@ -23,7 +23,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "malloc_count.h"
+#include <malloc_count.h>
 
 #include <cstdint>
 #include <fstream>
@@ -34,6 +34,9 @@
 #include <misc/cli.hpp>
 #include <lzendsa/lzendsa.hpp>
 
+/**
+ * @brief prints the usage information and exits
+ */
 void help()
 {
     std::cout << "lzendsa-build: builds the Lzendsa-index from the input file." << std::endl << std::endl;
@@ -45,6 +48,12 @@ void help()
     std::cout << "   --bigbwt        use Big-BWT instead of libsais" << std::endl;
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     std::set<std::string> allowed_value_options;
@@ -67,6 +76,7 @@ int main(int argc, char** argv)
     o.append(".lzendsa");
     std::string filepath = parsed_args.last_param.at(0);
     std::string file_name = filepath.substr(filepath.find_last_of("/\\") + 1);
+    require_file(filepath);
     bool use_bigbwt = false;
     int64_t d = -1;
     int64_t h = 8192;
@@ -81,11 +91,11 @@ int main(int argc, char** argv)
         }
 
         if (value_option.name == "-d") {
-            d = std::stol(value_option.value);
+            d = parse_int_arg(value_option.value, "-d");
         }
 
         if (value_option.name == "-h") {
-            h = std::stol(value_option.value);
+            h = parse_int_arg(value_option.value, "-h");
         }
     }
 
@@ -104,7 +114,7 @@ int main(int argc, char** argv)
     lzendsa<int32_t> lzendsa_32;
     lzendsa<int64_t> lzendsa_64;
 
-    if (n <= std::numeric_limits<int32_t>::max()) {
+    if (n <= INT_MAX) {
         std::cout << "Constructing using 32-bit integers" << std::endl;
         lzendsa_32 = lzendsa<int32_t>(input, d, h, use_bigbwt, true);
     } else {
@@ -115,7 +125,7 @@ int main(int argc, char** argv)
     auto t2 = now();
     uint64_t z;
 
-    if (n <= std::numeric_limits<int32_t>::max()) {
+    if (n <= INT_MAX) {
         z = lzendsa_32.num_phrases();
         lzendsa_32.size_in_bytes();
     } else {
@@ -127,7 +137,7 @@ int main(int argc, char** argv)
     uint64_t size_index = sizeof(uint8_t);
     std::ofstream out(o);
 
-    if (n <= std::numeric_limits<int32_t>::max()) {
+    if (n <= INT_MAX) {
         bool is_64_bit = 0;
         out.write((char*) &is_64_bit, sizeof(uint8_t));
         lzendsa_32.serialize(out);

@@ -29,7 +29,14 @@
 #include <cstdint>
 #include <string>
 #include <chrono>
+#include <iostream>
 
+/**
+ * @brief formats a pair as the string "(first,second)"
+ * @tparam pos_t type of the pair elements
+ * @param pair a pair
+ * @return the string "(first,second)"
+ */
 template <typename pos_t = uint32_t>
 inline static std::string to_string(std::pair<pos_t, pos_t> pair)
 {
@@ -41,11 +48,20 @@ inline static std::string to_string(std::pair<pos_t, pos_t> pair)
     return str;
 }
 
+/**
+ * @brief returns the current time point of the steady clock
+ * @return the current time point
+ */
 static std::chrono::steady_clock::time_point now()
 {
     return std::chrono::steady_clock::now();
 }
 
+/**
+ * @brief formats a duration in nanoseconds with an appropriate unit (ns, us, ms or s)
+ * @param ns a duration in nanoseconds
+ * @return the formatted duration
+ */
 static std::string format_time(uint64_t ns)
 {
     std::string time_str;
@@ -63,6 +79,12 @@ static std::string format_time(uint64_t ns)
     return time_str;
 }
 
+/**
+ * @brief formats a query throughput (queries over a duration) with an appropriate unit
+ * @param num_queries the number of queries
+ * @param ns the duration in nanoseconds
+ * @return the formatted query throughput
+ */
 static std::string format_query_throughput(uint64_t num_queries, uint64_t ns)
 {
     std::string str;
@@ -81,6 +103,11 @@ static std::string format_query_throughput(uint64_t num_queries, uint64_t ns)
     return str;
 }
 
+/**
+ * @brief formats a size in bytes with an appropriate unit (B, KB, MB or GB)
+ * @param B a size in bytes
+ * @return the formatted size
+ */
 static std::string format_size(uint64_t B)
 {
     std::string size_str;
@@ -98,6 +125,11 @@ static std::string format_size(uint64_t B)
     return size_str;
 }
 
+/**
+ * @brief formats a thread count as "1 thread" or "p threads"
+ * @param p a number of threads
+ * @return the formatted thread count
+ */
 static std::string format_threads(uint16_t p)
 {
     if (p == 1) {
@@ -107,38 +139,117 @@ static std::string format_threads(uint16_t p)
     }
 }
 
+/**
+ * @brief returns the time difference (in minutes) between two time points
+ * @param t1 the earlier time point
+ * @param t2 the later time point
+ * @return the time difference t2 - t1 in minutes
+ */
 static uint64_t time_diff_min(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2)
 {
     return std::chrono::duration_cast<std::chrono::minutes>(t2 - t1).count();
 }
 
+/**
+ * @brief returns the time difference (in nanoseconds) between two time points
+ * @param t1 the earlier time point
+ * @param t2 the later time point
+ * @return the time difference t2 - t1 in nanoseconds
+ */
 static uint64_t time_diff_ns(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2)
 {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
 }
 
+/**
+ * @brief returns the time difference (in minutes) between a time point and now
+ * @param t the earlier time point
+ * @return the time difference now - t in minutes
+ */
 static uint64_t time_diff_min(std::chrono::steady_clock::time_point t)
 {
     return time_diff_min(t, std::chrono::steady_clock::now());
 }
 
+/**
+ * @brief returns the time difference (in nanoseconds) between a time point and now
+ * @param t the earlier time point
+ * @return the time difference now - t in nanoseconds
+ */
 static uint64_t time_diff_ns(std::chrono::steady_clock::time_point t)
 {
     return time_diff_ns(t, std::chrono::steady_clock::now());
 }
 
+/**
+ * @brief logs the runtime between two time points and returns the current time point
+ * @param t1 the earlier time point
+ * @param t2 the later time point
+ * @return the current time point
+ */
 static std::chrono::steady_clock::time_point log_runtime(std::chrono::steady_clock::time_point t1, std::chrono::steady_clock::time_point t2)
 {
     std::cout << ", in ~ " << format_time(time_diff_ns(t1, t2)) << std::endl;
     return std::chrono::steady_clock::now();
 }
 
+/**
+ * @brief logs the runtime between a time point and now and returns the current time point
+ * @param t the earlier time point
+ * @return the current time point
+ */
 static std::chrono::steady_clock::time_point log_runtime(std::chrono::steady_clock::time_point t)
 {
     return log_runtime(t, std::chrono::steady_clock::now());
 }
 
+/**
+ * @brief starts a logged phase: prints msg and (re)sets the phase timer to now()
+ * @param log whether logging is enabled
+ * @param time phase timer; set to now() (only when logging)
+ * @param msg message describing the phase
+ */
+static void log_phase_start(bool log, std::chrono::steady_clock::time_point& time, const std::string& msg)
+{
+    if (log) {
+        time = now();
+        std::cout << msg << std::flush;
+    }
+}
+
+/**
+ * @brief ends a logged phase: optionally writes the elapsed time to the measurement
+ *        stream mf under the key mf_key, then logs the runtime and resets the timer
+ * @param log whether logging is enabled
+ * @param time phase timer; read for the elapsed time, then reset by log_runtime
+ * @param mf measurement-file stream (nullptr => nothing written)
+ * @param mf_key measurement-file key for the elapsed time (empty => nothing written)
+ */
+static void log_phase_end(bool log, std::chrono::steady_clock::time_point& time, std::ostream* mf = nullptr, const std::string& mf_key = "")
+{
+    if (log) {
+        if (!mf_key.empty() && mf != nullptr)
+            *mf << " " << mf_key << "=" << time_diff_ns(time, now());
+        time = log_runtime(time);
+    }
+}
+
+/**
+ * @brief prints a message to std::cout
+ * @param message the message to print
+ */
 static void log_message(std::string message)
 {
     std::cout << message << std::flush;
+}
+
+/**
+ * @brief prints message (without resetting any phase timer), if logging is enabled;
+ *        use for phase-start messages that must not reset the timer and for section headers
+ * @param log whether logging is enabled
+ * @param message message to print (include a trailing "\n" for a header line)
+ */
+static void log_message(bool log, const std::string& message)
+{
+    if (log) std::cout << message << std::flush;
 }

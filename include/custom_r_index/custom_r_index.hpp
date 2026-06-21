@@ -46,11 +46,19 @@ protected:
 public:
     index() = default;
 
+    /**
+     * @brief returns whether the index stores suffix array samples
+     * @return whether the index stores suffix array samples
+     */
     bool has_sa_samples() const
     {
         return !samples.empty();
     }
 
+    /**
+     * @brief returns the size of the index in bytes
+     * @return the size of the index in bytes
+     */
     uint64_t size_in_bytes() const
     {
         return sizeof(this) +
@@ -59,8 +67,12 @@ public:
             sizeof(uint64_t) * F.size(); // F
     }
 
-    /*
-     * Build index
+    /**
+     * @brief builds the index from a BWT and its suffix array
+     * @tparam int_t signed integer type of the suffix array entries
+     * @param BWT the BWT of the text
+     * @param SA the suffix array of the text
+     * @param build_sa_samples whether to build the suffix array samples (default: true)
      */
     template <typename int_t>
     index(const std::string& BWT, const std::vector<int_t>& SA, bool build_sa_samples = true)
@@ -111,13 +123,18 @@ public:
         }
     }
 
+    /**
+     * @brief returns the number of runs in the BWT
+     * @return the number of runs in the BWT
+     */
     uint64_t num_bwt_runs() const
     {
         return bwt.number_of_runs();
     }
 
-    /*
-     * get full BWT range
+    /**
+     * @brief returns the full (inclusive) BWT range
+     * @return the full BWT range [0, bwt_size() - 1]
      */
     std::pair<uint64_t, uint64_t> full_range() const
     {
@@ -125,16 +142,31 @@ public:
         return { 0, bwt_size() - 1 };
     }
 
+    /**
+     * @brief returns the i-th character of the BWT
+     * @param i a BWT position
+     * @return the i-th character of the BWT
+     */
     unsigned char operator[](uint64_t i) const
     {
         return bwt[i];
     }
 
+    /**
+     * @brief returns the i-th suffix array sample
+     * @param i a run index
+     * @return the suffix array sample of the i-th run
+     */
     uint64_t sample(uint64_t i) const
     {
         return samples[i];
     }
 
+    /**
+     * @brief returns the BWT position the i-th suffix array sample belongs to
+     * @param i a run index
+     * @return the start (run-heads mode) or end (run-ends mode) BWT position of the i-th run
+     */
     uint64_t sample_pos(uint64_t i) const
     {
         if constexpr (mode == _run_heads) {
@@ -302,11 +334,19 @@ public:
         if (has_samples) samples.load(in);
     }
 
+    /**
+     * @brief returns the size of the text (without the terminator)
+     * @return the size of the text
+     */
     uint64_t text_size() const
     {
         return bwt.size() - 1;
     }
 
+    /**
+     * @brief returns the size of the BWT (including the terminator)
+     * @return the size of the BWT
+     */
     uint64_t bwt_size() const
     {
         return bwt.size();

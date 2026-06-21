@@ -30,10 +30,13 @@
 #include <set>
 #include <string>
 
-#include "malloc_count.h"
+#include <malloc_count.h>
 #include <misc/cli.hpp>
 #include <rlzsa/r_index_rlzsa.hpp>
 
+/**
+ * @brief prints the usage information and exits
+ */
 void help()
 {
     std::cout << "r-index-rlzsa-count: counts all occurences of the provided patterns." << std::endl << std::endl;
@@ -93,6 +96,12 @@ void count(std::ifstream& index_file, std::ifstream& patterns_file, std::string 
         << std::endl;
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     std::set<std::string> allowed_value_options;
@@ -108,6 +117,8 @@ int main(int argc, char** argv)
     std::string file_name = a.last_param.at(0);
     file_name = file_name.substr(file_name.find_last_of("/\\") + 1);
 
+    require_file(a.last_param.at(0));
+    require_file(a.last_param.at(1));
     std::ifstream index_file(a.last_param.at(0));
     std::ifstream patterns_file(a.last_param.at(1));
     bool is_64_bit;

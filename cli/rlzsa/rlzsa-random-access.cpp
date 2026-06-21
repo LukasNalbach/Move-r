@@ -34,6 +34,9 @@
 #include <misc/cli.hpp>
 #include <rlzsa/rlzsa.hpp>
 
+/**
+ * @brief prints the usage information and exits
+ */
 void help()
 {
     std::cout << "rlzsa-random-access: measures the random access time of the rlzsa construction." << std::endl << std::endl;
@@ -44,6 +47,15 @@ void help()
     std::cout << "   -l               interval length (default: 7)" << std::endl;
 }
 
+/**
+ * @brief benchmarks random-access queries on the index
+ * @tparam int_t template parameter
+ * @param index_file the input stream of the index file
+ * @param file_name the name of the original text file
+ * @param len the length of each random-access query range
+ * @param num_queries the number of queries to perform
+ * @param seed the seed for the random number generator
+ */
 template <typename int_t>
 void random_access(std::ifstream& index_file, std::string file_name, uint64_t len, uint64_t num_queries, uint64_t seed)
 {
@@ -87,6 +99,12 @@ void random_access(std::ifstream& index_file, std::string file_name, uint64_t le
         << std::endl;
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     std::set<std::string> allowed_value_options;
@@ -112,19 +130,20 @@ int main(int argc, char** argv)
 
     for (Option value_option : a.value_options) {
         if (value_option.name == "-l") {
-            len = std::stol(value_option.value);
+            len = parse_int_arg(value_option.value, "-l");
         }
 
         if (value_option.name == "-q") {
-            num_queries = std::stol(value_option.value);
+            num_queries = parse_int_arg(value_option.value, "-q");
         }
 
         if (value_option.name == "-s") {
-            seed = std::stol(value_option.value);
+            seed = parse_int_arg(value_option.value, "-s");
         }
     }
 
     std::string rlzsa_file = a.last_param.at(0);
+    require_file(rlzsa_file);
     std::ifstream index_file(rlzsa_file);
 
     bool is_64_bit;

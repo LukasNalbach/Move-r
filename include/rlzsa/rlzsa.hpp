@@ -38,9 +38,14 @@
 
 #include "rlzsa_encoding.hpp"
 #include <algorithms/build_sa_and_bwt.hpp>
-#include <algorithms/sparse_sa_bin_search.cpp>
+#include <algorithms/sparse_sa_bin_search.tpp>
 #include <data_structures/interleaved_bit_aligned_vectors.hpp>
 
+/**
+ * @brief a standalone self-index based on a relative-Lempel-Ziv encoding of the differential suffix array, with
+ *        evenly-spaced SA-samples (unoptimized; the move-r optimized variant is rlzsa_opt in include/rlzsa_opt/)
+ * @tparam int_t signed integer type of the suffix array entries
+ */
 template <typename int_t = int32_t>
 class rlzsa {
 
@@ -57,6 +62,13 @@ protected:
 
     const std::string* input;
 
+    /**
+     * @brief builds the evenly-spaced SA-sampling
+     * @param sa the suffix array
+     * @param d the sampling parameter (every d-th position is sampled); if d <= 0, it is chosen so that the
+     *          samples take about default_relative_sampling_size of the index size
+     * @param log whether to print log messages
+     */
     void build_sampling(const std::vector<int_t>& sa, int64_t d, bool log)
     {
         auto time = now();
@@ -65,15 +77,14 @@ protected:
 
         if (d <= 0) {
             uint64_t target_sampling_size_in_bits = (rlzsa_enc.size_in_bytes() * 8) * default_relative_sampling_size;
-            d = n / (target_sampling_size_in_bits / std::bit_width(uint64_t{n}));
+            uint64_t divisor = std::max<uint64_t>(1, target_sampling_size_in_bits / std::bit_width(uint64_t{n}));
+            d = std::max<uint64_t>(1, n / divisor);
         }
 
         this->d = d;
 
         // construct the SA sampling
-        if (log) std::cout << "building SA-Samples, d = " << d << std::flush;
-        
-        time = now();
+        log_phase_start(log, time, "building SA-Samples, d = " + std::to_string(d));
         uint64_t num_samples = n / d;
         sa_samples = interleaved_bit_aligned_vectors<uint64_t, 1>({ std::bit_width(uint64_t{n}) });
         sa_samples.resize_no_init(num_samples);
@@ -82,13 +93,19 @@ protected:
             sa_samples.set<0>(i, sa[i * d]);
         }
 
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
     }
     
 public:
     rlzsa() = default;
 
-    // call when the suffix array of the input text is not yet calculated
+    /**
+     * @brief builds the index from the input text (computing the suffix array internally)
+     * @param input the input text
+     * @param d the SA-sampling parameter (if <= 0, it is chosen automatically)
+     * @param use_bigbwt whether to use Big-BWT to build the suffix array and BWT
+     * @param log whether to print log messages
+     */
     rlzsa(std::string& input, int64_t d = -1, bool use_bigbwt = false, bool log = false)
     {
         auto time = now();
@@ -107,8 +124,7 @@ public:
         }
 
         // construct differential suffix array (DSA)
-        if (log) time = now();
-        if (log) std::cout << "building Differential Suffix Array (DSA)" << std::flush;
+        log_phase_start(log, time, "building Differential Suffix Array (DSA)");
         std::vector<int_t> dsa;
         no_init_resize(dsa, n);
         dsa[0] = sa[0];
@@ -117,61 +133,100 @@ public:
             dsa[i] = sa[i] - sa[i - 1];
         }
 
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
 
         // construct rlzsa
-        if (log) std::cout << "building rlzsa:" << std::endl;
+        log_message(log, "building rlzsa:\n");
         uint64_t reference_size = std::min<uint64_t>(n / 3, 5.2 * r);
         rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, false, log);
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
 
         build_sampling(sa, d, log);
     }
 
+    /**
+     * @brief builds the index from a precomputed rlzsa encoding and suffix array
+     * @param rlzsa_enc the rlzsa encoding of the differential suffix array
+     * @param sa the suffix array
+     * @param d the SA-sampling parameter (if <= 0, it is chosen automatically)
+     * @param log whether to print log messages
+     */
     rlzsa(const rlzsa_encoding<int_t>& rlzsa_enc, const std::vector<int_t>& sa, int64_t d = -1, bool log = false)
     {
         this->rlzsa_enc = rlzsa_enc;
         build_sampling(sa, d, log);
     }
 
+    /**
+     * @brief stores a pointer to the input text (needed for count/locate queries)
+     * @param str the input text
+     */
     void set_input(const std::string& str)
     {
         input = &str;
     }
 
-    // return a referrlzsa_ence to the rlzsa_encoding
+    /**
+     * @brief returns a reference to the rlzsa encoding
+     * @return the rlzsa encoding
+     */
     const rlzsa_encoding<int_t>& sa_encoding() const
     {
         return rlzsa_enc;
     }
 
-    // return the index-th suffix array sample
+    /**
+     * @brief returns the index-th suffix array sample
+     * @param index a sample index
+     * @return the index-th suffix array sample
+     */
     uint64_t sample(uint64_t index) const
     {
         return index == sa_samples.size() ? last_sa : sa_samples[index];
     }
 
-    // return the position in SA of the index-th suffix array sample
+    /**
+     * @brief returns the position in the suffix array of the index-th sample
+     * @param index a sample index
+     * @return the position in SA of the index-th sample
+     */
     uint64_t sample_pos(uint64_t index) const
     {
         return index == sa_samples.size() ? input_size() - 1 : (index * d);
     }
 
+    /**
+     * @brief returns the size of the input text
+     * @return the size of the input text
+     */
     uint64_t input_size() const
     {
         return rlzsa_enc.input_size();
     }
 
+    /**
+     * @brief returns the number of phrases in the rlzsa encoding
+     * @return the number of phrases
+     */
     uint64_t num_phrases() const
     {
         return rlzsa_enc.num_phrases();
     }
 
+    /**
+     * @brief returns the SA-sampling parameter
+     * @return the SA-sampling parameter
+     */
     int64_t delta() const
     {
         return d;
     }
 
+    /**
+     * @brief counts the occurrences of pattern in the input
+     * @param pattern the pattern to count
+     * @return the suffix array interval [beg, end] of the pattern (beg > end if it does not occur)
+     */
     std::tuple<uint64_t, uint64_t> count(const std::string& pattern) const
     {
         auto [beg, end] = binary_sa_search_and_extract<int_t>(*input, pattern, num_samples(),
@@ -182,6 +237,13 @@ public:
         return {beg, end};
     }
 
+    /**
+     * @brief locates the occurrences of pattern in the input
+     * @tparam out_t output value type
+     * @tparam report_fnc_t type of the report function
+     * @param pattern the pattern to locate
+     * @param report function that is called with every occurrence of pattern
+     */
     template <typename out_t, typename report_fnc_t>
     void locate(const std::string& pattern, report_fnc_t report) const
     {
@@ -191,6 +253,12 @@ public:
                 rlzsa_enc.template extract<out_t>(b, e, report, sa_b);}, report, false, true);
     }
 
+    /**
+     * @brief locates the occurrences of pattern in the input
+     * @tparam out_t output value type
+     * @param pattern the pattern to locate
+     * @return the occurrences of pattern in the input
+     */
     template <typename out_t>
     std::vector<out_t> locate(const std::string& pattern) const
     {
@@ -199,7 +267,13 @@ public:
         return result;
     }
 
-    // returns multiple consecutive suffix array values
+    /**
+     * @brief returns the suffix array values in the range [beg, end]
+     * @tparam out_t output value type
+     * @param beg left range limit
+     * @param end right range limit
+     * @return the suffix array values in the range [beg, end]
+     */
     template <typename out_t>
     std::vector<out_t> sa_values(uint64_t beg, uint64_t end) const
     {
@@ -217,18 +291,28 @@ public:
         return result;
     }
 
+    /**
+     * @brief returns the number of suffix array samples (including the last-SA sample)
+     * @return the number of suffix array samples
+     */
     uint64_t num_samples() const
     {
         return sa_samples.size() + 1;
     }
 
-    // return the size of the whole data structure in bytes
+    /**
+     * @brief returns the size of the whole data structure in bytes
+     * @return the size of the data structure in bytes
+     */
     size_t size_in_bytes() const
     {
         return sizeof(this) + rlzsa_enc.size_in_bytes() + sa_samples.size_in_bytes();
     }
 
-    // load the rlzsa construction from a stream
+    /**
+     * @brief loads the index from an input stream
+     * @param in input stream
+     */
     void load(std::istream& in)
     {
         in.read((char*) &d, sizeof(d));
@@ -237,7 +321,10 @@ public:
         sa_samples.load(in);
     }
 
-    // serialize the rlzsa construction to the output stream
+    /**
+     * @brief serializes the index to an output stream
+     * @param out output stream
+     */
     void serialize(std::ostream& out)
     {
         out.write((char*) &d, sizeof(d));

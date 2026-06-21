@@ -28,11 +28,17 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <random>
 #include <fstream>
 
 #include "utils.hpp"
 
+/**
+ * @brief generates a random string of alphanumeric characters
+ * @param length number of characters in the generated string
+ * @return a random string of the given length over the alphabet [0-9A-Za-z]
+ */
 static std::string random_alphanumeric_string(uint64_t length)
 {
     static std::string possible_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -51,6 +57,11 @@ static std::string random_alphanumeric_string(uint64_t length)
     return str_rand;
 }
 
+/**
+ * @brief extracts the peak memory usage from a malloc_count log file
+ * @param leftg_file input stream of the malloc_count log file
+ * @return the maximum peak memory usage reported in the log file
+ */
 static uint64_t malloc_count_peak_memory_usage(std::ifstream& leftg_file)
 {
     std::string leftg_file_content;
@@ -82,6 +93,15 @@ static uint64_t malloc_count_peak_memory_usage(std::ifstream& leftg_file)
     return cur_peak;
 }
 
+/**
+ * @brief generates a random, repetitive input sequence (composed of new symbols, repetitions and runs)
+ * @tparam inp_t sequence type to generate (e.g. std::string or std::vector<int32_t>)
+ * @param min_size minimum length of the generated sequence
+ * @param max_size maximum length of the generated sequence
+ * @param min_sym smallest symbol value that may occur in the sequence
+ * @param max_sym largest symbol value that may occur in the sequence
+ * @return a random sequence with a length in [min_size, max_size]
+ */
 template <typename inp_t>
 static inp_t random_repetitive_input(
     uint64_t min_size, uint64_t max_size,
@@ -145,4 +165,65 @@ static inp_t random_repetitive_input(
     }
 
     return input;
+}
+
+/**
+ * @brief applies a random number of edits (substitutions, insertions and deletions) to pattern, drawing the
+ * replacement symbols from input; the number of edits is skewed towards few (at most half the pattern
+ * length), so that the mutated pattern is usually no longer an exact substring of input, while exact and
+ * lightly-modified patterns are still produced frequently
+ * @tparam pos_t integer type used for positions and counts
+ * @tparam inp_t sequence type of the pattern and input (e.g. std::string or std::vector<int32_t>)
+ * @tparam gen_t random number generator type
+ * @param pattern the pattern to mutate in place
+ * @param input the sequence to draw the replacement symbols from
+ * @param gen random number generator
+ */
+template <typename pos_t, typename inp_t, typename gen_t>
+static void mutate_pattern(inp_t& pattern, const inp_t& input, gen_t& gen)
+{
+    pos_t input_size = input.size();
+    pos_t max_mutations = std::uniform_int_distribution<pos_t>(0, pattern.size() / 2)(gen);
+    pos_t num_mutations = std::uniform_int_distribution<pos_t>(0, max_mutations)(gen);
+
+    for (pos_t m = 0; m < num_mutations; m++) {
+        pos_t pos = std::uniform_int_distribution<pos_t>(0, pattern.size() - 1)(gen);
+        typename inp_t::value_type sym = input[std::uniform_int_distribution<pos_t>(0, input_size - 1)(gen)];
+        pos_t op = gen() % 3;
+
+        if (op == 0 && pattern.size() > 1)               pattern.erase(pattern.begin() + pos);
+        else if (op == 1 && pattern.size() < input_size) pattern.insert(pattern.begin() + pos, sym);
+        else                                             pattern[pos] = sym;
+    }
+}
+
+/**
+ * @brief naively scans input for all exact occurrences of pattern
+ * @tparam pos_t integer type used for positions
+ * @tparam inp_t sequence type of the input and pattern (e.g. std::string or std::vector<int32_t>)
+ * @param input the sequence to search in
+ * @param pattern the pattern to search for
+ * @return the ascending starting positions of all exact occurrences of pattern in input
+ */
+template <typename pos_t, typename inp_t>
+static std::vector<pos_t> locate_naive(const inp_t& input, const inp_t& pattern)
+{
+    std::vector<pos_t> occurrences;
+    pos_t input_size = input.size();
+    pos_t pattern_length = pattern.size();
+
+    for (pos_t i = 0; i + pattern_length <= input_size; i++) {
+        bool match = true;
+
+        for (pos_t j = 0; j < pattern_length; j++) {
+            if (input[i + j] != pattern[j]) {
+                match = false;
+                break;
+            }
+        }
+
+        if (match) occurrences.emplace_back(i);
+    }
+
+    return occurrences;
 }

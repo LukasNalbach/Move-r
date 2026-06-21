@@ -107,7 +107,7 @@ void bench_indexes()
 
     bench_index<pos_t, r_index, false, false>("r-index", "r_index");
 
-    if (std::is_same_v<pos_t, uint32_t> && input_size <= std::numeric_limits<int32_t>::max()) {
+    if (std::is_same_v<pos_t, uint32_t> && input_size <= INT_MAX) {
         bench_index<pos_t, r_index_rlzsa<int32_t>, true, true>("r-index-rlzsa", "r_index_rlzsa");
     } else {
         bench_index<pos_t, r_index_rlzsa<int64_t>, true, true>("r-index-rlzsa", "r_index_rlzsa");

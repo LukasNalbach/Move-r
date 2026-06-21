@@ -60,6 +60,11 @@ public:
         select1 = sdsl::sd_vector<>::select_1_type(&sdv);
     }
 
+    /**
+     * @brief copy-assigns another sparse_sd_vector to this object (rebuilding the rank/select support)
+     * @param other another sparse_sd_vector
+     * @return this sparse_sd_vector
+     */
     sparse_sd_vector& operator=(const sparse_sd_vector& other)
     {
 
@@ -82,6 +87,11 @@ public:
         return sdv[i];
     }
 
+    /**
+     * @brief returns the bit at position i
+     * @param i a position
+     * @return the bit at position i
+     */
     bool at(uint64_t i) const
     {
         return operator[](i);
@@ -173,6 +183,10 @@ public:
      */
     uint64_t number_of_1() const { return rank1(size()); }
 
+    /**
+     * @brief returns the size of the structure in bytes
+     * @return the size of the structure in bytes
+     */
     uint64_t size_in_bytes() const
     {
         return sdsl::size_in_bytes(sdv);

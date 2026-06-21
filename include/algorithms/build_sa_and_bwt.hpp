@@ -36,6 +36,15 @@
 #include <misc/search.hpp>
 #include <misc/log.hpp>
 
+/**
+ * @brief builds the suffix array (and optionally the BWT) of the input string
+ * @tparam int_t signed integer type used for the suffix array entries
+ * @param input the input string (a null terminator is appended when using libsais)
+ * @param build_bwt whether to also build the BWT
+ * @param use_bigbwt whether to use Big-BWT instead of libsais
+ * @param log whether to log the construction progress
+ * @return a tuple containing the suffix array and the BWT (the BWT is empty if build_bwt is false)
+ */
 template <typename int_t>
 std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input, bool build_bwt = true, bool use_bigbwt = false, bool log = false) {
     auto time = now();
@@ -47,7 +56,7 @@ std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input,
     if (use_bigbwt) {
         n = std::filesystem::file_size(input) + 1;
 
-        if (log) std::cout << "building Suffix Array and BWT using Big-BWT" << std::flush;
+        log_phase_start(log, time, "building Suffix Array and BWT using Big-BWT");
         system(("bigbwt -S " + input + (std::string)(log ? "" : " >log_1 >log_2")).c_str());
         
         if (!log) {
@@ -84,12 +93,12 @@ std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input,
 
         std::filesystem::remove(input + ".log");
         std::filesystem::remove(bwt_file_name);
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
     } else {
         input.push_back(uchar_to_char(0));
         n = input.size();
 
-        if (log) std::cout << "building Suffix Array using libsais" << std::flush;
+        log_phase_start(log, time, "building Suffix Array using libsais");
         no_init_resize(sa, n);
 
         if constexpr (std::is_same_v<int_t, int32_t>) {
@@ -98,10 +107,10 @@ std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input,
             libsais64((uint8_t*) input.data(), sa.data(), n, 0, nullptr);
         }
 
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
 
         if (build_bwt) {
-            if (log) std::cout << "building BWT" << std::flush;
+            log_phase_start(log, time, "building BWT");
             no_init_resize(bwt, n);
 
             for (uint64_t i = 0; i < n; i++) {
@@ -116,7 +125,7 @@ std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input,
                 }
             }
 
-            if (log) time = log_runtime(time);
+            log_phase_end(log, time);
         }
     }
 

@@ -36,6 +36,10 @@
 #include <custom_r_index/custom_r_index.hpp>
 #include "rlzsa_encoding.hpp"
 
+/**
+ * @brief an r-index combined with a standalone rlzsa encoding of the differential suffix array for locating
+ * @tparam int_t signed integer type of the suffix array entries
+ */
 template<typename int_t = int32_t>
 class r_index_rlzsa {
 
@@ -46,6 +50,13 @@ protected:
 public:
     r_index_rlzsa() = default;
 
+    /**
+     * @brief builds the index from the input text
+     * @param input the input text
+     * @param use_bigbwt whether to use Big-BWT to build the suffix array and BWT
+     * @param use_r_index_samples whether to use the r-index's suffix array samples for locating
+     * @param log whether to print log messages
+     */
     r_index_rlzsa(std::string& input, bool use_bigbwt = false, bool use_r_index_samples = false, bool log = false)
     {
         auto time_start = now();
@@ -56,15 +67,14 @@ public:
         uint64_t n = sa.size();
 
         // build r-index
-        if (log) time = now();
-        if (log) std::cout << "building r-index" << std::flush;
+        log_phase_start(log, time, "building r-index");
         r_idx = custom_r_index::index<_run_heads>(bwt, sa, use_r_index_samples);
         bwt.clear();
         bwt.shrink_to_fit();
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
 
         // construct differential suffix array (DSA)
-        if (log) std::cout << "building Differential Suffix Array (DSA)" << std::flush;
+        log_phase_start(log, time, "building Differential Suffix Array (DSA)");
         std::vector<int_t> dsa;
         no_init_resize(dsa, n);
         dsa[0] = sa[0];
@@ -73,10 +83,10 @@ public:
             dsa[i] = sa[i] - sa[i - 1];
         }
 
-        if (log) time = log_runtime(time);
+        log_phase_end(log, time);
         
         // compute rlzsa
-        if (log) std::cout << "building rlzsa:" << std::endl;
+        log_message(log, "building rlzsa:\n");
         uint64_t r = r_idx.number_of_runs();
         uint64_t reference_size = std::min<uint64_t>(n / 3, 5.2 * r);
         rlzsa_enc = rlzsa_encoding<int_t>(sa, std::move(dsa), reference_size, !use_r_index_samples, log);
@@ -87,18 +97,30 @@ public:
         }
     }
 
-    // return a referrlzsa_ence to the r-index
+    /**
+     * @brief returns a reference to the r-index
+     * @return the r-index
+     */
     const custom_r_index::index<_run_heads>& r_index() const
     {
         return r_idx;
     }
 
-    // return a referrlzsa_ence to the rlzsa_encoding
+    /**
+     * @brief returns a reference to the rlzsa encoding
+     * @return the rlzsa encoding
+     */
     const rlzsa_encoding<int_t>& sa_encoding() const
     {
         return rlzsa_enc;
     }
 
+    /**
+     * @brief locates the occurrences of pattern in the input
+     * @tparam out_t output value type
+     * @param pattern the pattern to locate
+     * @return the starting positions of the occurrences of pattern in the input
+     */
     template <typename out_t>
     std::vector<out_t> locate(const std::string &pattern) const
     {
@@ -123,42 +145,76 @@ public:
         return Occ;
     }
 
+    /**
+     * @brief counts the occurrences of pattern in the input
+     * @param pattern the pattern to count
+     * @return the suffix array interval [beg, end] of the pattern
+     */
     std::pair<uint64_t, uint64_t> count(std::string &pattern) const
     {
         return r_idx.count(pattern);
     }
 
+    /**
+     * @brief returns the size of the input text
+     * @return the size of the input text
+     */
     uint64_t input_size() const
     {
         return rlzsa_enc.input_size();
     }
 
+    /**
+     * @brief returns the number of phrases in the rlzsa encoding
+     * @return the number of phrases
+     */
     uint64_t num_phrases() const
     {
         return rlzsa_enc.num_phrases();
     }
 
+    /**
+     * @brief returns the number of suffix array samples (one per BWT run)
+     * @return the number of suffix array samples
+     */
     uint64_t num_samples() const
     {
         return r_idx.num_bwt_runs();
     }
 
+    /**
+     * @brief returns the i-th suffix array sample
+     * @param i a sample index
+     * @return the i-th suffix array sample
+     */
     uint64_t sample(uint64_t i) const
     {
         return r_idx.sample(i);
     }
 
+    /**
+     * @brief returns the size of the data structure in bytes
+     * @return the size of the data structure in bytes
+     */
     uint64_t size_in_bytes() const
     {
         return sizeof(this) + rlzsa_enc.size_in_bytes() + r_idx.size_in_bytes();
     }
 
+    /**
+     * @brief serializes the index to an output stream
+     * @param out output stream
+     */
     void serialize(std::ostream &out) const
     {
         rlzsa_enc.serialize(out);
         r_idx.serialize(out);
     }
 
+    /**
+     * @brief loads the index from an input stream
+     * @param in input stream
+     */
     void load(std::istream &in)
     {
         rlzsa_enc.load(in);

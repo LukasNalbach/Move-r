@@ -35,6 +35,9 @@
 /**
  * @brief wrapper class for the bit_vector from sdsl
  * @tparam pos_t unsigned integer type
+ * @tparam build_rank_support whether to build rank support
+ * @tparam build_select_0_support whether to build select-0 support
+ * @tparam build_select_1_support whether to build select-1 support
  */
 template <typename pos_t = uint32_t, bool build_rank_support = false, bool build_select_0_support = false, bool build_select_1_support = false>
 class plain_bit_vector {
@@ -133,7 +136,7 @@ public:
 
     /**
      * @brief constructs a new plain_bit_vector from a bit vector
-     * @param bit_vector a bit vector
+     * @param vec a bit vector
      */
     plain_bit_vector(const sdsl::bit_vector& vec)
     {
@@ -143,7 +146,7 @@ public:
 
     /**
      * @brief constructs a new plain_bit_vector from a bit vector
-     * @param bit_vector a bit vector
+     * @param vec a bit vector
      */
     plain_bit_vector(sdsl::bit_vector&& vec)
     {
@@ -285,7 +288,7 @@ public:
         if (empty()) return;
 
         for (uint64_t i = 0; i < size() - 1; i++) {
-            std::cout << operator[](i) << ", ";
+            std::cout << operator[](i) << " ";
         }
 
         std::cout << operator[](size() - 1) << std::endl;
@@ -340,12 +343,22 @@ public:
         select_1_support.set_vector(vec.data());
     }
 
+    /**
+     * @brief serializes the plain_bit_vector to an output stream
+     * @param os output stream
+     * @return the output stream
+     */
     std::ostream& operator>>(std::ostream& os) const
     {
         serialize(os);
         return os;
     }
 
+    /**
+     * @brief loads the plain_bit_vector from an input stream
+     * @param is input stream
+     * @return the input stream
+     */
     std::istream& operator<<(std::istream& is)
     {
         load(is);

@@ -35,6 +35,9 @@
 #include <misc/cli.hpp>
 #include <rlzsa/rlzsa.hpp>
 
+/**
+ * @brief prints the usage information and exits
+ */
 void help()
 {
     std::cout << "rlzsa-count: count all occurences of the input patterns." << std::endl << std::endl;
@@ -93,6 +96,12 @@ void count(std::string& input, std::ifstream& index_file, std::ifstream& pattern
         << std::endl;
 }
 
+/**
+ * @brief program entry point
+ * @param argc the number of command-line arguments
+ * @param argv the command-line arguments
+ * @return the exit code
+ */
 int main(int argc, char** argv)
 {
     std::set<std::string> allowed_value_options;
@@ -119,6 +128,10 @@ int main(int argc, char** argv)
     std::string rlzsa_file = a.last_param.at(0);
     std::string text_file = a.last_param.at(1);
     std::string pattern_file = a.last_param.at(2);
+
+    require_file(rlzsa_file);
+    require_file(text_file);
+    require_file(pattern_file);
 
     std::ifstream in(rlzsa_file);
     std::ifstream text_in(text_file);

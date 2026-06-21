@@ -26,31 +26,19 @@
 
 #pragma once
 
-#include <hash_table6.hpp>
-#include <hash_set2.hpp>
-#include <hash_set3.hpp>
-#include <hash_set4.hpp>
-#include <hash_set8.hpp>
 #include <tsl/sparse_set.h>
 
-#include <misc/hash.hpp>
-#include <misc/approximate_pattern_matching.cpp>
-#include <misc/strings.hpp>
 #include <move_r/move_r.hpp>
-#include <move_rb/approximate_pattern_matching/search_schemes.hpp>
-#include <move_rb/approximate_pattern_matching/sub_string.hpp>
-#include <move_rb/approximate_pattern_matching/edit_distance_matrix.hpp>
+// lightweight approximate-pattern-matching dependencies + query_support_t
+#include <misc/apm.hpp>
 
-enum move_rb_query_support_t : uint8_t {
-    COUNT = 0,
-    LOCATE = 1
-};
+// approximate-pattern-matching helper, defined completely outside the move_rb class;
+// generic over the index type idx_t (move_rb or a compatible bidirectional index)
+template <typename idx_t> class apm_hamming;
 
-// approximate-pattern-matching helper, defined completely outside the move_rb class
-template <move_r_support support, typename sym_t, typename pos_t> class move_rb_apm_hamming;
-
-// approximate-pattern-matching helper, defined completely outside the move_rb class
-template <move_r_support support, typename sym_t, typename pos_t> class move_rb_apm_edit;
+// approximate-pattern-matching helper, defined completely outside the move_rb class;
+// generic over the index type idx_t (move_rb or a compatible bidirectional index)
+template <typename idx_t> class apm_edit;
 
 /**
  * @brief bi-directional move-r index, size O(r*(a/(a-1)))
@@ -61,8 +49,8 @@ template <move_r_support support, typename sym_t, typename pos_t> class move_rb_
 template <move_r_support support = _locate_move, typename sym_t = char, typename pos_t = uint32_t>
 class move_rb {
     public:
-    template <move_r_support, typename, typename> friend class move_rb_apm_hamming;
-    template <move_r_support, typename, typename> friend class move_rb_apm_edit;
+    template <typename> friend class apm_hamming;
+    template <typename> friend class apm_edit;
     static_assert(support != _locate_one);
 
     using move_r_fwd_t = constexpr_switch_t< // forward move_r index type
@@ -77,9 +65,7 @@ class move_rb {
 
     static constexpr bool supports_locate = move_r_fwd_t::supports_locate; // true <=> the index supports locate
     static constexpr bool supports_multiple_locate = move_r_fwd_t::supports_multiple_locate; // true <=> the index supports locating multiple occurrences
-    static constexpr bool supports_bwsearch = move_r_fwd_t::supports_bwsearch; // true <=> the index uses backward search for answering count queries
     static constexpr bool has_rlzsa = move_r_fwd_t::has_rlzsa; // true <=> the index has an rlzsa
-    static constexpr bool has_lzendsa = move_r_fwd_t::has_lzendsa; // true <=> the index has an lzendsa
     static constexpr bool has_locate_move = move_r_fwd_t::has_locate_move; // true the index uses move data structures for Phi/Phi^{-1}
     static constexpr bool str_input = move_r_fwd_t::str_input; // true <=> the input is a string
     static constexpr bool int_input = move_r_fwd_t::int_input; // true <=> the input is an iteger vector
@@ -94,6 +80,9 @@ class move_rb {
     using map_ext_t = move_r_fwd_t::map_ext_t; // type of map_ext
     using i_sym_t = move_r_fwd_t::i_sym_t; // internal (unsigned) symbol type
     using inp_t = move_r_fwd_t::inp_t; // input container type
+
+    using pos_type = pos_t; // index integer type (exposed for the generic APM helpers)
+    using sym_type = sym_t; // value type (exposed for the generic APM helpers)
 
     // ############################# INDEX DATA STRUCTURES #############################
 
@@ -110,11 +99,16 @@ protected:
     sd_array<pos_t> _S_MPhi_p;
     sd_array<pos_t> _S_MPhi_m1_p;
 
-    interleaved_byte_aligned_vectors<pos_t, pos_t> _SA_sR_m1;
-    interleaved_byte_aligned_vectors<pos_t, pos_t> _SA_eR_m1;
+    interleaved_bit_aligned_vectors<pos_t> _SA_s_pos;
+    interleaved_bit_aligned_vectors<pos_t> _SA_e_pos;
 
     // ############################# INTERNAL METHODS #############################
 
+    /**
+     * @brief returns the forward index (for dir == LEFT) or the backward index (for dir == RIGHT)
+     * @tparam dir the search direction
+     * @return the forward or backward move_r index
+     */
     template <direction_t dir>
     const std::conditional_t<dir == LEFT, move_r_fwd_t, move_r_bwd_t>& index() const
     {
@@ -125,6 +119,11 @@ protected:
         }
     }
 
+    /**
+     * @brief returns the sd-array sampling the input-interval starting positions of M_LF in the given direction
+     * @tparam dir the search direction
+     * @return the sd-array of the forward (dir == LEFT) or backward (dir == RIGHT) M_LF
+     */
     template <direction_t dir>
     const sd_array<pos_t>& S_MLF_p() const
     {
@@ -147,12 +146,14 @@ protected:
 
     /**
      * @brief reverses T either in-memory or on disk
-     * @param T string storing either T (if in_memory = true) or the name of the file containing T, else
+     * @tparam seq_t the sequence type holding T in-memory (inp_t) or the file-name type (std::string) on disk
+     * @param T the sequence storing T (if in_memory = true), or the name of the file containing T, else
      * @param p the number of threads to use
      * @param in_memory true <=> T is stored in-memory
      * @param log true <=> print log messages
      */
-    void reverse(std::string& T, uint16_t p, bool in_memory, bool log = false);
+    template <typename seq_t>
+    void reverse(seq_t& T, uint16_t p, bool in_memory, bool log = false);
 
     /**
      * @brief computes an sd-array marking every sample_rate-th sample of all num_values samples in the range [0, max_value)
@@ -205,14 +206,18 @@ public:
      */
     move_rb(inp_t& input, move_r_params params = {})
     {
-        if (params.file_input) {
-            n = std::filesystem::file_size(input) + 1;
+        if constexpr (str_input) {
+            if (params.file_input) {
+                n = std::filesystem::file_size(input) + 1;
+            } else {
+                n = input.size() + 1;
+            }
         } else {
             n = input.size() + 1;
         }
 
         if (params.mode == _suffix_array) {
-            if (std::is_same_v<pos_t, uint32_t> && n <= std::numeric_limits<int32_t>::max()) {
+            if (std::is_same_v<pos_t, uint32_t> && n <= INT_MAX) {
                 build<false, int32_t>(input, params);
             } else {
                 build<false, int64_t>(input, params);
@@ -258,8 +263,8 @@ public:
             _S_MLF_p_bwd.size_in_bytes() +
             _S_MPhi_p.size_in_bytes() +
             _S_MPhi_m1_p.size_in_bytes() +
-            _SA_sR_m1.size_in_bytes() +
-            _SA_eR_m1.size_in_bytes();
+            _SA_s_pos.size_in_bytes() +
+            _SA_e_pos.size_in_bytes();
     }
 
     /**
@@ -282,8 +287,8 @@ public:
         std::cout << std::endl << "Backward Index: " << std::endl;
         idx_bwd.log_data_structure_sizes(false);
         std::cout << "S_MLF_p: " << format_size(_S_MLF_p_bwd.size_in_bytes()) << std::endl;
-        std::cout << "SA_^{-1}_sR: " << format_size(_SA_sR_m1.size_in_bytes()) << std::endl;
-        std::cout << "SA_^{-1}_eR: " << format_size(_SA_eR_m1.size_in_bytes()) << std::endl;
+        std::cout << "SA_s_pos: " << format_size(_SA_s_pos.size_in_bytes()) << std::endl;
+        std::cout << "SA_e_pos: " << format_size(_SA_e_pos.size_in_bytes()) << std::endl;
     }
 
     /**
@@ -299,33 +304,25 @@ public:
         std::cout << "Forward Index: " << std::endl;
         idx_fwd.log_data_structures();
 
-        std::cout << std::endl << "input interval sampling rate: "
-            << sample_rate_input_intervals;
-
-        std::cout << std::endl;
-        std::cout << "S_MLF_p: ";
-        log_contents(_S_MLF_p_fwd);
-        
-        if constexpr (support == _locate_move) {
-            std::cout << "S_MPhi_p: ";
-            log_contents(_S_MPhi_p);
-
-            std::cout << "S_MPhi^{-1}_p: ";
-            log_contents(_S_MPhi_m1_p);
-        }
-
         std::cout << std::endl << "Backward Index: " << std::endl;
         idx_bwd.log_data_structures();
 
-        std::cout << std::endl;
-        std::cout << "S_MLF_p: ";
-        log_contents(_S_MLF_p_bwd);
-        
-        std::cout << "SA_^{-1}_sR: ";
-        log_contents(_SA_sR_m1);
+        // log the forward index's SA_s / SA_e aligned in pairs with SA_s_pos / SA_e_pos
+        if (!idx_fwd._SA_s.empty()) {
+            std::cout << std::endl;
+            aligned_log log;
+            log.add_row("SA_s:", idx_fwd._SA_s.size(), [&](pos_t i) { return idx_fwd._SA_s[i]; });
+            log.add_row("SA_s_pos:", _SA_s_pos.size(), [&](pos_t i) { return _SA_s_pos[i]; });
+            log.print();
+        }
 
-        std::cout << "SA_^{-1}_eR: ";
-        log_contents(_SA_eR_m1);
+        if (!idx_fwd._SA_e.empty()) {
+            std::cout << std::endl;
+            aligned_log log;
+            log.add_row("SA_e:", idx_fwd._SA_e.size(), [&](pos_t i) { return idx_fwd._SA_e[i]; });
+            log.add_row("SA_e_pos:", _SA_e_pos.size(), [&](pos_t i) { return _SA_e_pos[i]; });
+            log.print();
+        }
     }
 
     /**
@@ -362,8 +359,8 @@ public:
 
         idx_bwd.log_data_structure_sizes(out, "_bwd");
         out << " size_s_mlf_p_bwd=" << _S_MLF_p_bwd.size_in_bytes();
-        out << " size_sa_m1_sr=" << _SA_sR_m1.size_in_bytes();
-        out << " size_sa_m1_er=" << _SA_eR_m1.size_in_bytes();
+        out << " size_sa_s_pos=" << _SA_s_pos.size_in_bytes();
+        out << " size_sa_e_pos=" << _SA_e_pos.size_in_bytes();
     }
 
     // ############################# PUBLIC ACCESS METHODS #############################
@@ -389,20 +386,18 @@ public:
     // ############################# QUERY METHODS #############################
 
     struct locate_context_t;
-    struct extend_context_t;
+    template <query_support_t query_support> struct extend_context_t;
 
     protected:
 
-    enum sample_t : uint8_t {
-        BEG = 0,
-        MID = 1,
-        END = 2
-    };
+    /** @brief whether an SA-sample sits at the start (BEG) or end (END) of a run */
+    enum sample_t : uint8_t {BEG = 0, END = 1};
 
+    /** @brief packed information needed to maintain a single SA-sample during a bidirectional search */
     struct __attribute__((packed)) sample_info_pack_t {
         direction_t d; // LEFT/RIGHT <=> the sample can be computed from an SA-/Backward-SA-sample
-        sample_t t; // BEG/MID/END <=> the SA-sample is at a run start/start/end
-        pos_t o; // offset from the right of the SA-interval of the SA-sample (only it t = MID)
+        sample_t t; // BEG/END <=> the SA-sample is at a run start/end
+        pos_t o; // offset of the SA-sample from the left of the SA-interval 
         pos_t i; // number of d-extensions since x has been set
         pos_t x; // index of the (sub-)run in L', whose start/end is the position of the SA-sample
         pos_t shft; // right shift (in the text) of the occurrences
@@ -410,21 +405,28 @@ public:
         bool rprtd; // true <=> this context has already been reported
     };
 
+    /** @brief a tuple of a suffix array interval [b, e] and the indices b_, e_ of the input intervals containing b and e */
+    struct prime_tuple_t {pos_t b, e, b_, e_;};
+
     public:
     /**
      * @brief stores the variables needed to perform bidirectional pattern search and locate queries
+     * @tparam query_support whether the context supports COUNT or LOCATE queries
      */
-    template <move_rb_query_support_t query_support>
+    template <query_support_t query_support>
     struct search_context_t {
         friend class move_rb;
-        template <move_r_support, typename, typename> friend class move_rb_apm_hamming;
-        template <move_r_support, typename, typename> friend class move_rb_apm_edit;
+        template <typename> friend class apm_hamming;
+        template <typename> friend class apm_edit;
         friend class locate_context_t;
-        template <move_rb_query_support_t _query_support> friend class search_context_t;
+        template <query_support_t _query_support> friend struct extend_context_t;
+        template <query_support_t _query_support> friend class search_context_t;
 
     protected:
         // ############################# VARIABLES FOR THE SEARCH PHASE #############################
-        
+
+        const move_rb<support, sym_t, pos_t>* idx = nullptr; // the index this context queries
+
         direction_t dir_lst; // last performed pattern extend direction
         sym_t sym_lst; // last-added symbol
         pos_t err; // number of errors (only used for approximate pattern matching output)
@@ -465,8 +467,9 @@ public:
          * @param idx an index
          */
         search_context_t(const move_rb<support, sym_t, pos_t>& idx)
+            : idx(&idx)
         {
-            reset(idx);
+            reset();
         }
 
         /**
@@ -540,6 +543,10 @@ public:
             return sym_lst;
         }
 
+        /**
+         * @brief returns the direction of the last performed pattern extension
+         * @return the last extension direction
+         */
         inline direction_t last_direction() const
         {
             return dir_lst;
@@ -555,10 +562,18 @@ public:
         }
 
         /**
-         * @brief resets the query context to an empty P
-         * @param idx the index to query
+         * @brief returns an extend context for this search context, ready to be prepared for extending
+         * @return an extend context for this search context
          */
-        inline void reset(const move_rb<support, sym_t, pos_t>& idx)
+        extend_context_t<query_support> extend_phase()
+        {
+            return extend_context_t<query_support>(*idx, *this);
+        }
+
+        /**
+         * @brief resets the query context to an empty P
+         */
+        inline void reset()
         {
             dir_lst = NO_DIR;
             sym_lst = 0;
@@ -566,13 +581,13 @@ public:
             err = 0;
 
             b = 0;
-            e = idx.idx_fwd.input_size();
+            e = idx->idx_fwd.input_size();
             b_R = 0;
             e_R = e;
             b_ = 0;
-            e_ = idx.idx_fwd.M_LF().num_intervals() - 1;
+            e_ = idx->idx_fwd.M_LF().num_intervals() - 1;
             b_R_ = 0;
-            e_R_ = idx.idx_bwd.M_LF().num_intervals() - 1;
+            e_R_ = idx->idx_bwd.M_LF().num_intervals() - 1;
 
             if constexpr (query_support == LOCATE) {
                 s = {
@@ -669,6 +684,10 @@ public:
             this->s.shft = shft;
         }
         
+        /**
+         * @brief returns the right shift (in the text) of the occurrences (only used for approximate pattern matching)
+         * @return the right shift of the occurrences
+         */
         inline pos_t shift() const requires(query_support == LOCATE)
         {
             return s.shft;
@@ -714,16 +733,12 @@ public:
          *        where prev[c] = select_c(L', rank_c(L', e_)) and
          *        next[c] = select_c(L', rank_c(L', b_ + 1) + 1)
          * @tparam dir extend direction
-         * @param idx the index to query
          * @param prev output prev array
          * @param next output next array
          * @param max_sym maximum symbol to consider
-         * @param b_ index of the input interval in M_LF of T(dir) containing b
-         * @param e_ index of the input interval in M_LF of T(dir) containing e
          */
         template<direction_t dir>
         inline void build_prev_next(
-            const move_rb<support, sym_t, pos_t>& idx,
             std::array<int64_t, 256>& prev, std::array<int64_t, 256>& next,
             i_sym_t max_sym
         ) const;
@@ -731,21 +746,12 @@ public:
         /**
          * @brief update the input interval indexes b_ and e_, and adjusts dir-SA-interval samples
          * @tparam dir extend direction
-         * @param idx the index to query
-         * @param b Left interval limit of the suffix array interval of P(dir) in T(dir)
-         * @param e Right interval limit of the suffix array interval of P(dir) in T(dir)
-         * @param b_r Left interval limit of the suffix array interval of P(!dir) in T(!dir)
-         * @param e_r Right interval limit of the suffix array interval of P(!dir) in T(!dir)
-         * @param b_ index of the input interval in M_LF of T(dir) containing b
-         * @param e_ index of the input interval in M_LF of T(dir) containing e
-         * @param s_b SA-sample information at the beginning of the dir-SA-interval
-         * @param s_e SA-sample information at the end of the dir-SA-interval
          */
         template <direction_t dir>
-        inline void update_input_intervals(const move_rb<support, sym_t, pos_t>& idx);
-        
+        inline void update_input_intervals();
+
         template <direction_t dir>
-        inline void update_sample(const move_rb<support, sym_t, pos_t>& idx, search_context_t& ctx) const;
+        inline void update_sample(search_context_t& ctx, const prime_tuple_t& prime) const;
 
     public:
         using extend_res_t = std::tuple<search_context_t, bool>;
@@ -754,66 +760,22 @@ public:
          * @brief extends the currently matched P with sym; if the extended P occurs in the input, true is
          * returned and the query context is adjusted to store the information for the extended P; else,
          * false is returned and the query context is not modified
-         * @param idx the index to query
          * @param sym the symbol to extend P with
          * @param dir extend direction
          * @return whether symP occurs in the input
          */
-        inline extend_res_t extend(const move_rb<support, sym_t, pos_t>& idx, sym_t sym, direction_t dir);
+        inline extend_res_t extend(sym_t sym, direction_t dir);
 
         /**
          * @brief extends the currently matched P with sym; if the extended P occurs in the input, true is
          * returned and the query context is adjusted to store the information for the extended P; else,
          * false is returned and the query context is not modified
          * @tparam dir extend direction
-         * @param idx the index to query
          * @param sym the symbol to extend the pattern with
          * @return whether the extended P occurs in the input
          */
         template <direction_t dir>
-        inline extend_res_t extend(const move_rb<support, sym_t, pos_t>& idx, sym_t sym);
-
-        /**
-         * @brief prepares the context to be extended
-         * @param idx the index to query
-         * @param dir extend direction
-         * @return extend context prepared for extending the search context with every possible symbol in O(sigma) time
-         */
-        extend_context_t prepare_extend_all(const move_rb<support, sym_t, pos_t>& idx, direction_t dir);
-
-        /**
-         * @brief prepares the context to be extended
-         * @tparam dir extend direction
-         * @param idx the index to query
-         * @param ext_ctx extend context to prepare
-         * @param b Left interval limit of the suffix array interval of P(dir) in T(dir)
-         * @param e Right interval limit of the suffix array interval of P(dir) in T(dir)
-         * @param b_ index of the input interval in M_LF of T(dir) containing b
-         * @param e_ index of the input interval in M_LF of T(dir) containing e
-         * @param s_b SA-sample information at the beginning of the dir-SA-interval
-         * @param s_e SA-sample information at the end of the dir-SA-interval
-         */
-        template <direction_t dir>
-        void prepare_extend_all(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx);
-        
-        /**
-         * @brief extends the context with the next symbol
-         * @param idx the index to query
-         * @param ext_ctx extend context to advance
-         * @param dir extend direction
-         * @return the search context extended by the next symbol
-         */
-        search_context_t extend_next(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx, direction_t dir);
-
-        /**
-         * @brief extends the context with the next symbol
-         * @tparam dir extend direction
-         * @param idx the index to query
-         * @param ext_ctx extend context to advance
-         * @return the search context extended by the next symbol
-         */
-        template <direction_t dir>
-        search_context_t extend_next(const move_rb<support, sym_t, pos_t>& idx, extend_context_t& ext_ctx) const;
+        inline extend_res_t extend(sym_t sym);
     };
 
     /**
@@ -821,19 +783,21 @@ public:
      */
     struct locate_context_t {
         protected:
+        const move_rb<support, sym_t, pos_t>* idx = nullptr; // the index this context queries
+        const search_context_t<LOCATE>* ctx = nullptr; // the search context this locate context belongs to
+
         direction_t dir; // current locate direction_t
         pos_t occ_rem; // number of remaining occurrences to locate
         pos_t c; // initial position in the suffix array
         pos_t SA_c; // initial suffix SA[c] in the suffix array interval
         pos_t i; // current position in the suffix array interval
         pos_t SA_i; // current suffix SA[i] in the suffix array interval
-        
-        // index of the input inteval of M_Phi/M_Phi^{-1} containing SA_i
-        std::conditional_t<support == _locate_move, pos_t, std::monostate> s_; 
 
-        struct rlzsa_ctx_t {
-            pos_t x_p, x_lp, x_cp, x_r, s_p; // variables for decoding the rlzsa
-        };
+        // index of the input inteval of M_Phi/M_Phi^{-1} containing SA_i
+        std::conditional_t<support == _locate_move, pos_t, std::monostate> s_;
+
+        // rlzsa decode context (tracks its own position and suffix value while decoding)
+        using rlzsa_ctx_t = typename rlzsa_opt<pos_t>::decode_context_t;
 
         std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, std::monostate> rlz_l; // rlzsa context for decoding to the left
         std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, std::monostate> rlz_r; // rlzsa context for decoding to the right
@@ -849,6 +813,7 @@ public:
          * @param ctx a search context
          */
         locate_context_t(const search_context_t<LOCATE>& ctx)
+            : idx(ctx.idx), ctx(&ctx)
         {
             occ_rem = ctx.num_occ();
             dir = NO_DIR;
@@ -863,57 +828,61 @@ public:
             return occ_rem;
         }
 
-        inline pos_t compute_center(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx);
+        /**
+         * @brief computes the center position of the suffix array interval, from which locating starts
+         * @return the center position of the suffix array interval
+         */
+        inline pos_t compute_center();
 
     protected:
         /**
          * @brief computes a first occurrence (SA[i]) of P, and adjusts the locate context accordingly
-         * @param idx the index to query
-         * @param ctx the search context associated with this locate context
          * @return an occurrence (SA[i]) of P
          */
-        inline pos_t first_occ(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx);
+        inline pos_t first_occ();
 
     public:
         /**
          * @brief reports the next occurrence of the currently matched P
-         * @param idx the index to query
-         * @param ctx the search context of the currently matched P
          * @return next occurrence
          */
-        inline pos_t next_occ(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx);
+        inline pos_t next_occ();
 
         /**
          * @brief locates the remaining (not yet reported) occurrences of the currently matched P
          * @tparam report_fnc_t type of the function report
-         * @param idx the index to query
-         * @param ctx the search context of the currently matched P
          * @param report function that is called with every (remaining) occurrence of the currently matched P
          */
         template <typename report_fnc_t>
-        inline void locate(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx, report_fnc_t report);
+        inline void locate(report_fnc_t report);
 
         /**
          * @brief locates the remaining (not yet reported) occurrences of the currently matched P
          * @return vector containing the occurrences
          */
-        std::vector<pos_t> locate(const move_rb<support, sym_t, pos_t>& idx, const search_context_t<LOCATE>& ctx)
+        std::vector<pos_t> locate()
         {
             std::vector<pos_t> Occ;
             Occ.reserve(occ_rem);
-            locate(idx, ctx, [&](pos_t occ){Occ.emplace_back(occ);});
+            locate([&](pos_t occ){Occ.emplace_back(occ);});
             return Occ;
         }
     };
     
     /**
      * @brief stores the variables needed to extend a search_context with all passible characters in O(sigma) time
+     * @tparam query_support whether the underlying search context supports COUNT or LOCATE queries
      */
+    template <query_support_t query_support>
     struct extend_context_t {
-        friend class search_context_t<COUNT>;
-        friend class search_context_t<LOCATE>;
+        friend class move_rb;
+        friend struct search_context_t<query_support>;
 
         protected:
+        const move_rb<support, sym_t, pos_t>* idx = nullptr; // the index this context queries
+        search_context_t<query_support>* ctx = nullptr; // the search context this extend context belongs to
+        direction_t dir; // direction the context is being extended in (set by prepare_extend_all)
+
         std::array<int64_t, 256> prev; // the prev array for all extensions
         std::array<int64_t, 256> next; // the next array for all extensions
 
@@ -922,38 +891,79 @@ public:
 
         public:
         /**
-         * @brief returns the next symbol to extend the context with
+         * @brief constructs an empty extend context
+         */
+        extend_context_t() {}
+
+        /**
+         * @brief constructs a new extend context for a given search context
          * @param idx the index to query
+         * @param ctx the search context to extend
+         */
+        extend_context_t(const move_rb<support, sym_t, pos_t>& idx, search_context_t<query_support>& ctx)
+            : idx(&idx), ctx(&ctx)
+        { }
+
+        /**
+         * @brief returns the next symbol to extend the context with
          * @return the next symbol to extend the context with
          */
-        sym_t current_symbol(const move_rb<support, sym_t, pos_t>& idx) const {
-            return idx.unmap_symbol(sym_nxt);
+        sym_t current_symbol() const {
+            return idx->unmap_symbol(sym_nxt);
         }
 
         /**
          * @brief returns whether there is a symbol left to extend the context with
-         * @param idx the index to query
          * @return whether there is a symbol left to extend the context with
          */
-        bool can_extend(const move_rb<support, sym_t, pos_t>& idx) const {
-            return sym_nxt < idx.sigma;
+        bool can_extend() const {
+            return sym_nxt < idx->sigma;
         }
+
+        /**
+         * @brief prepares the context to be extended in direction dir; afterwards the search context can be
+         *        extended with every possible symbol in O(sigma) time via extend_next()
+         * @param dir extend direction
+         * @return a reference to this extend context
+         */
+        extend_context_t& prepare_extend_all(direction_t dir);
+
+        /**
+         * @brief prepares the context to be extended
+         * @tparam dir extend direction
+         */
+        template <direction_t dir>
+        void prepare_extend_all();
+
+        /**
+         * @brief extends the context with the next symbol (in the direction set by prepare_extend_all)
+         * @return the search context extended by the next symbol
+         */
+        search_context_t<query_support> extend_next();
+
+        /**
+         * @brief extends the context with the next symbol
+         * @tparam dir extend direction
+         * @return the search context extended by the next symbol
+         */
+        template <direction_t dir>
+        search_context_t<query_support> extend_next();
 
         protected:
         /**
          * @brief advances sym_nxt to the next symbol the pattern can be extended with (or sigma, if it cannot be extended further)
          * @tparam dir direction_t the context should be extended with
-         * @param idx the index to query
          */
         template <direction_t dir>
-        void next_symbol(const move_rb<support, sym_t, pos_t>& idx);
+        void next_symbol();
     };
 
     /**
      * @brief returns a query context for the index
+     * @tparam query_support whether the context supports COUNT or LOCATE queries
      * @return search_context_t
      */
-    template <move_rb_query_support_t query_support>
+    template <query_support_t query_support>
     inline search_context_t<query_support> empty_context() const
     {
         return search_context_t<query_support>(*this);
@@ -969,7 +979,7 @@ public:
      */
     pos_t count_hamming_dist(const inp_t& P, const search_scheme_t& scheme) const
     {
-        return move_rb_apm_hamming{*this}.count(P, scheme);
+        return apm_hamming{*this}.count(P, scheme);
     }
 
     /**
@@ -983,8 +993,8 @@ public:
     template <distance_metric_t dist_metr, typename report_fnc_t>
     void locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const requires(supports_locate)
     {
-        if constexpr (dist_metr == HAMMING_DISTANCE) move_rb_apm_hamming{*this}.locate(P, scheme, report);
-        if constexpr (dist_metr == EDIT_DISTANCE) move_rb_apm_edit{*this}.locate(P, scheme, report);
+        if constexpr (dist_metr == HAMMING_DISTANCE) apm_hamming{*this}.locate(P, scheme, report);
+        if constexpr (dist_metr == EDIT_DISTANCE) apm_edit{*this}.locate(P, scheme, report);
     }
 
     /**
@@ -1027,8 +1037,8 @@ public:
         _S_MPhi_p.serialize(out);
         _S_MPhi_m1_p.serialize(out);
 
-        _SA_sR_m1.serialize(out);
-        _SA_eR_m1.serialize(out);
+        _SA_s_pos.serialize(out);
+        _SA_e_pos.serialize(out);
     }
 
     /**
@@ -1061,16 +1071,26 @@ public:
         _S_MPhi_p.load(in);
         _S_MPhi_m1_p.load(in);
 
-        _SA_sR_m1.load(in);
-        _SA_eR_m1.load(in);
+        _SA_s_pos.load(in);
+        _SA_e_pos.load(in);
     }
 
+    /**
+     * @brief stores the index to an output stream
+     * @param os output stream
+     * @return the output stream
+     */
     std::ostream& operator>>(std::ostream& os) const
     {
         serialize(os);
         return os;
     }
 
+    /**
+     * @brief reads a serialized index from an input stream
+     * @param is input stream
+     * @return the input stream
+     */
     std::istream& operator<<(std::istream& is)
     {
         load(is);
@@ -1078,7 +1098,7 @@ public:
     }
 };
 
-#include "construction.cpp"
-#include "queries.cpp"
-#include "approximate_pattern_matching/hamming_distance.cpp"
-#include "approximate_pattern_matching/edit_distance.cpp"
+#include "construction.tpp"
+#include "queries.tpp"
+#include <algorithms/apm/hamming_distance.tpp>
+#include <algorithms/apm/edit_distance.tpp>
