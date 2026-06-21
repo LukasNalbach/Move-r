@@ -297,9 +297,6 @@ if(MOVE_R_BUILD_TESTS)
       "${CMAKE_BINARY_DIR}/tests/" gtest_main)
   endforeach()
 
-  target_compile_definitions(test-move_rb PRIVATE
-    MIN_U_SCHEME_DIR="${CMAKE_SOURCE_DIR}/search_schemes/min_u")
-
   gtest_discover_tests(test-move_r)
   gtest_discover_tests(test-move_rb)
   gtest_discover_tests(test-move_data_structure)

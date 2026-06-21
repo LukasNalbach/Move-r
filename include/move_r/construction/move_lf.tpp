@@ -82,7 +82,7 @@ void move_r<support, sym_t, pos_t>::construction::build_mlf()
     }
     log_phase_start("\nbuilding M_LF");
 
-    uint8_t width_l_ = byte_alphabet ? 8 : (byte_width(idx.sigma) * 8);
+    uint8_t width_l_ = std::bit_width(idx.sigma);
 
     idx._M_LF = move_data_structure_l_<pos_t, i_sym_t>(
         std::move(I_LF), n, {
