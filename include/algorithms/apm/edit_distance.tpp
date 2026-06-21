@@ -59,7 +59,7 @@ protected:
 
     // hash of a 128-bit rec_search dedup key
     struct rec_key_hash {
-        std::size_t operator()(__uint128_t x) const noexcept { return static_cast<std::size_t>(static_cast<uint64_t>(x)); }
+        uint64_t operator()(__uint128_t x) const noexcept { return uint64_t(x); }
     };
 
     // memoizes the rec_search executions already processed within one search() call, so an identical sub-search is not re-explored
@@ -106,7 +106,7 @@ protected:
         mix(3); for (uint16_t v : dists_prev_dir) mix(v);
         mix(4); for (uint16_t v : dists_diff_dir) mix(v);
 
-        return (static_cast<__uint128_t>(h1) << 64) | h2;
+        return (__uint128_t(h1) << 64) | h2;
     }
 
     struct interval_t {pos_t beg; pos_t end; pos_t err; pos_t len; pos_t shift;};

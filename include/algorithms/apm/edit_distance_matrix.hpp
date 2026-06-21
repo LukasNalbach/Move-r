@@ -274,8 +274,8 @@ class edit_distance_matrix
         uint16_t b = (i > j) ? bit - (i - j) + 1 : bit + 1;
         uint16_t e = (i > j) ? bit + 1 : bit + (j - i) + 1;
         word_t mask = ((word_t(1) << (e - b)) - word_t(1)) << b;
-        int neg = popcount(bit_vectors[i].HN & mask);
-        int pos = popcount(bit_vectors[i].HP & mask);
+        int neg = ::popcount(bit_vectors[i].HN & mask);
+        int pos = ::popcount(bit_vectors[i].HP & mask);
         uint16_t score = bit_vectors[i].score;
         score += (i > j) ? (neg - pos) : (pos - neg);
         return score;
