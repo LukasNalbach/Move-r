@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <iostream>
 #include <move_r/move_r.hpp>
+#include <misc/progress.hpp>
 
 int arg_idx = 1;
 bool output_occurrences = false;
@@ -127,8 +128,6 @@ void measure_locate()
     std::getline(patterns_file, header);
     uint64_t num_patterns = number_of_patterns(header);
     uint64_t pattern_length = patterns_length(header);
-    uint64_t perc;
-    uint64_t last_perc = 0;
     uint64_t num_occurrences = 0;
     uint64_t time_locate = 0;
     std::chrono::steady_clock::time_point t2, t3;
@@ -137,15 +136,9 @@ void measure_locate()
     std::vector<pos_t> occurrences;
     bool equal;
     pos_t count;
+    progress_meter meter(num_patterns);
 
     for (uint64_t i = 0; i < num_patterns; i++) {
-        perc = (100 * i) / num_patterns;
-
-        if (perc > last_perc) {
-            std::cout << perc << "% done .." << std::endl;
-            last_perc = perc;
-        }
-
         patterns_file.read(pattern.data(), pattern_length);
         t2 = now();
         occurrences = index.locate(pattern);
@@ -171,8 +164,10 @@ void measure_locate()
         }
 
         occurrences.clear();
+        meter.step();
     }
 
+    meter.finish();
     std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
     std::cout << "number of patterns: " << num_patterns << std::endl;
     std::cout << "pattern length: " << pattern_length << std::endl;

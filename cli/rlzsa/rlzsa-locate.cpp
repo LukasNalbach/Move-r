@@ -55,49 +55,16 @@ void locate(std::string& input, std::ifstream& index_file, std::ifstream& patter
     index.set_input(input);
     std::cout << " done" << std::endl;
 
-    std::string pattern_header;
-    std::getline(patterns_file, pattern_header);
-    uint64_t pattern_length = get_pattern_length(pattern_header);
-    uint64_t pattern_count = get_pattern_count(pattern_header);
-    std::cout << "Found " << pattern_count << " patterns of length " <<
-        pattern_length << "." << std::endl;
-    std::cout << "Locate: " << std::flush;
-    int64_t occ_total = 0;
-    uint64_t time_ns = 0;
-    std::string pattern;
-    no_init_resize(pattern, pattern_length);
+    query_stats stats = benchmark_locate(patterns_file,
+        [&](std::string& p) { return index.template locate<int_t>(p); },
+        check_correctness ? &input : nullptr);
 
-    for (uint64_t i = 0; i < pattern_count; i++) {
-        patterns_file.read(pattern.data(), pattern_length);
-
-        auto t1 = now();
-        std::vector<int_t> occurrences = index.template locate<int_t>(pattern);
-        auto t2 = now();
-
-        time_ns += time_diff_ns(t1, t2);
-        occ_total += occurrences.size();
-        
-        if (check_correctness) {
-            for (int_t occ : occurrences) {
-                if (input.substr(occ, pattern_length) != pattern) {
-                    std::cout << "error: wrong occurrence: " << occ <<
-                        " of pattern '" << pattern << "'" << std::endl;
-                    exit(-1);
-                }
-            }
-        }
-    }
-
-    int_t n = index.input_size();
-    std::cout << "Located " << pattern_count << " patterns (with " << occ_total
-        << " occurences) in " << format_time(time_ns) << std::endl;
-    
     std::cout << "RESULT"
         << " algo=rlzsa_locate"
-        << " time_locate=" << time_ns
-        << " num_occurrences=" << occ_total
+        << " time_locate=" << stats.time_ns
+        << " num_occurrences=" << stats.occ_total
         << " text=" << file_name
-        << " m=" << pattern_length
+        << " m=" << stats.pattern_length
         << " n=" << index.input_size()
         << " d=" << index.delta()
         << " size_index=" << index.size_in_bytes()

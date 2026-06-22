@@ -199,7 +199,9 @@ public:
                 i += j;
             }
 
-            num_groups = g;
+            group[0] = g;
+            freq[0] = 1;
+            num_groups = g + 1;
         }
 
         log_phase_end(log, time);
@@ -211,8 +213,7 @@ public:
             segment_freqs.resize(num_segments + 1, 0);
 
             for (uint64_t s = 0; s < num_segments; s++) {
-                sdsl::bit_vector is_group_processed;
-                is_group_processed.resize(num_groups + 1);
+                sdsl::bit_vector is_group_processed(num_groups + 1, 0);
 
                 for (uint64_t i = s * segment_size; i < (s + 1) * segment_size - k; i++) {
                     uint64_t p = ISA_sad[i];
@@ -228,10 +229,8 @@ public:
             log_phase_start(log, time, "building R");
 
             selected_segments.resize(num_segments_to_select);
-            sdsl::bit_vector is_segment_selected;
-            is_segment_selected.resize(num_segments + 1);
-            sdsl::bit_vector is_group_processed;
-            is_group_processed.resize(num_groups + 1);
+            sdsl::bit_vector is_segment_selected(num_segments + 1, 0);
+            sdsl::bit_vector is_group_processed(num_groups + 1, 0);
 
             for (uint64_t s = 0; s < num_segments_to_select; s++) {
                 uint64_t best_segment = 0;
@@ -257,8 +256,7 @@ public:
                             p--;
                         }
 
-                        sdsl::bit_vector is_segment_processed;
-                        is_segment_processed.resize(num_segments + 1);
+                        sdsl::bit_vector is_segment_processed(num_segments + 1, 0);
                         is_segment_processed[best_segment] = 1;
 
                         do {

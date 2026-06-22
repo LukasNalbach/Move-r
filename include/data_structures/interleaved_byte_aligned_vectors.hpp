@@ -66,19 +66,19 @@ protected:
     std::vector<char> data_vectors;
 
     // [0 .. num_vectors - 1] or shorter; widths of the stored vectors; widths[i] = width of vector i
-    std::array<uint64_t, num_vectors> widths;
+    std::array<uint64_t, num_vectors> widths {};
 
     /** @brief [0 .. num_vectors - 1] pointers to the first entries of each vector; bases[vec_idx] = base
      *        of the first entry of the vector with index vec_idx */
-    std::array<char*, num_vectors> bases;
+    std::array<char*, num_vectors> bases {};
 
     /** @brief [0 .. num_vectors - 1] masks that are used to mask off data of other vector entries when
      *        reading from a vector */
-    std::array<val_t, num_vectors> masks_get;
+    std::array<val_t, num_vectors> masks_get {};
 
     /** @brief [0 .. num_vectors - 1] masks that are used to mask off data of other vector entries when
      *        writing to a vector */
-    std::array<val_t, num_vectors> masks_set;
+    std::array<val_t, num_vectors> masks_set {};
 
     /**
      * @brief initializes the interleaved_byte_aligned_vectors with the vector-widths stored in widths

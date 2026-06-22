@@ -49,7 +49,6 @@ void help()
 template <typename int_t>
 void locate(std::ifstream& index_file, std::ifstream& patterns_file, std::string file_name, std::string input_file)
 {
-    size_t pre_load_memory = malloc_count_current();
     std::cout << "Loading r-index-lzendsa index" << std::flush;
     r_index_lzendsa<int_t> index;
     index.load(index_file);
@@ -65,51 +64,18 @@ void locate(std::ifstream& index_file, std::ifstream& patterns_file, std::string
         std::cout << " done" << std::endl;
     }
 
-    std::string pattern_header;
-    std::getline(patterns_file, pattern_header);
-    uint64_t pattern_length = get_pattern_length(pattern_header);
-    uint64_t pattern_count = get_pattern_count(pattern_header);
-    std::cout << "Found " << pattern_count << " patterns of length " <<
-        pattern_length << "." << std::endl;
-    std::cout << "Locate: " << std::flush;
-    int64_t occ_total = 0;
-    uint64_t time_ns = 0;
-    std::string pattern;
-    no_init_resize(pattern, pattern_length);
-
-    for (uint64_t i = 0; i < pattern_count; i++) {
-        patterns_file.read(pattern.data(), pattern_length);
-
-        auto t1 = now();
-        std::vector<int_t> occurrences = index.locate(pattern);
-        auto t2 = now();
-
-        time_ns += time_diff_ns(t1, t2);
-        occ_total += occurrences.size();
-        
-        if (!input_file.empty()) {
-            for (int_t occ : occurrences) {
-                if (input.substr(occ, pattern_length) != pattern) {
-                    std::cout << "error: wrong occurrence: " << occ <<
-                        " of pattern '" << pattern << "'" << std::endl;
-                    exit(-1);
-                }
-            }
-        }
-    }
-
-    std::cout << "Located " << pattern_count << " patterns (with " <<
-        occ_total << " occurences) in " << format_time(time_ns) << std::endl;
-    uint64_t size_index = index.size_in_bytes();
+    query_stats stats = benchmark_locate(patterns_file,
+        [&](std::string& p) { return index.locate(p); },
+        input_file.empty() ? nullptr : &input);
 
     std::cout << "RESULT"
         << " algo=r_index_lzendsa_locate"
-        << " time_locate=" << time_ns
-        << " size_index=" << size_index
-        << " num_occurrences=" << occ_total
+        << " time_locate=" << stats.time_ns
+        << " size_index=" << index.size_in_bytes()
+        << " num_occurrences=" << stats.occ_total
         << " text=" << file_name
-        << " pattern_length=" << pattern_length
-        << " num_patterns=" << pattern_count
+        << " pattern_length=" << stats.pattern_length
+        << " num_patterns=" << stats.pattern_count
         << " z=" << index.sa_encoding().num_phrases()
         << " h=" << index.sa_encoding().maximum_phrase_length()
         << std::endl;

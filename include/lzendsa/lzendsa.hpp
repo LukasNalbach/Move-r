@@ -306,14 +306,12 @@ public:
                 val += rng[i];
             }
     
-            int64_t last_val;
-    
             for (int64_t i = 0; i < len; i++) {
-                last_val = val;
-                val += rng[i + dist + 1];
-                rng[i] = last_val;
+                int64_t cur_val = val;
+                if (i + 1 < len) [[likely]] val += rng[i + dist + 1];
+                rng[i] = cur_val;
             }
-    
+
             rng.resize(len);
         } else if (smpl_pos <= end) {
             rng = lzendsa_enc.template extract_deltas<out_t>(beg, end);

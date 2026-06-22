@@ -39,6 +39,7 @@
 #include <misc/utils.hpp>
 #include <misc/log.hpp>
 #include <misc/files.hpp>
+#include <misc/progress.hpp>
 
 /** @brief a command-line option of the form "name value" */
 struct Option {
@@ -275,4 +276,110 @@ std::vector<std::vector<uint8_t>> strToUint8Vec(std::vector<std::string>& v)
     }
 
     return result;
+}
+
+/** @brief aggregated results of benchmarking count/locate over a patterns file */
+struct query_stats {
+    uint64_t pattern_length = 0;
+    uint64_t pattern_count = 0;
+    uint64_t occ_total = 0;
+    uint64_t time_ns = 0;
+};
+
+/**
+ * @brief reads the patterns-file header and reports the number and length of the patterns
+ * @param patterns_file the patterns file (the read position advances past the header)
+ * @return a {pattern_length, pattern_count} pair
+ */
+std::pair<uint64_t, uint64_t> read_patterns_header(std::ifstream& patterns_file)
+{
+    std::string header;
+    std::getline(patterns_file, header);
+    uint64_t pattern_length = get_pattern_length(header);
+    uint64_t pattern_count = get_pattern_count(header);
+    std::cout << "Found " << pattern_count << " patterns of length "
+              << pattern_length << "." << std::endl;
+    return { pattern_length, pattern_count };
+}
+
+/**
+ * @brief benchmarks counting every pattern of a patterns file, timing each query
+ * @tparam count_fn_t a callable mapping a pattern to its [begin, end] suffix-array interval
+ * @param patterns_file the patterns file (positioned at the header)
+ * @param count_fn returns the suffix-array interval [begin, end] of a pattern
+ * @return the aggregated query statistics
+ */
+template <typename count_fn_t>
+query_stats benchmark_count(std::ifstream& patterns_file, count_fn_t count_fn)
+{
+    query_stats stats;
+    std::tie(stats.pattern_length, stats.pattern_count) = read_patterns_header(patterns_file);
+
+    std::string pattern;
+    no_init_resize(pattern, stats.pattern_length);
+    progress_meter meter(stats.pattern_count, "Count: ");
+
+    for (uint64_t i = 0; i < stats.pattern_count; i++) {
+        patterns_file.read(pattern.data(), stats.pattern_length);
+
+        auto t1 = now();
+        auto [beg, end] = count_fn(pattern);
+        auto t2 = now();
+
+        stats.time_ns += time_diff_ns(t1, t2);
+        stats.occ_total += end >= beg ? end - beg + 1 : 0;
+        meter.step();
+    }
+
+    meter.finish();
+    std::cout << "Counted " << stats.pattern_count << " patterns (with " << stats.occ_total
+              << " occurences) in " << format_time(stats.time_ns) << std::endl;
+    return stats;
+}
+
+/**
+ * @brief benchmarks locating every pattern of a patterns file, timing each query
+ * @tparam locate_fn_t a callable mapping a pattern to a container of occurrence positions
+ * @param patterns_file the patterns file (positioned at the header)
+ * @param locate_fn returns all occurrence positions of a pattern
+ * @param check_input if non-null, every reported occurrence is verified against this text
+ * @return the aggregated query statistics
+ */
+template <typename locate_fn_t>
+query_stats benchmark_locate(std::ifstream& patterns_file, locate_fn_t locate_fn, const std::string* check_input = nullptr)
+{
+    query_stats stats;
+    std::tie(stats.pattern_length, stats.pattern_count) = read_patterns_header(patterns_file);
+
+    std::string pattern;
+    no_init_resize(pattern, stats.pattern_length);
+    progress_meter meter(stats.pattern_count, "Locate: ");
+
+    for (uint64_t i = 0; i < stats.pattern_count; i++) {
+        patterns_file.read(pattern.data(), stats.pattern_length);
+
+        auto t1 = now();
+        auto occurrences = locate_fn(pattern);
+        auto t2 = now();
+
+        stats.time_ns += time_diff_ns(t1, t2);
+        stats.occ_total += occurrences.size();
+
+        if (check_input != nullptr) {
+            for (auto occ : occurrences) {
+                if (check_input->substr(occ, stats.pattern_length) != pattern) {
+                    std::cout << "error: wrong occurrence: " << occ
+                              << " of pattern '" << pattern << "'" << std::endl;
+                    exit(-1);
+                }
+            }
+        }
+
+        meter.step();
+    }
+
+    meter.finish();
+    std::cout << "Located " << stats.pattern_count << " patterns (with " << stats.occ_total
+              << " occurences) in " << format_time(stats.time_ns) << std::endl;
+    return stats;
 }

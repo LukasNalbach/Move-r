@@ -198,7 +198,7 @@ public:
     gtl::btree_set<gap, cmp_tg> T_g;
 
     /** build buffer for the reference (R) of the rlzsa; moved into rlz once the rlzsa has been built */
-    interleaved_byte_aligned_vectors<uint64_t, pos_t> R_buf;
+    interleaved_bit_aligned_vectors<uint64_t> R;
 
     /** [0..size_R-1] rev(R) (for sad_t = uint32_t) */
     std::vector<uint32_t> revR_32;

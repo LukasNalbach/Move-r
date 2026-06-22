@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <iostream>
 #include <move_rb/move_rb.hpp>
+#include <misc/progress.hpp>
 
 static constexpr int min_args = 4;
 int arg_idx = 1;
@@ -133,8 +134,6 @@ void measure_count()
     if (pattern_length < search_scheme.p)
         help("error: pattern length < number of parts defined in the search scheme");
 
-    uint64_t perc;
-    uint64_t last_perc = 0;
     uint64_t num_occurrences = 0;
     uint64_t time_count = 0;
     uint64_t count = 0;
@@ -143,29 +142,26 @@ void measure_count()
     no_init_resize(pattern, pattern_length);
     uint64_t baseline_alloc = malloc_count_current();
     malloc_count_reset_peak();
+    progress_meter meter(num_patterns);
 
     for (uint64_t i = 0; i < num_patterns; i++) {
-        perc = (100 * i) / num_patterns;
-
-        if (perc > last_perc) {
-            std::cout << perc << "% done .." << std::endl;
-            last_perc = perc;
-        }
-
         patterns_file.read(pattern.data(), pattern_length);
         t2 = now();
 
         count = index.count_hamming_dist(pattern, search_scheme);
         num_occurrences += count;
-        
+
         t3 = now();
         time_count += time_diff_ns(t2, t3);
 
         if (output_occurrences) {
             output_file << count << std::endl;
         }
+
+        meter.step();
     }
 
+    meter.finish();
     patterns_file.close();
     std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
     std::cout << "additional memory consumption during the search phase: " << format_size(malloc_count_peak() - baseline_alloc) << std::endl;

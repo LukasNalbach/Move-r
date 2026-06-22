@@ -83,13 +83,13 @@ protected:
     std::vector<char> data_vectors;
 
     // [0 .. num_vectors - 1] widths of the stored vectors; widths[i] = width (in bits) of vector i
-    std::array<uint64_t, num_vectors> widths;
+    std::array<uint64_t, num_vectors> widths {};
 
     // [0 .. num_vectors - 1] offsets[i] = offset (in bits) of the ith vectors entry within the region storing all ith entries
-    std::array<uint64_t, num_vectors> offsets;
+    std::array<uint64_t, num_vectors> offsets {};
 
     // [0 .. num_vectors - 1] masks that are used to mask off data of other vector entries when accessing a vector
-    std::array<wide_t, num_vectors> masks;
+    std::array<wide_t, num_vectors> masks {};
 
     // padding (in bytes) appended to data_vectors so that the wide (block) read/write and the aligned
     // 64-bit atomic-word writes (set_parallel) of the last entry stay in bounds (independent of size)
