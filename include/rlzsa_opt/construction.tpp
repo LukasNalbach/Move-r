@@ -75,17 +75,16 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_r()
     log_phase_start(log, time, "choosing segments for R");
 
     sad_freq_t<sad_t>& SAd_freq = get_SAd_freq<sad_t>();
-    R_buf = interleaved_byte_aligned_vectors<uint64_t, pos_t>({ byte_width(2 * n + 1) });
     std::mt19937 mt(std::random_device {}());
     num_cand_segs = 5 * std::pow(n / (float) r, 0.45);
     pos_t num_cand_segs_thr = num_cand_segs / p + 1; // number of considered candidate segments per thread
     std::vector<gtl::flat_hash_set<sad_t, std::identity>> PV_thr(p);
-    std::vector<std::uniform_int_distribution<pos_t>*> pos_distrib;
+    std::vector<std::uniform_int_distribution<pos_t>> pos_distrib;
+    pos_distrib.reserve(p);
 
     for (uint16_t i_p = 0; i_p < p; i_p++) {
-        pos_distrib.emplace_back(new std::uniform_int_distribution<pos_t>(
-            n_p[i_p],
-            std::max<int64_t>(n_p[i_p], int64_t { n_p[i_p + 1] } - seg_size)));
+        pos_distrib.emplace_back(n_p[i_p],
+            std::max<int64_t>(n_p[i_p], int64_t { n_p[i_p + 1] } - seg_size));
         if (from_file)
             SA_file_bufs[i_p].buffersize(8 * seg_size);
     }
@@ -117,7 +116,7 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_r()
 
                 do {
                     tries++;
-                    beg = (*pos_distrib[i_p])(mt);
+                    beg = pos_distrib[i_p](mt);
                     end = std::min<pos_t>(beg + seg_size, n);
                     score = 0;
                     it = T_s.lower_bound(segment { beg, 0 });
@@ -290,13 +289,14 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_r()
     log_message(log, "num. of segments: " + std::to_string(T_s.size()) + "\n");
     log_message(log, "building R");
 
-    R_buf.resize_no_init(size_R);
+    R = interleaved_bit_aligned_vectors<uint64_t>({ std::bit_width(2 * n + 1) });
+    R.resize_no_init(size_R);
     uint64_t i = 0;
 
     for (auto seg : T_s) {
         #pragma omp parallel for num_threads(p)
         for (uint64_t j = seg.beg; j < seg.end; j++) {
-            R_buf.template set_parallel<0, uint64_t>(i + (j - seg.beg), SAd(omp_get_thread_num(), j));
+            R.template set_parallel<0, uint64_t>(i + (j - seg.beg), SAd(omp_get_thread_num(), j));
         }
 
         i += seg.end - seg.beg;
@@ -312,7 +312,7 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_r()
 
     #pragma omp parallel for num_threads(p)
     for (uint64_t i = 0; i < size_R; i++) {
-        revR[i] = R_buf[size_R - i - 1];
+        revR[i] = R[size_R - i - 1];
     }
 
     log_phase_end(log, time);
@@ -325,9 +325,9 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::store_r()
     log_phase_start(log, time, "storing R to disk");
 
     std::ofstream tmp_file(prefix_tmp_files + "_R");
-    R_buf.serialize(tmp_file);
-    R_buf.clear();
-    R_buf.shrink_to_fit();
+    R.serialize(tmp_file);
+    R.clear();
+    R.shrink_to_fit();
     tmp_file.close();
 
     log_phase_end(log, time);
@@ -449,7 +449,7 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_rlzsa_factorization()
                     max_query_len = std::min<pos_t>(max_query_len, size_R - occ);
 
                     while (len < max_query_len &&
-                           R_buf[occ + len] == SAd(i_p, i + len))
+                           R[occ + len] == SAd(i_p, i + len))
                     {
                         len++;
                     }
@@ -607,22 +607,9 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_rlzsa_factorization()
         SCP_S_final = sd_array<pos_t>(sdsl::sd_vector<>(SCP_S_b));
     }
 
-    // convert the byte-aligned build buffer R_buf into a tight bit-aligned vector for storage
-    // (R_buf stays byte-aligned during construction as it is read heavily by the factorization)
-    interleaved_bit_aligned_vectors<uint64_t> R_bit({ std::bit_width(uint64_t(2 * n + 1)) });
-    R_bit.resize_no_init(R_buf.size());
-
-    #pragma omp parallel for num_threads(p)
-    for (uint64_t i = 0; i < R_buf.size(); i++) {
-        R_bit.template set_parallel<0, uint64_t>(i, R_buf[i]);
-    }
-
-    R_buf.clear();
-    R_buf.shrink_to_fit();
-
     rlz = rlzsa_opt<pos_t>(
         n, z, z_l, z_c,
-        std::move(R_bit), std::move(PT_final), std::move(SCP_S_final),
+        std::move(R), std::move(PT_final), std::move(SCP_S_final),
         std::move(CPL_final), std::move(SR_final), std::move(LP_final));
 
     log_phase_end(log, time);
@@ -640,7 +627,7 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::load_r()
     log_phase_start(log, time, "reading R from disk");
 
     std::ifstream tmp_file(prefix_tmp_files + "_R");
-    R_buf.load(tmp_file);
+    R.load(tmp_file);
     tmp_file.close();
     std::filesystem::remove(prefix_tmp_files + "_R");
 

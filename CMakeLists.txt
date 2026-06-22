@@ -129,7 +129,7 @@ if(MOVE_R_BUILD_CLI)
     move_r_add_tool(${tool} cli/move-r/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
   endforeach()
 
-  foreach(tool move-rb-build move-rb-revert move-rb-count move-rb-locate move-rb-random-ext move-rb-query)
+  foreach(tool move-rb-build move-rb-revert move-rb-count move-rb-locate move-rb-query)
     move_r_add_tool(${tool} cli/move-rb/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
   endforeach()
 

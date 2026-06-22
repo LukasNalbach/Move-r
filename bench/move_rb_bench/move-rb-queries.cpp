@@ -294,10 +294,11 @@ void generate()
                     n++;
                 }
 
-                if (n == 0) {
-                    std::cerr << "warning: no pattern for " << type.op << "-" << type.metric
+                if (n < min_patterns) {
+                    std::cerr << "warning: not enough patterns for " << type.op << "-" << type.metric
                               << " k" << k << " m" << m << " completed within the timeout; "
-                              << "writing an empty pattern file" << std::endl;
+                              << "skipping" << std::endl;
+                    continue;
                 }
 
                 std::string fname = (std::filesystem::path(out_dir) / (text_name + ".patterns-" +

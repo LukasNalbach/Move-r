@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <iostream>
 #include <move_r/move_r.hpp>
+#include <misc/progress.hpp>
 
 int arg_idx = 1;
 std::ofstream mf;
@@ -104,23 +105,15 @@ void measure_count()
     std::getline(patterns_file, header);
     uint64_t num_patterns = number_of_patterns(header);
     uint64_t pattern_length = patterns_length(header);
-    uint64_t perc;
-    uint64_t last_perc = 0;
     uint64_t num_occurrences = 0;
     uint64_t time_count = 0;
     uint64_t count = 0;
     std::chrono::steady_clock::time_point t2, t3;
     std::string pattern;
     no_init_resize(pattern, pattern_length);
+    progress_meter meter(num_patterns);
 
     for (uint64_t i = 0; i < num_patterns; i++) {
-        perc = (100 * i) / num_patterns;
-
-        if (perc > last_perc) {
-            std::cout << perc << "% done .." << std::endl;
-            last_perc = perc;
-        }
-
         patterns_file.read(pattern.data(), pattern_length);
         t2 = now();
         count = index.count(pattern);
@@ -131,8 +124,11 @@ void measure_count()
         if (output_occurrences) {
             output_file << count << std::endl;
         }
+
+        meter.step();
     }
 
+    meter.finish();
     patterns_file.close();
     std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
     std::cout << "number of patterns: " << num_patterns << std::endl;

@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <iostream>
 #include <move_rb/move_rb.hpp>
+#include <misc/progress.hpp>
 
 static constexpr int min_args = 6;
 int arg_idx = 1;
@@ -148,8 +149,6 @@ void measure_locate()
     if (pattern_length < search_scheme.p)
         help("error: pattern length < number of parts defined in the search scheme");
 
-    uint64_t perc;
-    uint64_t last_perc = 0;
     uint64_t num_occurrences = 0;
     uint64_t time_locate = 0;
     std::chrono::steady_clock::time_point t2, t3;
@@ -159,15 +158,9 @@ void measure_locate()
     uint64_t checksum = 0;
     uint64_t baseline_alloc = malloc_count_current();
     malloc_count_reset_peak();
+    progress_meter meter(num_patterns);
 
     for (uint64_t i = 0; i < num_patterns; i++) {
-        perc = (100 * i) / num_patterns;
-
-        if (perc > last_perc) {
-            std::cout << perc << "% done .." << std::endl;
-            last_perc = perc;
-        }
-
         patterns_file.read(pattern.data(), pattern_length);
         t2 = now();
 
@@ -247,8 +240,10 @@ void measure_locate()
         }
 
         occurrences.clear();
+        meter.step();
     }
 
+    meter.finish();
     patterns_file.close();
     std::cout << "checksum: " << checksum << std::endl;
     std::cout << "additional memory consumption during the search phase: " << format_size(malloc_count_peak() - baseline_alloc) << std::endl;

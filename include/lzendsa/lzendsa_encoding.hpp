@@ -33,7 +33,6 @@
 
 #include "lzendsa_construction.hpp"
 #include <data_structures/interleaved_bit_aligned_vectors.hpp>
-#include <data_structures/interleaved_byte_aligned_vectors.hpp>
 
 /**
  * @brief a compact LZ-End encoding of (the differential) suffix array; designed to be rather small (3 words per

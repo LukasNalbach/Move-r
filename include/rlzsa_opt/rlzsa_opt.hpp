@@ -31,7 +31,6 @@
 #include <vector>
 
 #include <data_structures/interleaved_bit_aligned_vectors.hpp>
-#include <data_structures/interleaved_byte_aligned_vectors.hpp>
 #include <data_structures/plain_bit_vector.hpp>
 #include <data_structures/sd_array.hpp>
 #include <misc/utils.hpp>
