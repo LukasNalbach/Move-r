@@ -676,6 +676,104 @@ public:
     }
 
     /*
+     * left-extend prev_sample with every character of the alphabet in a single
+     * O(sigma * (t_LF + t_rankL)) sweep, calling report(c, sample) for each character c
+     * (original, not remapped) such that cP occurs.
+     *
+     * Calling left_extension once per character would cost O(sigma^2 * (t_LF + t_rankL)),
+     * because each call recomputes from scratch the prefix sum of occurrences of
+     * aP over a < c. Processing the characters in increasing internal order lets
+     * us maintain that prefix sum incrementally in `acc`, mirroring the
+     * all-symbols sweep of backward_dfs / search_with_mismatch.
+     */
+    template <typename report_fnc_t>
+    void left_extension_all(br_sample const& prev_sample, report_fnc_t report)
+    {
+        // acc = number of occurrences of aP over all internal symbols a < the
+        // current one, i.e. the offset of cP's range within prev_sample.rangeR
+        ulint acc = 0;
+
+        for (ulint a = 1; a < sigma + 1; ++a)
+        {
+            br_sample sample(prev_sample);
+
+            sample.range = LF(prev_sample.range, (uchar)a);
+            if (sample.is_invalid()) continue;
+
+            // the terminator (internal 1) occurs exactly once; count but skip it
+            if (a == 1) { acc++; continue; }
+
+            if (sample.range.second - sample.range.first ==
+                prev_sample.range.second - prev_sample.range.first)
+            {
+                // only a precedes P -> reverse range unchanged, offset grows
+                sample.d++;
+            }
+            else
+            {
+                // aP and bP occur for some b != a -> derive the reverse range from acc
+                sample.rangeR.first = sample.rangeR.first + acc;
+                sample.rangeR.second = sample.rangeR.first + sample.range.second - sample.range.first;
+
+                ulint rnk = bwt.rank(prev_sample.range.second + 1, a);
+                ulint p = bwt.select(rnk - 1, a);
+                ulint run_of_p = bwt.run_of_position(p);
+                if (bwt[prev_sample.range.second] == a)
+                    sample.j = samples_first[run_of_p];
+                else
+                    sample.j = samples_last[run_of_p];
+                sample.d = 0;
+            }
+            sample.len++;
+            acc += sample.range.second + 1 - sample.range.first;
+
+            report(remap_inv[a], sample);
+        }
+    }
+
+    /*
+     * right-extend prev_sample with every character of the alphabet in a single
+     * O(sigma * t_LF) sweep, calling report(c, sample) for each character c
+     * (original, not remapped) such that Pc occurs. Right-extension analogue of
+     * left_extension_all (mirrors forward_dfs).
+     */
+    template <typename report_fnc_t>
+    void right_extension_all(br_sample const& prev_sample, report_fnc_t report)
+    {
+        ulint acc = 0;
+
+        for (ulint a = 1; a < sigma + 1; ++a)
+        {
+            br_sample sample(prev_sample);
+
+            sample.rangeR = LFR(prev_sample.rangeR, (uchar)a);
+            if (sample.is_invalid()) continue;
+
+            if (a == 1) { acc++; continue; }
+
+            if (sample.rangeR.second - sample.rangeR.first !=
+                prev_sample.rangeR.second - prev_sample.rangeR.first)
+            {
+                sample.range.first = sample.range.first + acc;
+                sample.range.second = sample.range.first + sample.rangeR.second - sample.rangeR.first;
+
+                ulint rnk = bwtR.rank(prev_sample.rangeR.second + 1, a);
+                ulint pR = bwtR.select(rnk - 1, a);
+                ulint run_of_pR = bwtR.run_of_position(pR);
+                if (bwtR[prev_sample.rangeR.second] == a)
+                    sample.j = bwt.size() - 2 - samples_firstR[run_of_pR];
+                else
+                    sample.j = bwt.size() - 2 - samples_lastR[run_of_pR];
+                sample.d = sample.len;
+            }
+            sample.len++;
+            acc += sample.range.second + 1 - sample.range.first;
+
+            report(remap_inv[a], sample);
+        }
+    }
+
+    /*
      * backward search P[left...right]
      */
     br_sample backward_search(std::string const& pattern, ulint left, ulint right, br_sample const& sample)

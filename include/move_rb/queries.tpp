@@ -415,20 +415,14 @@ inline pos_t move_rb<support, sym_t, pos_t>::locate_context_t::first_occ()
                 // prepare rlz_l to decode SA[c] (with rlz_l.value() = SA[c]) and advance to the left
                 rlz_l = idx->idx_fwd.rlzsa().decode();
                 rlz_l.set_value(SA_i);
-                rlz_l.init(c);
+                rlz_l.init_left(c);
+            }
 
-                if (c < e) [[likely]] {
-                    // prepare rlz_r to decode SA[c+1] and advance to the right (rlz_r.value() is set up later)
-                    rlz_r = rlz_l;
-                    rlz_r.next();
-                }
-
-                rlz_l.turn_left();
-            } else {
+            if (c < e) [[likely]] {
                 // prepare rlz_r to decode SA[c+1] (with rlz_r.value() = SA[c]) and advance to the right
                 rlz_r = idx->idx_fwd.rlzsa().decode();
                 rlz_r.set_value(SA_i);
-                rlz_r.init(c + 1);
+                rlz_r.init_right(c + 1);
             }
         }
     }

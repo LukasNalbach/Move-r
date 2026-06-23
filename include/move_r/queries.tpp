@@ -74,7 +74,7 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
 
         // initialize the rlzsa decode context to position j (with s = SA[j-1])
         auto dec = _rlzsa.decode();
-        dec.init(j);
+        dec.init_right(j);
         dec.set_value(s);
 
         // compute SA[i]
@@ -155,7 +155,7 @@ pos_t move_r<support, sym_t, pos_t>::query_context_t::next_occ()
             dec.set_pos(b + 1);
 
             // check if there is more than one occurrence
-            if (b < e) dec.init(dec.pos());
+            if (b < e) dec.init_right(dec.pos());
             return dec.value();
         } else {
             return dec.next();
@@ -194,7 +194,7 @@ void move_r<support, sym_t, pos_t>::query_context_t::locate(report_fnc_t report)
             dec.set_pos(b + 1);
 
             // check if there is more than one occurrence
-            if (b < e) [[likely]] dec.init(b + 1);
+            if (b < e) [[likely]] dec.init_right(b + 1);
         }
 
         // compute the remaining occurrences SA(b,e]
@@ -377,7 +377,7 @@ void move_r<support, sym_t, pos_t>::locate(const inp_t& P, report_fnc_t report) 
 
         if (b < e) {
             auto dec = _rlzsa.decode();
-            dec.init(b + 1);
+            dec.init_right(b + 1);
             dec.set_value(s);
             dec.report_right(e, report);
         }
@@ -615,7 +615,7 @@ void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_param
 
                 // initialize the rlzsa decode context to position j (with s = SA[j-1])
                 auto dec = _rlzsa.decode();
-                dec.init(j);
+                dec.init_right(j);
                 dec.set_value(s);
 
                 // advance the rlzsa context to position b
