@@ -385,8 +385,8 @@ The command-line tools are built into the `build/cli/` folder. Each tool prints 
 ### Benchmark tools
 
 - **move-r-bench** — benchmarks construction-, revert- and query performance of move-r against block-rlbwt (`-2`/`-v`/`-r`), r-index, r-index-f, rcomp-glfig and online-rlbwt; with `-a` it instead measures count/locate performance of move-r for a range of balancing parameters. Has to be run from the base folder.
-- **move-rb-bench** — benchmarks approximate count/locate performance of move_rb (move & rlzsa) against b-move and br-index; the indexes must be built beforehand (placed in `<index_dir>` and named `<text_name>.move-rb`, `<text_name>.move-rb-rlzsa`, `<text_name>.bri` and the b-move files) and the pattern sets generated with `move-rb-queries`.
-- **move-rb-queries** — generates the (auto-calibrated) query/pattern sets used by `move-rb-bench`.
+- **move-rb-bench** — benchmarks approximate count/locate performance of move_rb (move & rlzsa) against b-move and br-index; the indexes must be built beforehand (placed in `<index_dir>` and named `<text_name>.move-rb`, `<text_name>.move-rb-rlzsa`, `<text_name>.bri` and the b-move files) and the pattern sets generated with `move-rb-gen-queries`.
+- **move-rb-gen-queries** — generates the (auto-calibrated) query/pattern sets used by `move-rb-bench`.
 - **bench-int-rank-select** — benchmarks the internal integer rank/select data structures (built into `build/bench/`).
 
 ## Search Schemes

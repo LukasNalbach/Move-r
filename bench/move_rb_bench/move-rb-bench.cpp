@@ -29,6 +29,7 @@
 #include <move_rb/move_rb.hpp>
 
 #include <algorithm>
+#include <clocale>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -76,6 +77,10 @@ struct bench_config_t {
     search_scheme_t file_scheme; // the scheme parsed from the file (only used if scheme_from_file)
 
     std::string metric = "all"; // which distance metric to run: all|hamming|edit
+
+    // each pattern file's query set is repeated until at least this many seconds have been
+    // measured for it (>= one full pass), so short-running sets still accumulate a stable timing
+    double min_time_seconds = 10.0;
 };
 
 /**
@@ -160,21 +165,41 @@ void run_count(idx_t& index, uint64_t n, const bench_config_t& cfg, const bench_
         return;
     }
 
-    std::string pattern;
-    no_init_resize(pattern, m);
-    uint64_t num_occurrences = 0;
-    uint64_t time_count = 0;
-
-    for (uint64_t i = 0; i < num_patterns; i++) {
-        pf.read(pattern.data(), m);
-        auto t1 = now();
-        pos_t c = index.count_hamming_dist(pattern, scheme);
-        time_count += time_diff_ns(t1);
-        num_occurrences += c;
+    if (num_patterns == 0) {
+        std::cerr << "warning: no patterns in " << job.path << "; skipping" << std::endl;
+        return;
     }
 
+    std::vector<std::string> patterns(num_patterns);
+    for (uint64_t i = 0; i < num_patterns; i++) {
+        no_init_resize(patterns[i], m);
+        pf.read(patterns[i].data(), m);
+    }
+    if (!pf) {
+        std::cerr << "warning: " << job.path << " is truncated (expected " << num_patterns
+                  << " x " << m << " bytes); skipping" << std::endl;
+        return;
+    }
+
+    const uint64_t min_time_ns = (uint64_t) (cfg.min_time_seconds * 1e9);
+    uint64_t num_occurrences = 0;
+    uint64_t time_count = 0;
+    uint64_t passes = 0;
+
+    do {
+        const uint64_t time_before = time_count;
+        for (uint64_t i = 0; i < num_patterns; i++) {
+            auto t1 = now();
+            pos_t c = index.count_hamming_dist(patterns[i], scheme);
+            time_count += time_diff_ns(t1);
+            num_occurrences += c;
+        }
+        passes++;
+        if (time_count == time_before) break;
+    } while (time_count < min_time_ns);
+
     print_result("count_" + index_name, cfg.text_name, n, "hamming", cfg.scheme,
-        m, num_patterns, scheme.k, num_occurrences, "time_count", time_count);
+        m, num_patterns, scheme.k, num_occurrences / passes, "time_count", time_count / passes);
 }
 
 /**
@@ -199,32 +224,52 @@ void run_locate(idx_t& index, uint64_t n, const bench_config_t& cfg, const bench
         return;
     }
 
-    std::string pattern;
-    no_init_resize(pattern, m);
+    if (num_patterns == 0) {
+        std::cerr << "warning: no patterns in " << job.path << "; skipping" << std::endl;
+        return;
+    }
+
+    std::vector<std::string> patterns(num_patterns);
+    for (uint64_t i = 0; i < num_patterns; i++) {
+        no_init_resize(patterns[i], m);
+        pf.read(patterns[i].data(), m);
+    }
+    if (!pf) {
+        std::cerr << "warning: " << job.path << " is truncated (expected " << num_patterns
+                  << " x " << m << " bytes); skipping" << std::endl;
+        return;
+    }
+
     std::vector<aprx_occ_t<pos_t>> occurrences;
+    const uint64_t min_time_ns = (uint64_t) (cfg.min_time_seconds * 1e9);
     uint64_t num_occurrences = 0;
     uint64_t time_locate = 0;
+    uint64_t passes = 0;
 
-    for (uint64_t i = 0; i < num_patterns; i++) {
-        pf.read(pattern.data(), m);
-        occurrences.clear();
-        auto t1 = now();
-        index.template locate<dist_metr>(pattern, scheme, [&](aprx_occ_t<pos_t> occ) { occurrences.emplace_back(occ); });
+    do {
+        const uint64_t time_before = time_locate;
+        for (uint64_t i = 0; i < num_patterns; i++) {
+            occurrences.clear();
+            auto t1 = now();
+            index.template locate<dist_metr>(patterns[i], scheme, [&](aprx_occ_t<pos_t> occ) { occurrences.emplace_back(occ); });
 
-        // for edit distance the same occurrence may be reported by several search contexts;
-        // deduplicate (as the move-rb-locate tool does) before counting
-        if constexpr (dist_metr == EDIT_DISTANCE) {
-            ips4o::sort(occurrences.begin(), occurrences.end());
-            filter_aprx_occurrences<pos_t>(occurrences, (pos_t) scheme.k);
+            // for edit distance the same occurrence may be reported by several search contexts;
+            // deduplicate (as the move-rb-locate tool does) before counting
+            if constexpr (dist_metr == EDIT_DISTANCE) {
+                ips4o::sort(occurrences.begin(), occurrences.end());
+                filter_aprx_occurrences<pos_t>(occurrences, (pos_t) scheme.k);
+            }
+
+            time_locate += time_diff_ns(t1);
+            num_occurrences += occurrences.size();
         }
-
-        time_locate += time_diff_ns(t1);
-        num_occurrences += occurrences.size();
-    }
+        passes++;
+        if (time_locate == time_before) break;
+    } while (time_locate < min_time_ns);
 
     const std::string dist_str = dist_metr == HAMMING_DISTANCE ? "hamming" : "edit";
     print_result("locate_" + index_name, cfg.text_name, n, dist_str, cfg.scheme,
-        m, num_patterns, scheme.k, num_occurrences, "time_locate", time_locate);
+        m, num_patterns, scheme.k, num_occurrences / passes, "time_locate", time_locate / passes);
 }
 
 /**
@@ -373,19 +418,23 @@ void help(const std::string& msg)
     std::cout << "move-rb-bench: benchmarks approximate count- and locate-performance of" << std::endl;
     std::cout << "               b-move, br-index and move_rb (move & rlzsa). The indexes must be" << std::endl;
     std::cout << "               built beforehand (each with its own build tool) and placed in <index_path>;" << std::endl;
-    std::cout << "               the pattern sets are generated by move-rb-queries." << std::endl << std::endl;
-    std::cout << "usage: move-rb-bench [-s <scheme>] [--metric <metric>] <text_name> <index_path> <patterns_path>" << std::endl;
+    std::cout << "               the pattern sets are generated by move-rb-gen-queries." << std::endl << std::endl;
+    std::cout << "usage: move-rb-bench [-s <scheme>] [--metric <metric>] [--time <s>] <text_name> <index_path> <patterns_path>" << std::endl;
     std::cout << "   -s <scheme>          search scheme to use (default: min_u): one of" << std::endl;
     std::cout << "                        pigeon_hole, suffix_filter, min_u, 01, or a path to a search-scheme file." << std::endl;
     std::cout << "                        For the built-in schemes the number of errors k is taken from each pattern" << std::endl;
     std::cout << "                        file name; a scheme file fixes k itself." << std::endl;
     std::cout << "   --metric <metric>    (optional) run only one distance metric: all|hamming|edit (default: all)" << std::endl;
+    std::cout << "   --time <s>           (optional) replay each pattern file's query set until at least <s> seconds" << std::endl;
+    std::cout << "                        have been measured for it (>= one pass); the reported time_* is then the" << std::endl;
+    std::cout << "                        average time for one pass over the set (num_patterns and num_occurrences stay" << std::endl;
+    std::cout << "                        per-pass). 0 = a single pass; default: 10" << std::endl;
     std::cout << "   <text_name>          name of the original text (used in the output and pattern file names)" << std::endl;
     std::cout << "   <index_path>         directory containing the index files; each index is measured if present:" << std::endl;
     std::cout << "                        <text_name>.move-rb (move_rb move), <text_name>.move-rb-rlzsa (move_rb rlzsa)," << std::endl;
     std::cout << "                        <text_name>.bri (br-index) and the b-move files (base name <index_path>/<text_name>;" << std::endl;
     std::cout << "                        b-move only supports the ACGT alphabet)" << std::endl;
-    std::cout << "   <patterns_path>      directory containing the pattern files (from move-rb-queries) of the form" << std::endl;
+    std::cout << "   <patterns_path>      directory containing the pattern files (from move-rb-gen-queries) of the form" << std::endl;
     std::cout << "                        <text_name>.patterns-{count,locate}-{hamming,edit}-k<value>-m<value>" << std::endl;
     exit(0);
 }
@@ -466,6 +515,7 @@ bool parse_pattern_file_name(const std::string& name, const std::string& text_na
 
 int main(int argc, char** argv)
 {
+    std::setlocale(LC_ALL, "C");
     bench_config_t cfg;
     int arg_idx = 1;
 
@@ -478,6 +528,10 @@ int main(int argc, char** argv)
         } else if (opt == "--metric") {
             if (arg_idx >= argc) help("error: missing metric after --metric");
             cfg.metric = argv[arg_idx++];
+        } else if (opt == "--time") {
+            if (arg_idx >= argc) help("error: missing seconds after --time");
+            cfg.min_time_seconds = std::stod(argv[arg_idx++]);
+            if (cfg.min_time_seconds < 0) help("error: --time must be >= 0");
         } else {
             help("error: unrecognized option '" + opt + "'");
         }
