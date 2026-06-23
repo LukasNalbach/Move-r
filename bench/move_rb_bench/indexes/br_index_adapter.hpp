@@ -432,20 +432,16 @@ struct br_index_adapter::extend_context_t {
         count = 0;
         cursor = 0;
 
-        // br-index real characters have internal symbols 2..sigma (1 is the terminator)
-        for (int i = 2; i <= (int) idx->sigma; i++) {
-            sym_t c = (sym_t) idx->brindex().internal_to_char((bri::uchar) i);
+        auto report = [this](bri::uchar c, const bri::br_sample& child) {
+            children[count] = child;
+            chars[count] = (sym_t) c;
+            count++;
+        };
 
-            bri::br_sample child = (dir == LEFT)
-                ? idx->brindex().left_extension((bri::uchar) c, ctx->sample)
-                : idx->brindex().right_extension((bri::uchar) c, ctx->sample);
-
-            if (!child.is_invalid()) {
-                children[count] = child;
-                chars[count] = c;
-                count++;
-            }
-        }
+        if (dir == LEFT)
+            idx->brindex().left_extension_all(ctx->sample, report);
+        else
+            idx->brindex().right_extension_all(ctx->sample, report);
 
         return *this;
     }

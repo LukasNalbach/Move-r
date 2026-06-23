@@ -230,10 +230,7 @@ static void test_index_instance(
         min_input_size, max_input_size, adapter_t::min_sym(), adapter_t::max_sym());
     uint64_t n = input.size();
 
-    // some indexes append a 0-sentinel to their build argument, so build from a copy and keep the original
-    // (which the queries / set_input need) untouched
-    inp_t input_for_build = input;
-    index_t index = adapter_t::build(input_for_build, gen, max_num_threads);
+    index_t index = adapter_t::build(input, gen, max_num_threads);
     adapter_t::after_build(index, input);
 
     uint64_t max_pattern_length = adapter_t::max_pattern_length(n);

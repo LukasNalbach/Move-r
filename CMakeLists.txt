@@ -292,7 +292,7 @@ if(MOVE_R_BUILD_TESTS)
   set_target_properties(gtest gtest_main gmock gmock_main
     PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "")
 
-  foreach(s move_r move_rb move_data_structure data_structures sa_index)
+  foreach(s move_r move_rb move_data_structure data_structures sa_index rlzsa_opt)
     move_r_add_tool(test-${s} "${CMAKE_SOURCE_DIR}/tests/test_${s}.cpp"
       "${CMAKE_BINARY_DIR}/tests/" gtest_main)
   endforeach()
@@ -302,4 +302,5 @@ if(MOVE_R_BUILD_TESTS)
   gtest_discover_tests(test-move_data_structure)
   gtest_discover_tests(test-data_structures)
   gtest_discover_tests(test-sa_index)
+  gtest_discover_tests(test-rlzsa_opt)
 endif()
