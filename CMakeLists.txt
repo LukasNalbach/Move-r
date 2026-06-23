@@ -271,7 +271,7 @@ if(MOVE_R_BUILD_BENCH)
 
   move_r_add_tool(move-rb-bench bench/move_rb_bench/move-rb-bench.cpp
     "${CMAKE_BINARY_DIR}/bench/" br_index bmove)
-  move_r_add_tool(move-rb-queries bench/move_rb_bench/move-rb-queries.cpp
+  move_r_add_tool(move-rb-gen-queries bench/move_rb_bench/move-rb-gen-queries.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
