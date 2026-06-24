@@ -33,22 +33,28 @@
 // so that running that file's operation takes approximately a target duration.
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <clocale>
-#include <condition_variable>
+#include <csignal>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <random>
 #include <sstream>
 #include <string>
-#include <thread>
 #include <vector>
 
+#include <poll.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
 #include <move_rb/move_rb.hpp>
+
+#include <ips4o.hpp>
 
 // ############################# CONFIGURATION #############################
 
@@ -94,8 +100,8 @@ void help(std::string msg)
     std::cout << "   --only <ops>      restrict to count or locate files: count, locate or count,locate (default: both)" << std::endl;
     std::cout << "   --min <N>         minimum number of patterns per file (default: 1)" << std::endl;
     std::cout << "   --seed <s>        seed for the random pattern positions (default: random)" << std::endl;
-    std::cout << "   --timeout <s>     per-pattern query timeout in seconds; a query is run in a thread and, if it" << std::endl;
-    std::cout << "                     exceeds the timeout, the pattern is discarded (0 = off, default: 10)" << std::endl;
+    std::cout << "   --timeout <s>     per-pattern query timeout in seconds; a query runs in a forked worker that is" << std::endl;
+    std::cout << "                     killed if it exceeds the timeout, then the pattern is discarded (0 = off, default: 10)" << std::endl;
     std::cout << "   --max-skips <N>   give up on a (k,m) after this many consecutive timeouts (default: 10)" << std::endl;
     std::cout << "   <input_file>      the text the index was built for" << std::endl;
     std::cout << "   <move_rb_index>   a move_rb index (.move-rb or .move-rb-rlzsa) of <input_file>" << std::endl;
@@ -122,78 +128,105 @@ search_scheme_t make_scheme(int64_t k)
 // the outcome of a timed query: its result count and the in-process time the query itself took
 struct timed_result_t { uint64_t count; uint64_t elapsed_ns; };
 
+// reads exactly n bytes from fd into buf; false on EOF or error (e.g. the peer closed its pipe end)
+static bool read_full(int fd, void* buf, size_t n)
+{
+    char* p = static_cast<char*>(buf);
+    while (n > 0) {
+        ssize_t r = read(fd, p, n);
+        if (r > 0) { p += r; n -= (size_t) r; }
+        else if (r == 0) return false;     // EOF: the peer is gone
+        else if (errno == EINTR) continue; // interrupted: retry
+        else return false;                 // error
+    }
+    return true;
+}
+
+// writes exactly n bytes from buf to fd; false if the peer is gone (EPIPE) or on error
+static bool write_full(int fd, const void* buf, size_t n)
+{
+    const char* p = static_cast<const char*>(buf);
+    while (n > 0) {
+        ssize_t w = write(fd, p, n);
+        if (w > 0) { p += w; n -= (size_t) w; }
+        else if (w < 0 && errno == EINTR) continue;
+        else return false;
+    }
+    return true;
+}
+
+// waits up to timeout_ns for fd to become readable; false on timeout or error
+static bool wait_readable(int fd, uint64_t timeout_ns)
+{
+    struct pollfd pfd { fd, POLLIN, 0 };
+    struct timespec ts { (time_t) (timeout_ns / 1000000000ull), (long) (timeout_ns % 1000000000ull) };
+    int r;
+    do { r = ppoll(&pfd, 1, &ts, nullptr); } while (r < 0 && errno == EINTR);
+    return r > 0 && (pfd.revents & POLLIN);
+}
+
 /**
- * @brief runs queries on a worker thread
- * @tparam query_fnc_t query function
+ * @brief runs queries on a forked worker PROCESS so each one can be hard-timed-out.
+ * @tparam query_fnc_t query function: (const std::string& pattern) -> uint64_t occurrence count
  */
 template <typename query_fnc_t>
 class timeout_runner {
-    // shared between the main thread and the (possibly abandoned) worker; held via shared_ptr so it
-    // outlives an abandoned worker
-    struct slot_t {
-        std::mutex m;
-        std::condition_variable cv;
-        std::string pattern;
-        bool go = false;   // a request is pending
-        bool done = false; // the result is ready
-        bool quit = false; // the worker should exit (shutdown or abandonment)
-        timed_result_t result {};
-    };
-
     query_fnc_t query;
-    std::shared_ptr<slot_t> s;
+    uint64_t m;          // bytes per pattern (the child reads exactly this many per query)
+    pid_t child = -1;
+    int to_child = -1;   // parent -> child: the next pattern
+    int from_child = -1; // child -> parent: the timed_result_t
 
     void spawn()
     {
-        s = std::make_shared<slot_t>();
-        std::thread([sl = s, q = query]() {
-            std::unique_lock<std::mutex> lk(sl->m);
-            while (true) {
-                sl->cv.wait(lk, [&] { return sl->go || sl->quit; });
-                if (sl->quit) return;
-                std::string p = std::move(sl->pattern);
-                sl->go = false;
-                lk.unlock();
+        int down[2], up[2]; // down: parent->child, up: child->parent
+        if (pipe(down) != 0 || pipe(up) != 0) { perror("pipe"); std::exit(1); }
+        pid_t pid = fork();
+        if (pid < 0) { perror("fork"); std::exit(1); }
 
+        if (pid == 0) {
+            // child: inherits the loaded index (COW). Runs queries until the parent closes the pipe (or
+            // it is killed on timeout), timing each one itself so the measurement excludes the IPC.
+            close(down[1]); close(up[0]);
+            std::string pat;
+            no_init_resize(pat, m);
+            while (read_full(down[0], pat.data(), m)) {
                 auto t1 = now();
-                uint64_t c = q(p);
-                uint64_t elapsed = time_diff_ns(t1);
-
-                lk.lock();
-                sl->result = { c, elapsed };
-                sl->done = true;
-                bool abandoned = sl->quit; // abandoned while computing -> exit after signaling
-                sl->cv.notify_one();
-                if (abandoned) return;
+                uint64_t c = query(pat);
+                timed_result_t r { c, time_diff_ns(t1) };
+                if (!write_full(up[1], &r, sizeof(r))) break;
             }
-        }).detach();
+            _exit(0);
+        }
+
+        close(down[0]); close(up[1]);
+        child = pid; to_child = down[1]; from_child = up[0];
+    }
+
+    // SIGKILLs the worker (freeing all its memory at once) and reaps it
+    void reap()
+    {
+        if (child <= 0) return;
+        kill(child, SIGKILL);
+        int st;
+        while (waitpid(child, &st, 0) < 0 && errno == EINTR) {}
+        close(to_child); close(from_child);
+        child = -1; to_child = from_child = -1;
     }
 
 public:
-    explicit timeout_runner(query_fnc_t q) : query(std::move(q)) { spawn(); }
+    timeout_runner(query_fnc_t q, uint64_t pattern_len) : query(std::move(q)), m(pattern_len) { spawn(); }
+    ~timeout_runner() { reap(); }
 
-    // tells the current worker to exit once finished (the detached thread keeps its slot alive)
-    ~timeout_runner() { std::lock_guard<std::mutex> lk(s->m); s->quit = true; s->cv.notify_one(); }
-
-    // runs the query on the worker, waiting up to timeout_ns; nullopt on timeout (worker abandoned)
+    // runs one query on the worker, waiting up to timeout_ns; nullopt on timeout (worker killed + replaced)
     std::optional<timed_result_t> run(const std::string& pattern, uint64_t timeout_ns)
     {
-        {
-            std::lock_guard<std::mutex> lk(s->m);
-            s->pattern = pattern;
-            s->go = true;
-            s->done = false;
+        if (write_full(to_child, pattern.data(), m) && wait_readable(from_child, timeout_ns)) {
+            timed_result_t r;
+            if (read_full(from_child, &r, sizeof(r))) return r;
         }
-        s->cv.notify_one();
 
-        std::unique_lock<std::mutex> lk(s->m);
-        if (s->cv.wait_for(lk, std::chrono::nanoseconds(timeout_ns), [&] { return s->done; }))
-            return s->result;
-
-        // timeout: abandon this worker (it exits after finishing its slow query) and start a fresh one
-        s->quit = true;
-        lk.unlock();
-        s->cv.notify_one();
+        reap();
         spawn();
         return std::nullopt;
     }
@@ -212,9 +245,6 @@ void generate()
 {
     using idx_t = move_rb<support, char, pos_t>;
     std::cout << "loading the move_rb index ..." << std::endl;
-    // shared so that a query thread abandoned on timeout can keep reading the index after generate()
-    // returns: each query closure captures this shared_ptr, so the index stays alive until the last
-    // thread (the main thread or an abandoned worker) releases it, then it is freed - no leak
     auto index = std::make_shared<idx_t>();
     index->load(index_file);
     index_file.close();
@@ -251,32 +281,24 @@ void generate()
                 std::uniform_int_distribution<uint64_t> pos_distrib(0, text_size - m - 1);
                 uint64_t n = 0, total_ns = 0, total_occ = 0, skipped = 0, consecutive_skips = 0;
 
-                // runs one query and returns its result count. Captures the index (shared_ptr) and
-                // scheme/type/k by value, and uses its OWN occ vector, so it carries no shared mutable
-                // state and keeps the index alive - that makes it safe to run on a detached timeout
-                // thread (and concurrently with an abandoned one). Timing is done by the caller.
-                auto run_query = [index, scheme, type, k](const std::string& pat) -> uint64_t {
+                auto run_query = [index, scheme, type](const std::string& pat) -> uint64_t {
                     if (type.is_count) {
                         return index->count_hamming_dist(pat, scheme);
                     }
                     std::vector<aprx_occ_t<pos_t>> occ;
+                    auto report = [&](aprx_occ_t<pos_t> o) { occ.emplace_back(o); };
                     if (type.is_edit) {
-                        index->template locate<EDIT_DISTANCE>(pat, scheme,
-                            [&](aprx_occ_t<pos_t> o) { occ.emplace_back(o); });
+                        index->template locate<EDIT_DISTANCE>(pat, scheme, report);
                         ips4o::sort(occ.begin(), occ.end());
-                        filter_aprx_occurrences<pos_t>(occ, (pos_t) k);
+                        filter_aprx_occurrences<pos_t>(occ, (pos_t) scheme.k);
                     } else {
-                        index->template locate<HAMMING_DISTANCE>(pat, scheme,
-                            [&](aprx_occ_t<pos_t> o) { occ.emplace_back(o); });
+                        index->template locate<HAMMING_DISTANCE>(pat, scheme, report);
                     }
                     return occ.size();
                 };
 
-                // with a timeout, queries run on a persistent worker thread that enforces it;
-                // without one they run in-process. The runner is created here so it exists only while
-                // this (operation, k, m) is being calibrated.
                 std::optional<timeout_runner<decltype(run_query)>> runner;
-                if (timeout_ns != 0) runner.emplace(run_query);
+                if (timeout_ns != 0) runner.emplace(run_query, m);
 
                 // add patterns until the accumulated query time reaches the target
                 // (a single very expensive pattern still yields one pattern)
@@ -286,7 +308,7 @@ void generate()
 
                     std::optional<timed_result_t> r;
                     if (runner) {
-                        r = runner->run(pattern, timeout_ns); // hard timeout on a worker thread
+                        r = runner->run(pattern, timeout_ns);
                     } else {
                         auto t1 = now();
                         uint64_t c = run_query(pattern);
@@ -347,6 +369,7 @@ void generate()
 int main(int argc, char** argv)
 {
     std::setlocale(LC_ALL, "C");
+    std::signal(SIGPIPE, SIG_IGN);
 
     int i = 1;
     while (i < argc && argv[i][0] == '-') {
