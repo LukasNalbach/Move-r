@@ -24,6 +24,25 @@
  * SOFTWARE.
  */
 
+/**
+ * @file edit_distance.tpp
+ *
+ * Edit-distance locate via bidirectional search schemes.
+ *
+ * Algorithmic background (the techniques below are published; only their
+ * realization on top of Move-r's index is original to this file):
+ *   - approximate pattern matching by partitioning the pattern and exploring a
+ *     set of bidirectional searches (search schemes) goes back to the
+ *     bidirectional-FM / search-scheme line of work (e.g. Lam et al.; Kucherov,
+ *     Salikhov, Tsur; Kianfar et al.).
+ *   - traversing the banded bit-parallel edit-distance matrix with branch and
+ *     bound and reporting only the cluster centers of a part's final column is
+ *     the strategy of the search-scheme aligners around Columba (L. Renders,
+ *     L. Depuydt, J. Fostier, Ghent University).
+ * The traversal here is built on Move-r's own search-context / move-structure
+ * locate API; the banded matrix lives in edit_distance_matrix.hpp.
+ */
+
 #pragma once
 
 #include <ips4o.hpp>
@@ -115,18 +134,18 @@ protected:
     class cluster_t
     {
       protected:
-        std::vector<uint16_t> dists;
-        std::vector<search_context_t<LOCATE>> nodes;
-
-        pos_t last_cell;
-        uint16_t k_max;
         pos_t start_depth;
         pos_t shift;
+        uint16_t k_max;
+        pos_t last_cell;
+        std::vector<search_context_t<LOCATE>> nodes;
+        std::vector<uint16_t> dists;
 
       public:
+        // last_cell == pos_t(-1) marks an empty cluster; the first set_cell raises it to the written index
         cluster_t(pos_t size, pos_t k_max, pos_t start_depth, pos_t shift)
-            : dists(size, k_max + 1), nodes(size), last_cell(-1), k_max(k_max),
-            start_depth(start_depth), shift(shift) {}
+            : start_depth(start_depth), shift(shift), k_max(k_max),
+              last_cell(pos_t(-1)), nodes(size), dists(size, k_max + 1) {}
 
         // records the cell at idx: its context (marked not-yet-reported) and its edit distance
         void set_cell(pos_t idx, search_context_t<LOCATE> node, uint16_t dist)
@@ -196,10 +215,10 @@ protected:
 
             for (pos_t i = 0; i <= last_cell; i++) {
                 if (dists[i] < k_min || dists[i] > k_max || nodes[i].reported()) continue;
-                bool better_than_parent = (i == 0) || dists[i] <= dists[i - 1] || dists[i - 1] < k_min;
-                bool better_than_child = (i == last_cell) || dists[i] <= dists[i + 1] || dists[i + 1] < k_min;
+                bool le_above = (i == 0) || dists[i] <= dists[i - 1] || dists[i - 1] < k_min;
+                bool le_below = (i == last_cell) || dists[i] <= dists[i + 1] || dists[i + 1] < k_min;
 
-                if (better_than_parent && better_than_child) {
+                if (le_above && le_below) {
                     nodes[i].set_reported(true);
                     search_context_t<LOCATE> ctx = nodes[i];
                     ctx.set_errors(dists[i]);
@@ -222,9 +241,9 @@ protected:
 
             for (pos_t j = 0; j <= last_cell; j++) {
                 if (dists[j] < k_min || dists[j] > k_max) continue;
-                bool better_than_parent = (j == 0) || dists[j] <= dists[j - 1];
-                bool better_than_child = (j == last_cell) || dists[j] <= dists[j + 1];
-                if (better_than_parent && better_than_child) { center = j; break; }
+                bool le_above = (j == 0) || dists[j] <= dists[j - 1];
+                bool le_below = (j == last_cell) || dists[j] <= dists[j + 1];
+                if (le_above && le_below) { center = j; break; }
             }
 
             for (pos_t j = 0; j < center; j++) {
@@ -255,10 +274,10 @@ protected:
 
             for (pos_t j = 0; j <= last_cell; j++) {
                 if (dists[j] < k_min || dists[j] > k_max) continue;
-                bool better_than_parent = (j == 0) || dists[j] <= dists[j - 1];
-                bool better_than_child = (j == last_cell) || dists[j] <= dists[j + 1];
+                bool le_above = (j == 0) || dists[j] <= dists[j - 1];
+                bool le_below = (j == last_cell) || dists[j] <= dists[j + 1];
 
-                if (better_than_parent && better_than_child) {
+                if (le_above && le_below) {
                     i = j;
                     break;
                 }
@@ -442,10 +461,10 @@ public:
 
             loc_ctx.locate([&](pos_t pos, pos_t occ){
                 if (pos <= cntr) {
-                    if (pos < ivs[iv_idx].beg) [[unlikely]] iv_idx--;
+                    if (iv_idx > 0 && pos < ivs[iv_idx].beg) [[unlikely]] iv_idx--;
                 } else {
                     if (iv_idx < iv_idx_cntr) [[unlikely]] iv_idx = iv_idx_cntr;
-                    if (ivs[iv_idx].end < pos) [[unlikely]] iv_idx++;
+                    if (iv_idx + 1 < ivs.size() && ivs[iv_idx].end < pos) [[unlikely]] iv_idx++;
                 }
 
                 const interval_t& iv = ivs[iv_idx];
@@ -794,7 +813,7 @@ public:
         bool valid_dist = matrix.compute_row(row, ctx.last_added_symbol());
 
         if (matrix.is_in_final_column(row)) {
-            pos_t cluster_idx = cluster.size() + row - matrix.num_rows();
+            pos_t cluster_idx = row - (matrix.num_rows() - cluster.size());
             cluster.set_cell(cluster_idx, ctx, matrix(row, matrix.num_cols() - 1));
 
             // a cell is terminal when the band holds no further distance, only

@@ -426,5 +426,22 @@ PhD thesis, University of Helsinki, Finland, 2024. ([thesis](http://hdl.handle.n
 [4] Patrick Dinklage, Johannes Fischer, Lukas Nalbach and Jan Zumbrink. RLZ-r and LZ-End-r: Enhancing Move-r.
 In String Processing and Information Retrieval (SPIRE), 2024. ([paper](https://link.springer.com/chapter/10.1007/978-3-032-05228-5_7))
 
+[5] Gene Myers. A fast bit-vector algorithm for approximate string matching based on dynamic programming.
+Journal of the ACM, 46(3):395–415, 1999.
+
+[6] Heikki Hyyrö. Explaining and extending the bit-parallel approximate string matching algorithm of Myers.
+Technical Report A-2001-10, University of Tampere, 2001.
+
+[7] Gregory Kucherov, Kirill Salikhov and Dekel Tsur. Approximate string matching using a bidirectional index.
+Theoretical Computer Science, 638:145–158, 2016.
+
+[8] Luca Renders, Kathleen Marchal and Jan Fostier. Dynamic partitioning of search patterns for approximate pattern matching using search schemes (Columba).
+iScience, 24(7):102687, 2021. ([paper](https://www.cell.com/iscience/fulltext/S2589-0042(21)00697-1))
+
+[9] Lore Depuydt, Luca Renders, Simon Van de Vyver, Lennart Veys, Travis Gagie and Jan Fostier. b-move: faster bidirectional character extensions in a run-length compressed index.
+In 24th International Workshop on Algorithms in Bioinformatics (WABI), LIPIcs vol. 312, pages 10:1–10:18, 2024. ([paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.WABI.2024.10))
+
 ## License
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+The approximate-pattern-matching module ([include/algorithms/apm/](include/algorithms/apm/)) implements published techniques: Myers' bit-parallel edit-distance recurrence [5] with Hyyrö's refinements [6], the bidirectional search-scheme paradigm [7], and the banded search-scheme alignment strategy of Columba [8] (also used by b-move [9]). The competitor r-indexes bundled as submodules under [external/](external/) (including b-move and br-index) retain their own licenses — see each submodule.
