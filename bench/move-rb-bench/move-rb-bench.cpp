@@ -1,0 +1,949 @@
+/**
+ * part of LukasNalbach/Move-r
+ *
+ * MIT License
+ *
+ * Copyright (c) Lukas Nalbach
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+#include "indexes/columba_capi.hpp" // columba native algorithm (both flavors) behind a C ABI, via shared plugins
+#include "indexes/br_index_adapter.hpp" // br-index: move-r-apm adapter + native algorithm (br_index_native)
+#include <move_rb/move_rb.hpp>
+
+#include <algorithm>
+#include <clocale>
+#include <cstdint>
+#include <dlfcn.h>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <optional>
+#include <string>
+#include <unistd.h>
+#include <vector>
+
+#include <ips4o.hpp>
+#include <ips2ra.hpp>
+#include <malloc_count.h>
+
+// ############################# CONFIGURATION #############################
+
+// the maximum number of errors the edit-distance algorithm supports
+static constexpr int EDIT_K_LIMIT = 20;
+
+// the operation a pattern file is to be measured with
+enum bench_op_t : uint8_t {
+    OP_COUNT = 0, // approximate count
+    OP_LOCATE = 1 // approximate locate
+};
+
+// a single pattern file to be measured; the (op, metric) pair is one of the four
+// benchmark operations (count/locate x hamming/edit) encoded in the file name
+struct bench_job_t {
+    bench_op_t op; // count or locate
+    distance_metric_t metric; // HAMMING_DISTANCE or EDIT_DISTANCE
+    int64_t k; // maximum number of errors (from the file name)
+    uint64_t m; // pattern length (from the file name)
+    std::string path; // path to the pattern file
+};
+
+// the configuration of one benchmark run
+struct bench_config_t {
+    std::string index_path; // directory containing all index files (named <text_name>.{move-rb,move-rb-rlzsa,bri} and the b-move files)
+    std::string br_index_path; // path to the br-index (.bri) file
+    std::string move_rb_move_path; // path to the move_rb index using move data structures
+    std::string move_rb_rlzsa_path; // path to the move_rb index using an rlzsa
+    std::string text_name; // name of the original text (used in the output and pattern file names)
+    std::string patterns_path; // directory containing the pattern files
+    std::vector<bench_job_t> jobs; // the pattern files to measure
+
+    // search scheme to use (like move-rb-locate's -s): the name of a built-in scheme
+    // (pigeon_hole, suffix_filter, min_u, 01) or the path to a scheme file
+    std::string scheme = "min_u";
+    bool scheme_from_file = false; // true <=> scheme is a file; then file_scheme holds it (k is fixed by the file)
+    search_scheme_t file_scheme; // the scheme parsed from the file (only used if scheme_from_file)
+
+    std::string metric = "all"; // which distance metric to run: all|hamming|edit
+
+    // each pattern file's query set is repeated until at least this many seconds have been
+    // measured for it (>= one full pass), so short-running sets still accumulate a stable timing
+    double min_time_seconds = 10.0;
+
+    bool cigar = false; // additionally measure CIGAR-producing locate: for every locate job the indexes whose
+                        // locate can emit a per-occurrence CIGAR alignment (move_rb and columba) are measured a
+                        // second time in CIGAR mode, so the alignment cost shows next to the plain locate
+
+    // if non-empty, only these indexes are measured (from --only). Valid names: move_rb_move, move_rb_rlzsa,
+    // columba_rlc, columba, br_index, br_index_native
+    std::vector<std::string> only;
+
+    // if non-empty, only pattern files with these error counts k (--k) resp. lengths m (--m) are measured
+    std::vector<int64_t> k_filter;
+    std::vector<uint64_t> m_filter;
+
+    // whether the index named @p name should be measured (all indexes when --only was not given)
+    bool selected(const std::string& name) const
+    {
+        return only.empty() || std::find(only.begin(), only.end(), name) != only.end();
+    }
+};
+
+/**
+ * @brief builds the search scheme to use for a pattern file with k errors: a built-in
+ *        scheme is instantiated with k, a file scheme is returned as-is (its k is fixed)
+ */
+inline search_scheme_t make_scheme(const bench_config_t& cfg, int64_t k)
+{
+    if (cfg.scheme_from_file)           return cfg.file_scheme;
+    if (cfg.scheme == "suffix_filter")  return suffix_filter_scheme(k);
+    if (cfg.scheme == "min_u")          return min_u_scheme(k);
+    if (cfg.scheme == "01")             return zero_one_scheme(k);
+    return min_u_scheme(k); // default
+}
+
+// ############################# RESULT OUTPUT #############################
+
+// per-pattern-set memory measurement (bytes). peak_mem is the peak additional heap allocated while measuring the
+// set (malloc_count peak minus the baseline before it); occ_mem is the peak footprint of the occurrence vector
+// (peak occurrence count x element size); cigar_mem is the peak footprint of the occurrences' CIGAR data. All 0
+// when not measured (e.g. count, or malloc_count disabled).
+struct mem_stats_t {
+    uint64_t peak_mem = 0;
+    uint64_t occ_mem = 0;
+    uint64_t cigar_mem = 0;
+};
+
+// in-memory footprint (bytes) of the index currently being measured, captured as the malloc_count heap growth
+// while the index is loaded. Set once per index (loads are sequential) and emitted on every RESULT line of that
+// index. 0 if malloc_count is disabled.
+static uint64_t g_index_mem = 0;
+
+// measures the heap growth caused by running load_fn() and stores it in g_index_mem
+template <typename load_fnc_t>
+inline void load_measured(load_fnc_t load_fn)
+{
+    const uint64_t before = malloc_count_current();
+    load_fn();
+    const uint64_t after = malloc_count_current();
+    g_index_mem = after > before ? after - before : 0;
+}
+
+/**
+ * @brief writes a single RESULT line to std::cout
+ */
+inline void print_result(
+    const std::string& algo, const std::string& text, uint64_t n,
+    const std::string& dist_metr, const std::string& search_scheme,
+    uint64_t pattern_length, uint64_t num_patterns,
+    int64_t max_mismatches, uint64_t num_occurrences,
+    const std::string& time_key, uint64_t time_value, bool cigar = false,
+    const mem_stats_t& mem = {})
+{
+    std::cout << "RESULT"
+              << " algo=" << algo
+              << " text=" << text
+              << " n=" << n
+              << " dist_metr=" << dist_metr
+              << " cigar=" << (cigar ? 1 : 0)
+              << " search_scheme=" << search_scheme
+              << " pattern_length=" << pattern_length
+              << " num_patterns=" << num_patterns
+              << " max_mismatches=" << max_mismatches
+              << " num_occurrences=" << num_occurrences
+              << " index_mem=" << g_index_mem
+              << " peak_mem=" << mem.peak_mem
+              << " occ_mem=" << mem.occ_mem
+              << " cigar_mem=" << mem.cigar_mem
+              << " " << time_key << "=" << time_value
+              << std::endl;
+}
+
+// ############################# GENERIC MEASUREMENT #############################
+
+/**
+ * @brief opens a pattern file and reads its (pizza&chili-style) header
+ * @return whether the file could be opened (and the header parsed)
+ */
+inline bool open_patterns(const bench_job_t& job, std::ifstream& pf, uint64_t& num_patterns, uint64_t& m)
+{
+    pf.open(job.path, std::ios::binary);
+
+    if (!pf.good()) {
+        std::cerr << "warning: cannot open pattern file " << job.path << std::endl;
+        return false;
+    }
+
+    std::string header;
+    std::getline(pf, header);
+    num_patterns = number_of_patterns(header);
+    m = patterns_length(header);
+    return true;
+}
+
+/**
+ * @brief measures approximate count (w.r.t. hamming distance) of all patterns in job.path
+ *        for the given index and writes a RESULT line
+ * @tparam idx_t the index type (move_rb, b_move_adapter or br_index_adapter)
+ */
+template <typename idx_t>
+void run_count(idx_t& index, uint64_t n, const bench_config_t& cfg, const bench_job_t& job,
+               const search_scheme_t& scheme, const std::string& index_name)
+{
+    using pos_t = typename idx_t::pos_type;
+
+    std::ifstream pf;
+    uint64_t num_patterns, m;
+    if (!open_patterns(job, pf, num_patterns, m)) return;
+
+    if (m < scheme.p) {
+        std::cerr << "warning: pattern length " << m << " < number of parts in the search scheme; "
+                  << "skipping " << job.path << std::endl;
+        return;
+    }
+
+    if (num_patterns == 0) {
+        std::cerr << "warning: no patterns in " << job.path << "; skipping" << std::endl;
+        return;
+    }
+
+    std::vector<std::string> patterns(num_patterns);
+    for (uint64_t i = 0; i < num_patterns; i++) {
+        no_init_resize(patterns[i], m);
+        pf.read(patterns[i].data(), m);
+    }
+    if (!pf) {
+        std::cerr << "warning: " << job.path << " is truncated (expected " << num_patterns
+                  << " x " << m << " bytes); skipping" << std::endl;
+        return;
+    }
+
+    const uint64_t min_time_ns = (uint64_t) (cfg.min_time_seconds * 1e9);
+    uint64_t num_occurrences = 0;
+    uint64_t time_count = 0;
+    uint64_t passes = 0;
+
+    do {
+        const uint64_t time_before = time_count;
+        for (uint64_t i = 0; i < num_patterns; i++) {
+            auto t1 = now();
+            pos_t c = index.count_hamming_dist(patterns[i], scheme);
+            time_count += time_diff_ns(t1);
+            num_occurrences += c;
+        }
+        passes++;
+        if (time_count == time_before) break;
+    } while (time_count < min_time_ns);
+
+    print_result("count_" + index_name, cfg.text_name, n, "hamming", cfg.scheme,
+        m, num_patterns, scheme.k, num_occurrences / passes, "time_count", time_count / passes);
+}
+
+/**
+ * @brief measures approximate locate (w.r.t. dist_metr) of all patterns in job.path
+ *        for the given index and writes a RESULT line
+ * @tparam idx_t the index type (move_rb, b_move_adapter or br_index_adapter)
+ * @tparam dist_metr the distance metric (HAMMING_DISTANCE or EDIT_DISTANCE)
+ * @tparam mode whether to additionally produce a per-occurrence CIGAR alignment (measures the alignment cost)
+ */
+template <typename idx_t, distance_metric_t dist_metr, cigar_mode_t mode = NO_CIGAR>
+void run_locate(idx_t& index, uint64_t n, const bench_config_t& cfg, const bench_job_t& job,
+                const search_scheme_t& scheme, const std::string& index_name)
+{
+    using pos_t = typename idx_t::pos_type;
+
+    std::ifstream pf;
+    uint64_t num_patterns, m;
+    if (!open_patterns(job, pf, num_patterns, m)) return;
+
+    if (m < scheme.p) {
+        std::cerr << "warning: pattern length " << m << " < number of parts in the search scheme; "
+                  << "skipping " << job.path << std::endl;
+        return;
+    }
+
+    if (num_patterns == 0) {
+        std::cerr << "warning: no patterns in " << job.path << "; skipping" << std::endl;
+        return;
+    }
+
+    std::vector<std::string> patterns(num_patterns);
+    for (uint64_t i = 0; i < num_patterns; i++) {
+        no_init_resize(patterns[i], m);
+        pf.read(patterns[i].data(), m);
+    }
+    if (!pf) {
+        std::cerr << "warning: " << job.path << " is truncated (expected " << num_patterns
+                  << " x " << m << " bytes); skipping" << std::endl;
+        return;
+    }
+
+    std::vector<aprx_occ_t<pos_t, mode>> occurrences;
+    const uint64_t min_time_ns = (uint64_t) (cfg.min_time_seconds * 1e9);
+    uint64_t num_occurrences = 0;
+    uint64_t time_locate = 0;
+    uint64_t passes = 0;
+
+    // peak occurrence count and peak CIGAR-data bytes over the (post-filter) result of any single pattern
+    uint64_t peak_occ = 0, peak_cigar = 0;
+    const uint64_t mem_baseline = malloc_count_current(); // heap already used before this set (mostly the index)
+    malloc_count_reset_peak();
+
+    do {
+        const uint64_t time_before = time_locate;
+        for (uint64_t i = 0; i < num_patterns; i++) {
+            occurrences.clear();
+            auto t1 = now();
+            auto collect = [&](aprx_occ_t<pos_t, mode> occ) { occurrences.emplace_back(std::move(occ)); };
+            // the CIGAR overload takes an explicit mode template argument; the plain path keeps the single-argument
+            // form so the adapters (whose locate has no mode parameter) still compile
+            if constexpr (mode == CIGAR) index.template locate<dist_metr, CIGAR>(patterns[i], scheme, collect);
+            else                         index.template locate<dist_metr>(patterns[i], scheme, collect);
+
+            // for edit distance the same occurrence may be reported by several search contexts;
+            // deduplicate (as the move-rb-locate tool does) before counting
+            if constexpr (dist_metr == EDIT_DISTANCE) {
+                ips2ra::sort(occurrences.begin(), occurrences.end(), [](const aprx_occ_t<pos_t, mode>& o){ return o.pos; });
+                filter_edit_distance_occurrences<pos_t, mode>(occurrences, (pos_t) scheme.k);
+            }
+
+            time_locate += time_diff_ns(t1);
+            num_occurrences += occurrences.size();
+
+            // memory bookkeeping (outside the timed region): track the largest single-pattern result
+            peak_occ = std::max<uint64_t>(peak_occ, occurrences.size());
+            if constexpr (mode == CIGAR) {
+                uint64_t cig = 0;
+                for (const auto& o : occurrences) cig += (uint64_t) o.cigar.size() * sizeof(cigar_run_t);
+                peak_cigar = std::max(peak_cigar, cig);
+            }
+        }
+        passes++;
+        if (time_locate == time_before) break;
+    } while (time_locate < min_time_ns);
+
+    mem_stats_t mem;
+    mem.peak_mem = malloc_count_peak() - mem_baseline;
+    mem.occ_mem = peak_occ * sizeof(aprx_occ_t<pos_t, mode>);
+    mem.cigar_mem = peak_cigar;
+
+    const std::string dist_str = dist_metr == HAMMING_DISTANCE ? "hamming" : "edit";
+    print_result("locate_" + index_name, cfg.text_name, n, dist_str, cfg.scheme,
+        m, num_patterns, scheme.k, num_occurrences / passes, "time_locate", time_locate / passes, mode == CIGAR, mem);
+}
+
+/**
+ * @brief runs run_locate in CIGAR mode, but only for indexes whose locate can actually emit a per-occurrence
+ *        CIGAR alignment (i.e. move_rb). For indexes that cannot (the b-move / br-index adapters, whose locate has
+ *        no CIGAR overload) this is a no-op with a note, so --cigar never fails a run
+ * @tparam idx_t the index type
+ * @tparam dist_metr the distance metric (HAMMING_DISTANCE or EDIT_DISTANCE)
+ */
+template <typename idx_t, distance_metric_t dist_metr>
+void run_locate_cigar(idx_t& index, uint64_t n, const bench_config_t& cfg, const bench_job_t& job,
+                      const search_scheme_t& scheme, const std::string& index_name)
+{
+    using pos_t = typename idx_t::pos_type;
+
+    if constexpr (requires(idx_t& idx, const std::string& P, const search_scheme_t& s) {
+        idx.template locate<dist_metr, CIGAR>(P, s, [](aprx_occ_t<pos_t, CIGAR>){});
+    }) {
+        run_locate<idx_t, dist_metr, CIGAR>(index, n, cfg, job, scheme, index_name);
+    } else {
+        std::cerr << "note: " << index_name << " cannot produce CIGARs; skipping its CIGAR locate for "
+                  << job.path << std::endl;
+    }
+}
+
+/**
+ * @brief measures every job for the given (already loaded) index. Each pattern file encodes
+ *        exactly one of the four benchmark operations (count/locate x hamming/edit) and is
+ *        measured with that operation
+ * @tparam idx_t the index type (move_rb, b_move_adapter or br_index_adapter)
+ */
+template <typename idx_t>
+void measure_all_jobs(idx_t& index, uint64_t n, const bench_config_t& cfg, const std::string& index_name)
+{
+    const bool do_ham  = cfg.metric == "all" || cfg.metric == "hamming";
+    const bool do_edit = cfg.metric == "all" || cfg.metric == "edit";
+
+    for (const bench_job_t& job : cfg.jobs) {
+        if (job.metric == HAMMING_DISTANCE && !do_ham) continue;
+        if (job.metric == EDIT_DISTANCE && !do_edit) continue;
+
+        if (job.metric == EDIT_DISTANCE && job.k > EDIT_K_LIMIT) {
+            std::cerr << "warning: k = " << job.k << " > " << EDIT_K_LIMIT
+                      << " is not supported for edit distance; skipping " << job.path << std::endl;
+            continue;
+        }
+
+        if (job.op == OP_COUNT && job.metric == EDIT_DISTANCE) {
+            std::cerr << "warning: edit-distance count is not supported; skipping " << job.path << std::endl;
+            continue;
+        }
+
+        search_scheme_t scheme = make_scheme(cfg, job.k);
+        std::cerr << "measuring " << index_name << " on " << job.path << " ..." << std::endl;
+
+        if (job.op == OP_COUNT) {
+            run_count<idx_t>(index, n, cfg, job, scheme, index_name);
+        } else if (job.metric == HAMMING_DISTANCE) {
+            run_locate<idx_t, HAMMING_DISTANCE>(index, n, cfg, job, scheme, index_name);
+            if (cfg.cigar) run_locate_cigar<idx_t, HAMMING_DISTANCE>(index, n, cfg, job, scheme, index_name);
+        } else {
+            run_locate<idx_t, EDIT_DISTANCE>(index, n, cfg, job, scheme, index_name);
+            if (cfg.cigar) run_locate_cigar<idx_t, EDIT_DISTANCE>(index, n, cfg, job, scheme, index_name);
+        }
+    }
+}
+
+// ############################# PER-INDEX MEASUREMENT #############################
+
+void measure_br_index(const bench_config_t& cfg)
+{
+    std::cerr << "loading the br-index from " << cfg.br_index_path << " ..." << std::endl;
+    br_index_adapter::br_index_t br_index;
+    std::ifstream in(cfg.br_index_path);
+
+    if (!in.good()) {
+        throw std::runtime_error("br-index file " + cfg.br_index_path + " not found");
+    }
+
+    load_measured([&]{ br_index.load(in); });
+    in.close();
+
+    br_index_adapter index(br_index);
+    measure_all_jobs<br_index_adapter>(index, index.input_size(), cfg, "br_index");
+}
+
+// ############################# NATIVE COMPETITOR ALGORITHMS #############################
+// In addition to the adapter measurements above (move-r's apm algorithm driven on each structure), b-move and
+// br-index are measured running their OWN approximate-matching algorithms, so the benchmark covers every algorithm.
+
+namespace {
+
+// reads a whole pattern file (pizza&chili header + the fixed-length patterns)
+inline bool read_patterns(const bench_job_t& job, std::vector<std::string>& patterns, uint64_t& m)
+{
+    std::ifstream pf;
+    uint64_t num_patterns;
+    if (!open_patterns(job, pf, num_patterns, m)) return false;
+    if (num_patterns == 0) { std::cerr << "warning: no patterns in " << job.path << "; skipping" << std::endl; return false; }
+    patterns.resize(num_patterns);
+    for (uint64_t i = 0; i < num_patterns; i++) { no_init_resize(patterns[i], m); pf.read(patterns[i].data(), m); }
+    if (!pf) { std::cerr << "warning: " << job.path << " is truncated; skipping" << std::endl; return false; }
+    return true;
+}
+
+// replays a pattern set until at least cfg.min_time_seconds have been measured (>= one pass) and writes the
+// averaged RESULT line; measure_one(i, time) measures pattern i, adds its time and returns its occurrence count.
+// peak_mem is measured over the whole replay; occ_mem / cigar_mem (if provided) are read after the loop -- the
+// caller's measure_one populates them as the peak single-pattern occurrence / CIGAR footprint.
+template <typename measure_t>
+void replay(const bench_config_t& cfg, const bench_job_t& job, uint64_t num_patterns, uint64_t m,
+            uint64_t n, const std::string& algo, const std::string& dist_metr,
+            const std::string& scheme_str, const std::string& time_key, measure_t measure_one,
+            bool cigar = false, const uint64_t* occ_mem = nullptr, const uint64_t* cigar_mem = nullptr)
+{
+    const uint64_t min_time_ns = (uint64_t) (cfg.min_time_seconds * 1e9);
+    uint64_t num_occurrences = 0, time = 0, passes = 0;
+    const uint64_t mem_baseline = malloc_count_current();
+    malloc_count_reset_peak();
+    do {
+        const uint64_t time_before = time;
+        for (uint64_t i = 0; i < num_patterns; i++) num_occurrences += measure_one(i, time);
+        passes++;
+        if (time == time_before) break;
+    } while (time < min_time_ns);
+    mem_stats_t mem;
+    mem.peak_mem = malloc_count_peak() - mem_baseline;
+    mem.occ_mem = occ_mem ? *occ_mem : 0;
+    mem.cigar_mem = cigar_mem ? *cigar_mem : 0;
+    print_result(algo, cfg.text_name, n, dist_metr, scheme_str, m, num_patterns,
+        job.k, num_occurrences / passes, time_key, time / passes, cigar, mem);
+}
+
+// maps a move-r search-scheme name to the closest columba built-in scheme name
+inline std::string columba_scheme_name(const std::string& mr_scheme)
+{
+    if (mr_scheme == "min_u")       return "minU";
+    if (mr_scheme == "pigeon_hole") return "pigeon";
+    if (mr_scheme == "01")          return "01*0";
+    return "minU"; // suffix_filter / file schemes have no columba equivalent -> closest comparable
+}
+
+} // namespace
+
+// measures one columba flavor's NATIVE approximate-locate algorithm (locate only; hamming & edit) through its
+// plugin's C ABI (@p api). algo is locate_columba_rlc (run-length-compressed = b-move) or locate_columba
+// (FM-index). Under --cigar every locate job is additionally measured with CIGAR generation (columba computes
+// real CIGARs -- from the matched string in RLC, from the located text in FM).
+void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg)
+{
+    // each flavor has its own base name (RLC: <text_name>, FM: <text_name>.fm) so their index files do not collide
+    std::string base = (std::filesystem::path(cfg.index_path) / cfg.text_name).string() + api.base_suffix;
+    const std::string scheme_str = columba_scheme_name(cfg.scheme);
+    const std::string flavor = api.flavor;
+    std::cerr << "loading the " << flavor << " (native) index from " << base << " ..." << std::endl;
+
+    // load inside load_measured so the heap growth of the load is captured as index_mem
+    void* handle = nullptr;
+    load_measured([&]{ handle = api.load(base.c_str(), scheme_str.c_str()); });
+    if (handle == nullptr) {
+        std::cerr << "warning: skipping " << flavor << " (index files not found at " << base << ")" << std::endl;
+        return;
+    }
+    const uint64_t n = api.input_size(handle);
+
+    const bool do_ham  = cfg.metric == "all" || cfg.metric == "hamming";
+    const bool do_edit = cfg.metric == "all" || cfg.metric == "edit";
+
+    for (const bench_job_t& job : cfg.jobs) {
+        if (job.op != OP_LOCATE) continue; // columba: locate only (no count)
+        if (job.metric == HAMMING_DISTANCE && !do_ham) continue;
+        if (job.metric == EDIT_DISTANCE && !do_edit) continue;
+        const bool is_edit = job.metric == EDIT_DISTANCE;
+        const int k_limit = is_edit ? api.max_k_edit : api.max_k_hamming;
+        if (job.k > k_limit) {
+            std::cerr << "warning: k=" << job.k << " > " << k_limit << " unsupported by columba; skipping "
+                      << job.path << std::endl;
+            continue;
+        }
+        // the minU search scheme is only defined for k <= 7; use the columba scheme for higher k
+        const std::string job_scheme = job.k <= 7 ? scheme_str : "columba";
+        api.set_scheme(handle, job_scheme.c_str());
+        std::vector<std::string> patterns; uint64_t m;
+        std::cerr << "measuring " << flavor << " (native, " << job_scheme << ") on " << job.path << " ..." << std::endl;
+        if (!read_patterns(job, patterns, m)) continue;
+        const uint64_t num_patterns = patterns.size();
+
+        // precompute the read bundles inside the plugin (kept out of the per-pattern locate time)
+        std::vector<const char*> ptrs(num_patterns);
+        std::vector<uint64_t> lens(num_patterns);
+        for (uint64_t i = 0; i < num_patterns; i++) { ptrs[i] = patterns[i].data(); lens[i] = patterns[i].size(); }
+        void* bundles = api.make_bundles(handle, ptrs.data(), lens.data(), num_patterns);
+        const int metric_edit = is_edit ? 1 : 0;
+        const std::string dist_str = is_edit ? "edit" : "hamming";
+
+        // plain locate (no CIGAR); occ_mem = peak single-pattern occurrence-vector footprint (reported by the plugin)
+        uint64_t occ_mem = 0;
+        replay(cfg, job, num_patterns, m, n, "locate_" + flavor, dist_str,
+            job_scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
+                uint64_t ob = 0, cb = 0;
+                auto t1 = now();
+                uint64_t c = api.locate(handle, bundles, i, metric_edit, (int) job.k, /* cigar */ 0, &ob, &cb);
+                time += time_diff_ns(t1);
+                occ_mem = std::max(occ_mem, ob);
+                return c;
+            }, /* cigar */ false, &occ_mem);
+
+        // additionally, CIGAR-producing locate (cigar=1) -- columba computes a real alignment per occurrence
+        if (cfg.cigar) {
+            uint64_t occ_mem_c = 0, cigar_mem = 0;
+            replay(cfg, job, num_patterns, m, n, "locate_" + flavor, dist_str,
+                job_scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
+                    uint64_t ob = 0, cb = 0;
+                    auto t1 = now();
+                    uint64_t c = api.locate(handle, bundles, i, metric_edit, (int) job.k, /* cigar */ 1, &ob, &cb);
+                    time += time_diff_ns(t1);
+                    occ_mem_c = std::max(occ_mem_c, ob);
+                    cigar_mem = std::max(cigar_mem, cb);
+                    return c;
+                }, /* cigar */ true, &occ_mem_c, &cigar_mem);
+        }
+
+        // additionally: measure move-rb's OWN apm algorithm run on the columba index (same algorithm, different
+        // index), reported as locate_<flavor>_apm and deduplicated like move-rb
+        uint64_t occ_mem_apm = 0;
+        replay(cfg, job, num_patterns, m, n, "locate_" + flavor + "_apm", dist_str,
+            cfg.scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
+                uint64_t ob = 0;
+                auto t1 = now();
+                uint64_t c = api.locate_apm(handle, patterns[i].data(), m, metric_edit, (int) job.k, &ob);
+                time += time_diff_ns(t1);
+                occ_mem_apm = std::max(occ_mem_apm, ob);
+                return c;
+            }, false, &occ_mem_apm);
+
+        api.free_bundles(bundles);
+    }
+    api.destroy(handle);
+}
+
+// directory of the running executable (the columba plugin .so files sit next to it in build/bench/)
+inline std::string executable_dir()
+{
+    char buf[4096];
+    ssize_t len = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len <= 0) return ".";
+    buf[len] = '\0';
+    std::string path(buf);
+    size_t slash = path.find_last_of('/');
+    return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
+}
+
+// dlopen()s one columba flavor plugin (RTLD_LOCAL keeps its columba symbols private, so both flavors coexist in
+// one process) and measures it through the api getter @p api_symbol
+void measure_columba_plugin(const std::string& so_name, const std::string& api_symbol, const bench_config_t& cfg)
+{
+    const std::string so_path = executable_dir() + "/" + so_name;
+    void* lib = dlopen(so_path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (lib == nullptr) {
+        std::cerr << "warning: cannot load columba plugin " << so_path << " (" << dlerror() << ")" << std::endl;
+        return;
+    }
+    using api_getter_t = const columba_api_t* (*)();
+    api_getter_t getter = reinterpret_cast<api_getter_t>(dlsym(lib, api_symbol.c_str()));
+    if (getter == nullptr) {
+        std::cerr << "warning: " << api_symbol << " not found in " << so_path << std::endl;
+        dlclose(lib);
+        return;
+    }
+    measure_columba_api(*getter(), cfg);
+    // the plugin is intentionally left mapped (not dlclose'd) until process exit
+}
+
+// measures the selected columba flavors (run-length-compressed = b-move, and the FM-index), each via its plugin
+void measure_columba_native(const bench_config_t& cfg)
+{
+    if (cfg.selected("columba_rlc")) measure_columba_plugin("libcolumba_rlc_plugin.so", "columba_rlc_api", cfg);
+    if (cfg.selected("columba"))     measure_columba_plugin("libcolumba_fm_plugin.so", "columba_fm_api", cfg);
+}
+
+// measures br-index's NATIVE approximate count & locate algorithm (hamming distance only)
+void measure_br_index_native(const bench_config_t& cfg)
+{
+    std::cerr << "loading the br-index (native) from " << cfg.br_index_path << " ..." << std::endl;
+    std::optional<br_index_native> index_opt;
+    load_measured([&]{ index_opt.emplace(cfg.br_index_path); });
+    br_index_native& index = *index_opt;
+    const uint64_t n = index.bwt_size();
+
+    for (const bench_job_t& job : cfg.jobs) {
+        if (job.metric != HAMMING_DISTANCE) continue; // br-index: hamming distance only
+        std::vector<std::string> patterns; uint64_t m;
+        std::cerr << "measuring br-index (native) on " << job.path << " ..." << std::endl;
+        if (!read_patterns(job, patterns, m)) continue;
+        const uint64_t num_patterns = patterns.size();
+        if (job.op == OP_COUNT)
+            replay(cfg, job, num_patterns, m, n, "count_br_index_native", "hamming", "none", "time_count",
+                [&](uint64_t i, uint64_t& time) {
+                    auto t1 = now(); uint64_t c = index.count_hamming_dist(patterns[i], job.k); time += time_diff_ns(t1); return c;
+                });
+        else
+            replay(cfg, job, num_patterns, m, n, "locate_br_index_native", "hamming", "none", "time_locate",
+                [&](uint64_t i, uint64_t& time) {
+                    auto t1 = now(); uint64_t c = index.locate_hamming_dist(patterns[i], job.k); time += time_diff_ns(t1); return c;
+                });
+    }
+}
+
+namespace {
+
+/**
+ * @brief loads a move_rb index from path and measures all jobs
+ * @tparam support _locate_move or _locate_rlzsa
+ * @tparam pos_t index integer type (uint32_t / uint64_t)
+ */
+template <move_r_support support, typename pos_t>
+void measure_move_rb_impl(const bench_config_t& cfg, const std::string& path, const std::string& index_name)
+{
+    using idx_t = move_rb<support, char, pos_t>;
+    idx_t index;
+
+    std::ifstream in(path);
+    if (!in.good()) {
+        throw std::runtime_error("move_rb index file " + path + " not found");
+    }
+    load_measured([&]{ index.load(in); });
+    in.close();
+
+    measure_all_jobs<idx_t>(index, index.forward_index().input_size(), cfg, index_name);
+}
+
+/**
+ * @brief reads the bit-width flag of a serialized move_rb index
+ * @return true <=> the index was built with a 64-bit position type
+ */
+bool index_is_64_bit(const std::string& path)
+{
+    std::ifstream in(path);
+    bool is_64_bit = false;
+    in.read((char*) &is_64_bit, 1);
+    in.close();
+    return is_64_bit;
+}
+
+} // namespace
+
+void measure_move_rb_move(const bench_config_t& cfg)
+{
+    std::cerr << "loading the move_rb (move) index from " << cfg.move_rb_move_path << " ..." << std::endl;
+
+    if (index_is_64_bit(cfg.move_rb_move_path)) {
+        measure_move_rb_impl<_locate_move, uint64_t>(cfg, cfg.move_rb_move_path, "move_rb_move");
+    } else {
+        measure_move_rb_impl<_locate_move, uint32_t>(cfg, cfg.move_rb_move_path, "move_rb_move");
+    }
+}
+
+void measure_move_rb_rlzsa(const bench_config_t& cfg)
+{
+    std::cerr << "loading the move_rb (rlzsa) index from " << cfg.move_rb_rlzsa_path << " ..." << std::endl;
+
+    if (index_is_64_bit(cfg.move_rb_rlzsa_path)) {
+        measure_move_rb_impl<_locate_rlzsa, uint64_t>(cfg, cfg.move_rb_rlzsa_path, "move_rb_rlzsa");
+    } else {
+        measure_move_rb_impl<_locate_rlzsa, uint32_t>(cfg, cfg.move_rb_rlzsa_path, "move_rb_rlzsa");
+    }
+}
+
+// ############################# DRIVER #############################
+
+// splits a comma-separated string into its non-empty parts
+inline std::vector<std::string> split_csv(const std::string& list)
+{
+    std::vector<std::string> parts;
+    for (size_t start = 0; start <= list.size();) {
+        size_t comma = list.find(',', start);
+        std::string part = list.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        if (!part.empty()) parts.push_back(part);
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    return parts;
+}
+
+void help(const std::string& msg)
+{
+    if (!msg.empty()) std::cout << msg << std::endl;
+    std::cout << "move-rb-bench: benchmarks approximate count- and locate-performance of" << std::endl;
+    std::cout << "               b-move, br-index and move_rb (move & rlzsa). The indexes must be" << std::endl;
+    std::cout << "               built beforehand (each with its own build tool) and placed in <index_path>;" << std::endl;
+    std::cout << "               the pattern sets are generated by move-rb-gen-queries." << std::endl << std::endl;
+    std::cout << "usage: move-rb-bench [...] <text_name> <index_path> <patterns_path>" << std::endl;
+    std::cout << "   -s <scheme>          search scheme to use (default: min_u): one of" << std::endl;
+    std::cout << "                        pigeon_hole, suffix_filter, min_u, 01, or a path to a search-scheme file." << std::endl;
+    std::cout << "                        For the built-in schemes the number of errors k is taken from each pattern" << std::endl;
+    std::cout << "                        file name; a scheme file fixes k itself." << std::endl;
+    std::cout << "   --metric <metric>    (optional) run only one distance metric: all|hamming|edit (default: all)" << std::endl;
+    std::cout << "   --k <list>           (optional) measure only pattern files with these error counts k (comma-separated)" << std::endl;
+    std::cout << "   --m <list>           (optional) measure only pattern files with these pattern lengths m (comma-separated)" << std::endl;
+    std::cout << "   --only <list>        (optional) measure only these indexes (comma-separated; default: all present):" << std::endl;
+    std::cout << "                        move_rb_move, move_rb_rlzsa, columba_rlc, columba, br_index, br_index_native" << std::endl;
+    std::cout << "   --cigar              (optional) additionally measure CIGAR-producing locate: each locate job is" << std::endl;
+    std::cout << "                        measured a second time (RESULT field cigar=1) for the indexes that emit a" << std::endl;
+    std::cout << "                        per-occurrence CIGAR alignment (move_rb and columba), so the alignment cost" << std::endl;
+    std::cout << "                        shows next to the plain locate" << std::endl;
+    std::cout << "   --time <s>           (optional) replay each pattern file's query set until at least <s> seconds" << std::endl;
+    std::cout << "                        have been measured for it (>= one pass); the reported time_* is then the" << std::endl;
+    std::cout << "                        average time for one pass over the set (num_patterns and num_occurrences stay" << std::endl;
+    std::cout << "                        per-pass). 0 = a single pass; default: 10" << std::endl;
+    std::cout << "   <text_name>          name of the original text (used in the output and pattern file names)" << std::endl;
+    std::cout << "   <index_path>         directory containing the index files; each index is measured if present:" << std::endl;
+    std::cout << "                        <text_name>.move-rb (move_rb move), <text_name>.move-rb-rlzsa (move_rb rlzsa)," << std::endl;
+    std::cout << "                        <text_name>.bri (br-index), the columba-rlc index (base <index_path>/<text_name>)" << std::endl;
+    std::cout << "                        and the columba FM index (base <index_path>/<text_name>.fm); columba is ACGT-only" << std::endl;
+    std::cout << "   <patterns_path>      directory containing the pattern files (from move-rb-gen-queries) of the form" << std::endl;
+    std::cout << "                        <text_name>.patterns-{count,locate}-{hamming,edit}-k<value>-m<value>" << std::endl;
+    exit(0);
+}
+
+/**
+ * @brief resolves cfg.scheme: a built-in scheme name is kept as-is; anything else is
+ *        treated as a path to a search-scheme file, which is parsed into cfg.file_scheme
+ */
+void resolve_scheme(bench_config_t& cfg)
+{
+    if (cfg.scheme == "pigeon_hole" ||
+        cfg.scheme == "suffix_filter" ||
+        cfg.scheme == "min_u" ||
+        cfg.scheme == "01"
+    ) return;
+
+    if (!std::filesystem::exists(cfg.scheme)) {
+        help("error: -s must be pigeon_hole, suffix_filter, min_u, 01 or a path to a search-scheme file");
+    }
+
+    uint64_t size = std::filesystem::file_size(cfg.scheme);
+    std::string content;
+    no_init_resize(content, size);
+    std::ifstream f(cfg.scheme);
+    f.read(content.data(), size);
+    cfg.file_scheme = parse_search_scheme(content);
+    cfg.scheme_from_file = true;
+}
+
+/**
+ * @brief tries to parse a pattern file name of the form
+ *        <text_name>.patterns-{count,locate}-{hamming,edit}-k<value>-m<value>
+ * @return whether name matched (and job was filled)
+ */
+bool parse_pattern_file_name(const std::string& name, const std::string& text_name, const std::string& path, bench_job_t& job)
+{
+    const std::string prefix = text_name + ".patterns-";
+    if (name.compare(0, prefix.size(), prefix) != 0) return false;
+    std::string rest = name.substr(prefix.size());
+
+    if (rest.compare(0, 6, "count-") == 0) {
+        job.op = OP_COUNT;
+        rest = rest.substr(6);
+    } else if (rest.compare(0, 7, "locate-") == 0) {
+        job.op = OP_LOCATE;
+        rest = rest.substr(7);
+    } else {
+        return false;
+    }
+
+    if (rest.compare(0, 8, "hamming-") == 0) {
+        job.metric = HAMMING_DISTANCE;
+        rest = rest.substr(8);
+    } else if (rest.compare(0, 5, "edit-") == 0) {
+        job.metric = EDIT_DISTANCE;
+        rest = rest.substr(5);
+    } else {
+        return false;
+    }
+
+    // rest must now be "k<value>-m<value>"
+    if (rest.empty() || rest[0] != 'k') return false;
+    size_t dash = rest.find("-m");
+    if (dash == std::string::npos) return false;
+
+    std::string k_str = rest.substr(1, dash - 1);
+    std::string m_str = rest.substr(dash + 2);
+
+    if (k_str.empty() || m_str.empty()) return false;
+    for (char c : k_str) if (!std::isdigit((unsigned char) c)) return false;
+    for (char c : m_str) if (!std::isdigit((unsigned char) c)) return false;
+
+    job.k = std::stoll(k_str);
+    job.m = std::stoull(m_str);
+    job.path = path;
+    return true;
+}
+
+int main(int argc, char** argv)
+{
+    std::setlocale(LC_ALL, "C");
+    bench_config_t cfg;
+    int arg_idx = 1;
+
+    // optional flags
+    while (arg_idx < argc && argv[arg_idx][0] == '-') {
+        std::string opt = argv[arg_idx++];
+        if (opt == "-s") {
+            if (arg_idx >= argc) help("error: missing scheme after -s");
+            cfg.scheme = argv[arg_idx++];
+        } else if (opt == "--metric") {
+            if (arg_idx >= argc) help("error: missing metric after --metric");
+            cfg.metric = argv[arg_idx++];
+        } else if (opt == "--time") {
+            if (arg_idx >= argc) help("error: missing seconds after --time");
+            cfg.min_time_seconds = std::stod(argv[arg_idx++]);
+            if (cfg.min_time_seconds < 0) help("error: --time must be >= 0");
+        } else if (opt == "--cigar") {
+            cfg.cigar = true;
+        } else if (opt == "--only") {
+            if (arg_idx >= argc) help("error: missing index list after --only");
+            cfg.only = split_csv(argv[arg_idx++]);
+            static const std::vector<std::string> valid = {
+                "move_rb_move", "move_rb_rlzsa", "columba_rlc", "columba", "br_index", "br_index_native"};
+            for (const std::string& name : cfg.only)
+                if (std::find(valid.begin(), valid.end(), name) == valid.end())
+                    help("error: unknown index '" + name + "' in --only (valid: " +
+                         "move_rb_move, move_rb_rlzsa, columba_rlc, columba, br_index, br_index_native)");
+        } else if (opt == "--k") {
+            if (arg_idx >= argc) help("error: missing k list after --k");
+            for (const std::string& s : split_csv(argv[arg_idx++])) cfg.k_filter.push_back(std::stoll(s));
+        } else if (opt == "--m") {
+            if (arg_idx >= argc) help("error: missing m list after --m");
+            for (const std::string& s : split_csv(argv[arg_idx++])) cfg.m_filter.push_back(std::stoull(s));
+        } else {
+            help("error: unrecognized option '" + opt + "'");
+        }
+    }
+
+    // the three positional arguments
+    if (argc - arg_idx != 3) help("");
+    cfg.text_name = argv[arg_idx++];
+    cfg.index_path = argv[arg_idx++];
+    cfg.patterns_path = argv[arg_idx++];
+
+    if (!std::filesystem::is_directory(cfg.index_path)) {
+        help("error: <index_path> is not a directory");
+    }
+
+    // all index files live in <index_path> and share the base name <text_name>
+    cfg.move_rb_move_path  = (std::filesystem::path(cfg.index_path) / (cfg.text_name + ".move-rb")).string();
+    cfg.move_rb_rlzsa_path = (std::filesystem::path(cfg.index_path) / (cfg.text_name + ".move-rb-rlzsa")).string();
+    cfg.br_index_path      = (std::filesystem::path(cfg.index_path) / (cfg.text_name + ".bri")).string();
+
+    resolve_scheme(cfg);
+
+    if (!std::filesystem::is_directory(cfg.patterns_path)) {
+        help("error: <patterns_path> is not a directory");
+    }
+
+    // collect all matching pattern files (restricted to the --k / --m values if given)
+    auto in_filter = [](const auto& filter, auto value) {
+        return filter.empty() || std::find(filter.begin(), filter.end(), value) != filter.end();
+    };
+    for (const auto& entry : std::filesystem::directory_iterator(cfg.patterns_path)) {
+        if (!entry.is_regular_file()) continue;
+        bench_job_t job;
+        if (parse_pattern_file_name(entry.path().filename().string(), cfg.text_name, entry.path().string(), job)) {
+            if (in_filter(cfg.k_filter, job.k) && in_filter(cfg.m_filter, job.m)) cfg.jobs.emplace_back(job);
+        }
+    }
+
+    if (cfg.jobs.empty()) {
+        help("error: no pattern files of the form <text_name>.patterns-{count,locate}-{hamming,edit}-k<value>-m<value> found in <patterns_path>");
+    }
+
+    // deterministic order: count before locate, then by k, then by m
+    std::sort(cfg.jobs.begin(), cfg.jobs.end(), [](const bench_job_t& a, const bench_job_t& b) {
+        if (a.op != b.op) return a.op < b.op;
+        if (a.k != b.k) return a.k < b.k;
+        return a.m < b.m;
+    });
+
+    std::cerr << "found " << cfg.jobs.size() << " pattern file(s) for text '" << cfg.text_name << "'" << std::endl;
+
+    // measure each index independently; a failure to load one index (e.g. a missing
+    // file) only reports that index as skipped instead of aborting the whole benchmark
+    auto guarded = [](const char* name, void (*fnc)(const bench_config_t&), const bench_config_t& cfg) {
+        try {
+            fnc(cfg);
+        } catch (const std::exception& e) {
+            std::cerr << "warning: skipping " << name << " (" << e.what() << ")" << std::endl;
+        }
+    };
+
+    // measure every selected index found in <index_path> (all if --only was not given); a missing index is
+    // reported and skipped (guarded). columba (both flavors) is handled per-flavor inside measure_columba_native
+    if (cfg.selected("br_index"))                                 guarded("br-index", measure_br_index, cfg);
+    if (cfg.selected("columba_rlc") || cfg.selected("columba"))   guarded("columba (native)", measure_columba_native, cfg);
+    if (cfg.selected("br_index_native"))                          guarded("br-index (native)", measure_br_index_native, cfg);
+    if (cfg.selected("move_rb_move"))                             guarded("move_rb (move)", measure_move_rb_move, cfg);
+    if (cfg.selected("move_rb_rlzsa"))                            guarded("move_rb (rlzsa)", measure_move_rb_rlzsa, cfg);
+
+    return 0;
+}

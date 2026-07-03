@@ -41,9 +41,6 @@ inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::bui
     pos_t blk_size = idx_dir.L_block_size();
     pos_t max = max_sym;
 
-    std::fill_n(next.begin(), max_sym + 1, LONG_MAX);
-    std::fill_n(prev.begin(), max_sym + 1, std::numeric_limits<int64_t>::min());
-
     const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = const_vars<dir>();
 
     pos_t blk = div_ceil<pos_t>(b_, blk_size);
@@ -56,6 +53,8 @@ inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::bui
         for (pos_t i = 0; i <= max; i++) {
             next[i] = idx_dir.L_next(blk_beg + i);
         }
+    } else {
+        std::fill_n(next.begin(), max_sym + 1, LONG_MAX);
     }
 
     for (int64_t i = end; i >= beg; i--) {
@@ -72,6 +71,8 @@ inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::bui
         for (pos_t i = 0; i <= max; i++) {
             prev[i] = idx_dir.L_prev(blk_beg + i);
         }
+    } else {
+        std::fill_n(prev.begin(), max_sym + 1, LONG_MIN);
     }
 
     for (int64_t i = beg; i <= end; i++) {
@@ -119,9 +120,6 @@ inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::upd
         if (s_old.d == dir) s.i++;
     }
 
-    s.shft = s_old.shft;
-    s.dpth = s_old.dpth + 1;
-    s.rprtd = false;
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -272,8 +270,8 @@ void move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::prepare_ex
     ctx->template build_prev_next<dir>(prev, next, idx->sigma);
 
     sym_nxt = 0;
-    b_R_nxt = b_R + (next[0] <= prev[0] && prev[0] < idx->template index<dir>().M_LF().num_intervals());
-    this->template next_symbol<dir>();
+    b_R_nxt = b_R + next[0] <= prev[0] && prev[0] < idx->template index<dir>().M_LF().num_intervals();
+    this->template advance_symbol<dir>();
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -353,7 +351,7 @@ auto move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::extend_nex
     new_ctx.err = 0;
 
     b_R_nxt = e_R + 1;
-    this->template next_symbol<dir>();
+    this->template advance_symbol<dir>();
 
     return new_ctx;
 }
@@ -412,14 +410,12 @@ inline pos_t move_rb<support, sym_t, pos_t>::locate_context_t::first_occ()
             }
         } else if constexpr (support == _locate_rlzsa) {
             if (dir == LEFT) {
-                // prepare rlz_l to decode SA[c] (with rlz_l.value() = SA[c]) and advance to the left
                 rlz_l = idx->idx_fwd.rlzsa().decode();
                 rlz_l.set_value(SA_i);
                 rlz_l.init_left(c);
             }
 
             if (c < e) [[likely]] {
-                // prepare rlz_r to decode SA[c+1] (with rlz_r.value() = SA[c]) and advance to the right
                 rlz_r = idx->idx_fwd.rlzsa().decode();
                 rlz_r.set_value(SA_i);
                 rlz_r.init_right(c + 1);
@@ -474,7 +470,7 @@ inline pos_t move_rb<support, sym_t, pos_t>::locate_context_t::next_occ()
     }
 
     occ_rem--;
-    return occ + s.shft;
+    return occ;
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -486,7 +482,7 @@ inline void move_rb<support, sym_t, pos_t>::locate_context_t::locate(report_fnc_
 
     if (occ_rem == ctx->num_occ()) {
         first_occ();
-        if constexpr (report_pos) report(c, SA_c + s.shft); else report(SA_c + s.shft);
+        if constexpr (report_pos) report(c, SA_c); else report(SA_c);
     }
 
     if constexpr (support == _locate_move) {
@@ -494,7 +490,7 @@ inline void move_rb<support, sym_t, pos_t>::locate_context_t::locate(report_fnc_
             while (i > b) {
                 idx->idx_fwd.M_Phi().move(SA_i, s_);
                 i--;
-                if constexpr (report_pos) report(i, SA_i + s.shft); else report(SA_i + s.shft);
+                if constexpr (report_pos) report(i, SA_i); else report(SA_i);
             }
 
             if (c < e) {
@@ -508,20 +504,17 @@ inline void move_rb<support, sym_t, pos_t>::locate_context_t::locate(report_fnc_
             while (i < e) {
                 idx->idx_fwd.M_Phi_m1().move(SA_i, s_);
                 i++;
-                if constexpr (report_pos) report(i, SA_i + s.shft); else report(SA_i + s.shft);
+                if constexpr (report_pos) report(i, SA_i); else report(SA_i);
             }
         }
     } else if constexpr (support == _locate_rlzsa) {
         if (dir == LEFT) {
-            rlz_l.set_value(rlz_l.value() + s.shft);
             rlz_l.report_left(b, report);
 
             if (c < e) [[likely]] {
                 dir = RIGHT;
-                rlz_r.set_value(SA_c + s.shft);
+                rlz_r.set_value(SA_c);
             }
-        } else /* if (dir == RIGHT) */ {
-            rlz_r.set_value(rlz_r.value() + s.shft);
         }
 
         if (c < e) [[likely]] {
@@ -532,12 +525,10 @@ inline void move_rb<support, sym_t, pos_t>::locate_context_t::locate(report_fnc_
     occ_rem = 0;
 }
 
-// ############################# extend_context_t next_symbol #############################
-
 template <move_r_support support, typename sym_t, typename pos_t>
 template <query_support_t query_support>
 template <direction_t dir>
-void move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::next_symbol()
+void move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::advance_symbol()
 {
     do {
         sym_nxt++;

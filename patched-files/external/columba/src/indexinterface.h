@@ -1,7 +1,7 @@
 /******************************************************************************
- *  b-move: bidirectional move structure                                      *
- *  Copyright (C) 2020-2024 - Lore Depuydt <lore.depuydt@ugent.be> and        *
- *                            Luca Renders <luca.renders@ugent.be> and        *
+ *  Columba: Approximate Pattern Matching using Search Schemes                *
+ *  Copyright (C) 2020-2022 - Luca Renders <luca.renders@ugent.be> and        *
+ *                            Lore Depuydt <lore.depuydt@ugent.be> and        *
  *                            Jan Fostier <jan.fostier@ugent.be>              *
  *                                                                            *
  *  This program is free software: you can redistribute it and/or modify      *
@@ -23,7 +23,7 @@
 #include "alphabet.h"
 #include "bitparallelmatrix.h" // for BitParallelED64
 #include "definitions.h"       // for length_t, PairStatus, Strand
-#include "rindexhelpers.h"      // for SARangePair, Range, TextOcc
+#include "indexhelpers.h"      // for SARangePair, Range, TextOcc
 #include "reads.h"             // for ReadBundle
 #include "substring.h"         // for Substring
 #include "tkmer.h"             // for Kmer, KmerHash
@@ -35,6 +35,7 @@
 #include <string>                   // for string, char_traits<>::pos_type
 #include <utility>                  // for pair
 #include <vector>                   // for vector
+                                    // RUN_LENGTH_COMPRESSION
 
 class MemoryMappedTextFile;
 class Search;
@@ -61,6 +62,7 @@ class IndexInterface {
     thread_local static Direction dir; // the direction of the index
     thread_local static ExtraCharPtr
         extraChar; // pointer to extra char method (for direction)
+                   // RUN_LENGTH_COMPRESSION
 
     // stacks for search schemes
     thread_local static std::vector<std::vector<FMPosExt>>
@@ -89,26 +91,35 @@ class IndexInterface {
     // assignment/SAM info
     std::vector<length_t> startPos;    // the start positions of the sequences
     std::vector<std::string> seqNames; // the names of the sequences
+    std::vector<length_t> firstSeqIDPerFile; // the first seqID per FASTA file
+
+    bool noCIGAR = false; // do not calculate the CIGAR string
+
+    // in-text verification matrices
+    thread_local static std::vector<BitParallelED64>
+        fullReadMatrices; // the in-text verification matrices
+    thread_local static BitParallelED64*
+        fullReadMatrix; // pointer to the current fullReadMatrix
+
+    thread_local static std::vector<BitParallelED128>
+        fullReadMatrices128; // the in-text verification matrices for many
+                             // errors/start positions
+    thread_local static BitParallelED128*
+        fullReadMatrix128; // pointer to the current fullReadMatrix for many
+                           // errors/start positions
 
     // ----------------------------------------------------------------------------
     // PREPROCESSING ROUTINES
     // ----------------------------------------------------------------------------
 
     /**
-     * Private helper function that reads in all the necessary files
-     * @param baseFile the baseFile of the files that will be read in
-     * @param verbose if true the steps will we written to cout
-     */
-    virtual void fromFiles(const std::string& baseFile, bool verbose) = 0;
-
-    /**
-     * Read the counts array, the build_tag info and the
+     * Read the counts array, the build_tag info, the flavor and the
      * compilation-bits info of the index.
      * @param baseFile The base name of the files that contain the info about
      * the index.
      * @param verbose If true, the steps will be written to cout.
      */
-    void readTagCompAndCounts(const std::string& baseFile, bool verbose);
+    void readMetaAndCounts(const std::string& baseFile, bool verbose);
 
     /**
      * Read the sequence names and start positions of the sequences in the
@@ -151,26 +162,51 @@ class IndexInterface {
     //  APPROXIMATE PATTERN MATCHING
     // ----------------------------------------------------------------------------
     /**
+     * Helper function for approximate matching with the edit distance metric.
+     * This function crosses over from in-index matching to in-text
+     * verification.
+     * @param node The current node in the index.
+     * @param s The current search.
+     * @param parts The parts of the pattern.
+     * @param occ The data structure with the in-index and in-text occurrences,
+     * if an in-text occurrence is found it will be added to this data
+     * structure.
+     * @param counters The performance counters.
+     * @param pattern The pattern to verify.
+     * @param idx The index in the search
+     * @param bpED The bit-parallel alignment matrix of the current part.
+     * @param sMatch The approximate match found for the previous part
+     * @param dOther The descendants of the other direction.
+     * @param iOther The initialization eds of the other direction.
+     */
+    void goToInTextVerificationEdit(const FMPosExt& node, const Search& s,
+                                    const std::vector<Substring>& parts,
+                                    Occurrences& occ, Counters& counters,
+                                    const Substring& pattern, length_t idx,
+                                    IBitParallelED* bpED, const FMOcc& sMatch,
+                                    const std::vector<FMPosExt>& dOther,
+                                    const std::vector<uint16_t>& iOther);
+    /**
      * Matches a search recursively with a depth first approach (each branch
      * of the tree is fully examined until the backtracking condition is
      * met) using the edit distance metric. This function uses all
      * optimizations for eliminating redundancy in the edit distance metric
-     * @param search, the search to follow
-     * @param startMatch, the approximate match found for all previous
+     * @param search the search to follow
+     * @param startMatch the approximate match found for all previous
      * partitions of the search
-     * @param occ, a data structure with matches of the complete search, if
+     * @param occ a data structure with matches of the complete search, if
      * such a match is found it will be added to this data structure
-     * @param parts, the parts of the pattern
+     * @param parts the parts of the pattern
      * @param counters the performance counters
-     * @param idx, the index of the partition to match, defaults to 1 as an
+     * @param idx the index of the partition to match, defaults to 1 as an
      * exact search for the zeroth partition is assumed
-     * @param descPrevDir, the descendants of the previous direction,
+     * @param descPrevDir the descendants of the previous direction,
      * defaults to empty vector
-     * @param initPrevDir, the initialization eds of the previous direction,
+     * @param initPrevDir the initialization eds of the previous direction,
      * defaults to empty vector
-     * @param descNotPrevDir, the descendants of the other direction,
+     * @param descNotPrevDir the descendants of the other direction,
      * defaults to empty vector
-     * @param initNotPrevDir, the initialization eds of the other direction,
+     * @param initNotPrevDir the initialization eds of the other direction,
      * defaults to empty vector
      */
     void recApproxMatchEdit(
@@ -221,7 +257,7 @@ class IndexInterface {
 
     /**
      * Finds the range of Pc using unidirectional backward matching. With
-     * toeholds.
+     * toeholds in the case of run-length compression
      * @param positionInAlphabet the position in alphabet of the character c
      * that is added in the back
      * @param rangeOfP the range over the suffix array of the text
@@ -244,7 +280,7 @@ class IndexInterface {
      * that is added in the front.
      * @param rangesOfP the ranges of pattern P, only the backwards range is
      * used
-     * @param childRanges the ranges corresponding to string cP, this
+     * @param rangesOfChild the ranges corresponding to string cP, this
      * will be set during execution. The getRangeSARev() function will return a
      * dummy!
      * @returns true if the range is not empty, false otherwise
@@ -252,6 +288,20 @@ class IndexInterface {
     virtual bool findRangesWithExtraCharBackwardUniDirectional(
         length_t positionInAlphabet, const SARangePair& rangesOfP,
         SARangePair& rangesOfChild) const = 0;
+
+#ifdef RUN_LENGTH_COMPRESSION
+
+    void updateMatchStr(std::vector<char>& matchStr, char c, length_t row,
+                        length_t startSize) const {
+        assert(c != 0 && "Cannot update match string with a null character.");
+        size_t numToKeep = startSize + (row - 1);
+        assert(matchStr.size() >= numToKeep);
+        matchStr.resize(numToKeep);
+        matchStr.push_back(c);
+
+        return;
+    }
+#endif // RUN_LENGTH_COMPRESSION
 
     /**
      * Helper function for the approximate matching. This function fills in
@@ -279,7 +329,7 @@ class IndexInterface {
      * @return false if the search can continue along this branch for the
      * current part, true if the search should backtrack.
      */
-    bool branchAndBound(IBitParallelED* bpED, Cluster& cluster,
+    bool branchAndBound(IBitParallelED* bpED, MatrixMetaInfo& cluster,
                         const FMPosExt& currentNode, const Search& s,
                         const length_t& idx,
                         const std::vector<Substring>& parts, Occurrences& occ,
@@ -304,15 +354,84 @@ class IndexInterface {
      * @param descOtherD The known descendants in the other direction.
      * @param initOtherD Edit distance values of known descendants in the other
      * direction.
-     * @param remDescThe remaining descendants on the current branch,
+     * @param remDesc The remaining descendants on the current branch,
      * that are already created but aren't checked yet and might need to be
      * checked for the next part.
      */
-    void goDeeper(Cluster& cluster, const length_t& nIdx, const Search& s,
-                  const std::vector<Substring>& parts, Occurrences& occ,
-                  Counters& counters, const std::vector<FMPosExt>& descOtherD,
+    void goDeeper(MatrixMetaInfo& cluster, const length_t& nIdx,
+                  const Search& s, const std::vector<Substring>& parts,
+                  Occurrences& occ, Counters& counters,
+                  const std::vector<FMPosExt>& descOtherD,
                   const std::vector<uint16_t>& initOtherD,
                   const std::vector<FMPosExt>& remDesc);
+
+    // ----------------------------------------------------------------------------
+    // IN TEXT VERIFICATION ROUTINES
+    // ----------------------------------------------------------------------------
+
+    /**
+     * Verifies the text occurrences in the text and adds them to the
+     * occurrences for the edit distance metric. WARNING: This function makes
+     * use of the fullReadMatrix pointer. Before calling this function make sure
+     * the pointer has been set correctly (using the setIndexInMode function).
+     * @param sPos The start positions to be verified.
+     * @param maxED The maximal edit distance that is allowed for the search.
+     * @param minED The minimal edit distance that is allowed for the search.
+     * @param occ Data structure with the in-index and in-text occurrences, if
+     * an occurrence, either in-index or in-text, is found it will be added to
+     * this data structure.
+     * @param counters The performance counters.
+     * @param pattern The pattern to verify.
+     * @param fixedStartPos Whether the start positions are fixed or not.
+     */
+    virtual void inTextVerification(const std::vector<length_t>& sPos,
+                                    const length_t& maxED,
+                                    const length_t& minED, Occurrences& occ,
+                                    Counters& counters,
+                                    const Substring& pattern,
+                                    bool fixedStartPos) const = 0;
+
+    /**
+     * Verifies an in-text occurrence and adds it to the occurrences for the
+     * edit distance metric. WARNING: This function makes use of the
+     * fullReadMatrix pointer. Before calling this function make sure the
+     * pointer has been set correctly (using the setIndexInMode function).
+     * @param startPos the start position of the in-text occurrence to verify
+     * @param endPos the end position of the in-text occurrence to verify
+     * @param maxED the maximal allowed edit distance
+     * @param minED the minimal allowed edit distance
+     * @param occ the Occurrences data structure to add a valid in-text
+     * occurrence to
+     * @param counters the performance counters
+     * @param pattern the pattern to verify
+     */
+    virtual void
+    inTextVerificationOneString(const length_t startPos, const length_t endPos,
+                                const length_t& maxED, const length_t& minED,
+                                Occurrences& occ, Counters& counters,
+                                const std::string& pattern) const = 0;
+    /**
+     * In text verification for the Hamming distance.
+     * @param node The node in the index at which the switch to in-text
+     * verification will happen.
+     * @param s The current search.
+     * @param parts The parts of the pattern for this search.
+     * @param idx The current index in the search.
+     * @param occ Data structure with all occurrences, both in FM Index and in
+     * text. If in-text verification leads to valid text occurrences, these will
+     * be added to occ
+     * @param counters The performance counters.
+     */
+    virtual void inTextVerificationHamming(const FMPosExt& node,
+                                           const Search& s,
+                                           const std::vector<Substring>& parts,
+                                           const length_t idx, Occurrences& occ,
+                                           Counters& counters) const = 0;
+
+    virtual void inTextVerificationHamming(
+        const Range& r, const Substring& pattern, const length_t maxEDFull,
+        const length_t minEDFull, const length_t lengthBefore, Occurrences& occ,
+        Counters& counters) const = 0;
 
     // ----------------------------------------------------------------------------
     // LOCATION ROUTINES
@@ -356,7 +475,7 @@ class IndexInterface {
      * @param stack The stack to push the children on.
      * @param counters The performance counters.
      */
-    void extendFMPos(const FMPosExt& pos, std::vector<FMPosExt>& stack,
+    void extendFMPos(const FMPos& pos, std::vector<FMPosExt>& stack,
                      Counters& counters) const;
 
     // ----------------------------------------------------------------------------
@@ -371,10 +490,10 @@ class IndexInterface {
      * @param pairStatus The status of the current read in its pair. [default =
      * FIRST_IN_PAIR]
      */
-    void setIndexInModeSubRoutine(Strand reverseComplement,
-                                  PairStatus firstRead = FIRST_IN_PAIR) {
-        strand = reverseComplement;
-        pairStatus = firstRead;
+    void setIndexInModeSubRoutine(Strand strand,
+                                  PairStatus pairStatus = FIRST_IN_PAIR) {
+        this->strand = strand;
+        this->pairStatus = pairStatus;
     }
 
   public:
@@ -388,12 +507,14 @@ class IndexInterface {
      * the index.
      * @param verbose If true, the steps will be written to cout. [default =
      * true]
+     * @param noCIGAR If true, the CIGAR string will not be calculated.
      * @param wordSize The size of the mers to be stored in the hashtable. Used
      * for quick look-ups of exact seeds. [default = 10]
      */
     IndexInterface(const std::string& baseFile, bool verbose = true,
-                   length_t wordSize = 10)
-        : baseFile(baseFile), wordSize(wordSize) {
+                   bool noCIGAR = false, length_t wordSize = 10)
+        : baseFile(baseFile), wordSize(wordSize), noCIGAR(noCIGAR) {
+        readMetaAndCounts(baseFile, verbose);
     }
 
     /**
@@ -410,11 +531,22 @@ class IndexInterface {
      */
     virtual SARangePair getCompleteRange() const = 0;
 
+    /**
+     * @brief Get the Empty String FMPos object
+     *
+     * @return FMPosExt
+     */
+    virtual FMPos getEmptyStringFMPos() const = 0;
+
     // ----------------------------------------------------------------------------
     // ROUTINES FOR ACCESSING THE DATA STRUCTURE
     // ----------------------------------------------------------------------------
 
- 
+    /**
+     * Get the original text
+     */
+    virtual const std::string& getText() const = 0;
+
     /**
      * Get the length of the text
      */
@@ -429,53 +561,43 @@ class IndexInterface {
         return wordSize;
     }
 
-    // ----------------------------------------------------------------------------
-    // ADDITIONS FOR Move-r APPROXIMATE-PATTERN-MATCHING ADAPTER
-    // ----------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // ADDITIONS FOR THE Move-r APPROXIMATE-PATTERN-MATCHING ADAPTER
+    // ------------------------------------------------------------------------
+
+    /** @returns the size of the alphabet (including the sentinel) */
+    length_t alphabetSize() const { return sigma.size(); }
+
+    /** Maps a character to its alphabet index (0 = sentinel, -1 if not in the alphabet). */
+    int charToIdx(char c) const { return sigma.c2i(c); }
+
+    /** Maps an alphabet index back to its character. */
+    char idxToChar(int i) const { return sigma.i2c(i); }
 
     /**
-     * @returns the size of the alphabet (including the sentinel)
-     */
-    length_t alphabetSize() const {
-        return sigma.size();
-    }
-
-    /**
-     * Maps a character to its index in the alphabet.
-     * @param c the character
-     * @returns 0 for the sentinel, 1..alphabetSize()-1 for the other
-     *          characters, or -1 if the character does not occur in the alphabet
-     */
-    int charToIdx(char c) const {
-        return sigma.c2i(c);
-    }
-
-    /**
-     * Maps an alphabet index back to its character.
-     * @param i the alphabet index (in [0, alphabetSize()))
-     * @returns the corresponding character
-     */
-    char idxToChar(int i) const {
-        return sigma.i2c(i);
-    }
-
-    /**
-     * Extends a match by one character in the given direction. This is a thin
-     * public wrapper around the (protected) bidirectional extension routines so
-     * that an external bidirectional searcher can drive the index.
-     * @param positionInAlphabet index in the alphabet of the character to add
+     * Extends a match by one character in the given direction; a thin public wrapper around the
+     * (protected) bidirectional extension routines so an external searcher (move_r's apm) can drive the index.
+     * @param positionInAlphabet the alphabet index of the character to add
      * @param d FORWARD to append (Pc), BACKWARD to prepend (cP)
      * @param parent the ranges of the current match P
      * @param child output: the ranges of the extended match
-     * @returns true if the extended match occurs in the text, false otherwise
+     * @returns whether the extended match occurs in the text
      */
-    bool extendRange(length_t positionInAlphabet, Direction d,
-                     const SARangePair& parent, SARangePair& child) const {
-        return (d == FORWARD)
-                   ? findRangesWithExtraCharForward(positionInAlphabet, parent,
-                                                    child)
-                   : findRangesWithExtraCharBackward(positionInAlphabet, parent,
-                                                     child);
+    bool extendRange(length_t positionInAlphabet, Direction d, const SARangePair& parent, SARangePair& child) const {
+        return d == FORWARD ? findRangesWithExtraCharForward(positionInAlphabet, parent, child)
+                            : findRangesWithExtraCharBackward(positionInAlphabet, parent, child);
+    }
+
+    /**
+     * Get the cross-over point form in-index to in-text verification
+     */
+    virtual length_t getSwitchPoint() const = 0;
+
+    /**
+     * @brief Check if the CIGAR string must be reported
+     */
+    bool getNoCIGAR() const {
+        return noCIGAR;
     }
 
     /**
@@ -493,7 +615,8 @@ class IndexInterface {
      * found it returns empty ranges.
      */
     SARangePair lookUpInKmerTable(const Substring& p) const {
-        auto it = table.find(Kmer(p.tostring()));
+
+        auto it = table.find(Kmer(p.getText(), p.begin()));
         return (it == table.end() || p.containsN()) ? SARangePair()
                                                     : it->second;
     }
@@ -522,6 +645,11 @@ class IndexInterface {
                              length_t largestStratum,
                              const DistanceMetric& metric,
                              const std::string& pattern) const;
+
+    inline bool isInFirstFile(const TextOcc& occ) const {
+        return firstSeqIDPerFile.size() == 1 ||
+               occ.getEnd() < startPos[firstSeqIDPerFile[1]];
+    }
     // ----------------------------------------------------------------------------
     // ROUTINES FOR EXACT MATCHING
     // ----------------------------------------------------------------------------
@@ -633,6 +761,35 @@ class IndexInterface {
     void approxMatchesNaive(const std::string& pattern, length_t maxED,
                             Counters& counters, std::vector<TextOcc>& occ);
 
+    void approxMatchesNaiveHamming(const std::string& pattern, length_t maxED,
+                                   Counters& counters,
+                                   std::vector<TextOcc>& occ);
+
+    /**
+     * Get the in-Text verification matrix for the read on the given strand with
+     * the given pair status.
+     * @param strand The strand to align to.
+     * @param pairStatus The pair status of the read (first or second).
+     */
+    BitParallelED64& getFullReadMatrix(Strand strand,
+                                       PairStatus pairStatus) const {
+        return fullReadMatrices[strand * 2 + pairStatus];
+    }
+
+    BitParallelED128& getFullReadMatrix128(Strand strand,
+                                           PairStatus pairStatus) const {
+        return fullReadMatrices128[strand * 2 + pairStatus];
+    }
+
+    void resetFullReadMatrices() {
+        for (auto& matrix : fullReadMatrices) {
+            matrix.reset();
+        }
+        for (auto& matrix : fullReadMatrices128) {
+            matrix.reset();
+        }
+    }
+
     /**
      * Sets the search direction of the fm-index
      * @param d the direction to search in, either FORWARD or BACKWARD
@@ -656,8 +813,8 @@ class IndexInterface {
      * @param pairStatus The status of the current read in its pair. [default =
      * FIRST_IN_PAIR]
      */
-    virtual void setIndexInMode(Strand reverseComplement,
-                                PairStatus firstRead = FIRST_IN_PAIR) = 0;
+    virtual void setIndexInMode(Strand strand,
+                                PairStatus pairStatus = FIRST_IN_PAIR) = 0;
 
     /**
      * Matches a search recursively with a depth first approach (each branch
@@ -700,14 +857,67 @@ class IndexInterface {
                                  const std::vector<Substring>& parts,
                                  Counters& counters, const int& idx = 1);
 
+    /**
+     * Verifies an exact partial match in the text for all occurrences of that
+     * exact partial match using the edit distance. If a valid match is found it
+     * will be added to the occurrences.
+     * @param startMatch The match containing the SA ranges corresponding to
+     * the exact partial match  to start from and depth of the exact match.
+     * @param beginInPattern The position in the pattern where the partial match
+     * starts.
+     * @param maxED The maximal allowed edit distance.
+     * @param occ A data structure with approximate occurrences of the complete
+     * pattern. Both in-index and in-text occurrences are stored. If a new
+     * approximate occurrence is found, either in-index or in-text it will be
+     * added to this data structure.
+     * @param counters The performance counters.
+     * @param minED the minimal allowed distance for found occurrences
+     * @param pattern The pattern to verify.
+     */
+    virtual void verifyExactPartialMatchInText(
+        const FMOcc& startMatch, const length_t& beginInPattern,
+        const length_t& maxED, Occurrences& occ, Counters& counters,
+        length_t minED, const Substring& pattern) = 0;
+
+    /**
+     * Verifies an exact partial match in the text for all occurrences of that
+     * exact partial match using the Hamming distance. If a valid match is found
+     * it will be added to the occurrences.
+     * @param startMatch The match containing the SA ranges corresponding to
+     * the exact partial match  to start from and depth of the exact match.
+     * @param beginInPattern The position in the pattern where the partial match
+     * starts.
+     * @param maxD The maximal allowed hamming distance.
+     * @param parts The parts of the pattern.
+     * @param occ A data structure with approximate occurrences of the complete
+     * pattern. Both in-index and in-text occurrences are stored. If a new
+     * approximate occurrence is found, either in-index or in-text it will be
+     * added to this data structure.
+     * @param counters The performance counters.
+     * @param minD the minimal allowed Hamming distance for found occurrences
+     */
+    virtual void verifyExactPartialMatchInTextHamming(
+        const FMOcc& startMatch, length_t beginInPattern, length_t maxD,
+        const std::vector<Substring>& parts, Occurrences& occ,
+        Counters& counters, length_t minD) const = 0;
+
     // ----------------------------------------------------------------------------
     // POST-PROCESSING ROUTINES FOR APPROXIMATE MATCHING
     // ----------------------------------------------------------------------------
 
     /**
+     * Finds the entry in the suffix array of this index. This is
+     * computed from the sparse suffix array and the bwt.
+     * @param index The index for which the entry in the uncompressed suffix
+     * array is computed.
+     * @returns the entry in the SA of the index
+     */
+    virtual length_t findSA(length_t index) const = 0;
+
+    /**
      * @brief Get the text positions corresponding to a suffix array range
      *
-     * @param range The range in the suffix array
+     * @param ranges The ranges in the suffix array
      * @param positions The vector to which the text positions will be added
      */
     virtual void
@@ -719,7 +929,8 @@ class IndexInterface {
      * occurrences are converted to in-text occurrences with CIGAR string.
      * Afterwards redundant occurrences are removed. Eventually all
      * non-redundant text-occurrences are returned.
-     * @param occ The occurrences to find the unique text occurrences for.
+     * @param occ The occurrences to find the unique text occurrences for. Will
+     * be invalidated during execution.
      * @param counters The performance counters.
      * @returns the non-redundant text occurrences.
      */
@@ -743,6 +954,74 @@ class IndexInterface {
     getUniqueTextOccurrences(Occurrences& occ, const length_t& maxED,
                              Counters& counters,
                              const ReadBundle& bundle) const;
+
+    /**
+     * Generate the CIGAR strings for the in-index occurrences that do not have
+     * one yet. This function assumes that the in-text verification matrices
+     * have correctly been set.
+     * @param occs The occurrences to generate the CIGAR strings for.
+     * @param counters The performance counters.
+     * @param bundle The read bundle with info about the read
+     */
+    void generateCIGARS(std::vector<TextOcc>& occs, Counters& counters,
+                        const ReadBundle& bundle) {
+        if (noCIGAR) {
+            return;
+        }
+        for (TextOcc& t : occs) {
+            if (!t.hasCigar()) {
+                generateCIGAR(t, counters, bundle.getSequence(t.getStrand()));
+            }
+        }
+    }
+
+    /**
+     * Generate the CIGAR string for the in-index occurrence. This function
+     * assumes that the in-text verification matrix associated with the strand
+     * and pairStatus of the occurrence has been correctly set.
+     * @param t The occurrence to generate the CIGAR string for.
+     * @param counters The performance counters.
+     * @param read The read to which t is a match
+     */
+    void generateCIGAR(TextOcc& t, Counters& counters,
+                       const Substring& read) const {
+        if (noCIGAR || t.hasCigar()) {
+            return;
+        }
+
+// aliases
+#ifdef RUN_LENGTH_COMPRESSION
+        const std::vector<char>& ref = t.getMatchedStr();
+#else
+        const auto& ref = Substring(getText(), t.getRange().getBegin(),
+                                    t.getRange().getEnd());
+#endif
+        const auto& score = t.getDistance();
+        const auto& strand = t.getStrand();
+        const auto& status = t.getPairStatus();
+
+        // select the correct matrix
+        IBitParallelED* matrix;
+        if (BitParallelED64::getMatrixMaxED() >= score) {
+            matrix = &getFullReadMatrix(strand, status);
+        } else {
+            matrix = &getFullReadMatrix128(strand, status);
+        }
+
+        // set the sequence if needed
+        if (!matrix->sequenceSet()) {
+            assert(read.getDirection() == FORWARD);
+            matrix->setSequence(read);
+        }
+
+        // find the CIGAR string
+        std::string strCIGAR;
+        matrix->findCIGAR(ref, score, strCIGAR);
+        t.setCigar(strCIGAR);
+
+        // increase the counter
+        counters.inc(Counters::CIGARS_IN_INDEX);
+    }
 };
 
-#endif
+#endif // INDEXINTERFACE_H

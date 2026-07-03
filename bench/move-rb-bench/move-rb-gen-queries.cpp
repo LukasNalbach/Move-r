@@ -55,6 +55,7 @@
 #include <move_rb/move_rb.hpp>
 
 #include <ips4o.hpp>
+#include <ips2ra.hpp>
 
 // ############################# CONFIGURATION #############################
 
@@ -65,6 +66,7 @@ double      target_seconds = 1.0;    // target count/locate duration per pattern
 std::string out_dir = ".";           // where the pattern files are written
 std::string text_name;               // name used in the file names (default: basename of input)
 std::string scheme_str = "min_u";    // search scheme (k taken from the grid)
+std::string forbidden;               // characters a generated pattern must not contain (e.g. a FASTA separator)
 bool gen_count = true;               // generate the count-pattern files
 bool gen_locate = true;              // generate the locate-pattern files
 uint64_t min_patterns = 1;           // at least this many patterns per file
@@ -93,6 +95,8 @@ void help(std::string msg)
     std::cout << "usage: move-rb-gen-queries [options] <input_file> <move_rb_index>" << std::endl;
     std::cout << "   -o <dir>          output directory for the pattern files (default: current directory)" << std::endl;
     std::cout << "   -n <text_name>    text name used in the file names (default: basename of <input_file>)" << std::endl;
+    std::cout << "   -x <chars>        characters a generated pattern must not contain (e.g. a FASTA separator or" << std::endl;
+    std::cout << "                     the terminator); such patterns are skipped (default: none)" << std::endl;
     std::cout << "   -k <list>         comma-separated list of error counts k (default: 4,7,10,13)" << std::endl;
     std::cout << "   -m <list>         comma-separated list of pattern lengths (default: 10,20,40,80,160,320,640,1280)" << std::endl;
     std::cout << "   -s <scheme>       search scheme: pigeon_hole, suffix_filter, min_u or 01 (default: min_u)" << std::endl;
@@ -289,8 +293,8 @@ void generate()
                     auto report = [&](aprx_occ_t<pos_t> o) { occ.emplace_back(o); };
                     if (type.is_edit) {
                         index->template locate<EDIT_DISTANCE>(pat, scheme, report);
-                        ips4o::sort(occ.begin(), occ.end());
-                        filter_aprx_occurrences<pos_t>(occ, (pos_t) scheme.k);
+                        ips2ra::sort(occ.begin(), occ.end(), [](const aprx_occ_t<pos_t>& o){ return o.pos; });
+                        filter_edit_distance_occurrences<pos_t>(occ, (pos_t) scheme.k);
                     } else {
                         index->template locate<HAMMING_DISTANCE>(pat, scheme, report);
                     }
@@ -305,6 +309,10 @@ void generate()
                 while (n < min_patterns || total_ns < target_ns) {
                     tf.seekg(pos_distrib(rng), std::ios::beg);
                     tf.read(pattern.data(), m);
+
+                    // skip a pattern containing a forbidden character (e.g. a FASTA separator or the terminator),
+                    // which is not a real query and would only hit index boundaries
+                    if (!forbidden.empty() && pattern.find_first_of(forbidden) != std::string::npos) continue;
 
                     std::optional<timed_result_t> r;
                     if (runner) {
@@ -346,7 +354,7 @@ void generate()
                 std::string fname = (std::filesystem::path(out_dir) / (text_name + ".patterns-" +
                     type.op + "-" + type.metric + "-k" + std::to_string(k) + "-m" + std::to_string(m))).string();
                 std::ofstream of(fname, std::ios::binary);
-                of << "# number=" << n << " length=" << m << " file=" << text_name << " forbidden=\n";
+                of << "# number=" << n << " length=" << m << " file=" << text_name << " forbidden=" << forbidden << "\n";
                 of.write(buffer.data(), buffer.size());
                 of.close();
 
@@ -378,6 +386,7 @@ int main(int argc, char** argv)
         if      (o == "-o") out_dir = need("-o");
         else if (o == "-n") text_name = need("-n");
         else if (o == "-s") scheme_str = need("-s");
+        else if (o == "-x") forbidden = need("-x");
         else if (o == "--min")  min_patterns = std::stoull(need("--min"));
         else if (o == "--seed") seed = std::stoull(need("--seed"));
         else if (o == "--time")      target_seconds = std::stod(need("--time"));

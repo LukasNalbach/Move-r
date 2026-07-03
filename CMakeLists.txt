@@ -47,6 +47,10 @@ find_package(OpenMP REQUIRED)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/ips4o")
 set_target_properties(ips4o_example PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1)
 
+# ips2ra
+set(IPS2RA_DISABLE_PARALLEL ON CACHE BOOL "" FORCE)
+add_subdirectory("${CMAKE_SOURCE_DIR}/external/ips2ra")
+
 # libsais
 set(LIBSAIS_USE_OPENMP ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/libsais/")
@@ -64,23 +68,29 @@ else()
 endif()
 
 # sdsl
-set(INCLUDE_DIRS "$ENV{HOME}/include" "$ENV{HOME}/local/include" "/usr/include" "/usr/local/include")
-set(LIB_DIRS "$ENV{HOME}/lib" "$ENV{HOME}/local/lib" "/usr/lib" "/usr/local/lib")
-find_path(SDSL_INCLUDE_DIR NAMES sdsl HINTS ${INCLUDE_DIRS})
-find_library(SDSL_LIBRARY NAMES sdsl HINTS ${LIB_DIRS})
-find_library(DIVSUFSORT_LIBRARY NAMES divsufsort HINTS ${LIB_DIRS})
-find_library(DIVSUFSORT64_LIBRARY NAMES divsufsort64 HINTS ${LIB_DIRS})
+set(SDSL_ROOT "${CMAKE_SOURCE_DIR}/external/sdsl-lite")
+set(SDSL_INCLUDE_DIR "${SDSL_ROOT}/include")
 
-if(NOT SDSL_INCLUDE_DIR OR NOT SDSL_LIBRARY)
-  message(FATAL_ERROR "SDSL library not found")
-endif()
+# libdivsufsort (bundled with sdsl-lite).
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_DIVSUFSORT64 ON CACHE BOOL "" FORCE)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+add_subdirectory("${SDSL_ROOT}/external/libdivsufsort" "${CMAKE_BINARY_DIR}/external/libdivsufsort")
+unset(CMAKE_POLICY_VERSION_MINIMUM)
+set(DIVSUFSORT_INCLUDE_DIR "${CMAKE_BINARY_DIR}/external/libdivsufsort/include")
+set_target_properties(divsufsort divsufsort64 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(divsufsort INTERFACE "${DIVSUFSORT_INCLUDE_DIR}")
+target_include_directories(divsufsort64 INTERFACE "${DIVSUFSORT_INCLUDE_DIR}")
 
-add_library(sdsl STATIC IMPORTED GLOBAL)
-add_library(divsufsort STATIC IMPORTED GLOBAL)
-add_library(divsufsort64 STATIC IMPORTED GLOBAL)
-set_target_properties(sdsl PROPERTIES IMPORTED_LOCATION "${SDSL_LIBRARY}" INTERFACE_INCLUDE_DIRECTORIES "${SDSL_INCLUDE_DIR}")
-set_target_properties(divsufsort PROPERTIES IMPORTED_LOCATION "${DIVSUFSORT_LIBRARY}" INTERFACE_INCLUDE_DIRECTORIES "${SDSL_INCLUDE_DIR}")
-set_target_properties(divsufsort64 PROPERTIES IMPORTED_LOCATION "${DIVSUFSORT64_LIBRARY}" INTERFACE_INCLUDE_DIRECTORIES "${SDSL_INCLUDE_DIR}")
+# sdsl static library
+file(GLOB sdsl_sources "${SDSL_ROOT}/lib/*.cpp")
+add_library(sdsl STATIC ${sdsl_sources})
+set_target_properties(sdsl PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_options(sdsl PRIVATE -w -DNDEBUG -fpermissive)
+target_include_directories(sdsl PUBLIC "${SDSL_INCLUDE_DIR}")
+target_include_directories(sdsl PRIVATE "${DIVSUFSORT_INCLUDE_DIR}")
+target_link_libraries(sdsl PUBLIC divsufsort divsufsort64)
 
 # gtl
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/gtl/")
@@ -112,7 +122,7 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/external/unordered_dense/")
 add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
 target_link_libraries(move_r INTERFACE
-  OpenMP::OpenMP_CXX sdsl libsais ips4o gtl sparse_map malloc_count
+  OpenMP::OpenMP_CXX sdsl libsais ips4o ips2ra gtl sparse_map malloc_count
   emhash sux ordered rmq unordered_dense divsufsort divsufsort64
 )
 
@@ -249,36 +259,62 @@ endif()
 ############################# move_rb approximate-pattern-matching benchmark #############################
 
 if(MOVE_R_BUILD_BENCH)
-  file(GLOB bmove_sources CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/external/b-move/src/*.cpp")
-  list(REMOVE_ITEM bmove_sources
-    "${CMAKE_SOURCE_DIR}/external/b-move/src/build.cpp"
-    "${CMAKE_SOURCE_DIR}/external/b-move/src/buildhelpers.cpp"
-    "${CMAKE_SOURCE_DIR}/external/b-move/src/locate.cpp")
-  add_library(bmove STATIC ${bmove_sources})
-  target_include_directories(bmove PUBLIC
-    "${CMAKE_SOURCE_DIR}/external/b-move/src"
-    "${CMAKE_SOURCE_DIR}/external/fmt/include"
-    "${CMAKE_SOURCE_DIR}/external/parallel-hashmap")
-  target_compile_definitions(bmove PUBLIC
-    ALPHABET=5 LF_MOVE_BIT_PACKED PHI_MOVE PHI_MOVE_BALANCED PHI_MOVE_BIT_PACKED FMT_HEADER_ONLY)
-  target_compile_options(bmove PUBLIC -O3 -fno-fast-math -fno-strict-aliasing)
-  target_link_libraries(bmove PUBLIC sdsl divsufsort divsufsort64)
-  set_target_properties(bmove PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  set(columba_src "${CMAKE_SOURCE_DIR}/external/columba/src")
+  set(columba_common_sources
+    "${columba_src}/indexhelpers.cpp"
+    "${columba_src}/bitparallelmatrix.cpp"
+    "${columba_src}/searchstrategy.cpp"
+    "${columba_src}/nucleotide.cpp"
+    "${columba_src}/search.cpp"
+    "${columba_src}/logger.cpp"
+    "${columba_src}/parameters/alignparameters.cpp"
+    "${columba_src}/indexinterface.cpp")
+
+  function(move_r_add_columba_plugin name)
+    add_library(${name} SHARED
+      "${CMAKE_SOURCE_DIR}/bench/move-rb-bench/indexes/columba_capi.cpp" ${columba_common_sources} ${ARGN})
+    target_include_directories(${name} PRIVATE
+      "${columba_src}" "${CMAKE_SOURCE_DIR}/external/fmt/include" "${CMAKE_SOURCE_DIR}/external/parallel-hashmap"
+      "${CMAKE_SOURCE_DIR}/include"
+      "$<TARGET_PROPERTY:sdsl,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:gtl,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:sparse_map,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:ips4o,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:ips2ra,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:unordered_dense,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:ordered,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:sux,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:emhash,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:rmq,INTERFACE_INCLUDE_DIRECTORIES>"
+      "$<TARGET_PROPERTY:malloc_count,INTERFACE_INCLUDE_DIRECTORIES>")
+    target_compile_options(${name} PRIVATE -O3 -fno-fast-math -fno-strict-aliasing)
+    target_link_libraries(${name} PRIVATE sdsl)
+    set_target_properties(${name} PROPERTIES
+      POSITION_INDEPENDENT_CODE ON LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bench/")
+  endfunction()
+  move_r_add_columba_plugin(columba_rlc_plugin
+    "${columba_src}/bmove/bmove.cpp" "${columba_src}/bmove/moverepr.cpp")
+  target_compile_definitions(columba_rlc_plugin PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY)
+  move_r_add_columba_plugin(columba_fm_plugin
+    "${columba_src}/fmindex/fmindex.cpp")
+  target_compile_definitions(columba_fm_plugin PRIVATE ALPHABET=5 THIRTY_TWO FMT_HEADER_ONLY)
 
   add_library(br_index INTERFACE)
   target_include_directories(br_index INTERFACE "${CMAKE_SOURCE_DIR}/external/br-index/src")
   target_link_libraries(br_index INTERFACE sdsl divsufsort divsufsort64)
 
-  move_r_add_tool(move-rb-bench bench/move_rb_bench/move-rb-bench.cpp
-    "${CMAKE_BINARY_DIR}/bench/" br_index bmove)
-  move_r_add_tool(move-rb-gen-queries bench/move_rb_bench/move-rb-gen-queries.cpp
+  move_r_add_tool(move-rb-bench bench/move-rb-bench/move-rb-bench.cpp
+    "${CMAKE_BINARY_DIR}/bench/" br_index ${CMAKE_DL_LIBS})
+  target_link_options(move-rb-bench PRIVATE -rdynamic)
+  add_dependencies(move-rb-bench columba_rlc_plugin columba_fm_plugin)
+  move_r_add_tool(move-rb-gen-queries bench/move-rb-bench/move-rb-gen-queries.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
 ############################# move-r internal bench #############################
 
 if(MOVE_R_BUILD_INTERNAL_BENCH)
-  move_r_add_tool(bench-int-rank-select bench/bench_int_rank_select.cpp
+  move_r_add_tool(bench-int-rank-select bench/bench-int-rank-select.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
@@ -292,7 +328,7 @@ if(MOVE_R_BUILD_TESTS)
   set_target_properties(gtest gtest_main gmock gmock_main
     PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "")
 
-  foreach(s move_r move_rb move_data_structure data_structures sa_index rlzsa_opt)
+  foreach(s move_r move_rb move_data_structure data_structures sa_index rlzsa_opt edit_distance_matrix)
     move_r_add_tool(test-${s} "${CMAKE_SOURCE_DIR}/tests/test_${s}.cpp"
       "${CMAKE_BINARY_DIR}/tests/" gtest_main)
   endforeach()
@@ -303,4 +339,5 @@ if(MOVE_R_BUILD_TESTS)
   gtest_discover_tests(test-data_structures)
   gtest_discover_tests(test-sa_index)
   gtest_discover_tests(test-rlzsa_opt)
+  gtest_discover_tests(test-edit_distance_matrix)
 endif()

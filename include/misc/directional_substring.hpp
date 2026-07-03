@@ -37,7 +37,7 @@
  * @tparam inp_t the underlying sequence type (e.g. std::string or std::vector<uint8_t>)
  */
 template <typename pos_t, typename inp_t = std::string>
-class sub_string {
+class directional_substring {
   public:
     using sym_t = typename inp_t::value_type;
 
@@ -47,31 +47,8 @@ class sub_string {
     pos_t end = 0;
     direction_t dir = NO_DIR;
 
-    using access_fnc_t = const sym_t&(sub_string::*)(pos_t) const;
-    access_fnc_t access;
-
-    /**
-     * @brief accesses the i-th symbol of the substring read left-to-right
-     * @param i offset from the start of the substring
-     * @return the symbol string[start + i]
-     */
-    inline const sym_t& right_access(pos_t i) const
-    {
-        return string[start + i];
-    }
-
-    /**
-     * @brief accesses the i-th symbol of the substring read right-to-left
-     * @param i offset from the end of the substring
-     * @return the symbol string[end - i]
-     */
-    inline const sym_t& left_access(pos_t i) const
-    {
-        return string[end - i];
-    }
-
   public:
-    sub_string() = default;
+    directional_substring() = default;
 
     /**
      * @brief constructs a view of string[start..end] that is read in direction dir
@@ -80,20 +57,34 @@ class sub_string {
      * @param end end index of the substring (inclusive)
      * @param dir direction in which the substring is read (default: RIGHT)
      */
-    sub_string(const inp_t& string, pos_t start, pos_t end, direction_t dir = RIGHT)
-        : string(string), start(start), end(end), dir(dir)
-    {
-        set_direction(dir);
-    }
+    directional_substring(const inp_t& string, pos_t start, pos_t end, direction_t dir = RIGHT)
+        : string(string), start(start), end(end), dir(dir) {}
 
     /**
-     * @brief returns the i-th symbol of the substring (in the current reading direction)
+     * @brief returns the i-th symbol of the substring in the current reading direction: counted from the start
+     *        when read left-to-right (RIGHT), from the end when read right-to-left (LEFT)
      * @param i index into the substring
      * @return the i-th symbol of the substring
      */
     inline const sym_t& operator[](pos_t i) const
     {
-        return (this->*access)(i);
+        return dir == LEFT ? string[end - i] : string[start + i];
+    }
+
+    /**
+     * @brief returns the index of the i-th symbol (in reading direction) within the underlying sequence
+     * @param i index into the substring
+     * @return the position of the i-th symbol in the underlying sequence
+     */
+    inline pos_t pos(pos_t i) const
+    {
+        return dir == LEFT ? end - i : start + i;
+    }
+
+    /** @brief the underlying sequence this is a substring of */
+    inline const inp_t& underlying() const
+    {
+        return string;
     }
 
     /**
@@ -122,8 +113,6 @@ class sub_string {
     void set_direction(direction_t dir)
     {
         this->dir = dir;
-        access = dir == LEFT ? &sub_string::left_access
-                             : &sub_string::right_access;
     }
 
     /**

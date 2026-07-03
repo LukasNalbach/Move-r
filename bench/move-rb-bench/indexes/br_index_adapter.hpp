@@ -30,34 +30,36 @@
 #include <cstdint>
 #include <string>
 #include <tuple>
+#include <stdexcept>
 #include <variant>
 #include <vector>
 
-#include <bmove.h>
-
-#define umul128 gtl_umul128_shim
 #include <misc/apm.hpp>
 #include <algorithms/apm/hamming_distance.tpp>
 #include <algorithms/apm/edit_distance.tpp>
-#undef umul128
+
+// the (simpler) bidirectional r-index implementation
+#include <br_index.hpp>
 
 // the interface this adapter implements (checked by the static_assert at the bottom)
 #include "index_adapter.hpp"
 
 /**
- * @brief Adapter that exposes b-move's bidirectional move structure (BMove)
- *        through the same query interface that move_rb provides, so that move_r's
+ * @brief Adapter that exposes the bidirectional r-index (bri::br_index) through the
+ *        same query interface that move_rb provides, so that move_r's
  *        approximate-pattern-matching algorithms (apm_hamming and
  *        apm_edit) can drive it unmodified.
  *
- * The adapter wraps a BMove index and re-implements the bidirectional search
- * context (extend / extend_phase / extend_next) on top of b-move's
- * findRangesWithExtraChar{Forward,Backward} routines (via BMove::extendRange),
- * and the locate phase on top of b-move's toehold (via BMove::locateCentered).
+ * The adapter wraps a br_index and re-implements the bidirectional search context
+ * (extend / extend_phase / extend_next) on top of br_index's left_extension /
+ * right_extension routines (which maintain a single toehold sample), and the locate
+ * phase on top of that toehold (via br_index::locate_sample_centered).
  */
-class b_move_adapter {
+class br_index_adapter {
   public:
-    using pos_t = uint64_t; // index integer type (= b-move's length_t)
+    using br_index_t = bri::br_index<>; // the wrapped bidirectional r-index type
+
+    using pos_t = uint64_t; // index integer type (= bri::ulint)
     using pos_type = uint64_t; // exposed for the generic APM helpers
     using sym_t = char; // value type
     using sym_type = char; // exposed for the generic APM helpers
@@ -67,8 +69,8 @@ class b_move_adapter {
     static constexpr bool supports_locate = true; // the index supports locate
     static constexpr bool supports_multiple_locate = true; // it can locate multiple occurrences
 
-    template <typename> friend class apm_hamming;
-    template <typename> friend class apm_edit;
+    template <typename, cigar_mode_t> friend class apm_hamming;
+    template <typename, cigar_mode_t> friend class apm_edit;
 
     // ############################# NESTED QUERY TYPES (declarations) #############################
 
@@ -79,53 +81,52 @@ class b_move_adapter {
     // ############################# INDEX STATE #############################
 
   protected:
-    const BMove& _index; // the wrapped b-move index
-    std::vector<uint8_t> _map_int; // maps a character to its (1-based) internal symbol; 0 if absent
+    br_index_t& _index; // the wrapped br-index (held by non-const reference because
+                        // br_index's query routines are non-const)
+    std::vector<uint8_t> _map_int; // maps a character to its (1-based) effective symbol; 0 if absent
 
   public:
     pos_t n; // length of the indexed text (including the sentinel)
-    pos_t sigma; // size of the alphabet (including the sentinel)
+    pos_t sigma; // size of the alphabet (including the terminator)
 
     /**
-     * @brief constructs an approximate-pattern-matching adapter for a b-move index
-     * @param index the b-move index to query
+     * @brief constructs an approximate-pattern-matching adapter for a br-index
+     * @param index the br-index to query
      */
-    b_move_adapter(const BMove& index) : _index(index)
+    br_index_adapter(br_index_t& index) : _index(index)
     {
-        n = _index.getTextSize();
-        sigma = _index.alphabetSize();
+        n = _index.bwt_size(); // = text length (incl. sentinel)
+        sigma = _index.alphabet_size(); // = number of distinct characters + 1 (terminator)
 
-        // b-move maps the sentinel to alphabet index 0 and the other characters
-        // to 1..sigma-1, which is exactly the move_r map_int convention.
+        // br_index's internal symbols are 1 (terminator) and 2..sigma for the real
+        // characters. The edit-distance matrix expects map_int[c] in [1, sigma-1] for
+        // real characters (map_sym = map_int[c] - 1 in [0, sigma-1)), so shift the
+        // internal symbol down by one; absent characters and the terminator map to 0.
         _map_int.assign(256, 0);
 
         for (int c = 0; c < 256; c++) {
-            int i = _index.charToIdx((char) c);
-            _map_int[c] = (i < 0) ? 0 : (uint8_t) i;
+            bri::uchar i = _index.char_to_internal((bri::uchar) c);
+            _map_int[c] = (i < 2) ? 0 : (uint8_t) (i - 1);
         }
     }
 
     // ############################# ACCESS METHODS #############################
 
     /**
-     * @brief returns the wrapped b-move index
+     * @brief returns the wrapped br-index
      */
-    inline const BMove& bmove() const { return _index; }
+    inline br_index_t& brindex() const { return _index; }
 
     /**
      * @brief maps a symbol to its corresponding internal effective-alphabet symbol
      * @return the internal symbol (0 if sym does not occur in the alphabet)
      */
-    inline i_sym_t map_symbol(sym_t sym) const
-    {
-        int i = _index.charToIdx(sym);
-        return i < 0 ? 0 : (i_sym_t) i;
-    }
+    inline i_sym_t map_symbol(sym_t sym) const { return _map_int[(uint8_t) sym]; }
 
     /**
      * @brief maps an internal effective-alphabet symbol back to its input symbol
      */
-    inline sym_t unmap_symbol(i_sym_t sym) const { return _index.idxToChar(sym); }
+    inline sym_t unmap_symbol(i_sym_t sym) const { return (sym_t) _index.internal_to_char((bri::uchar) (sym + 1)); }
 
     /**
      * @brief returns the map from characters to internal symbols (used by the edit-distance matrix)
@@ -136,7 +137,7 @@ class b_move_adapter {
      * @brief returns a reference to the forward index; the adapter answers exact
      *        count/locate queries itself, so it returns *this
      */
-    inline const b_move_adapter& forward_index() const { return *this; }
+    inline const br_index_adapter& forward_index() const { return *this; }
 
     /**
      * @brief returns the size of the indexed text (without the sentinel), matching
@@ -187,14 +188,14 @@ class b_move_adapter {
 
 /**
  * @brief stores the variables needed to perform bidirectional pattern search and
- *        locate queries on the wrapped b-move index
+ *        locate queries on the wrapped br-index
  */
 template <query_support_t query_support>
-struct b_move_adapter::search_context_t {
-    template <typename> friend class apm_hamming;
-    template <typename> friend class apm_edit;
-    friend struct b_move_adapter::locate_context_t;
-    template <query_support_t _query_support> friend struct b_move_adapter::extend_context_t;
+struct br_index_adapter::search_context_t {
+    template <typename, cigar_mode_t> friend class apm_hamming;
+    template <typename, cigar_mode_t> friend class apm_edit;
+    friend struct br_index_adapter::locate_context_t;
+    template <query_support_t _query_support> friend struct br_index_adapter::extend_context_t;
 
     // sample/locate information maintained during the search (LOCATE only)
     struct locate_sample_t {
@@ -204,15 +205,15 @@ struct b_move_adapter::search_context_t {
         bool rprtd = false; // true <=> this context has already been reported
     };
 
-    const b_move_adapter* idx = nullptr; // the index this context queries
+    const br_index_adapter* idx = nullptr; // the index this context queries
 
-    SARangePair ranges; // b-move ranges (forward + reverse SA range and toehold)
+    bri::br_sample sample; // br-index toehold sample (forward + reverse range, j, d, len)
     pos_t m = 0; // length of the currently matched pattern
     pos_t err = 0; // number of errors (approximate pattern matching only)
     sym_t sym_lst = 0; // last-added symbol
     direction_t dir_lst = NO_DIR; // last performed extension direction
 
-    std::conditional_t<query_support == LOCATE, locate_sample_t, std::monostate> s;
+    [[no_unique_address]] std::conditional_t<query_support == LOCATE, locate_sample_t, std::monostate> s;
 
     using extend_res_t = std::tuple<search_context_t, bool>;
 
@@ -226,14 +227,14 @@ struct b_move_adapter::search_context_t {
     /**
      * @brief constructs a new query context for the index idx
      */
-    search_context_t(const b_move_adapter& idx) : idx(&idx) { reset(); }
+    search_context_t(const br_index_adapter& idx) : idx(&idx) { reset(); }
 
     /**
      * @brief resets the query context to an empty P
      */
     inline void reset()
     {
-        ranges = idx->bmove().getCompleteRange();
+        sample = idx->brindex().get_initial_sample(false);
         m = 0;
         err = 0;
         sym_lst = sym_t(0);
@@ -249,7 +250,7 @@ struct b_move_adapter::search_context_t {
     inline sym_t last_added_symbol() const { return sym_lst; }
     inline direction_t last_direction() const { return dir_lst; }
     inline pos_t length() const { return m; }
-    inline pos_t num_occ() const { return ranges.width(); }
+    inline pos_t num_occ() const { return sample.range.second + 1 - sample.range.first; }
     inline pos_t errors() const { return err; }
     inline void set_errors(pos_t err) { this->err = err; }
 
@@ -275,8 +276,7 @@ struct b_move_adapter::search_context_t {
      */
     inline std::tuple<pos_t, pos_t> forward_sa_interval() const
     {
-        const auto& r = ranges.getRangeSA();
-        return {r.getBegin(), r.getEnd() - 1};
+        return {sample.range.first, sample.range.second};
     }
 
     /**
@@ -284,8 +284,7 @@ struct b_move_adapter::search_context_t {
      */
     inline std::tuple<pos_t, pos_t> backward_sa_interval() const
     {
-        const auto& r = ranges.getRangeSARev();
-        return {r.getBegin(), r.getEnd() - 1};
+        return {sample.rangeR.first, sample.rangeR.second};
     }
 
     template <direction_t dir>
@@ -299,8 +298,8 @@ struct b_move_adapter::search_context_t {
 
     bool operator==(const search_context_t& other) const
     {
-        bool res = ranges.getRangeSA().getBegin() == other.ranges.getRangeSA().getBegin()
-                && ranges.getRangeSA().getEnd() == other.ranges.getRangeSA().getEnd();
+        bool res = sample.range.first == other.sample.range.first
+                && sample.range.second == other.sample.range.second;
 
         if constexpr (query_support == LOCATE) {
             res = res && s.shft == other.s.shft && s.dpth == other.s.dpth;
@@ -311,10 +310,10 @@ struct b_move_adapter::search_context_t {
 
     bool operator<(const search_context_t& other) const
     {
-        pos_t b = ranges.getRangeSA().getBegin();
-        pos_t e = ranges.getRangeSA().getEnd();
-        pos_t ob = other.ranges.getRangeSA().getBegin();
-        pos_t oe = other.ranges.getRangeSA().getEnd();
+        pos_t b = sample.range.first;
+        pos_t e = sample.range.second;
+        pos_t ob = other.sample.range.first;
+        pos_t oe = other.sample.range.second;
 
         if (b != ob) return b < ob;
         if (e != oe) return e > oe;
@@ -361,20 +360,18 @@ struct b_move_adapter::search_context_t {
     template <direction_t dir>
     inline extend_res_t extend(sym_t sym) const
     {
-        int pa = idx->bmove().charToIdx(sym);
-
-        // sym is the sentinel (0) or does not occur in the alphabet (-1)
-        if (pa <= 0) [[unlikely]] return {search_context_t {}, false};
-
-        SARangePair child;
-        Direction d = (dir == LEFT) ? BACKWARD : FORWARD;
-
-        if (!idx->bmove().extendRange((length_t) pa, d, ranges, child)) {
+        // reject the terminator (internal 1) and characters absent from the alphabet (internal 0)
+        if (idx->brindex().char_to_internal((bri::uchar) sym) < 2) [[unlikely]]
             return {search_context_t {}, false};
-        }
+
+        bri::br_sample child = (dir == LEFT)
+            ? idx->brindex().left_extension((bri::uchar) sym, sample)
+            : idx->brindex().right_extension((bri::uchar) sym, sample);
+
+        if (child.is_invalid()) return {search_context_t {}, false};
 
         search_context_t ctx = *this;
-        ctx.ranges = child;
+        ctx.sample = child;
         ctx.m = m + 1;
         ctx.err = 0;
         ctx.sym_lst = sym;
@@ -398,21 +395,21 @@ struct b_move_adapter::search_context_t {
  *        extended with every applicable symbol in O(sigma) time via extend_next()
  */
 template <query_support_t query_support>
-struct b_move_adapter::extend_context_t {
-    friend struct b_move_adapter::search_context_t<query_support>;
+struct br_index_adapter::extend_context_t {
+    friend struct br_index_adapter::search_context_t<query_support>;
 
-    const b_move_adapter* idx = nullptr; // the index this context queries
+    const br_index_adapter* idx = nullptr; // the index this context queries
     search_context_t<query_support>* ctx = nullptr; // the search context being extended
     direction_t dir = NO_DIR; // direction the context is being extended in
 
     int count = 0; // number of applicable extensions
     int cursor = 0; // index of the next extension to apply
-    std::array<SARangePair, 8> children; // the ranges of each applicable extension
-    std::array<sym_t, 8> chars; // the symbol of each applicable extension
+    std::array<bri::br_sample, 256> children; // the toehold sample of each applicable extension
+    std::array<sym_t, 256> chars; // the symbol of each applicable extension
 
     extend_context_t() {}
 
-    extend_context_t(const b_move_adapter& idx, search_context_t<query_support>& ctx)
+    extend_context_t(const br_index_adapter& idx, search_context_t<query_support>& ctx)
         : idx(&idx), ctx(&ctx) {}
 
     /**
@@ -436,18 +433,16 @@ struct b_move_adapter::extend_context_t {
         count = 0;
         cursor = 0;
 
-        Direction d = (dir == LEFT) ? BACKWARD : FORWARD;
+        auto report = [this](bri::uchar c, const bri::br_sample& child) {
+            children[count] = child;
+            chars[count] = (sym_t) c;
+            count++;
+        };
 
-        // skip the sentinel (alphabet index 0)
-        for (int c = 1; c < (int) idx->sigma; c++) {
-            SARangePair child;
-
-            if (idx->bmove().extendRange((length_t) c, d, ctx->ranges, child)) {
-                children[count] = child;
-                chars[count] = idx->bmove().idxToChar(c);
-                count++;
-            }
-        }
+        if (dir == LEFT)
+            idx->brindex().left_extension_all(ctx->sample, report);
+        else
+            idx->brindex().right_extension_all(ctx->sample, report);
 
         return *this;
     }
@@ -460,7 +455,7 @@ struct b_move_adapter::extend_context_t {
         int j = cursor++;
 
         search_context_t<query_support> nxt = *ctx;
-        nxt.ranges = children[j];
+        nxt.sample = children[j];
         nxt.m = ctx->m + 1;
         nxt.err = 0;
         nxt.sym_lst = chars[j];
@@ -482,17 +477,17 @@ struct b_move_adapter::extend_context_t {
 /**
  * @brief structure storing the information for locating all occurrences of a search context
  */
-struct b_move_adapter::locate_context_t {
+struct br_index_adapter::locate_context_t {
   protected:
-    const b_move_adapter* idx = nullptr; // the index this context queries
+    const br_index_adapter* idx = nullptr; // the index this context queries
     const search_context_t<LOCATE>* ctx = nullptr; // the search context this locate context belongs to
 
     pos_t occ_rem = 0; // number of remaining occurrences to locate
     bool centered = false; // true <=> the occurrences have been enumerated already
     pos_t center_sa = 0; // SA-index of the centered (toehold) occurrence
-    length_t first_pos = 0; // text position (SA value) of the centered occurrence
-    std::vector<length_t> left; // text positions left of the center (descending SA index)
-    std::vector<length_t> right; // text positions right of the center (ascending SA index)
+    bri::ulint first_pos = 0; // text position (SA value) of the centered occurrence
+    std::vector<bri::ulint> left; // text positions left of the center (descending SA index)
+    std::vector<bri::ulint> right; // text positions right of the center (ascending SA index)
 
     /**
      * @brief enumerates the occurrences of the context centered on the toehold occurrence
@@ -500,7 +495,7 @@ struct b_move_adapter::locate_context_t {
     inline void enumerate()
     {
         if (!centered) {
-            center_sa = idx->bmove().locateCentered(ctx->ranges, first_pos, left, right);
+            center_sa = idx->brindex().locate_sample_centered(ctx->sample, first_pos, left, right);
             centered = true;
         }
     }
@@ -551,7 +546,7 @@ struct b_move_adapter::locate_context_t {
             else report(left[j] + shft);
         }
 
-        // occurrences right of the center: SA[c+1], SA[c+2], ..., SA[end-1]
+        // occurrences right of the center: SA[c+1], SA[c+2], ..., SA[end]
         for (pos_t j = 0; j < right.size(); j++) {
             if constexpr (report_pos) report(center_sa + 1 + j, right[j] + shft);
             else report(right[j] + shft);
@@ -576,28 +571,28 @@ struct b_move_adapter::locate_context_t {
 // ############################# out-of-line search_context_t methods #############################
 
 template <query_support_t query_support>
-inline b_move_adapter::locate_context_t
-b_move_adapter::search_context_t<query_support>::locate_phase() const requires(query_support == LOCATE)
+inline br_index_adapter::locate_context_t
+br_index_adapter::search_context_t<query_support>::locate_phase() const requires(query_support == LOCATE)
 {
     return locate_context_t(*this);
 }
 
 template <query_support_t query_support>
-inline b_move_adapter::extend_context_t<query_support>
-b_move_adapter::search_context_t<query_support>::extend_phase()
+inline br_index_adapter::extend_context_t<query_support>
+br_index_adapter::search_context_t<query_support>::extend_phase()
 {
     return extend_context_t<query_support>(*idx, *this);
 }
 
-// ############################# out-of-line b_move_adapter methods #############################
+// ############################# out-of-line br_index_adapter methods #############################
 
 template <query_support_t query_support>
-inline b_move_adapter::search_context_t<query_support> b_move_adapter::empty_context() const
+inline br_index_adapter::search_context_t<query_support> br_index_adapter::empty_context() const
 {
     return search_context_t<query_support>(*this);
 }
 
-inline b_move_adapter::pos_t b_move_adapter::count(const inp_t& P) const
+inline br_index_adapter::pos_t br_index_adapter::count(const inp_t& P) const
 {
     auto ctx = empty_context<COUNT>();
 
@@ -611,7 +606,7 @@ inline b_move_adapter::pos_t b_move_adapter::count(const inp_t& P) const
 }
 
 template <typename report_fnc_t>
-inline void b_move_adapter::locate(const inp_t& P, report_fnc_t report) const
+inline void br_index_adapter::locate(const inp_t& P, report_fnc_t report) const
 {
     auto ctx = empty_context<LOCATE>();
 
@@ -624,25 +619,92 @@ inline void b_move_adapter::locate(const inp_t& P, report_fnc_t report) const
     ctx.locate_phase().locate([&](pos_t occ) { report(occ); });
 }
 
-inline b_move_adapter::pos_t b_move_adapter::count_hamming_dist(const inp_t& P, const search_scheme_t& scheme) const
+inline br_index_adapter::pos_t br_index_adapter::count_hamming_dist(const inp_t& P, const search_scheme_t& scheme) const
 {
     return apm_hamming{*this}.count(P, scheme);
 }
 
 template <distance_metric_t dist_metr, typename report_fnc_t>
-inline void b_move_adapter::locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const
+inline void br_index_adapter::locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const
 {
     if constexpr (dist_metr == HAMMING_DISTANCE) apm_hamming{*this}.locate(P, scheme, report);
     if constexpr (dist_metr == EDIT_DISTANCE) apm_edit{*this}.locate(P, scheme, report);
 }
 
 template <distance_metric_t dist_metr>
-inline std::vector<aprx_occ_t<b_move_adapter::pos_t>> b_move_adapter::locate(const inp_t& P, const search_scheme_t& scheme) const
+inline std::vector<aprx_occ_t<br_index_adapter::pos_t>> br_index_adapter::locate(const inp_t& P, const search_scheme_t& scheme) const
 {
     std::vector<aprx_occ_t<pos_t>> Occ;
     locate<dist_metr>(P, scheme, [&](aprx_occ_t<pos_t> occ) { Occ.emplace_back(occ); });
     return Occ;
 }
 
-static_assert(index_adapter<b_move_adapter>,
-    "b_move_adapter must implement the index_adapter interface");
+static_assert(index_adapter<br_index_adapter>,
+    "br_index_adapter must implement the index_adapter interface");
+
+// ############################# NATIVE br-index ALGORITHM #############################
+
+
+/**
+ * @brief Thin driver for the br-index's native approximate-pattern-matching
+ *        algorithm (Arakawa et al.). The br-index supports approximate count
+ *        and locate w.r.t. hamming distance only, by dividing the pattern into
+ *        k+1 parts and exploring up to k mismatches with bidirectional search
+ *        (search_with_mismatch) before counting/locating the resulting samples.
+ *
+ * This is the index's own algorithm, not move_r's apm machinery driven through
+ * an adapter.
+ */
+class br_index_native {
+  public:
+    using br_index_t = bri::br_index<>; // the wrapped bidirectional r-index type
+
+  protected:
+    br_index_t _index; // the br-index (its query routines are non-const)
+
+  public:
+    /**
+     * @brief loads the br-index from the given .bri file
+     * @param path path to the serialized br-index (.bri)
+     */
+    br_index_native(const std::string& path)
+    {
+        std::ifstream in(path);
+
+        if (!in.good()) {
+            throw std::runtime_error("br-index file " + path + " not found");
+        }
+
+        _index.load(in);
+        in.close();
+    }
+
+    /**
+     * @brief length of the indexed text (excluding the sentinel)
+     */
+    inline uint64_t input_size() { return _index.text_size(); }
+
+    /**
+     * @brief length of the indexed text including the sentinel
+     */
+    inline uint64_t bwt_size() { return _index.bwt_size(); }
+
+    /**
+     * @brief counts the occurrences of P with at most k mismatches (hamming distance)
+     */
+    inline uint64_t count_hamming_dist(const std::string& P, uint64_t k)
+    {
+        auto samples = _index.search_with_mismatch(P, (bri::ulint) k);
+        return _index.count_samples(samples);
+    }
+
+    /**
+     * @brief locates the occurrences of P with at most k mismatches (hamming distance)
+     * @return the number of (native, non-deduplicated) occurrences reported
+     */
+    inline uint64_t locate_hamming_dist(const std::string& P, uint64_t k)
+    {
+        auto samples = _index.search_with_mismatch(P, (bri::ulint) k);
+        return _index.locate_samples(samples).size();
+    }
+};

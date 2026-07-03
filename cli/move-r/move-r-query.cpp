@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <ips2ra.hpp>
 #include <move_r/move_r.hpp>
 
 int arg_idx = 1;
@@ -105,7 +106,7 @@ void run()
                 if (pattern.empty()) { std::cout << "error: missing pattern" << std::endl; continue; }
                 auto t = now();
                 std::vector<pos_t> occ = index.locate(pattern);
-                ips4o::sort(occ.begin(), occ.end());
+                ips2ra::sort(occ.begin(), occ.end());
                 std::cout << occ.size() << " occurrence(s) (" << format_time(time_diff_ns(t, now())) << ")";
                 if (!occ.empty()) std::cout << ":";
                 for (pos_t o : occ) std::cout << " " << o;

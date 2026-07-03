@@ -26,6 +26,7 @@
 
 #include <filesystem>
 #include <iostream>
+#include <misc/fasta.hpp>
 #include <move_rb/move_rb.hpp>
 
 int arg_idx = 1;
@@ -35,6 +36,8 @@ uint16_t p = omp_get_max_threads();
 std::string path_prefix_index_file;
 move_r_construction_mode mode = _suffix_array;
 move_r_support support = _locate_move;
+bool fasta_mode = false;                 // whether the input is a (multi-sequence) FASTA file (DNA mode)
+std::string fasta_allowed = "ACGT";      // the alphabet kept verbatim in FASTA mode; other bases are masked
 std::ofstream mf_idx;
 std::ofstream mf_mds;
 std::ofstream index_file;
@@ -61,6 +64,10 @@ void help(std::string msg)
     std::cout << "   -m_idx <m_file_idx> m_file_idx is file to write measurement data of the index construction to" << std::endl;
     std::cout << "   -m_mds <m_file_mds> m_file_mds is file to write measurement data of the construction of the move" << std::endl;
     std::cout << "                       data structures to" << std::endl;
+    std::cout << "   -f                  FASTA/DNA mode: read <input_file> as FASTA (strip headers, mask non-allowed" << std::endl;
+    std::cout << "                       bases) and store per-sequence names/boundaries for SAM output" << std::endl;
+    std::cout << "   -A <alphabet>       in FASTA mode, the alphabet kept verbatim (default: ACGT); any other base is" << std::endl;
+    std::cout << "                       replaced with '" << fasta_mask_symbol << "' and cannot be matched" << std::endl;
     std::cout << "   <input_file>        input file" << std::endl;
     exit(0);
 }
@@ -105,6 +112,11 @@ void parse_args(char** argv, int argc)
         if (arg_idx >= argc - 1) help("error: missing parameter after -a option");
         a = atoi(argv[arg_idx++]);
         if (a < 2) help("error: a < 2");
+    } else if (s == "-f") {
+        fasta_mode = true;
+    } else if (s == "-A") {
+        if (arg_idx >= argc - 1) help("error: missing parameter after -A option");
+        fasta_allowed = argv[arg_idx++];
     } else if (s == "-m_idx") {
         if (arg_idx >= argc - 1) help("error: missing parameter after -m_idx option");
         std::string path_mf_idx = argv[arg_idx++];
@@ -128,7 +140,27 @@ void parse_args(char** argv, int argc)
 template <typename pos_t, move_r_support support>
 void build()
 {
-    move_rb<support, char, pos_t> index(path_input_file, {
+    move_rb<support, char, pos_t> index;
+    fasta_index_t fasta_index;
+    std::string path_build_file = path_input_file; // the file the index is built from
+    std::string path_fasta_text;                   // the temporary preprocessed-text file (FASTA mode only)
+
+    if (fasta_mode) {
+        // stream the FASTA file to a temporary on-disk text (headers stripped, non-allowed bases masked); the text
+        // is never held in memory so arbitrarily large genomes fit the index's memory budget. Only the small
+        // per-sequence metadata is kept, then we build from the temporary file as for a plain on-disk input.
+        path_fasta_text = path_index_file + ".tmp_text";
+
+        auto time = now();
+        log_phase_start(true, time, "preprocessing the FASTA file");
+        fasta_index = process_fasta(path_input_file, path_fasta_text, fasta_allowed);
+        log_phase_end(true, time);
+        std::cout << "read " << fasta_index.seq_names.size() << " sequence(s)" << std::endl;
+
+        path_build_file = path_fasta_text;
+    }
+
+    index = move_rb<support, char, pos_t>(path_build_file, {
         .file_input = true,
         .mode = mode,
         .num_threads = p,
@@ -138,6 +170,13 @@ void build()
         .mf_mds = mf_mds.is_open() ? &mf_mds : nullptr,
         .name_text_file = name_text_file
     });
+
+    if (fasta_mode) {
+        // attach the per-sequence boundaries and names for sequence-relative SAM coordinates, then drop the temp file
+        std::vector<pos_t> seq_starts(fasta_index.seq_starts.begin(), fasta_index.seq_starts.end());
+        index.set_sequences(seq_starts, std::move(fasta_index.seq_names), fasta_separator_symbol);
+        std::filesystem::remove(path_fasta_text);
+    }
 
     auto time = now();
     log_phase_start(true, time, "serializing the index");

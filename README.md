@@ -39,8 +39,8 @@ This repository contains a collection of uni- and bi-directional compressed text
 - **Move-r** — an optimized and parallelized implementation of the modified r-index OptBWTR described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)) (see [benchmarks](benchmarks/move-r.md)). It supports `count`, `locate` and `revert` queries as well as random access to the suffix array (SA) and the Burrows-Wheeler-Transform (BWT). The locate support can be backed either by a move data structure (`locate_move`) or by an optimized RLZSA (`locate_rlzsa`); there are also `count`-only and `locate_one` (one occurrence per pattern) modes. Move-r works over byte alphabets as well as over arbitrary integer alphabets.
 - **Move-rb and Move-rb-rlzsa (bi-directional)** — the bi-directional variants of Move-r and Move-r-rlzsa. In addition to `count`, `locate` and `revert`, `move_rb` can extend the currently matched pattern to **both** the left and the right, and it supports **approximate pattern matching** under the hamming distance (`count`/`locate`) and the edit distance (`locate`) via configurable [search schemes](#search-schemes).
 - **Move data structure** — an implementation of the move data structure [1] with the balancing algorithm described in [2]. A separate variant (`move_data_structure_l_`) additionally stores a string interleaved with the arrays needed for move queries (intended for storing the characters of the BWT (sub-)runs).
-- **Optimized RLZSA** — an optimized RLZSA implementation [4] that can be constructed in O(r) additional space from an r-index and is smaller and faster than the original implementation from [3]. This is the RLZSA used by the `locate_rlzsa` mode of Move-r and Move-rb.
-- **RLZSA and LZEndSA indexes** — an r-index combined with an LZEndSA [4] (`r-index-lzendsa`) and a faithful reimplementation of the RLZSA-based index described in [3] (`r-index-rlzsa`). Additionally, a plain RLZSA index and a plain LZEndSA index are included, in which pattern search is implemented using binary search over the compressed SA.
+- **Optimized RLZSA** — an optimized RLZSA implementation [4] that can be constructed in O(r) additional space from an r-index and is smaller and faster than the original implementation from [3]. **This is the RLZSA used by the `locate_rlzsa` mode of Move-r and Move-rb** (i.e. the `.move-rb-rlzsa` indexes and the `move_rb_rlzsa` results in the benchmarks use this optimized RLZSA).
+- **RLZSA and LZEndSA indexes** — an r-index combined with an LZEndSA [4] (`r-index-lzendsa`) and a faithful reimplementation of the RLZSA-based index described in [3] (`r-index-rlzsa`). Additionally, a plain RLZSA index and a plain LZEndSA index are included, in which pattern search is implemented using binary search over the compressed SA. **These standalone `rlzsa` / `r-index-rlzsa` indexes are the original, *unoptimized* RLZSA of [3]** — distinct from the optimized RLZSA above that backs Move-r/Move-rb's `locate_rlzsa`.
 - **Internal data structures** — the indexes are built from a set of reusable, header-only data structures in [include/data_structures/](include/data_structures/): plain and hybrid bit vectors, byte- and bit-aligned interleaved vectors, an sd-array and a combined rank/select support. These are tested and benchmarked separately (see [Tests](#tests) and [Benchmarks](#benchmarks)).
 
 ## Dependencies
@@ -49,7 +49,6 @@ This repository contains a collection of uni- and bi-directional compressed text
 
 - [OpenMP](https://www.openmp.org/)
 - [Intel TBB](https://www.intel.com/content/www/us/en/developer/tools/oneapi/onetbb.html)
-- [SDSL](https://github.com/simongog/sdsl-lite)
 - [Big-BWT](https://gitlab.com/manzai/Big-BWT) (for the `bigbwt` construction mode)
 - zlib (package `libz-dev`)
 
@@ -57,8 +56,10 @@ This repository contains a collection of uni- and bi-directional compressed text
 
 Core dependencies, pulled in automatically and linked into the `move_r` library:
 
+- [SDSL](https://github.com/simongog/sdsl-lite) — succinct data structures; built from source as a position-independent static library (with its bundled [libdivsufsort](https://github.com/simongog/libdivsufsort)), so the one archive links both the ordinary executables and the shared columba benchmark plugins — no system SDSL install is needed
 - [libsais](https://github.com/IlyaGrebnov/libsais) — suffix-array construction
 - [ips4o](https://github.com/ips4o/ips4o) — for (parallel) sorting
+- [ips2ra](https://github.com/ips4o/ips2ra) — in-place radix sort, used for the integer-key occurrence sorts
 - [gtl](https://github.com/greg7mdp/gtl), [sparse-map](https://github.com/Tessil/sparse-map), [emhash](https://github.com/ktprime/emhash), [unordered_dense](https://github.com/martinus/unordered_dense) — hash maps
 - [sux](https://github.com/vigna/sux) — for plain bit vectors
 - [ordered](https://github.com/pdinklag/ordered) — for BTrees
@@ -69,10 +70,11 @@ Core dependencies, pulled in automatically and linked into the `move_r` library:
 Used only by the benchmark tools:
 
 - [rcomp](https://github.com/kampersanda/rcomp), [r-index](https://github.com/alshai/r-index), [r-index-f](https://github.com/drnatebrown/r-index-f), [OnlineRlbwt](https://github.com/itomomoti/OnlineRlbwt), [block_RLBWT](https://github.com/saskeli/block_RLBWT) — uni-directional competitor r-indexes
-- [b-move](https://github.com/biointec/b-move), [br-index](https://github.com/U-Ar/br-index) — bi-directional competitor r-indexes
+- [columba](https://github.com/biointec/columba) — bi-directional competitor index, built in two flavors: the FM-index (*columba*) and its run-length-compressed move-structure flavor (*columba-rlc*, the successor of [b-move](https://github.com/biointec/b-move)). Its nested [Big-BWT](https://gitlab.com/manzai/Big-BWT) submodule is only needed to build the columba index-construction tools.
+- [br-index](https://github.com/U-Ar/br-index) — bi-directional competitor r-index
 
 ## CLI Build Instructions
-This implementation has been tested on Ubuntu 24.04 with GCC 13.3.0, `libtbb-dev`, `libomp-dev`, `python3-psutil` and `libz-dev` installed. [Big-BWT](https://gitlab.com/manzai/Big-BWT) and [SDSL](https://github.com/simongog/sdsl-lite) have to be built and installed manually.
+This implementation has been tested on Ubuntu 24.04 with GCC 13.3.0, `libtbb-dev`, `libomp-dev`, `python3-psutil` and `libz-dev` installed. [Big-BWT](https://gitlab.com/manzai/Big-BWT) has to be built and installed manually
 ```shell
 git clone --recurse-submodules https://github.com/LukasNalbach/Move-r.git
 cd Move-r
@@ -385,8 +387,8 @@ The command-line tools are built into the `build/cli/` folder. Each tool prints 
 ### Benchmark tools
 
 - **move-r-bench** — benchmarks construction-, revert- and query performance of move-r against block-rlbwt (`-2`/`-v`/`-r`), r-index, r-index-f, rcomp-glfig and online-rlbwt; with `-a` it instead measures count/locate performance of move-r for a range of balancing parameters. Has to be run from the base folder.
-- **move-rb-bench** — benchmarks approximate count/locate performance of move_rb (move & rlzsa) against b-move and br-index; the indexes must be built beforehand (placed in `<index_dir>` and named `<text_name>.move-rb`, `<text_name>.move-rb-rlzsa`, `<text_name>.bri` and the b-move files) and the pattern sets generated with `move-rb-gen-queries`.
-- **move-rb-gen-queries** — generates the (auto-calibrated) query/pattern sets used by `move-rb-bench`.
+- **move-rb-bench** — benchmarks approximate count/locate of move_rb (move & rlzsa) against both columba flavors and br-index in one run, reading the pre-built indexes from `<index_dir>` (`<text_name>.move-rb`, `.move-rb-rlzsa`, `.bri`, the columba-rlc index with base name `<text_name>` and the columba FM-index with base name `<text_name>.fm`) and the pattern sets from `move-rb-gen-queries`. Both columba flavors are measured by the single `move-rb-bench` binary (reported as `columba_rlc` / `columba`) and load with the k-mer table disabled (like move_rb). Options: `--metric all|hamming|edit`, `--k`/`--m <list>` (only pattern files with these error counts / lengths), `--only <list>` (only some indexes: `move_rb_move`, `move_rb_rlzsa`, `columba_rlc`, `columba`, `br_index`, `br_index_native`), `--time <s>` (replay each set for ≥ s seconds; 0 = one pass), `-s <scheme>`, `--cigar` (also measure CIGAR-producing locate, as a second `cigar=1` line). Each `RESULT` line reports `num_occurrences`, `time_*` and the byte columns `index_mem`, `peak_mem`, `occ_mem`, `cigar_mem` (via `malloc_count`). The columba indexes are built with columba's own build tools.
+- **move-rb-gen-queries** — generates the (auto-calibrated) query/pattern sets used by `move-rb-bench`. For every (k, m) pair it writes three pizza&chili-format files, one per benchmark operation — `<text_name>.patterns-count-hamming`, `-locate-hamming` and `-locate-edit` (each suffixed `-k<k>-m<m>`) — by sampling substrings of the text at random positions and injecting up to k errors; the pattern count per file is auto-calibrated against a move_rb index so the file's operation runs for about `--time` seconds. Options: `-k`/`-m <list>` (error counts / pattern lengths), `--only count|locate|count,locate`, `--time <s>` (target per-file duration), `--timeout <s>` (per-pattern worker timeout; slow patterns are discarded), `--min <N>` (minimum patterns per file), `--max-skips <N>`, `-x <chars>` (skip patterns containing these characters, e.g. a FASTA separator), `-s <scheme>`, `--seed <s>`, `-n <text_name>`, `-o <dir>`.
 - **bench-int-rank-select** — benchmarks the internal integer rank/select data structures (built into `build/bench/`).
 
 ## Search Schemes
@@ -444,4 +446,4 @@ In 24th International Workshop on Algorithms in Bioinformatics (WABI), LIPIcs vo
 ## License
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
-The approximate-pattern-matching module ([include/algorithms/apm/](include/algorithms/apm/)) implements published techniques: Myers' bit-parallel edit-distance recurrence [5] with Hyyrö's refinements [6], the bidirectional search-scheme paradigm [7], and the banded search-scheme alignment strategy of Columba [8] (also used by b-move [9]). The competitor r-indexes bundled as submodules under [external/](external/) (including b-move and br-index) retain their own licenses — see each submodule.
+The approximate-pattern-matching module ([include/algorithms/apm/](include/algorithms/apm/)) implements published techniques: Myers' bit-parallel edit-distance recurrence [5] with Hyyrö's refinements [6], the bidirectional search-scheme paradigm [7], and the banded search-scheme alignment strategy of Columba [8] (also used by its run-length-compressed *b-move* flavor [9]). The competitor indexes bundled as submodules under [external/](external/) sources retain their own licenses — see each submodule.

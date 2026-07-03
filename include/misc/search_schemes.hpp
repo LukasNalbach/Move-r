@@ -209,44 +209,26 @@ static search_scheme_t parse_search_scheme(const std::string& str)
 
     std::vector<search_t> S;
 
+    // each non-empty line describes one search as three consecutive braced arrays: {pi} {L} {U}, each holding p
+    // comma-separated values (the part order, the lower and the upper error bounds)
     while (std::getline(ss_input, line)) {
-        if (line.empty()) {
-            print_search_scheme_error();
-        }
+        if (line.find('{') == std::string::npos) continue; // skip blank lines
 
-        std::vector<std::vector<uint8_t>> bracket_contents;
-        uint64_t pos = 0;
-
-        while ((pos = line.find('{', pos)) != std::string::npos) {
-            uint64_t end = line.find('}', pos);
-            if (end == std::string::npos) break;
-
-            std::string content = line.substr(pos + 1, end - pos - 1);
-            bracket_contents.emplace_back(parse_bracket(content, p));
-            
-            pos = end + 1;
-        }
-
-        if (bracket_contents.size() != 3 ||
-            bracket_contents[0].size() != p ||
-            bracket_contents[1].size() != p ||
-            bracket_contents[2].size() != p
-        ) {
-            print_search_scheme_error();
+        std::vector<std::vector<uint8_t>> arrays; // the parsed pi, L and U arrays
+        for (size_t pos = 0; arrays.size() < 3;) {
+            size_t open = line.find('{', pos);
+            size_t close = open == std::string::npos ? std::string::npos : line.find('}', open);
+            if (close == std::string::npos) print_search_scheme_error();
+            arrays.emplace_back(parse_bracket(line.substr(open + 1, close - open - 1), p));
+            if ((int64_t) arrays.back().size() != p) print_search_scheme_error();
+            pos = close + 1;
         }
 
         search_t s;
         s.reserve(p);
-
-        for (int64_t i = 0; i < p; i++) {
-            s.emplace_back(search_step_t{
-                .part =  bracket_contents[0][i],
-                .k_min = bracket_contents[1][i],
-                .k_max = bracket_contents[2][i]
-            });
-        }
-
-        S.emplace_back(s);
+        for (int64_t i = 0; i < p; i++)
+            s.emplace_back(search_step_t{.part = arrays[0][i], .k_min = arrays[1][i], .k_max = arrays[2][i]});
+        S.emplace_back(std::move(s));
     }
 
     return search_scheme_t {
@@ -255,160 +237,5 @@ static search_scheme_t parse_search_scheme(const std::string& str)
         .S = std::move(S)
     };
 }
-
-/**
- * @brief precomputes, for a single search of a search scheme, the per-step information needed to execute it
- *        (search directions, direction switches and the range of previously processed parts)
- */
-class edit_dist_search
-{
-  protected:
-    const search_scheme_t& scheme;
-    const std::vector<search_step_t>& search_arr;
-    uint8_t search_idx;
-    std::vector<direction_t> dirs;
-    std::vector<bool> is_dir_switch;
-    std::vector<uint8_t> leftmost_prev_part;
-    std::vector<uint8_t> rightmost_prev_part;
-
-  public:
-    /**
-     * @brief precomputes the per-step information for the search with index search_idx in scheme
-     * @param scheme the search scheme
-     * @param search_idx the index of the search within the scheme
-     */
-    edit_dist_search(const search_scheme_t& scheme, uint8_t search_idx)
-        : scheme(scheme), search_arr(scheme.S[search_idx]), search_idx(search_idx)
-    {
-        dirs.reserve(scheme.p);
-        dirs.emplace_back((search_arr[1].part > search_arr[0].part) ? RIGHT : LEFT);
-
-        for (uint8_t i = 1; i < scheme.p; i++) {
-            dirs.emplace_back((search_arr[i].part > search_arr[i - 1].part) ? RIGHT : LEFT);
-        }
-
-        is_dir_switch.reserve(scheme.p);
-        is_dir_switch.emplace_back(false);
-
-        for (uint8_t i = 1; i < dirs.size(); i++) {
-            is_dir_switch.emplace_back(dirs[i] != dirs[i - 1]);
-        }
-
-        leftmost_prev_part.reserve(scheme.p);
-        rightmost_prev_part.reserve(scheme.p);
-        leftmost_prev_part.emplace_back(search_arr[0].part);
-        rightmost_prev_part.emplace_back(search_arr[0].part);        
-
-        for (uint8_t i = 1; i < scheme.p; i++) {
-            uint8_t cur_part = search_arr[i].part;
-
-            if (cur_part < leftmost_prev_part[i - 1]) {
-                leftmost_prev_part.emplace_back(cur_part);
-                rightmost_prev_part.emplace_back(rightmost_prev_part[i - 1]);
-            } else {
-                leftmost_prev_part.emplace_back(leftmost_prev_part[i - 1]);
-                rightmost_prev_part.emplace_back(cur_part);
-            }
-        }
-    }
-    
-    /**
-     * @brief returns the minimum number of errors allowed after the i-th search step
-     * @param i index of the search step
-     * @return the lower error bound of the i-th search step
-     */
-    uint8_t lower_bound(uint8_t i) const
-    {
-        return search_arr[i].k_min;
-    }
-
-    /**
-     * @brief returns the maximum number of errors allowed after the i-th search step
-     * @param i index of the search step
-     * @return the upper error bound of the i-th search step
-     */
-    uint8_t upper_bound(uint8_t i) const
-    {
-        return search_arr[i].k_max;
-    }
-
-    /**
-     * @brief returns the pattern part processed in the i-th search step
-     * @param i index of the search step
-     * @return the index of the pattern part processed in the i-th search step
-     */
-    uint8_t part(uint8_t i) const
-    {
-        return search_arr[i].part;
-    }
-
-    /**
-     * @brief returns the leftmost pattern part processed before the idx-th search step
-     * @param idx index of the search step
-     * @return the index of the leftmost previously processed part
-     */
-    uint8_t leftmost_previous_part(uint8_t idx) const
-    {
-        return leftmost_prev_part[idx - 1];
-    }
-
-    /**
-     * @brief returns the rightmost pattern part processed before the idx-th search step
-     * @param idx index of the search step
-     * @return the index of the rightmost previously processed part
-     */
-    uint8_t rightmost_previous_part(uint8_t idx) const
-    {
-        return rightmost_prev_part[idx - 1];
-    }
-
-    /**
-     * @brief returns the direction in which the i-th search step extends the pattern
-     * @param i index of the search step
-     * @return the search direction of the i-th search step
-     */
-    direction_t part_dir(uint8_t i) const
-    {
-        return dirs[i];
-    }
-
-    /**
-     * @brief returns whether the i-th search step switches the search direction
-     * @param i index of the search step
-     * @return whether the i-th search step switches the search direction
-     */
-    bool does_part_switch_dir(uint8_t i) const
-    {
-        return is_dir_switch[i];
-    }
-
-    /**
-     * @brief returns the number of pattern parts
-     * @return the number of pattern parts
-     */
-    uint8_t num_parts() const
-    {
-        return scheme.p;
-    }
-
-    /**
-     * @brief returns the index of this search within its search scheme
-     * @return the index of this search within its search scheme
-     */
-    uint8_t search_index() const
-    {
-        return search_idx;
-    }
-
-    /**
-     * @brief returns whether the part processed in the i-th search step is an outer (edge) part of the pattern
-     * @param i index of the search step
-     * @return whether the i-th part is the first or the last pattern part
-     */
-    bool is_edge(uint8_t i) const
-    {
-        return search_arr[i].part == 0 || search_arr[i].part == scheme.p - 1;
-    }
-};
 
 #include "min_u_schemes.tpp"

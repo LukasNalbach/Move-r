@@ -25,6 +25,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <gtl/phmap.hpp>
 #include <move_rb/move_rb.hpp>
 #include <misc/apm.hpp>
 
@@ -59,10 +60,6 @@ void test_move_rb()
     inp_t input = random_repetitive_input<inp_t>(min_input_size, max_input_size, min_sym, max_sym);
     pos_t input_size = input.size();
 
-    // a std::string view of the (byte) input for the naive reference algorithms, which are byte-/string-based;
-    // the byte values are identical, so the approximate occurrences (position/length/error) are the same
-    std::string input_str(reinterpret_cast<const char*>(input.data()), input.size());
-
     // build move-r and choose a random number of threads and balancing parameter, but always use libsais,
     // because there are bugs in Big-BWT that come through during fuzzing but not really in practice
     move_rb<support, sym_t, pos_t> index(input, {
@@ -70,6 +67,10 @@ void test_move_rb()
         .num_threads = num_threads_distrib(gen),
         .a = std::min<uint16_t>(2 + a_distrib(gen), 32767)
     });
+
+    // a read-only view for the naive reference algorithms; created AFTER the build, which reallocates input's
+    // buffer (its contents are preserved) -- a view captured earlier would dangle
+    std::span<const sym_t> input_span(input);
 
     // generate patterns from the input and test count- and locate queries
     std::uniform_int_distribution<pos_t> pattern_pos_distrib(0, input_size - 1);
@@ -90,12 +91,12 @@ void test_move_rb()
 
         mutate_pattern<pos_t>(pattern, input, gen_thr);
         pattern_length = pattern.size();
-        std::string pattern_str(reinterpret_cast<const char*>(pattern.data()), pattern.size());
+        std::span<const sym_t> pattern_span(pattern);
         pos_t max_mismatches = std::uniform_int_distribution<pos_t>(0,
             std::max<int32_t>(std::min<int32_t>(pattern_length / 2 - 1, mismatches_limit), 0))(gen_thr);
 
         for_each_constexpr<HAMMING_DISTANCE, EDIT_DISTANCE>([&](auto dist_metr){
-            auto correct_occurrences = locate<pos_t, dist_metr>(input_str, pattern_str, max_mismatches);
+            auto correct_occurrences = locate<pos_t, dist_metr>(input_span, pattern_span, max_mismatches);
             const search_scheme_t scheme = min_u_scheme(max_mismatches);
             auto occurrences = index.template locate<dist_metr>(pattern, scheme);
             ips4o::sort(occurrences.begin(), occurrences.end());
@@ -105,15 +106,53 @@ void test_move_rb()
                 EXPECT_EQ(occurrences.size(), correct_occurrences.size());
                 EXPECT_EQ(occurrences, correct_occurrences);
             } else {
+                gtl::flat_hash_map<std::span<const sym_t>, pos_t, span_hash, span_eq> dist_cache;
                 for (const auto& occ : occurrences) {
-                    std::string_view occ_view(input_str.data() + occ.pos, occ.len);
-                    pos_t best_dist = edit_dist_bounded<pos_t>(occ_view, pattern_str, max_mismatches);
-                    EXPECT_TRUE(best_dist <= occ.err && occ.err <= max_mismatches);
+                    if (occ.pos + occ.len > input_size) { ADD_FAILURE(); continue; }
+                    std::span<const sym_t> match = input_span.subspan(occ.pos, occ.len);
+                    auto [it, inserted] = dist_cache.try_emplace(match, 0);
+                    if (inserted) it->second = edit_dist_bounded<pos_t>(pattern_span, match, max_mismatches);
+                    if constexpr (dist_metr == HAMMING_DISTANCE) EXPECT_EQ(it->second, occ.err);
+                    else EXPECT_TRUE(it->second == occ.err && occ.err <= max_mismatches);
+                }
+                EXPECT_TRUE(verify_edit_distance_coverage(occurrences, correct_occurrences, max_mismatches));
+                filter_edit_distance_occurrences(occurrences, max_mismatches);
+                EXPECT_TRUE(verify_edit_distance_coverage(occurrences, correct_occurrences, max_mismatches));
+            }
+
+            std::vector<aprx_occ_t<pos_t, CIGAR>> cigar_results;
+            index.template locate<dist_metr, CIGAR>(pattern, scheme, [&](aprx_occ_t<pos_t, CIGAR> occ){
+                cigar_results.emplace_back(std::move(occ));
+            });
+
+            std::vector<aprx_occ_t<pos_t>> cigar_occurrences;
+            gtl::flat_hash_map<std::span<const sym_t>, pos_t, span_hash, span_eq> dist_cache;
+            for (const auto& occ : cigar_results) {
+                cigar_occurrences.push_back({occ.pos, occ.len, occ.err});
+                if (occ.pos + occ.len > input_size) { ADD_FAILURE(); continue; }
+                std::span<const sym_t> match = input_span.subspan(occ.pos, occ.len);
+                EXPECT_EQ(num_cigar_edits(pattern_span.data(), pattern_span.size(), match.data(), match.size(), occ.cigar), occ.err);
+                auto [it, inserted] = dist_cache.try_emplace(match, 0);
+
+                if (inserted) {
+                    if constexpr (dist_metr == HAMMING_DISTANCE) {
+                        EXPECT_EQ(match.size(), pattern_span.size());
+                        it->second = hamming_dist_bounded<pos_t>(pattern_span, match, max_mismatches);
+                    } else {
+                        it->second = edit_dist_bounded<pos_t>(pattern_span, match, max_mismatches);
+                    }
                 }
 
-                EXPECT_TRUE(verify_edit_distance_coverage(occurrences, correct_occurrences, max_mismatches));
-                filter_aprx_occurrences(occurrences, max_mismatches);
-                EXPECT_TRUE(verify_edit_distance_coverage(occurrences, correct_occurrences, max_mismatches));
+                EXPECT_TRUE(it->second == occ.err && occ.err <= max_mismatches);
+            }
+
+            ips4o::sort(cigar_occurrences.begin(), cigar_occurrences.end());
+            if constexpr (dist_metr == HAMMING_DISTANCE) {
+                EXPECT_EQ(cigar_occurrences, correct_occurrences);
+            } else {
+                EXPECT_TRUE(verify_edit_distance_coverage(cigar_occurrences, correct_occurrences, max_mismatches));
+                filter_edit_distance_occurrences(cigar_occurrences, max_mismatches);
+                EXPECT_TRUE(verify_edit_distance_coverage(cigar_occurrences, correct_occurrences, max_mismatches));
             }
         });
     }
