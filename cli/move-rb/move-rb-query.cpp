@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <ips2ra.hpp>
 #include <move_rb/move_rb.hpp>
 
 int arg_idx = 1;
@@ -188,7 +189,7 @@ void run()
                     }
                     std::vector<pos_t> occ;
                     if (found) occ = ctx.locate_phase().locate();
-                    ips4o::sort(occ.begin(), occ.end());
+                    ips2ra::sort(occ.begin(), occ.end());
                     uint64_t to_print = print_limit == 0 ? occ.size() : std::min<uint64_t>(occ.size(), print_limit);
                     std::cout << occ.size() << " occurrence(s) (" << format_time(time_diff_ns(t, now())) << ")";
                     if (!occ.empty()) std::cout << ":";
@@ -237,9 +238,9 @@ void run()
                     index.template locate<HAMMING_DISTANCE>(pattern, scheme, [&](aprx_occ_t<pos_t> o){ occ.emplace_back(o); });
                 } else {
                     index.template locate<EDIT_DISTANCE>(pattern, scheme, [&](aprx_occ_t<pos_t> o){ occ.emplace_back(o); });
-                    filter_aprx_occurrences<pos_t>(occ, (pos_t) k);
+                    filter_edit_distance_occurrences<pos_t>(occ, (pos_t) k);
                 }
-                ips4o::sort(occ.begin(), occ.end());
+                ips2ra::sort(occ.begin(), occ.end(), [](const aprx_occ_t<pos_t>& o){ return o.pos; });
                 uint64_t to_print = print_limit == 0 ? occ.size() : std::min<uint64_t>(occ.size(), print_limit);
                 std::cout << occ.size() << " occurrence(s) (" << format_time(time_diff_ns(t, now())) << ")";
                 if (!occ.empty()) std::cout << ":";

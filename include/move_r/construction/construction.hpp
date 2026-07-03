@@ -376,7 +376,6 @@ public:
             *mf_idx << " time_construction=" << time_construction;
             *mf_idx << " peak_mem_usage=" << peak_mem_usage;
             idx.log_data_structure_sizes(*mf_idx);
-            *mf_idx << std::endl;
         }
     }
 

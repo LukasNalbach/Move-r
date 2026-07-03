@@ -54,9 +54,6 @@
 [submodule "external/googletest"]
 	path = external/googletest
 	url = https://github.com/google/googletest.git
-[submodule "external/b-move"]
-	path = external/b-move
-	url = https://github.com/biointec/b-move.git
 [submodule "external/br-index"]
 	path = external/br-index
 	url = https://github.com/U-Ar/br-index.git
@@ -66,3 +63,12 @@
 [submodule "external/parallel-hashmap"]
 	path = external/parallel-hashmap
 	url = https://github.com/greg7mdp/parallel-hashmap.git
+[submodule "external/ips2ra"]
+	path = external/ips2ra
+	url = https://github.com/ips4o/ips2ra.git
+[submodule "external/columba"]
+	path = external/columba
+	url = https://github.com/biointec/columba.git
+[submodule "external/sdsl-lite"]
+	path = external/sdsl-lite
+	url = https://github.com/simongog/sdsl-lite.git

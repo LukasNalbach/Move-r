@@ -1,5 +1,5 @@
 /******************************************************************************
- *  b-move: bidirectional move structure                                      *
+ *  Columba: Approximate Pattern Matching using Search Schemes                *
  *  Copyright (C) 2020-2024 - Lore Depuydt <lore.depuydt@ugent.be> and        *
  *                            Luca Renders <luca.renders@ugent.be> and        *
  *                            Jan Fostier <jan.fostier@ugent.be>              *
@@ -20,14 +20,13 @@
 #ifndef BMOVE_H
 #define BMOVE_H
 
-#include "definitions.h"
-#include "rindexhelpers.h"
-#include "rindex.h"
-#include "reads.h"
-#include "move.h"
-#include "movephirepr.h"
+#include "../definitions.h"
+#include "../indexhelpers.h"
+#include "../indexinterface.h"
+#include "../reads.h"
+#include "moverepr.h"
 #include "plcp.h" // for PLCP
-#include "sparseBitvec.h"
+#include "sparsebitvec.h"
 
 #include <ios>
 #include <sdsl/int_vector.hpp>
@@ -58,26 +57,14 @@ class BMove : public IndexInterface {
     sdsl::int_vector<> firstToRun;
     sdsl::int_vector<> lastToRun;
 #else
-#ifdef PHI_MOVE_BIT_PACKED
     // Contains bit packed phi and phi inverse move structures
     MovePhiReprBP phiMove;
     MovePhiReprBP phiInvMove;
-#else
-    // Contains phi and phi inverse move structures
-    MovePhiRepr phiMove;
-    MovePhiRepr phiInvMove;
-#endif
 #endif
 
-#ifndef LF_MOVE_BIT_PACKED
-    // The Move data structure of the text and the reverse text
-    MoveLFRepr move;
-    MoveLFRepr moveR;
-#else
     // The Move data structure of the text and the reverse text
     MoveLFReprBP move;
     MoveLFReprBP moveR;
-#endif
 
     // ----------------------------------------------------------------------------
     // PREPROCESSING ROUTINES
@@ -88,9 +75,8 @@ class BMove : public IndexInterface {
      * @param baseFile the baseFile of the files that will be read in
      * @param verbose if true the steps will we written to cout
      */
-    virtual void fromFiles(const std::string& baseFile, bool verbose) override;
+    void fromFiles(const std::string& baseFile, bool verbose);
 
-#ifndef LF_BENCHMARK_FUNCTIONALITY
     /**
      * Read a binary file and stores content in sdsl int_vector
      * @param filename File name
@@ -107,7 +93,6 @@ class BMove : public IndexInterface {
         ifs.close();
         return true;
     }
-#endif
 
     // ----------------------------------------------------------------------------
     // ROUTINES FOR ACCESSING DATA STRUCTURE
@@ -152,9 +137,6 @@ class BMove : public IndexInterface {
      * @returns A toehold for the full range in the BWT.
      */
     length_t getInitialToehold() const {
-#ifdef LF_BENCHMARK_FUNCTIONALITY
-        return 0;
-#endif
         assert(samplesLast[samplesLast.size() - 1]);
         return samplesLast[samplesLast.size() - 1] - 1;
     }
@@ -181,8 +163,8 @@ class BMove : public IndexInterface {
      */
     void
     findRangeWithExtraCharBackwardAuxiliary(length_t positionInAlphabet,
-                                           SARange& parentBackwardRange,
-                                           SARange& childBackwardRange) const;
+                                            SARange& parentBackwardRange,
+                                            SARange& childBackwardRange) const;
 
     /**
      * Finds the ranges of cP using the principle explained in the paper of
@@ -246,6 +228,80 @@ class BMove : public IndexInterface {
         SARangePair& rangesOfChild) const override;
 
     // ----------------------------------------------------------------------------
+    // IN TEXT VERIFICATION ROUTINES
+    // ----------------------------------------------------------------------------
+
+    /**
+     * Verifies the text occurrences in the text and adds them to the
+     * occurrences for the edit distance metric. WARNING: This function
+     * makes use of the fullReadMatrix pointer. Before calling this function
+     * make sure the pointer points to the correct bit-parallel matrix and
+     * that the sequence for this matrix has been set.
+     * @param sPos The start positions to be verified.
+     * @param maxED The maximal edit distance that is allowed for the
+     * search.
+     * @param minED The minimal edit distance that is allowed for the
+     * search.
+     * @param occ Data structure with the in-index and in-text occurrences,
+     * if an occurrence, either in-index or in-text, is found it will be
+     * added to this data structure.
+     * @param counters The performance counters.
+     * @param pattern The pattern to verify.
+     * @param fixedStartPos Whether the start positions are fixed or not.
+     */
+    virtual void inTextVerification(const std::vector<length_t>& sPos,
+                                    const length_t& maxED,
+                                    const length_t& minED, Occurrences& occ,
+                                    Counters& counters,
+                                    const Substring& pattern,
+                                    bool fixedStartPos) const override;
+
+    /**
+     * Verifies an in-text occurrence and adds it to the occurrences for the
+     * edit distance metric. WARNING: This function makes use of the
+     * fullReadMatrix pointer. Before calling this function make sure the
+     * pointer points to the correct bit-parallel matrix and that the
+     * sequence for this matrix has been set.
+     * @param startPos the start position of the in-text occurrence to
+     * verify
+     * @param endPos the end position of the in-text occurrence to verify
+     * @param maxED the maximal allowed edit distance
+     * @param minED the minimal allowed edit distance
+     * @param occ the Occurrences data structure to add a valid in-text
+     * occurrence to
+     * @param counters the performance counters
+     * @param pattern the pattern to verify
+     */
+    virtual void
+    inTextVerificationOneString(const length_t startPos, const length_t endPos,
+                                const length_t& maxED, const length_t& minED,
+                                Occurrences& occ, Counters& counters,
+                                const std::string& pattern) const override;
+    /**
+     * In text verification for the Hamming distance.
+     * @param node The node in the index at which the switch to in-text
+     * verification will happen.
+     * @param s The current search.
+     * @param parts The parts of the pattern for this search.
+     * @param idx The current index in the search.
+     * @param occ Data structure with all occurrences, both in FM Index and
+     * in text. If in-text verification leads to valid text occurrences,
+     * these will be added to occ
+     */
+    virtual void inTextVerificationHamming(const FMPosExt& node,
+                                           const Search& s,
+                                           const std::vector<Substring>& parts,
+                                           const length_t idx, Occurrences& occ,
+                                           Counters& counters) const override;
+
+    void inTextVerificationHamming(const Range& r, const Substring& pattern,
+                                   const length_t maxEDFull,
+                                   const length_t minEDFull,
+                                   const length_t lengthBefore,
+                                   Occurrences& occ,
+                                   Counters& counters) const override;
+
+    // ----------------------------------------------------------------------------
     // LOCATION ROUTINES
     // ----------------------------------------------------------------------------
 
@@ -276,12 +332,13 @@ class BMove : public IndexInterface {
      * about the index.
      * @param verbose If true, the steps will be written to cout. [default =
      * true]
+     * @param noCIGAR If true, the CIGAR string will not be calculated.
      * @param wordSize The size of the mers to be stored in the hashtable.
      * Used for quick look-ups of exact seeds. [default = 10]
      */
-    BMove(const std::string& baseFile, bool verbose = true,
+    BMove(const std::string& baseFile, bool verbose = true, bool noCIGAR = true,
           length_t wordSize = 10)
-        : IndexInterface(baseFile, verbose, wordSize) {
+        : IndexInterface(baseFile, verbose, noCIGAR, wordSize) {
 
         // read in files
         fromFiles(baseFile, verbose);
@@ -290,7 +347,7 @@ class BMove : public IndexInterface {
         populateTable(verbose);
 
         // set the index in FORWARD_STRAND mode
-        setIndexInMode(FORWARD_STRAND);
+        BMove::setIndexInMode(FORWARD_STRAND);
     }
 
     /**
@@ -310,10 +367,24 @@ class BMove : public IndexInterface {
      * index.
      */
     virtual SARangePair getCompleteRange() const override {
-        return SARangePair(SARange(0, textLength, 0, move.getNrOfRuns() - 1),
-                           SARange(0, textLength, 0, moveR.getNrOfRuns() - 1),
+        return SARangePair(SARange(0, textLength, 0, move.size() - 1),
+                           SARange(0, textLength, 0, moveR.size() - 1),
                            getInitialToehold(), false, 0);
     }
+
+    virtual FMPos getEmptyStringFMPos() const override {
+        return FMPos(getCompleteRange(), 0);
+    }
+
+    /**
+     * Get the original text
+     */
+    virtual const std::string& getText() const override;
+
+    /**
+     * Get the cross-over point form in-index to in-text verification
+     */
+    virtual length_t getSwitchPoint() const override;
 
     /**
      * Find the range of an exact match of single character in this index.
@@ -337,11 +408,69 @@ class BMove : public IndexInterface {
     virtual void setIndexInMode(Strand reverseComplement,
                                 PairStatus firstRead = FIRST_IN_PAIR) override {
         setIndexInModeSubRoutine(reverseComplement, firstRead);
+
+        // TODO extra compile option to disable this for if CIGAR not required
+        // point to the correct fullReadMatrix based on the two parameters
+        fullReadMatrix = &getFullReadMatrix(strand, pairStatus);
+        fullReadMatrix128 = &getFullReadMatrix128(strand, pairStatus);
     }
+
+    /**
+     * Verifies an exact partial match in the text for all occurrences of
+     * that exact partial match using the edit distance. If a valid match is
+     * found it will be added to the occurrences.
+     * @param startMatch The match containing the SA ranges corresponding to
+     * the exact partial match  to start from and depth of the exact match.
+     * @param beginInPattern The position in the pattern where the partial
+     * match starts.
+     * @param maxED The maximal allowed edit distance.
+     * @param occ A data structure with approximate occurrences of the
+     * complete pattern. Both in-index and in-text occurrences are stored.
+     * If a new approximate occurrence is found, either in-index or in-text
+     * it will be added to this data structure.
+     * @param counters The performance counters.
+     * @param minED the minimal allowed distance for found occurrences
+     * @param pattern The pattern to verify.
+     */
+    virtual void verifyExactPartialMatchInText(
+        const FMOcc& startMatch, const length_t& beginInPattern,
+        const length_t& maxED, Occurrences& occ, Counters& counters,
+        length_t minED, const Substring& pattern) override;
+
+    /**
+     * Verifies an exact partial match in the text for all occurrences of
+     * that exact partial match using the Hamming distance. If a valid match
+     * is found it will be added to the occurrences.
+     * @param startMatch The match containing the SA ranges corresponding to
+     * the exact partial match  to start from and depth of the exact match.
+     * @param beginInPattern The position in the pattern where the partial
+     * match starts.
+     * @param maxD The maximal allowed hamming distance.
+     * @param occ A data structure with approximate occurrences of the
+     * complete pattern. Both in-index and in-text occurrences are stored.
+     * If a new approximate occurrence is found, either in-index or in-text
+     * it will be added to this data structure.
+     * @param counters The performance counters.
+     * @param minD the minimal allowed Hamming distance for found
+     * occurrences
+     */
+    virtual void verifyExactPartialMatchInTextHamming(
+        const FMOcc& startMatch, length_t beginInPattern, length_t maxD,
+        const std::vector<Substring>& parts, Occurrences& occ,
+        Counters& counters, length_t minD) const override;
 
     // ----------------------------------------------------------------------------
     // POST-PROCESSING ROUTINES FOR APPROXIMATE MATCHING
     // ----------------------------------------------------------------------------
+
+    /**
+     * Finds the entry in the suffix array of this index. This is
+     * computed from the sparse suffix array and the bwt.
+     * @param index The index for which the entry in the uncompressed suffix
+     * array is computed.
+     * @returns the entry in the SA of the index
+     */
+    virtual length_t findSA(length_t index) const override;
 
     /**
      * @brief Get the text positions based on one known position in the text,
@@ -365,27 +494,18 @@ class BMove : public IndexInterface {
         std::vector<length_t>& positions) const override;
 
     /**
-     * @brief Enumerate the text positions of all occurrences of a match,
-     * centered on the toehold occurrence and tracking suffix-array indices.
-     *
-     * Walks phi/phi^{-1} from the toehold occurrence (suffix-array index c) and
-     * fills @p left with SA[c-1], SA[c-2], ..., SA[begin] (descending SA index)
-     * and @p right with SA[c+1], ..., SA[end-1] (ascending SA index). This is the
-     * same walk as collectTextPositions(), but it separates the two halves so a
-     * caller can associate every reported occurrence with its suffix-array index.
-     *
+     * @brief Enumerate the text positions of a match, centered on the toehold occurrence, tracking
+     * suffix-array indices. Walks phi/phi^-1 from the toehold occurrence (SA index c) and fills @p left
+     * with SA[c-1], SA[c-2], ..., SA[begin] and @p right with SA[c+1], ..., SA[end-1], so a caller can
+     * associate every reported occurrence with its suffix-array index. Added for the Move-r apm adapter.
      * @param ranges the ranges of the match (must have a valid toehold)
-     * @param firstPos output: the text position (SA value) of the centered
-     * (toehold) occurrence, i.e. SA[c]
-     * @param left output: the text positions left of the center (descending SA
-     * index)
-     * @param right output: the text positions right of the center (ascending SA
-     * index)
-     * @returns the suffix-array index c of the centered (toehold) occurrence
+     * @param firstPos output: the text position (SA value) of the centered (toehold) occurrence
+     * @param left output: the text positions left of the center (descending SA index)
+     * @param right output: the text positions right of the center (ascending SA index)
+     * @returns the suffix-array index c of the centered occurrence
      */
     length_t locateCentered(const SARangePair& ranges, length_t& firstPos,
-                            std::vector<length_t>& left,
-                            std::vector<length_t>& right) const;
+                            std::vector<length_t>& left, std::vector<length_t>& right) const;
 };
 
 #endif // BMOVE_H

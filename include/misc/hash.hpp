@@ -26,7 +26,11 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <span>
+#include <type_traits>
 
 /**
  * @brief hashes a 32-bit value (murmur3 finalizer)
@@ -94,3 +98,27 @@ inline static void hash_combine(pos_t& hash, pos_t x)
         hash ^= x + GOLDEN_RATIO_64 + (hash << 6) + (hash >> 2);
     }
 }
+
+/**
+ * @brief hash functor for a std::span, hashing its elements (FNV-1a); usable as a hash-map key hasher
+ */
+struct span_hash {
+    template <typename sym_t>
+    size_t operator()(std::span<const sym_t> s) const
+    {
+        size_t h = 1469598103934665603ULL; // FNV-1a offset basis
+        for (sym_t c : s) h = (h ^ (size_t) (std::make_unsigned_t<sym_t>) c) * 1099511628211ULL; // FNV-1a prime
+        return h;
+    }
+};
+
+/**
+ * @brief equality functor comparing two std::spans element-wise; the matching key equality for span_hash
+ */
+struct span_eq {
+    template <typename sym_t>
+    bool operator()(std::span<const sym_t> a, std::span<const sym_t> b) const
+    {
+        return std::equal(a.begin(), a.end(), b.begin(), b.end());
+    }
+};

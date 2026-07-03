@@ -1,5 +1,5 @@
 /******************************************************************************
- *  b-move: bidirectional move structure                                      *
+ *  Columba: Approximate Pattern Matching using Search Schemes                *
  *  Copyright (C) 2020-2024 - Lore Depuydt <lore.depuydt@ugent.be> and        *
  *                            Luca Renders <luca.renders@ugent.be> and        *
  *                            Jan Fostier <jan.fostier@ugent.be>              *
@@ -14,20 +14,19 @@
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the             *
  *  GNU Affero General Public License for more details.                       *
  *                                                                            *
- * You should have received a copy of the GNU Affero General Public License   *
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.     *
+ *  You should have received a copy of the GNU Affero General Public License  *
+ *  along with this program.  If not, see <https://www.gnu.org/licenses/>.    *
  ******************************************************************************/
 
 #include "bmove.h"
-#include "alphabet.h" // for Alphabet
-#include "definitions.h"
-#include "rindexhelpers.h"
-#include "logger.h" // for Logger
-#include "reads.h"
+#include "../alphabet.h" // for Alphabet
+#include "../definitions.h"
+#include "../indexhelpers.h"
+#include "../logger.h" // for Logger
+#include "../reads.h"
 
 #include <algorithm>           // for max
 #include <assert.h>            // for assert
-#include <chrono>              // for duration, operator-, high_resolution_c...
 #include <cstdint>             // for uint8_t
 #include <ostream>             // for opera...
 #include <sdsl/int_vector.hpp> // for int_v...
@@ -45,9 +44,7 @@ using namespace std;
 
 void BMove::fromFiles(const string& baseFile, bool verbose) {
 
-    readTagCompAndCounts(baseFile, verbose);
     stringstream ss;
-#ifndef LF_BENCHMARK_FUNCTIONALITY
     // Read BMove specific files
     if (verbose) {
         ss << "Reading " << baseFile << ".plcp...";
@@ -56,24 +53,16 @@ void BMove::fromFiles(const string& baseFile, bool verbose) {
     if (!plcp.read(baseFile + ".plcp")) {
         throw runtime_error("Cannot open file: " + baseFile + ".plcp");
     }
-#endif
-
-#ifdef LF_MOVE_BIT_PACKED
-    string LFextension = ".LFBP";
-#else
-    string LFextension = ".LFFull";
-#endif
 
     if (verbose) {
-        ss << "Reading " << baseFile << LFextension << "...";
+        ss << "Reading " << baseFile << ".LFBP"
+           << "...";
         logger.logInfo(ss);
     }
     if (!move.load(baseFile)) {
-        throw runtime_error("Error loading move file: " + baseFile +
-                            LFextension);
+        throw runtime_error("Error loading move file: " + baseFile + ".LFBP");
     }
 
-#ifndef LF_BENCHMARK_FUNCTIONALITY
     if (verbose) {
         ss << "Reading " << baseFile << ".smpf...";
         logger.logInfo(ss);
@@ -91,27 +80,26 @@ void BMove::fromFiles(const string& baseFile, bool verbose) {
     }
 
 #ifdef PHI_MOVE
-#ifdef PHI_MOVE_BALANCED
-    string extension = ".balanced";
-#else
-    string extension = ".unbalanced";
-#endif
     if (verbose) {
-        ss << "Reading " << baseFile << ".move" << extension << ".prdf...";
+        ss << "Reading " << baseFile << ".move"
+           << ".balanced"
+           << ".prdf...";
         logger.logInfo(ss);
     }
-    if (!predFirst.read(baseFile + ".move" + extension + ".prdf")) {
+    if (!predFirst.read(baseFile + ".move" + ".balanced" + ".prdf")) {
         throw runtime_error("Cannot open file: " + baseFile + ".move" +
-                            extension + ".prdf");
+                            ".balanced" + ".prdf");
     }
 
     if (verbose) {
-        ss << "Reading " << baseFile << ".move" << extension << ".prdl...";
+        ss << "Reading " << baseFile << ".move"
+           << ".balanced"
+           << ".prdl...";
         logger.logInfo(ss);
     }
-    if (!predLast.read(baseFile + ".move" + extension + ".prdl")) {
+    if (!predLast.read(baseFile + ".move" + ".balanced" + ".prdl")) {
         throw runtime_error("Cannot open file: " + baseFile + ".move" +
-                            extension + ".prdl");
+                            ".balanced" + ".prdl");
     }
 #else
     if (verbose) {
@@ -149,47 +137,38 @@ void BMove::fromFiles(const string& baseFile, bool verbose) {
     }
 #else
 
-#ifdef PHI_MOVE_BIT_PACKED
-    extension = ".phiBP";
-#else
-    extension = ".phiFull";
-#endif
-
-#ifdef PHI_MOVE_BALANCED
-    extension += ".balanced";
-#else
-    extension += ".unbalanced";
-#endif
-
     if (verbose) {
-        ss << "Reading " << baseFile << extension << "...";
+        ss << "Reading " << baseFile << ".phiBP.balanced"
+           << "...";
         logger.logInfo(ss);
     }
-    if (!phiMove.load(baseFile + extension)) {
-        throw runtime_error("Cannot open file: " + baseFile + extension);
+    if (!phiMove.load(baseFile + ".phiBP.balanced")) {
+        throw runtime_error("Cannot open file: " + baseFile +
+                            ".phiBP.balanced");
     }
 
     if (verbose) {
-        ss << "Reading " << baseFile << extension << ".inv...";
+        ss << "Reading " << baseFile << ".phiBP.balanced"
+           << ".inv...";
         logger.logInfo(ss);
     }
-    if (!phiInvMove.load(baseFile + extension + ".inv")) {
-        throw runtime_error("Cannot open file: " + baseFile + extension +
-                            ".inv");
+    if (!phiInvMove.load(baseFile + ".phiBP.balanced" + ".inv")) {
+        throw runtime_error("Cannot open file: " + baseFile +
+                            ".phiBP.balanced" + ".inv");
     }
-#endif
 #endif
 
     if (verbose) {
-        ss << "Reading " << baseFile << ".rev" << LFextension << "...";
+        ss << "Reading " << baseFile << ".rev"
+           << ".LFBP"
+           << "...";
         logger.logInfo(ss);
     }
     if (!moveR.load(baseFile + ".rev")) {
         throw runtime_error("Error loading reverse move file: " + baseFile +
-                            ".rev" + LFextension);
+                            ".rev" + ".LFBP");
     }
 
-#ifndef LF_BENCHMARK_FUNCTIONALITY
     if (verbose) {
         ss << "Reading " << baseFile << ".rev.smpf...";
         logger.logInfo(ss);
@@ -205,7 +184,6 @@ void BMove::fromFiles(const string& baseFile, bool verbose) {
     if (!readIntVector(baseFile + ".rev.smpl", revSamplesLast)) {
         throw runtime_error("Cannot open file: " + baseFile + ".rev.smpl");
     }
-#endif
 
     readSequenceNamesAndPositions(baseFile, verbose);
 }
@@ -214,13 +192,12 @@ void BMove::fromFiles(const string& baseFile, bool verbose) {
 // ROUTINES FOR ACCESSING DATA STRUCTURE
 // ----------------------------------------------------------------------------
 
+length_t BMove::getSwitchPoint() const {
+    return 0; // no in-text verification with BMove
+}
+
 #ifndef PHI_MOVE
 void BMove::phi(length_t& pos) const {
-#ifdef PHI_BENCHMARK_FUNCTIONALITY
-    // Start timing with rdtscp
-    unsigned int start_aux;
-    uint64_t start = __builtin_ia32_rdtscp(&start_aux);
-#endif
     // Find the rank of the predecessor of pos in a circular manner.
     length_t predRank = predFirst.predecessorRankCircular(pos);
     // Select the predecessor position using its rank.
@@ -234,36 +211,12 @@ void BMove::phi(length_t& pos) const {
 
     // Get the previous sample from the samplesLast array.
     length_t prev_sample = samplesLast[firstToRun[predRank] - 1];
-    assert(prev_sample > 0);
-    prev_sample--;
 
     // Calculate and return the new position, modulo the text length.
-    pos = (prev_sample + delta) % textLength;
-
-#ifdef PHI_BENCHMARK_FUNCTIONALITY
-    // End timing with rdtscp
-    unsigned int end_aux;
-    uint64_t end = __builtin_ia32_rdtscp(&end_aux);
-
-    // Check if the core has switched
-    if (start_aux != end_aux) {
-        cerr << "Core switch detected in phi after " << phi_call_count
-             << " calls" << endl;
-
-    } else {
-
-        elapsed_phi += end - start;
-        phi_call_count++;
-    }
-#endif
+    pos = (prev_sample + delta - 1) % textLength;
 }
 
 void BMove::phiInverse(length_t& pos) const {
-#ifdef PHI_BENCHMARK_FUNCTIONALITY
-    // Start timing with rdtscp
-    unsigned int start_aux;
-    uint64_t start = __builtin_ia32_rdtscp(&start_aux);
-#endif
     // Find the rank of the predecessor of pos in a circular manner.
     length_t predRank = predLast.predecessorRankCircular(pos);
     // Select the predecessor position using its rank.
@@ -278,35 +231,13 @@ void BMove::phiInverse(length_t& pos) const {
 
     // Get the next sample from the samplesFirst array.
     length_t prev_sample = samplesFirst[lastToRun[predRank] + 1];
-    assert(prev_sample > 0);
-    prev_sample--;
 
     // Calculate and return the new position, modulo the text length.
-    pos = (prev_sample + delta) % textLength;
-
-#ifdef PHI_BENCHMARK_FUNCTIONALITY
-    // End timing with rdtscp
-    unsigned int end_aux;
-    uint64_t end = __builtin_ia32_rdtscp(&end_aux);
-
-    // Check if the core has switched
-    if (start_aux != end_aux) {
-        cerr << "Core switch detected in phi after " << phi_call_count
-             << " calls" << endl;
-
-    } else {
-
-        elapsed_phi += end - start;
-        phi_call_count++;
-    }
-#endif
+    pos = (prev_sample + delta - 1) % textLength;
 }
 #endif
 
 length_t BMove::computeToehold(const MoveRange& range, const length_t c) const {
-#ifdef LF_BENCHMARK_FUNCTIONALITY
-    return 0;
-#endif
 
     length_t endRun = range.getEndRun();
 
@@ -328,9 +259,6 @@ length_t BMove::computeToehold(const MoveRange& range, const length_t c) const {
 
 length_t BMove::computeToeholdRev(const MoveRange& range,
                                   const length_t c) const {
-#ifdef LF_BENCHMARK_FUNCTIONALITY
-    return 0;
-#endif
 
     length_t endRun = range.getEndRun();
 
@@ -405,7 +333,7 @@ bool BMove::findRangesWithExtraCharBackward(length_t positionInAlphabet,
     // first make the backward range by searching cP using B
     SARange range1, trivialRange = rangesOfP.getRangeSA();
     findRangeWithExtraCharBackwardAuxiliary(positionInAlphabet, trivialRange,
-                                           range1);
+                                            range1);
 
     // if the range is empty, return false
     if (range1.empty()) {
@@ -522,7 +450,7 @@ bool BMove::findRangesWithExtraCharBackwardUniDirectional(
     // first make the trivial range by  searching cP using B
     SARange range1, trivialRange = rangesOfP.getRangeSA();
     findRangeWithExtraCharBackwardAuxiliary(positionInAlphabet, trivialRange,
-                                           range1);
+                                            range1);
 
     // if the range is empty, return false
     if (range1.empty()) {
@@ -561,21 +489,10 @@ SARangePair BMove::getRangeOfSingleChar(char c) const {
     }
 
     SARangePair pair = getCompleteRange();
-    if ((unsigned int)i < sigma.size() - 1) {
-        pair.getRangeSAMutable().setBegin(counts[i]);
-        pair.getRangeSAMutable().setEnd(counts[i + 1]);
-        pair.getRangeSARevMutable().setBegin(counts[i]);
-        pair.getRangeSARevMutable().setEnd(counts[i + 1]);
-        pair.getRangeSAMutable().setRunIndicesValid(false);
-        pair.getRangeSARevMutable().setRunIndicesValid(false);
-        return pair;
-    }
-    pair.getRangeSAMutable().setBegin(counts[i]);
-    pair.getRangeSAMutable().setEnd(textLength);
-    pair.getRangeSARevMutable().setBegin(counts[i]);
-    pair.getRangeSARevMutable().setEnd(textLength);
-    pair.getRangeSAMutable().setRunIndicesValid(false);
-    pair.getRangeSARevMutable().setRunIndicesValid(false);
+
+    Counters counters;
+    findRangesWithExtraCharBackward(i, pair, pair);
+
     return pair;
 }
 
@@ -585,9 +502,6 @@ SARangePair BMove::getRangeOfSingleChar(char c) const {
 
 void BMove::collectTextPositions(length_t firstPos, length_t originalDepth,
                                  std::vector<length_t>& positions) const {
-#ifdef PHI_BENCHMARK_FUNCTIONALITY
-    auto start = std::chrono::high_resolution_clock::now();
-#endif
 
     length_t currentPos = firstPos;
 #ifdef PHI_MOVE
@@ -608,8 +522,10 @@ void BMove::collectTextPositions(length_t firstPos, length_t originalDepth,
         positions.push_back(currentPos);
     }
 
-    // // Reverse the collected positions from the first while loop
-    // std::reverse(positions.begin(), positions.end());
+#ifdef DEVELOPER_MODE
+    // Reverse the collected positions from the first while loop
+    std::reverse(positions.begin(), positions.end());
+#endif
 
     currentPos = firstPos;
 #ifdef PHI_MOVE
@@ -617,7 +533,7 @@ void BMove::collectTextPositions(length_t firstPos, length_t originalDepth,
 #endif
 
     // Collect positions for the second while loop
-    while (currentPos != getInitialToehold()) {
+    while (currentPos != getInitialToehold() + 1) {
 #ifdef PHI_MOVE
         phiInvMove.phi(currentPos, textRun);
 #else
@@ -628,12 +544,6 @@ void BMove::collectTextPositions(length_t firstPos, length_t originalDepth,
         assert(currentPos < textLength);
         positions.push_back(currentPos);
     }
-
-#ifdef PHI_BENCHMARK_FUNCTIONALITY
-    auto stop = std::chrono::high_resolution_clock::now();
-    elapsed_locate += stop - start;
-    locate_call_count++;
-#endif
 }
 
 length_t BMove::locateCentered(const SARangePair& ranges, length_t& firstPos,
@@ -641,17 +551,11 @@ length_t BMove::locateCentered(const SARangePair& ranges, length_t& firstPos,
                                std::vector<length_t>& right) const {
 
     length_t originalDepth = ranges.getOriginalDepth();
-
-    assert(!ranges.getToeholdRepresentsEnd() ||
-           ranges.getToehold() >= originalDepth - 1);
-
     firstPos = ranges.getToehold() -
                (ranges.getToeholdRepresentsEnd() ? (originalDepth - 1) : 0);
-
     length_t begin = ranges.getRangeSA().getBegin();
 
-    // walk phi from the toehold occurrence (SA[c]) down to SA[begin], collecting
-    // SA[c-1], SA[c-2], ..., SA[begin]; the number of steps equals c - begin.
+    // walk phi from the centered (toehold) occurrence, collecting the occurrences left of it
     length_t currentPos = firstPos;
 #ifdef PHI_MOVE
     length_t textRun = predFirst.rank(firstPos);
@@ -666,15 +570,14 @@ length_t BMove::locateCentered(const SARangePair& ranges, length_t& firstPos,
         left.push_back(currentPos);
     }
 
-    length_t c = begin + left.size();
+    length_t c = begin + left.size(); // suffix-array index of the centered occurrence
 
-    // walk phi^{-1} from the toehold occurrence up to SA[end-1], collecting
-    // SA[c+1], SA[c+2], ..., SA[end-1].
+    // walk phi^-1 from the centered occurrence, collecting the occurrences right of it
     currentPos = firstPos;
 #ifdef PHI_MOVE
     textRun = predLast.rank(currentPos);
 #endif
-    while (currentPos != getInitialToehold()) {
+    while (currentPos != getInitialToehold() + 1) {
 #ifdef PHI_MOVE
         phiInvMove.phi(currentPos, textRun);
 #else
@@ -728,4 +631,73 @@ std::vector<length_t> BMove::getBeginPositions(const SARangeBackwards& rangeSA,
 
     assert(rangeSA.width() == positions.size());
     return positions;
+}
+
+// ----------------------------------------------------------------------------
+// NOT TO BE USED FUNCTIONS
+// ----------------------------------------------------------------------------
+
+void BMove::inTextVerification(const vector<length_t>& startPos,
+                               const length_t& maxED, const length_t& minED,
+                               Occurrences& occ, Counters& counters,
+                               const Substring& pattern,
+                               bool fixedStartPos) const {
+    throw runtime_error("Function " + string(__func__) +
+                        " should not be called for this index.");
+}
+
+const std::string& BMove::getText() const {
+    throw runtime_error("Function " + string(__func__) +
+                        " should not be called for this index.");
+}
+
+void BMove::inTextVerificationOneString(const length_t startPos,
+                                        const length_t endPos,
+                                        const length_t& maxED,
+                                        const length_t& minED, Occurrences& occ,
+                                        Counters& counters,
+                                        const std::string& pattern) const {
+    throw runtime_error("Function " + string(__func__) +
+                        " should not be called for this index.");
+}
+
+void BMove::inTextVerificationHamming(const FMPosExt& node, const Search& s,
+                                      const std::vector<Substring>& parts,
+                                      const length_t idx, Occurrences& occ,
+                                      Counters& counters) const {
+    throw runtime_error("Function " + string(__func__) +
+                        " should not be called for this index.");
+}
+
+void BMove::inTextVerificationHamming(const Range& r, const Substring& pattern,
+                                      const length_t maxEDFull,
+                                      const length_t minEDFull,
+                                      const length_t lengthBefore,
+                                      Occurrences& occ,
+                                      Counters& counters) const {
+    throw runtime_error("Function " + string(__func__) +
+                        " should not be called for this index.");
+}
+
+void BMove::verifyExactPartialMatchInText(const FMOcc& startMatch,
+                                          const length_t& beginInPattern,
+                                          const length_t& maxED,
+                                          Occurrences& occ, Counters& counters,
+                                          length_t minED,
+                                          const Substring& pattern) {
+    throw runtime_error("Function " + string(__func__) +
+                        " should not be called for this index.");
+}
+
+void BMove::verifyExactPartialMatchInTextHamming(
+    const FMOcc& startMatch, length_t beginInPattern, length_t maxD,
+    const std::vector<Substring>& parts, Occurrences& occ, Counters& counters,
+    length_t minD) const {
+    throw runtime_error("Function " + string(__func__) +
+                        " should not be called for this index.");
+}
+
+length_t BMove::findSA(length_t index) const {
+    throw runtime_error("Function " + string(__func__) +
+                        " should not be called for this index.");
 }

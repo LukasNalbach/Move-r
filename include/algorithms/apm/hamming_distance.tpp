@@ -26,6 +26,10 @@
 
 #pragma once
 
+#include <algorithm>
+#include <deque>
+
+#include <gtl/phmap.hpp>
 #include <misc/apm.hpp>
 
 /**
@@ -35,8 +39,11 @@
  * @tparam idx_t the bidirectional index type (move_rb or a compatible index, e.g. b_move_adapter);
  *         it must expose pos_type, inp_t, search_context_t<>, empty_context<>(), forward_index(),
  *         sigma and n
+ * @tparam mode whether locate additionally reports a CIGAR alignment of P against each occurrence (mode == CIGAR).
+ *         A hamming-distance occurrence has the same length as P, so its CIGAR is a sequence of MATCH/MISMATCH runs
+ *         determined by the mismatch positions recorded during the search -- the matched string need not be kept.
  */
-template <typename idx_t>
+template <typename idx_t, cigar_mode_t mode = NO_CIGAR>
 class apm_hamming {
 protected:
     using move_rb_t = idx_t;
@@ -44,10 +51,59 @@ protected:
     using inp_t = typename move_rb_t::inp_t;
     template <query_support_t query_support>
     using search_context_t = typename move_rb_t::template search_context_t<query_support>;
-    template <query_support_t query_support>
-    using search_context_set_t = tsl::sparse_set<search_context_t<query_support>, typename search_context_t<query_support>::hash>;
+    
+    struct node_t {
+        search_context_t<LOCATE> ctx;
+        pos_t cig_idx = pos_t(-1);
 
-    const move_rb_t& index; // the index to perform approximate pattern matching on
+        node_t() = default;
+        node_t(const search_context_t<LOCATE>& c, pos_t ci = pos_t(-1)) : ctx(c), cig_idx(ci) {}
+
+        bool operator==(const node_t& o) const {
+            return std::get<0>(ctx.forward_sa_interval()) ==
+                   std::get<0>(o.ctx.forward_sa_interval());
+        }
+
+        struct hash {
+            pos_t operator()(const node_t& node) const {
+                return pos_hash<pos_t>(std::get<0>(node.ctx.forward_sa_interval()));
+            }
+        };
+    };
+
+    template <query_support_t query_support>
+    using search_context_set_t = std::conditional_t<query_support == LOCATE,
+        tsl::sparse_set<node_t, typename node_t::hash>,
+        tsl::sparse_set<search_context_t<query_support>, typename search_context_t<query_support>::hash>>;
+
+    const move_rb_t& index;
+    static constexpr pos_t no_mism = pos_t(-1);
+    mutable std::vector<pos_t> active_mism;
+    mutable std::vector<cigar_t> cigar_pool;
+    
+    cigar_t build_cigar(std::vector<pos_t> positions, pos_t m) const
+    {
+        std::sort(positions.begin(), positions.end());
+        cigar_t cigar;
+        pos_t prev = 0;
+
+        for (pos_t p : positions) {
+            if (p > prev) cigar.emplace_back(MATCH(p - prev));
+            cigar.emplace_back(MISMATCH());
+            prev = p + 1;
+        }
+
+        if (m > prev) cigar.emplace_back(MATCH(m - prev));
+        return cigar;
+    }
+
+    pos_t add_cigar(pos_t leaf_pos, pos_t m) const
+    {
+        if (leaf_pos != no_mism) active_mism.emplace_back(leaf_pos);
+        cigar_pool.emplace_back(build_cigar(active_mism, m));
+        if (leaf_pos != no_mism) active_mism.pop_back();
+        return pos_t(cigar_pool.size() - 1);
+    }
 
 public:
     /**
@@ -55,6 +111,19 @@ public:
      * @param index the index to perform approximate pattern matching on
      */
     apm_hamming(const move_rb_t& index) : index(index) {}
+
+protected:
+    template <typename ext_ctx_t>
+    bool next_is_separator(const ext_ctx_t& ext_ctx) const
+    {
+        if constexpr (requires (const move_rb_t& ix) { ix.separator_sym(); ix.has_sequences(); }) {
+            return index.has_sequences() && ext_ctx.can_extend() && ext_ctx.next_symbol() == index.separator_sym();
+        } else {
+            return false;
+        }
+    }
+
+public:
 
     /**
      * @brief counts a pattern with at most k mismatches (w.r.t. hamming distance)
@@ -92,12 +161,23 @@ public:
         pos_t k = scheme.k;
 
         if (k == 0) {
-            index.forward_index().locate(P, [&](pos_t occ){report({occ, m, 0});});
-        } else {
-            auto result = search<LOCATE>(P, scheme);
+            if constexpr (mode == CIGAR) {
+                cigar_t cig = m > 0 ? cigar_t{MATCH(m)} : cigar_t{};
+                index.forward_index().locate(P, [&](pos_t occ){report({occ, m, 0, cig});});
+            } else {
+                index.forward_index().locate(P, [&](pos_t occ){report({occ, m, 0});});
+            }
+            return;
+        }
 
-            for (const auto& ctx : result) {
-                ctx.locate_phase().locate([&](pos_t occ){report({occ, ctx.length(), ctx.errors()});});
+        auto result = search<LOCATE>(P, scheme); // in CIGAR mode this also fills the CIGAR pool
+
+        for (const auto& node : result) {
+            if constexpr (mode == CIGAR) {
+                const cigar_t& cig = cigar_pool[node.cig_idx];
+                node.ctx.locate_phase().locate([&](pos_t occ){report({occ, node.ctx.length(), node.ctx.errors(), cig});});
+            } else {
+                node.ctx.locate_phase().locate([&](pos_t occ){report({occ, node.ctx.length(), node.ctx.errors()});});
             }
         }
     }
@@ -120,7 +200,9 @@ public:
         using search_state_t = std::tuple<
             search_context_t<query_support>, // ctx
             pos_t, // k_cur
-            pos_t // match_pos_idx
+            pos_t, // match_pos_idx
+            pos_t, // mism_count: number of mismatches on this state's path (CIGAR mode only)
+            pos_t  // added_pos: the mismatch position this state added vs its parent, or no_mism (CIGAR mode only)
         >;
 
         using match_pos_t = std::tuple<
@@ -135,20 +217,20 @@ public:
 
         search_context_set_t<query_support> result;
         auto empty_ctx = index.template empty_context<query_support>();
+        if constexpr (mode == CIGAR && query_support == LOCATE) { active_mism.clear(); cigar_pool.clear(); }
 
-        auto add_ctx = [&](search_context_t<query_support>& ctx){
+        auto add_ctx = [&](search_context_t<query_support>& ctx, [[maybe_unused]] pos_t leaf_pos){
             if constexpr (query_support == LOCATE) {
-                auto it = result.find(ctx);
+                node_t node{ctx, pos_t(-1)};
+                auto it = result.find(node);
 
                 if (it != result.end()) {
-                    const auto& ctx_old = *it;
-
-                    if (ctx_old.s.d == RIGHT && ctx.s.d == LEFT) {
-                        it = result.erase(it);
-                    }
+                    if (!(it->ctx.s.d == RIGHT && ctx.s.d == LEFT)) return;
+                    it = result.erase(it);
                 }
-            
-                result.emplace_hint(it, ctx);
+
+                if constexpr (mode == CIGAR) node.cig_idx = add_cigar(leaf_pos, m);
+                result.emplace_hint(it, node);
             } else {
                 result.emplace(ctx);
             }
@@ -181,10 +263,16 @@ public:
 
             std::vector<search_state_t> states_stack;
             states_stack.reserve(m);
-            states_stack.emplace_back(search_state_t{empty_ctx, 0, 0});
+            states_stack.emplace_back(search_state_t{empty_ctx, 0, 0, 0, no_mism});
 
             while (!states_stack.empty()) {
-                auto [ctx, k_cur, match_pos_idx] = states_stack.back(); states_stack.pop_back();
+                auto [ctx, k_cur, match_pos_idx, mism_count, added_pos] = states_stack.back(); states_stack.pop_back();
+
+                if constexpr (mode == CIGAR && query_support == LOCATE) {
+                    active_mism.resize(mism_count - (added_pos != no_mism ? 1 : 0));
+                    if (added_pos != no_mism) active_mism.emplace_back(added_pos);
+                }
+
                 const auto& [p_idx, dir, part, beg, end, pos, ext_rem] = match_pos[match_pos_idx];
                 pos_t match_pos_idx_nxt = match_pos_idx + 1;
                 pos_t p_idx_nxt = match_pos_idx_nxt == m ? p : std::get<0>(match_pos[match_pos_idx_nxt]);
@@ -194,15 +282,17 @@ public:
                     ext_ctx.prepare_extend_all(dir);
 
                     while (ext_ctx.can_extend()) {
+                        if (next_is_separator(ext_ctx)) break;
                         auto ctx_nxt = ext_ctx.extend_next();
                         bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
                         pos_t k_nxt = k_cur + is_mismatch;
 
                         if (p_idx_nxt == p) {
                             ctx_nxt.set_errors(k_nxt);
-                            add_ctx(ctx_nxt);
+                            add_ctx(ctx_nxt, is_mismatch ? pos : no_mism);
                         } else if (is_mismatch || S[p_idx_nxt].k_min <= k_nxt + ext_rem) {
-                            states_stack.emplace_back(search_state_t{ctx_nxt, k_nxt, match_pos_idx_nxt});
+                            states_stack.emplace_back(search_state_t{ctx_nxt, k_nxt, match_pos_idx_nxt,
+                                mism_count + (is_mismatch ? 1 : 0), is_mismatch ? pos : no_mism});
                         }
                     }
                 } else {
@@ -211,9 +301,9 @@ public:
                     if (result) {
                         if (p_idx_nxt == p) {
                             ctx_nxt.set_errors(k_cur);
-                            add_ctx(ctx_nxt);
+                            add_ctx(ctx_nxt, no_mism);
                         } else {
-                            states_stack.emplace_back(search_state_t{ctx_nxt, k_cur, match_pos_idx_nxt});
+                            states_stack.emplace_back(search_state_t{ctx_nxt, k_cur, match_pos_idx_nxt, mism_count, no_mism});
                         }
                     }
                 }
@@ -224,6 +314,6 @@ public:
     }
 };
 
-// deduction guide so that apm_hamming{index} deduces the index type
+// deduction guide so that apm_hamming{index} deduces the index type (with CIGARs disabled)
 template <typename idx_t>
 apm_hamming(const idx_t&) -> apm_hamming<idx_t>;

@@ -26,6 +26,7 @@
 
 #include <filesystem>
 #include <iostream>
+#include <ips2ra.hpp>
 #include <move_rb/move_rb.hpp>
 #include <misc/progress.hpp>
 
@@ -37,16 +38,24 @@ distance_metric_t dist_metr = NO_METRIC;
 search_scheme_t search_scheme;
 bool output_occurrences = false;
 bool check_correctness = false;
+bool sam_output = false;       // whether to write occurrences in SAM format (requires a FASTA-built index)
+bool sam_include_seq = false;  // whether to include the read sequence (SEQ) in SAM records
+bool sam_rc = true;            // whether to also align each read's reverse complement (SAM mode only)
+bool fastq_input = false;      // whether the patterns file is FASTQ (variable-length reads with per-base qualities)
+bool sam_best_only = false;    // whether to report only the best (minimum-error) alignment per read
 std::ofstream mf;
 std::string path_index_file;
 std::string path_patterns_file;
 std::string path_output_file;
+std::string path_sam_file;
 std::ifstream index_file;
 std::ifstream patterns_file;
 std::ifstream input_file;
 std::ofstream output_file;
+std::ofstream sam_file;
 std::string name_text_file;
 std::string path_input_file;
+std::string command_line; // the full command line, for the SAM @PG header
 
 /**
  * @brief prints the usage information and exits
@@ -59,14 +68,22 @@ void help(std::string msg)
     std::cout << "usage: move-rb-locate [...] -d <metric> -s <scheme> [-k <mismatches>] <index_file> <patterns_file>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
-    std::cout << "   -i <input_file>            input_file must be the file the index was built for" << std::endl;
-    std::cout << "                              (required for the -c option)" << std::endl;
-    std::cout << "   -c                         checks correctness of each pattern occurrence on <input_file>" << std::endl;
+    std::cout << "   -c <input_file>            checks correctness of each pattern occurrence against <input_file>" << std::endl;
+    std::cout << "                              (input_file must be the file the index was built for)" << std::endl;
     std::cout << "   <metric>                   distance metric to use (hamming or edit)" << std::endl;
     std::cout << "   <scheme>                   search scheme to use (pigeon_hole, suffix_filter, min_u, 01 or path to a file)" << std::endl;
     std::cout << "   <mismatches>               maximum number of allowed mismatches; applies only to" << std::endl;
     std::cout << "                              pigeon_hole, suffix_filter, min_u and 01 search schemes" << std::endl;
     std::cout << "   -o <output_file>           write pattern occurrences to this file (in ASCII format; one line per pattern)" << std::endl;
+    std::cout << "   -sam <sam_file>            write occurrences in SAM format to <sam_file> (requires an index built" << std::endl;
+    std::cout << "                              with move-rb-build -f; uses the per-occurrence CIGAR)" << std::endl;
+    std::cout << "   -seq                       include the read sequence (SEQ field) in SAM records (default: '*')" << std::endl;
+    std::cout << "   -norc                      in SAM mode, do not align the reverse complement of each read" << std::endl;
+    std::cout << "                              (by default both strands are aligned; reverse hits get SAM FLAG 0x10)" << std::endl;
+    std::cout << "   -fastq                     read <patterns_file> as FASTQ (variable-length reads); the read name" << std::endl;
+    std::cout << "                              becomes QNAME and the qualities are written to the SAM QUAL field" << std::endl;
+    std::cout << "                              (requires -sam and -seq)" << std::endl;
+    std::cout << "   -best                      in SAM mode, report only one best (minimum-error) alignment per read" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in move-rb-patterns format containing the patterns." << std::endl;
     exit(0);
@@ -86,22 +103,33 @@ bool parse_args(char** argv, int argc)
     arg_idx++;
 
     if (s == "-c") {
+        if (arg_idx >= argc - 1) help("error: missing parameter after -c option.");
         check_correctness = true;
+        path_input_file = argv[arg_idx++];
+        input_file.open(path_input_file);
+        if (!input_file.good()) help("error: cannot open <input_file>");
     } else if (s == "-m") {
         if (arg_idx >= argc - 1) help("error: missing parameter after -m option.");
         std::string path_m_file = argv[arg_idx++];
         mf.open(path_m_file, std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
         if (!mf.good()) help("error: cannot open nor create <m_file>");
         name_text_file = argv[arg_idx++];
-    } else if (s == "-i") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -i option.");
-        path_input_file = argv[arg_idx++];
-        input_file.open(path_input_file);
-        if (!input_file.good()) help("error: cannot open <input_file>");
     }  else if (s == "-o") {
         if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
         output_occurrences = true;
         path_output_file = argv[arg_idx++];
+    } else if (s == "-sam") {
+        if (arg_idx >= argc - 1) help("error: missing parameter after -sam option.");
+        sam_output = true;
+        path_sam_file = argv[arg_idx++];
+    } else if (s == "-seq") {
+        sam_include_seq = true;
+    } else if (s == "-norc") {
+        sam_rc = false;
+    } else if (s == "-fastq") {
+        fastq_input = true;
+    } else if (s == "-best") {
+        sam_best_only = true;
     } else {
         help("error: unrecognized '" + s + "' option");
     }
@@ -123,6 +151,74 @@ const char* next_arg(int argc, char** argv, const std::string& what)
 }
 
 /**
+ * @brief returns the reverse complement of a DNA read: the read reversed, with each base complemented (A<->T,
+ *        C<->G, case-preserved); any other byte (e.g. a masked 'N') is left unchanged. Used to align a read to the
+ *        reverse strand by searching its reverse complement against the forward index.
+ * @param s the read
+ * @return the reverse complement of s
+ */
+static std::string reverse_complement(const std::string& s)
+{
+    std::string r(s.size(), 'N');
+
+    for (size_t i = 0; i < s.size(); i++) {
+        char c = s[s.size() - 1 - i];
+
+        switch (c) {
+            case 'A': r[i] = 'T'; break;
+            case 'T': r[i] = 'A'; break;
+            case 'C': r[i] = 'G'; break;
+            case 'G': r[i] = 'C'; break;
+            case 'a': r[i] = 't'; break;
+            case 't': r[i] = 'a'; break;
+            case 'c': r[i] = 'g'; break;
+            case 'g': r[i] = 'c'; break;
+            default:  r[i] = c;   break;
+        }
+    }
+
+    return r;
+}
+
+/**
+ * @brief reads the next FASTQ record (the four lines: @name, sequence, +, quality) from in
+ * @param in the FASTQ stream
+ * @param name set to the read name (the header after '@', up to the first whitespace)
+ * @param seq set to the read sequence
+ * @param qual set to the per-base quality string (same length as seq)
+ * @return whether a record was read (false at end of file or on a malformed record)
+ */
+static bool read_fastq(std::istream& in, std::string& name, std::string& seq, std::string& qual)
+{
+    std::string h, plus;
+    if (!std::getline(in, h) || !std::getline(in, seq) || !std::getline(in, plus) || !std::getline(in, qual))
+        return false;
+
+    auto strip_cr = [](std::string& s){ if (!s.empty() && s.back() == '\r') s.pop_back(); }; // tolerate CRLF
+    strip_cr(h); strip_cr(seq); strip_cr(qual);
+    if (h.empty() || h[0] != '@') return false;
+
+    size_t sp = h.find_first_of(" \t", 1);
+    name = sp == std::string::npos ? h.substr(1) : h.substr(1, sp - 1);
+    return true;
+}
+
+/**
+ * @brief appends the SAM CIGAR string of a CIGAR alignment to out (each run as its length followed by its
+ *        operation code, e.g. "5=1X2I3="); the extended operations = and X (rather than M) are used since the
+ *        alignment distinguishes matches from mismatches
+ * @param out the string the CIGAR is appended to
+ * @param cigar the CIGAR alignment
+ */
+static void append_cigar(std::string& out, const cigar_t& cigar)
+{
+    for (const cigar_run_t& run : cigar) {
+        out += std::to_string(run.len);
+        out += run.code();
+    }
+}
+
+/**
  * @brief loads the index and benchmarks locating the input patterns
  * @tparam pos_t index integer type
  * @tparam support the move-r locate-support type
@@ -141,35 +237,177 @@ void measure_locate()
     index.log_data_structure_sizes();
 
     std::cout << std::endl << "searching patterns ... " << std::endl;
-    std::string header;
-    std::getline(patterns_file, header);
-    uint64_t num_patterns = number_of_patterns(header);
-    uint64_t pattern_length = patterns_length(header);
 
-    if (pattern_length < search_scheme.p)
-        help("error: pattern length < number of parts defined in the search scheme");
+    // FASTQ reads are variable-length and self-delimiting, so they carry no patterns-format header; otherwise the
+    // header gives the (fixed) pattern count and length
+    uint64_t num_patterns = 0;
+    uint64_t pattern_length = 0;
 
+    if (!fastq_input) {
+        std::string header;
+        std::getline(patterns_file, header);
+        num_patterns = number_of_patterns(header);
+        pattern_length = patterns_length(header);
+
+        if (pattern_length < search_scheme.p)
+            help("error: pattern length < number of parts defined in the search scheme");
+    }
+
+    uint64_t reads_processed = 0; // number of reads actually read (FASTQ count is not known in advance)
     uint64_t num_occurrences = 0;
     uint64_t time_locate = 0;
     std::chrono::steady_clock::time_point t2, t3;
     std::string pattern;
     no_init_resize(pattern, pattern_length);
     std::vector<aprx_occ_t<pos_t>> occurrences;
+    using sam_list_t = std::vector<aprx_occ_t<pos_t, CIGAR>>; // occurrences, each carrying its CIGAR
+    sam_list_t fwd_results; // forward-strand occurrences of the current read
+    sam_list_t rc_results;  // reverse-strand occurrences (of the read's reverse complement)
     uint64_t checksum = 0;
     uint64_t baseline_alloc = malloc_count_current();
     malloc_count_reset_peak();
-    progress_meter meter(num_patterns);
+    progress_meter meter(fastq_input ? 0 : num_patterns); // FASTQ count is unknown up front, so disable the meter
 
-    for (uint64_t i = 0; i < num_patterns; i++) {
-        patterns_file.read(pattern.data(), pattern_length);
+    // writes one SAM alignment record of the current read. seq/qual are the read's forward-strand sequence and
+    // qualities; for a reverse-strand record (reverse) the caller passes the reverse-complemented sequence and this
+    // reverses the qualities to match. SEQ/QUAL are only written for the primary record and only when -seq is set.
+    auto emit_record = [&](const std::string& qname, const aprx_occ_t<pos_t, CIGAR>& o,
+        bool reverse, bool primary, uint16_t mapq, const std::string& seq, const std::string& qual)
+    {
+        pos_t seq_i = index.sequence_index(o.pos);
+        pos_t local = o.pos - index.sequence_start(seq_i);
+        uint16_t flag = (primary ? 0 : 0x100) | (reverse ? 0x10 : 0);
+
+        std::string cigar_str;
+        append_cigar(cigar_str, o.cigar);
+
+        std::string seq_out = (primary && sam_include_seq) ? seq : std::string("*");
+        std::string qual_out = (primary && sam_include_seq && !qual.empty())
+            ? (reverse ? std::string(qual.rbegin(), qual.rend()) : qual) : std::string("*");
+
+        sam_file << qname << "\t" << flag << "\t" << index.sequence_name(seq_i)
+                 << "\t" << (local + 1) << "\t" << mapq << "\t" << cigar_str << "\t*\t0\t0\t"
+                 << seq_out << "\t" << qual_out << "\n";
+    };
+
+    // emits the SAM records of one read: one primary = a minimum-error alignment over both strands, the rest
+    // secondary (the search itself never crosses a separator, so every occurrence lies within one sequence), or a
+    // single unmapped record
+    auto emit_sam = [&](const std::string& qname, const std::string& fwd_seq, const std::string& rc_seq,
+        const std::string& qual, sam_list_t& fwd, sam_list_t& rc)
+    {
+        if (fwd.empty() && rc.empty()) { // unmapped read
+            sam_file << qname << "\t4\t*\t0\t0\t*\t*\t0\t0\t"
+                     << (sam_include_seq ? fwd_seq : std::string("*")) << "\t"
+                     << (sam_include_seq && !qual.empty() ? qual : std::string("*")) << "\n";
+            return;
+        }
+
+        // the primary alignment is the first minimum-error occurrence over both strands; MAPQ reflects uniqueness
+        pos_t min_err = std::numeric_limits<pos_t>::max();
+        for (const auto& o : fwd) min_err = std::min<pos_t>(min_err, o.err);
+        for (const auto& o : rc)  min_err = std::min<pos_t>(min_err, o.err);
+        pos_t count_min = 0;
+        for (const auto& o : fwd) count_min += (o.err == min_err);
+        for (const auto& o : rc)  count_min += (o.err == min_err);
+        uint16_t primary_mapq = count_min == 1 ? 60 : 0;
+
+        if (sam_best_only) {
+            // report only one best alignment: the first minimum-error occurrence (forward strand preferred)
+            for (const auto& o : fwd)
+                if (o.err == min_err) { emit_record(qname, o, false, true, primary_mapq, fwd_seq, qual); return; }
+            for (const auto& o : rc)
+                if (o.err == min_err) { emit_record(qname, o, true, true, primary_mapq, rc_seq, qual); return; }
+            return;
+        }
+
+        bool primary_assigned = false;
+
+        auto emit_list = [&](sam_list_t& occs, bool reverse, const std::string& seq) {
+            for (const auto& o : occs) {
+                bool primary = !primary_assigned && o.err == min_err;
+                uint16_t mapq = primary ? primary_mapq : 0;
+                primary_assigned |= primary;
+                emit_record(qname, o, reverse, primary, mapq, seq, qual);
+            }
+        };
+
+        emit_list(fwd, false, fwd_seq);
+        emit_list(rc, true, rc_seq);
+    };
+
+    if (sam_output) {
+        if (!index.has_sequences())
+            help("error: -sam requires an index built with move-rb-build -f (no sequence names/boundaries stored)");
+
+        sam_file.open(path_sam_file);
+        if (!sam_file.good()) help("error: could not create <sam_file>");
+
+        sam_file << "@HD\tVN:1.6\tSO:unsorted\n";
+        for (pos_t i = 0; i < index.num_sequences(); i++)
+            sam_file << "@SQ\tSN:" << index.sequence_name(i) << "\tLN:" << index.sequence_length(i) << "\n";
+        sam_file << "@PG\tID:move-rb\tPN:move-rb-locate\tCL:" << command_line << "\n";
+    }
+
+    std::string qname, qual; // current read's name and (FASTQ only) quality string
+
+    for (uint64_t i = 0; ; i++) {
+        if (fastq_input) {
+            if (!read_fastq(patterns_file, qname, pattern, qual)) break;
+        } else {
+            if (i >= num_patterns) break;
+            patterns_file.read(pattern.data(), pattern_length);
+            qname = "read" + std::to_string(i);
+        }
+        reads_processed++;
+
+        if (sam_output) {
+            t2 = now();
+
+            // locate one strand's occurrences (with CIGAR), then sort by position and remove redundancy. A read too
+            // short for the scheme (fewer characters than parts) cannot be searched, so it yields no occurrences.
+            auto locate_strand = [&](const std::string& read, sam_list_t& out) {
+                out.clear();
+                if (k > 0 && read.size() <= search_scheme.p) return;
+                auto collect = [&](aprx_occ_t<pos_t, CIGAR> occ){ out.emplace_back(std::move(occ)); };
+
+                if (dist_metr == HAMMING_DISTANCE)
+                    index.template locate<HAMMING_DISTANCE, CIGAR>(read, search_scheme, collect);
+                else
+                    index.template locate<EDIT_DISTANCE, CIGAR>(read, search_scheme, collect);
+
+                ips2ra::sort(out.begin(), out.end(), [](const aprx_occ_t<pos_t, CIGAR>& o){ return o.pos; });
+                filter_edit_distance_occurrences<pos_t, CIGAR>(out, pos_t(k));
+            };
+
+            locate_strand(pattern, fwd_results);
+            std::string rc_seq;
+
+            if (sam_rc) {
+                rc_seq = reverse_complement(pattern);
+                locate_strand(rc_seq, rc_results);
+            } else {
+                rc_results.clear();
+            }
+
+            t3 = now();
+            time_locate += time_diff_ns(t2, t3);
+
+            num_occurrences += fwd_results.size() + rc_results.size();
+            checksum += fwd_results.size() + rc_results.size();
+            emit_sam(qname, pattern, rc_seq, qual, fwd_results, rc_results);
+            meter.step();
+            continue;
+        }
+
         t2 = now();
 
         if (dist_metr == HAMMING_DISTANCE) {
             index.template locate<HAMMING_DISTANCE>(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){occurrences.emplace_back(occ);});
         } else {
             index.template locate<EDIT_DISTANCE>(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){occurrences.emplace_back(occ);});
-            ips4o::sort(occurrences.begin(), occurrences.end());
-            filter_aprx_occurrences<pos_t>(occurrences, k);
+            ips2ra::sort(occurrences.begin(), occurrences.end(), [](const aprx_occ_t<pos_t>& o){ return o.pos; });
+            filter_edit_distance_occurrences<pos_t>(occurrences, k);
         }
         
         num_occurrences += occurrences.size();
@@ -179,7 +417,7 @@ void measure_locate()
 
         if (check_correctness) {
             if (dist_metr == HAMMING_DISTANCE) {
-                ips4o::sort(occurrences.begin(), occurrences.end());
+                ips2ra::sort(occurrences.begin(), occurrences.end(), [](const aprx_occ_t<pos_t>& o){ return o.pos; });
             }
             
             std::string occ_str;
@@ -201,7 +439,7 @@ void measure_locate()
                 } else {
                     best_dist = edit_dist_bounded<pos_t>(occ_str, pattern, k);
 
-                    if (dist_metr == EDIT_DISTANCE && !(best_dist <= occ.err && occ.err <= k)) {
+                    if (dist_metr == EDIT_DISTANCE && !(best_dist == occ.err && occ.err <= k)) {
                         std::cout << "error: correct approximate occurrence " << occ.pos << ", '" <<
                             occ_str << "' with length " << occ.len << " of pattern '" << pattern <<
                             "' was reported with " << occ.err;
@@ -209,7 +447,7 @@ void measure_locate()
                         if (best_dist > k) {
                             std::cout << " > k = " << k << " errors" << std::endl;
                         } else {
-                            std::cout << " instead of [" << best_dist << ", " << k << "] errors" << std::endl;
+                            std::cout << " instead of " << best_dist << " errors" << std::endl;
                         }
 
                         exit(-1);
@@ -220,7 +458,7 @@ void measure_locate()
 
         if (output_occurrences) {
             if (dist_metr == HAMMING_DISTANCE) {
-                ips4o::sort(occurrences.begin(), occurrences.end());
+                ips2ra::sort(occurrences.begin(), occurrences.end(), [](const aprx_occ_t<pos_t>& o){ return o.pos; });
             }
 
             for (const auto& occ : occurrences) {
@@ -245,17 +483,21 @@ void measure_locate()
 
     meter.finish();
     patterns_file.close();
+    if (fastq_input) num_patterns = reads_processed; // the actual read count is only known after reading the file
     std::cout << "checksum: " << checksum << std::endl;
     std::cout << "additional memory consumption during the search phase: " << format_size(malloc_count_peak() - baseline_alloc) << std::endl;
-    std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
+    if (num_patterns != 0)
+        std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
     std::cout << "number of patterns: " << num_patterns << std::endl;
-    std::cout << "pattern length: " << pattern_length << std::endl;
+    if (!fastq_input) std::cout << "pattern length: " << pattern_length << std::endl;
     std::cout << "maximum number of mismatches: " << k << std::endl;
     std::cout << "search scheme: " << scheme_str << std::endl;
     std::cout << "total number of occurrences: " << num_occurrences << std::endl;
     std::cout << "locate time: " << format_time(time_locate) << std::endl;
-    std::cout << "             " << format_time(time_locate / num_patterns) << "/pattern" << std::endl;
-    std::cout << "             " << format_time(time_locate / (num_patterns * pattern_length)) << "/character" << std::endl;
+    if (num_patterns != 0)
+        std::cout << "             " << format_time(time_locate / num_patterns) << "/pattern" << std::endl;
+    if (num_patterns != 0 && pattern_length != 0)
+        std::cout << "             " << format_time(time_locate / (num_patterns * pattern_length)) << "/character" << std::endl;
     if (num_occurrences != 0)
         std::cout << "             " << format_time(time_locate / num_occurrences) << "/occurrence" << std::endl;
 
@@ -276,6 +518,10 @@ void measure_locate()
     }
 
     if (check_correctness) input_file.close();
+    if (sam_output) {
+        sam_file.close();
+        std::cout << "wrote SAM output to " << path_sam_file << std::endl;
+    }
 }
 
 /**
@@ -287,6 +533,9 @@ void measure_locate()
 int main(int argc, char** argv)
 {
     if (argc - 1 < min_args) help("");
+
+    for (int i = 0; i < argc; i++) command_line += (i == 0 ? "" : " ") + std::string(argv[i]); // for the SAM @PG header
+
     while (parse_args(argv, argc));
 
     std::string arg = next_arg(argc, argv, "'-d <metric>'");
@@ -331,8 +580,12 @@ int main(int argc, char** argv)
     if (dist_metr == EDIT_DISTANCE && k > 20)
         help("error: k > 20 is not supported for edit distance");
 
-    if (check_correctness && path_input_file == "")
-        help("error: <input_file> not provided");
+
+    if (sam_best_only && !sam_output)
+        help("error: -best requires -sam");
+
+    if (fastq_input && (!sam_output || !sam_include_seq))
+        help("error: -fastq requires -sam and -seq (the qualities are written to the SAM QUAL field)");
 
     if (arg_idx + 2 > argc) help("error: missing <index_file> and/or <patterns_file>");
     path_index_file = argv[arg_idx];

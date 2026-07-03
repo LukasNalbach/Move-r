@@ -51,7 +51,9 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
+#include <ranges>
 #include <tuple>
 #include <vector>
 #include <cmath>
@@ -59,6 +61,7 @@
 #include <string>
 
 #include <misc/utils.hpp>
+#include <misc/directional_substring.hpp>
 
 /**
  * @brief banded edit-distance dynamic-programming matrix between a fixed input and a query string,
@@ -143,7 +146,7 @@ class edit_distance_matrix
      * @param alph_map byte -> one-based symbol rank in the effective alphabet
      */
     template <typename pos_t, typename inp_t>
-    void set_input(const sub_string<pos_t, inp_t>& input, uint16_t sigma, const std::vector<uint8_t>& alph_map)
+    void set_input(const directional_substring<pos_t, inp_t>& input, uint16_t sigma, const std::vector<uint8_t>& alph_map)
     {
         this->sigma = sigma;
         this->byte_to_rank = &alph_map;
@@ -256,7 +259,8 @@ class edit_distance_matrix
         word_t& HN = rows[i].dh_neg;
         word_t& D0 = rows[i].diag_zero;
         word_t& frontier = rows[i].frontier;
-        const word_t& Eq = eq_masks[blk * sigma + map_sym(Y)];
+        const uint8_t rank = map_sym(Y);
+        const word_t Eq = (rank == uint8_t(-1)) ? word_t(0) : eq_masks[blk * sigma + rank];
 
         // pull in the previous row; descending one row advances the band one bit to the right
         HP = rows[i - 1].dh_pos;
@@ -382,4 +386,14 @@ class edit_distance_matrix
     {
         return band_height + band_width + 1;
     }
+
+    /** @brief the number of bytes the matrix' row and eq-mask buffers currently occupy */
+    uint64_t byte_size() const
+    {
+        return rows.capacity() * sizeof(row_state_t) + eq_masks.capacity() * sizeof(word_t);
+    }
 };
+
+static constexpr int64_t bp_k_limit_64 = edit_distance_matrix<uint64_t>::k_limit;
+static constexpr int64_t bp_k_limit_128 = edit_distance_matrix<__uint128_t>::k_limit;
+static constexpr int64_t bp_max_ref_len = 60000;

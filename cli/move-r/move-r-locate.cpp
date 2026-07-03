@@ -26,6 +26,7 @@
 
 #include <filesystem>
 #include <iostream>
+#include <ips2ra.hpp>
 #include <move_r/move_r.hpp>
 #include <misc/progress.hpp>
 
@@ -55,9 +56,8 @@ void help(std::string msg)
     std::cout << "usage: move-r-locate [...] <index_file> <patterns>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
-    std::cout << "   -i <input_file>            input_file must be the file the index was built for" << std::endl;
-    std::cout << "                              (required for the -c option)" << std::endl;
-    std::cout << "   -c                         checks correctness of each pattern occurrence on <input_file>" << std::endl;
+    std::cout << "   -c <input_file>            checks correctness of each pattern occurrence against <input_file>" << std::endl;
+    std::cout << "                              (input_file must be the file the index was built for)" << std::endl;
     std::cout << "   -o <output_file>           write pattern occurrences to this file (in ASCII format; one line per pattern)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in pizza&chili format containing the patterns" << std::endl;
@@ -75,18 +75,17 @@ void parse_args(char** argv, int argc)
     arg_idx++;
 
     if (s == "-c") {
+        if (arg_idx >= argc - 1) help("error: missing parameter after -c option.");
         check_correctness = true;
+        path_input_file = argv[arg_idx++];
+        input_file.open(path_input_file);
+        if (!input_file.good()) help("error: cannot open <input_file>");
     } else if (s == "-m") {
         if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
         std::string path_m_file = argv[arg_idx++];
         mf.open(path_m_file, std::filesystem::exists(path_m_file) ? std::ios::app : std::ios::out);
         if (!mf.good()) help("error: cannot open nor create <m_file>");
         name_text_file = argv[arg_idx++];
-    } else if (s == "-i") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -i option.");
-        path_input_file = argv[arg_idx++];
-        input_file.open(path_input_file);
-        if (!input_file.good()) help("error: cannot open <input_file>");
     } else if (s == "-o") {
         if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
         output_occurrences = true;
@@ -158,7 +157,7 @@ void measure_locate()
         }
 
         if (output_occurrences) {
-            ips4o::sort(occurrences.begin(), occurrences.end());
+            ips2ra::sort(occurrences.begin(), occurrences.end());
             for (pos_t occ : occurrences) output_file << occ << " ";
             output_file << std::endl;
         }

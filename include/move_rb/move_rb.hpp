@@ -34,11 +34,11 @@
 
 // approximate-pattern-matching helper, defined completely outside the move_rb class;
 // generic over the index type idx_t (move_rb or a compatible bidirectional index)
-template <typename idx_t> class apm_hamming;
+template <typename idx_t, cigar_mode_t mode> class apm_hamming;
 
 // approximate-pattern-matching helper, defined completely outside the move_rb class;
 // generic over the index type idx_t (move_rb or a compatible bidirectional index)
-template <typename idx_t> class apm_edit;
+template <typename idx_t, cigar_mode_t mode> class apm_edit;
 
 /**
  * @brief bi-directional move-r index, size O(r*(a/(a-1)))
@@ -49,8 +49,8 @@ template <typename idx_t> class apm_edit;
 template <move_r_support support = _locate_move, typename sym_t = char, typename pos_t = uint32_t>
 class move_rb {
     public:
-    template <typename> friend class apm_hamming;
-    template <typename> friend class apm_edit;
+    template <typename, cigar_mode_t> friend class apm_hamming;
+    template <typename, cigar_mode_t> friend class apm_edit;
     static_assert(support != _locate_one);
 
     using move_r_fwd_t = constexpr_switch_t< // forward move_r index type
@@ -101,6 +101,12 @@ protected:
 
     interleaved_bit_aligned_vectors<pos_t> _SA_s_pos;
     interleaved_bit_aligned_vectors<pos_t> _SA_e_pos;
+
+    // multi-sequence (FASTA/DNA) metadata; empty unless the index was built from a multi-sequence input
+    sd_array<pos_t> _seq_boundaries;     // marks each sequence's body start position in the text
+    std::vector<std::string> _seq_names; // _seq_names[i] = the name (SAM RNAME) of sequence i
+    i_sym_t _separator_sym = 0;          // the internal symbol a search must not extend into (the sequence
+                                         // separator); 0 means none, so a search never crosses a sequence boundary
 
     // ############################# INTERNAL METHODS #############################
 
@@ -250,6 +256,105 @@ public:
         return idx_fwd.unmap_symbol(sym);
     }
 
+    // ############################# MULTI-SEQUENCE (FASTA) METADATA #############################
+
+    /**
+     * @brief returns whether the index carries multi-sequence (FASTA/DNA) boundary metadata; if not, the input is
+     *        treated as a single anonymous sequence and no sequence-relative coordinates or names are available
+     * @return whether the index was built from a multi-sequence input
+     */
+    inline bool has_sequences() const
+    {
+        return !_seq_names.empty();
+    }
+
+    /**
+     * @brief returns the number of sequences the index was built from (0 unless the index has multi-sequence metadata)
+     * @return the number of sequences
+     */
+    inline pos_t num_sequences() const
+    {
+        return _seq_names.size();
+    }
+
+    /**
+     * @brief returns the index of the sequence containing the global text position pos
+     * @param pos a position in [0, n)
+     * @return the index of the sequence containing pos
+     */
+    inline pos_t sequence_index(pos_t pos) const
+    {
+        return _seq_boundaries.rank_1(pos + 1) - 1;
+    }
+
+    /**
+     * @brief returns the start position of sequence i's body in the text
+     * @param i a sequence index in [0, num_sequences())
+     * @return the start position of sequence i in the text
+     */
+    inline pos_t sequence_start(pos_t i) const
+    {
+        return _seq_boundaries.select_1(i + 1);
+    }
+
+    /**
+     * @brief returns the length of sequence i's body (excluding the separator symbol)
+     * @param i a sequence index in [0, num_sequences())
+     * @return the length of sequence i
+     */
+    inline pos_t sequence_length(pos_t i) const
+    {
+        // sequence i ends just before sequence i+1's separator symbol, or at the sentinel for the last sequence
+        pos_t end = (i + 1 < num_sequences()) ? sequence_start(i + 1) - 1 : n - 1;
+        return end - sequence_start(i);
+    }
+
+    /**
+     * @brief returns the name (SAM RNAME) of sequence i
+     * @param i a sequence index in [0, num_sequences())
+     * @return the name of sequence i
+     */
+    inline const std::string& sequence_name(pos_t i) const
+    {
+        return _seq_names[i];
+    }
+
+    /**
+     * @brief returns the internal symbol a search must not extend into (the sequence separator), or 0 if the index
+     *        has no separator (so that no search ever crosses a sequence boundary)
+     * @return the forbidden separator symbol
+     */
+    inline sym_t separator_sym() const
+    {
+        return idx_fwd.unmap_symbol(_separator_sym);
+    }
+
+    /**
+     * @brief attaches multi-sequence (FASTA/DNA) metadata to the index, enabling sequence-relative coordinates and
+     *        names for SAM output, and forbids searches from crossing the separator symbol; call after construction
+     *        with the metadata returned by process_fasta
+     * @param seq_starts the body start position of each sequence in the text (strictly increasing, each < n)
+     * @param seq_names the name of each sequence (same length as seq_starts)
+     * @param separator the separator byte that delimits the sequences (a search never extends into it)
+     */
+    void set_sequences(const std::vector<pos_t>& seq_starts, std::vector<std::string> seq_names, sym_t separator)
+    {
+        _seq_names = std::move(seq_names);
+
+        if (_seq_names.empty()) {
+            return;
+        }
+
+        _separator_sym = idx_fwd.map_symbol(separator);
+        sdsl::sd_vector_builder builder(n, seq_starts.size());
+
+        for (pos_t s : seq_starts) {
+            builder.set(s);
+        }
+
+        _seq_boundaries = sd_array<pos_t>(sdsl::sd_vector<>(builder));
+    }
+
     /**
      * @brief returns the size of the data structure in bytes
      * @return size of the data structure in bytes
@@ -264,7 +369,8 @@ public:
             _S_MPhi_p.size_in_bytes() +
             _S_MPhi_m1_p.size_in_bytes() +
             _SA_s_pos.size_in_bytes() +
-            _SA_e_pos.size_in_bytes();
+            _SA_e_pos.size_in_bytes() +
+            _seq_boundaries.size_in_bytes();
     }
 
     /**
@@ -397,18 +503,16 @@ public:
     struct __attribute__((packed)) sample_info_pack_t {
         direction_t d; // LEFT/RIGHT <=> the sample can be computed from an SA-/Backward-SA-sample
         sample_t t; // BEG/END <=> the SA-sample is at a run start/end
-        pos_t o; // offset of the SA-sample from the left of the SA-interval 
+        pos_t o; // offset of the SA-sample from the left of the SA-interval
         pos_t i; // number of d-extensions since x has been set
         pos_t x; // index of the (sub-)run in L', whose start/end is the position of the SA-sample
-        pos_t shft; // right shift (in the text) of the occurrences
-        pos_t dpth; // depth (additional length) of this context in the banded alignment matrix
-        bool rprtd; // true <=> this context has already been reported
     };
 
     /** @brief a tuple of a suffix array interval [b, e] and the indices b_, e_ of the input intervals containing b and e */
     struct prime_tuple_t {pos_t b, e, b_, e_;};
 
     public:
+
     /**
      * @brief stores the variables needed to perform bidirectional pattern search and locate queries
      * @tparam query_support whether the context supports COUNT or LOCATE queries
@@ -416,8 +520,8 @@ public:
     template <query_support_t query_support>
     struct search_context_t {
         friend class move_rb;
-        template <typename> friend class apm_hamming;
-        template <typename> friend class apm_edit;
+        template <typename, cigar_mode_t> friend class apm_hamming;
+        template <typename, cigar_mode_t> friend class apm_edit;
         friend class locate_context_t;
         template <query_support_t _query_support> friend struct extend_context_t;
         template <query_support_t _query_support> friend class search_context_t;
@@ -438,7 +542,7 @@ public:
 
         // ############################# VARIABLES FOR MAINTAINING SA-SAMPLE INFORMATION DURING SEARCH #############################
 
-        std::conditional_t<query_support == LOCATE, sample_info_pack_t, std::monostate> s;
+        [[no_unique_address]] std::conditional_t<query_support == LOCATE, sample_info_pack_t, std::monostate> s;
 
         template <direction_t dir, typename this_t>
         static auto vars_impl(this_t&& t)
@@ -480,15 +584,7 @@ public:
          */
         bool operator==(const search_context_t& other) const
         {
-            bool res = b == other.b && e == other.e;
-
-            if constexpr (query_support == LOCATE) {
-                res = res &&
-                    s.shft == other.s.shft &&
-                    s.dpth == other.s.dpth;
-            }
-
-            return res;
+            return b == other.b && e == other.e;
         }
 
         /**
@@ -500,12 +596,6 @@ public:
         {
             if (b != other.b) return b < other.b;
             if (e != other.e) return e > other.e;
-
-            if constexpr (query_support == LOCATE) {
-                if (s.shft != other.s.shft) return s.shft < other.s.shft;
-                if (s.dpth != other.s.dpth) return s.dpth < other.s.dpth;
-            }
-
             return m < other.m;
         }
 
@@ -524,12 +614,6 @@ public:
                 auto [b, e] = ctx.forward_sa_interval();
                 pos_t hash = pos_hash<pos_t>(b);
                 hash_combine<pos_t>(hash, pos_hash<pos_t>(e));
-
-                if constexpr (query_support == LOCATE) {
-                    hash_combine<pos_t>(hash, pos_hash<pos_t>(ctx.s.shft));
-                    hash_combine<pos_t>(hash, pos_hash<pos_t>(ctx.s.dpth));
-                }
-                
                 return hash;
             }
         };
@@ -595,10 +679,7 @@ public:
                     .t = BEG,
                     .o = 0,
                     .i = 0,
-                    .x = 0,
-                    .shft = 0,
-                    .dpth = 0,
-                    .rprtd = false
+                    .x = 0
                 };
             }
         }
@@ -612,42 +693,6 @@ public:
             return m;
         }
 
-        /**
-         * @brief returns the depth (additional length) of this context in the banded alignment matrix
-         * @return depth
-         */
-        inline pos_t depth() const requires(query_support == LOCATE)
-        {
-            return s.dpth;
-        }
-
-        /**
-         * @brief sets the depth (additional length) of this context in the banded alignment matrix
-         * @param depth depth
-         */
-        inline void set_depth(pos_t depth) requires(query_support == LOCATE)
-        {
-            this->s.dpth = depth;
-        }
-
-        /**
-         * @brief returns true <=> this context has already been reported
-         * @return whether this context has already been reported
-         */
-        inline bool reported() const requires(query_support == LOCATE)
-        {
-            return s.rprtd;
-        }
-
-        /**
-         * @brief sets whether this context has already been reported
-         * @param reported whether this context has already been reported
-         */
-        inline void set_reported(bool reported) requires(query_support == LOCATE)
-        {
-            this->s.rprtd = reported;
-        }
-        
         /**
          * @brief returns the overall number of occurrences of the currently matched P
          * @return overall number of occurrences
@@ -673,24 +718,6 @@ public:
         inline void set_errors(pos_t err)
         {
             this->err = err;
-        }
-        
-        /**
-         * @brief sets the right shift (in the text) of the occurrences to shft (only used for approximate pattern matching)
-         * @param shft right shift (in the text) of the occurrences
-         */
-        inline void set_shift(pos_t shft) requires(query_support == LOCATE)
-        {
-            this->s.shft = shft;
-        }
-        
-        /**
-         * @brief returns the right shift (in the text) of the occurrences (only used for approximate pattern matching)
-         * @return the right shift of the occurrences
-         */
-        inline pos_t shift() const requires(query_support == LOCATE)
-        {
-            return s.shft;
         }
 
         /**
@@ -794,13 +821,15 @@ public:
         pos_t SA_i; // current suffix SA[i] in the suffix array interval
 
         // index of the input inteval of M_Phi/M_Phi^{-1} containing SA_i
-        std::conditional_t<support == _locate_move, pos_t, std::monostate> s_;
+        [[no_unique_address]] std::conditional_t<support == _locate_move, pos_t, std::monostate> s_;
 
         // rlzsa decode context (tracks its own position and suffix value while decoding)
         using rlzsa_ctx_t = typename rlzsa_opt<pos_t>::decode_context_t;
 
-        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, std::monostate> rlz_l; // rlzsa context for decoding to the left
-        std::conditional_t<support == _locate_rlzsa, rlzsa_ctx_t, std::monostate> rlz_r; // rlzsa context for decoding to the right
+        [[no_unique_address]] std::conditional_t<support == _locate_rlzsa,
+            rlzsa_ctx_t, std::monostate> rlz_l; // rlzsa context for decoding to the left
+        [[no_unique_address]] std::conditional_t<support == _locate_rlzsa,
+            rlzsa_ctx_t, std::monostate> rlz_r; // rlzsa context for decoding to the right
 
     public:
         /**
@@ -905,10 +934,10 @@ public:
         { }
 
         /**
-         * @brief returns the next symbol to extend the context with
+         * @brief returns the next symbol extend_next() will extend the context with (valid only while can_extend())
          * @return the next symbol to extend the context with
          */
-        sym_t current_symbol() const {
+        sym_t next_symbol() const {
             return idx->unmap_symbol(sym_nxt);
         }
 
@@ -955,7 +984,7 @@ public:
          * @tparam dir direction_t the context should be extended with
          */
         template <direction_t dir>
-        void next_symbol();
+        void advance_symbol();
     };
 
     /**
@@ -988,13 +1017,15 @@ public:
      * @tparam report_fnc_t type of the function report
      * @param P the pattern to search
      * @param scheme the search scheme to use (provides k)
-     * @param report function that is called with every occurrence (occ, len, err) of P in T with at most k errors (w.r.t. dist_metr)
+     * @param report function called with every occurrence (an aprx_occ_t<pos_t, mode>) of P in T with at most k
+     *        errors (w.r.t. dist_metr). If mode == CIGAR the occurrence additionally carries a CIGAR alignment of P
+     *        against its matched string (occ.cigar), and its error is the exact distance of P to that string.
      */
-    template <distance_metric_t dist_metr, typename report_fnc_t>
+    template <distance_metric_t dist_metr, cigar_mode_t mode = NO_CIGAR, typename report_fnc_t>
     void locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const requires(supports_locate)
     {
-        if constexpr (dist_metr == HAMMING_DISTANCE) apm_hamming{*this}.locate(P, scheme, report);
-        if constexpr (dist_metr == EDIT_DISTANCE) apm_edit{*this}.locate(P, scheme, report);
+        if constexpr (dist_metr == HAMMING_DISTANCE) apm_hamming<move_rb, mode>{*this}.locate(P, scheme, report);
+        if constexpr (dist_metr == EDIT_DISTANCE) apm_edit<move_rb, mode>{*this}.locate(P, scheme, report);
     }
 
     /**
@@ -1039,6 +1070,20 @@ public:
 
         _SA_s_pos.serialize(out);
         _SA_e_pos.serialize(out);
+
+        pos_t num_seq = _seq_names.size();
+        out.write((char*) &num_seq, sizeof(pos_t));
+
+        if (num_seq > 0) {
+            out.write((char*) &_separator_sym, sizeof(i_sym_t));
+            _seq_boundaries.serialize(out);
+
+            for (const std::string& name : _seq_names) {
+                pos_t len = name.size();
+                out.write((char*) &len, sizeof(pos_t));
+                out.write(name.data(), len);
+            }
+        }
     }
 
     /**
@@ -1073,6 +1118,24 @@ public:
 
         _SA_s_pos.load(in);
         _SA_e_pos.load(in);
+
+        if (in.peek() != std::char_traits<char>::eof()) {
+            pos_t num_seq;
+            in.read((char*) &num_seq, sizeof(pos_t));
+
+            if (num_seq > 0) {
+                in.read((char*) &_separator_sym, sizeof(i_sym_t));
+                _seq_boundaries.load(in);
+                _seq_names.resize(num_seq);
+
+                for (pos_t i = 0; i < num_seq; i++) {
+                    pos_t len;
+                    in.read((char*) &len, sizeof(pos_t));
+                    _seq_names[i].resize(len);
+                    in.read(_seq_names[i].data(), len);
+                }
+            }
+        }
     }
 
     /**
