@@ -407,10 +407,9 @@ void move_r<support, sym_t, pos_t>::revert_range(report_fnc_t report, retrieve_p
     pos_t l = params.l;
     pos_t r = params.r;
 
-    // leftmost section to revert
-    uint16_t s_l;
-    // rightmost section to revert
-    uint16_t s_r;
+    // the parallelism is capped at the number of sections overlapping [l, r]: each thread starts its backward walk
+    // at a section boundary, so more threads than that would not add useful parallelism
+    uint16_t s_l, s_r;
 
     if (p_r == 1) {
         s_l = 0;
@@ -420,62 +419,37 @@ void move_r<support, sym_t, pos_t>::revert_range(report_fnc_t report, retrieve_p
         s_r = bin_search_min_geq<pos_t>(r, 0, p_r - 1, [&](pos_t x) { return _D_e[x].second; });
     }
 
-    uint16_t p = std::max(
-        (uint16_t)1, // use at least one thread
-        std::min({
-            (uint16_t)(s_r - s_l + 1), // use at most s_r-s_l+1 threads
-            (uint16_t)omp_get_max_threads(), // use at most all threads
-            params.num_threads // use at most the specified number of threads
-        }));
-    
-    if (r == n - 1) {
-        report(r, 0);
-    }
+    uint16_t p = retrieve_num_threads(params.num_threads, s_r - s_l + 1);
 
-    #pragma omp parallel num_threads(p)
-    {
-        // Index in [0..p-1] of the current thread.
-        uint16_t i_p = omp_get_thread_num();
+    run_parallel_threads(p, [&](uint16_t i_p) {
+        // the buffer-aligned position range [b, e] this thread reports (may be empty after alignment)
+        pos_t b = thread_range_start(i_p, p, l, r, params.buffer_align);
+        pos_t e = thread_range_start(i_p + 1, p, l, r, params.buffer_align);
+        if (b >= e) return; // empty chunk (a buffer block wider than the chunk claimed it for another thread)
+        e--; // make the right end inclusive
 
-        // leftmost section for thread i_p to revert
-        uint16_t sl_ip = s_l + (i_p * (s_r - s_l + 1)) / p;
-        // rightmost section for thread i_p to revert
-        uint16_t sr_ip = i_p == p - 1 ? s_r : s_l + ((i_p + 1) * (s_r - s_l + 1)) / p - 1;
+        // find the section boundary >= e to start the backward walk from (with a known BWT position)
+        uint16_t sect = p_r == 1 ? 0 : bin_search_min_geq<pos_t>(e, 0, p_r - 1, [&](pos_t y) { return _D_e[y].second; });
+        // the walk-start position (>= e), the index x of the input interval of M_LF containing i and the BWT position i
+        pos_t j = sect == p_r - 1 ? n - 2 : _D_e[sect].second;
+        pos_t x = sect == p_r - 1 ? 0 : _D_e[sect].first;
+        pos_t i = sect == p_r - 1 ? 0 : M_LF().p(x);
 
-        // Iteration range start position of thread i_p.
-        pos_t j_l = std::max(l, sl_ip == 0 ? 0 : (_D_e[sl_ip - 1].second + 1) % n);
-        // Iteration range end position of thread i_p.
-        pos_t j_r = sr_ip == p_r - 1 ? n - 2 : _D_e[sr_ip].second;
-
-        // index of the input interval in M_LF containing i.
-        pos_t x = sr_ip == p_r - 1 ? 0 : _D_e[sr_ip].first;
-        // The position in the bwt of the current character in T.
-        pos_t i = sr_ip == p_r - 1 ? 0 : M_LF().p(x);
-
-        // start iterating at the right iteration range end position
-        pos_t j = j_r;
-
-        // iterate until j = r
-        while (j > r) {
-            // Set i <- LF(i) and j <- j-1.
+        // skip (without reporting) from the section boundary down to e
+        while (j > e) {
             M_LF().move(i, x);
             j--;
         }
 
-        if (j >= l) {
-            // Report T[r] = T[j] = L[i] = L'[x]
-            report(j, unmap_symbol(L_(x)));
-        }
+        // report T[e] = L'[x], then T[e-1,b] from right to left
+        report(j, unmap_symbol(L_(x)));
 
-        // report T[l,r-1] from right to left
-        while (j > j_l) {
-            // Set i <- LF(i) and j <- j-1.
+        while (j > b) {
             M_LF().move(i, x);
             j--;
-            // Report T[j] = L[i] = L'[x].
             report(j, unmap_symbol(L_(x)));
         }
-    }
+    });
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -487,23 +461,14 @@ void move_r<support, sym_t, pos_t>::BWT_range(report_fnc_t report, retrieve_para
     pos_t l = params.l;
     pos_t r = params.r;
 
-    uint16_t p = std::max(
-        (uint16_t)1, // use at least one thread
-        std::min({
-            (uint16_t)omp_get_max_threads(), // use at most all threads
-            (uint16_t)((r - l + 1) / 10), // use at most (r-l+1)/100 threads
-            params.num_threads // use at most the specified number of threads
-        }));
+    uint16_t p = retrieve_num_threads(params.num_threads, (r - l + 1) / 10);
 
-    #pragma omp parallel num_threads(p)
-    {
-        // Index in [0..p-1] of the current thread.
-        uint16_t i_p = omp_get_thread_num();
-
-        // Iteration range start position of thread i_p.
-        pos_t b = l + i_p * ((r - l + 1) / p);
-        // Iteration range end position of thread i_p.
-        pos_t e = i_p == p - 1 ? r : l + (i_p + 1) * ((r - l + 1) / p) - 1;
+    run_parallel_threads(p, [&](uint16_t i_p) {
+        // the buffer-aligned position range [b, e] of thread i_p (may be empty after alignment)
+        pos_t b = thread_range_start(i_p, p, l, r, params.buffer_align);
+        pos_t e = thread_range_start(i_p + 1, p, l, r, params.buffer_align);
+        if (b >= e) return; // empty chunk (a buffer block wider than the chunk claimed it for another thread)
+        e--; // make the right end inclusive
 
         // Current position in the bwt.
         pos_t i = b;
@@ -531,7 +496,7 @@ void move_r<support, sym_t, pos_t>::BWT_range(report_fnc_t report, retrieve_para
             report(i, unmap_symbol(L_(x)));
             i++;
         }
-    }
+    });
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -544,23 +509,16 @@ void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_param
     pos_t l = params.l;
     pos_t r = params.r;
 
-    uint16_t p = std::max(
-        (uint16_t)1, // use at least one thread
-        std::min({
-            (uint16_t)omp_get_max_threads(), // use at most all threads
-            params.num_threads, // use at most the specified number of threads
-            (uint16_t)(((r - l + 1) * (double)r__) / (10.0 * (double)n)) // use at most (r-l+1)*(r/n)*(1/10) threads
-        }));
+    // use at most (r-l+1)*(r''/n)*(1/10) threads
+    uint16_t p = retrieve_num_threads(params.num_threads,
+        (uint64_t)(((r - l + 1) * (double) r__) / (10.0 * (double) n)));
 
-    #pragma omp parallel num_threads(p)
-    {
-        // Index in [0..p-1] of the current thread.
-        uint16_t i_p = omp_get_thread_num();
-
-        // iteration range start position
-        pos_t b = l + i_p * ((r - l + 1) / p);
-        // iteration range end position
-        pos_t e = i_p == p - 1 ? r : l + (i_p + 1) * ((r - l + 1) / p) - 1;
+    run_parallel_threads(p, [&](uint16_t i_p) {
+        // the buffer-aligned position range [b, e] of thread i_p (may be empty after alignment)
+        pos_t b = thread_range_start(i_p, p, l, r, params.buffer_align);
+        pos_t e = thread_range_start(i_p + 1, p, l, r, params.buffer_align);
+        if (b >= e) return; // empty chunk (a buffer block wider than the chunk claimed it for another thread)
+        e--; // make the right end inclusive
 
         if constexpr (has_locate_move) {
             // the input interval of M_LF containing i
@@ -625,7 +583,7 @@ void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_param
                 dec.report_right(e, report);
             }
         }
-    }
+    });
 }
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -638,8 +596,12 @@ void move_r<support, sym_t, pos_t>::retrieve_range(
     pos_t l = params.l;
     pos_t r = params.r;
     uint16_t num_threads = params.num_threads;
-    uint64_t buffer_size_per_thread = std::max<uint64_t>(1024,
+    uint64_t buffer_bytes = std::max<uint64_t>(1024,
         params.max_bytes_alloc != -1 ? params.max_bytes_alloc / num_threads : ((r - l + 1) * sizeof(output_t)) / (num_threads * 500));
+
+    uint64_t align = std::max<uint64_t>(1, buffer_bytes / sizeof(output_t));
+    params.buffer_align = align;
+    uint64_t buffer_size_per_thread = align * sizeof(output_t);
 
     std::filesystem::resize_file(std::filesystem::current_path() / file_name, (r - l + 1) * sizeof(output_t));
     std::vector<sdsl::int_vector_buffer<sizeof(output_t) * 8>> file_bufs;
@@ -647,7 +609,7 @@ void move_r<support, sym_t, pos_t>::retrieve_range(
     for (uint16_t i = 0; i < num_threads; i++) {
         file_bufs.emplace_back(sdsl::int_vector_buffer<sizeof(output_t) * 8>(file_name, std::ios::in, buffer_size_per_thread, sizeof(output_t) * 8, true));
     }
-    
+
     (this->*retrieve_method)([&](pos_t pos, output_t val) {
         file_bufs[omp_get_thread_num()][pos] = *reinterpret_cast<uint64_t*>(&val);
     }, params);

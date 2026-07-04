@@ -179,7 +179,8 @@ inline auto move_rb<support, sym_t, pos_t>::search_context_t<query_support>::ext
     }
 
     prime_tuple_t prime{b, e, b_, e_};
-    b_R = b_R_old + (next[0] <= prev[0] && prev[0] < idx_dir.M_LF().num_intervals());
+    bool is_term_in_iv = next[0] <= prev[0] && prev[0] < idx_dir.M_LF().num_intervals();
+    b_R = b_R_old + is_term_in_iv;
 
     for (i_sym_t i = 1; i < i_sym; i++) {
         if (next[i] <= prev[i] && prev[i] < idx_dir.M_LF().num_intervals()) {
@@ -269,8 +270,10 @@ void move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::prepare_ex
     ctx->template update_input_intervals<dir>();
     ctx->template build_prev_next<dir>(prev, next, idx->sigma);
 
+    bool is_term_in_iv = next[0] <= prev[0] && prev[0] < idx->template index<dir>().M_LF().num_intervals();
+    b_R_nxt = b_R + is_term_in_iv;
+
     sym_nxt = 0;
-    b_R_nxt = b_R + next[0] <= prev[0] && prev[0] < idx->template index<dir>().M_LF().num_intervals();
     this->template advance_symbol<dir>();
 }
 

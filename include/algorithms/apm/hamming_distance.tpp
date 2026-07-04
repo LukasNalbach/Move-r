@@ -78,18 +78,20 @@ protected:
 
     const move_rb_t& index;
     static constexpr pos_t no_mism = pos_t(-1);
-    mutable std::vector<pos_t> active_mism;
+    // the (position, reference symbol) of each mismatch on the current search path (the symbol lets the CIGAR carry
+    // the reference base, so that the SAM MD tag / a reference reconstruction can be derived)
+    mutable std::vector<std::pair<pos_t, char>> active_mism;
     mutable std::vector<cigar_t> cigar_pool;
-    
-    cigar_t build_cigar(std::vector<pos_t> positions, pos_t m) const
+
+    cigar_t build_cigar(std::vector<std::pair<pos_t, char>> mismatches, pos_t m) const
     {
-        std::sort(positions.begin(), positions.end());
+        std::sort(mismatches.begin(), mismatches.end());
         cigar_t cigar;
         pos_t prev = 0;
 
-        for (pos_t p : positions) {
+        for (auto [p, sym] : mismatches) {
             if (p > prev) cigar.emplace_back(MATCH(p - prev));
-            cigar.emplace_back(MISMATCH());
+            cigar.emplace_back(MISMATCH(sym));
             prev = p + 1;
         }
 
@@ -97,11 +99,11 @@ protected:
         return cigar;
     }
 
-    pos_t add_cigar(pos_t leaf_pos, pos_t m) const
+    // builds the CIGAR from the mismatches currently on the active_mism stack (which the caller keeps up to date,
+    // including the leaf mismatch), stores it in the pool and returns its index
+    pos_t add_cigar(pos_t m) const
     {
-        if (leaf_pos != no_mism) active_mism.emplace_back(leaf_pos);
         cigar_pool.emplace_back(build_cigar(active_mism, m));
-        if (leaf_pos != no_mism) active_mism.pop_back();
         return pos_t(cigar_pool.size() - 1);
     }
 
@@ -116,8 +118,9 @@ protected:
     template <typename ext_ctx_t>
     bool next_is_separator(const ext_ctx_t& ext_ctx) const
     {
-        if constexpr (requires (const move_rb_t& ix) { ix.separator_sym(); ix.has_sequences(); }) {
-            return index.has_sequences() && ext_ctx.can_extend() && ext_ctx.next_symbol() == index.separator_sym();
+        if constexpr (requires (const move_rb_t& ix) { ix.seq_data(); }) {
+            return index.seq_data().has_sequences() && ext_ctx.can_extend()
+                && ext_ctx.next_symbol() == index.seq_data().separator_sym();
         } else {
             return false;
         }
@@ -145,6 +148,33 @@ public:
         for (const auto& ctx : result) count += ctx.num_occ();
 
         return count;
+    }
+
+    /**
+     * @brief counts the occurrences of P with at most k mismatches, broken down by their number of mismatches
+     *        (w.r.t. hamming distance)
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @return a histogram h of length k+1, where h[e] is the number of occurrences of P in T with exactly e
+     *         mismatches; the sum of h equals count(P, scheme)
+     */
+    std::vector<pos_t> count_histogram(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        pos_t m = P.size();
+        pos_t k = scheme.k;
+        std::vector<pos_t> histogram(k + 1, 0);
+
+        // pathological k >= m (every position matches): the exact per-error split is not searched, so the total is
+        // reported as if exact (matches the count(P, scheme) short-circuit); k == 0 is a plain exact count
+        if (k >= m) { histogram[0] = index.n - 1; return histogram; }
+        if (k == 0) { histogram[0] = index.forward_index().count(P); return histogram; }
+
+        // each search context represents occurrences sharing one matched string, hence one mismatch count; the search
+        // scheme finds every occurrence exactly once, so bucketing the contexts' occurrence counts by error is exact
+        auto result = search<COUNT>(P, scheme);
+        for (const auto& ctx : result) histogram[ctx.errors()] += ctx.num_occ();
+
+        return histogram;
     }
 
     /**
@@ -202,7 +232,8 @@ public:
             pos_t, // k_cur
             pos_t, // match_pos_idx
             pos_t, // mism_count: number of mismatches on this state's path (CIGAR mode only)
-            pos_t  // added_pos: the mismatch position this state added vs its parent, or no_mism (CIGAR mode only)
+            pos_t, // added_pos: the mismatch position this state added vs its parent, or no_mism (CIGAR mode only)
+            char   // added_sym: the reference symbol at that mismatch (CIGAR mode only)
         >;
 
         using match_pos_t = std::tuple<
@@ -219,7 +250,7 @@ public:
         auto empty_ctx = index.template empty_context<query_support>();
         if constexpr (mode == CIGAR && query_support == LOCATE) { active_mism.clear(); cigar_pool.clear(); }
 
-        auto add_ctx = [&](search_context_t<query_support>& ctx, [[maybe_unused]] pos_t leaf_pos){
+        auto add_ctx = [&](search_context_t<query_support>& ctx){
             if constexpr (query_support == LOCATE) {
                 node_t node{ctx, pos_t(-1)};
                 auto it = result.find(node);
@@ -229,7 +260,7 @@ public:
                     it = result.erase(it);
                 }
 
-                if constexpr (mode == CIGAR) node.cig_idx = add_cigar(leaf_pos, m);
+                if constexpr (mode == CIGAR) node.cig_idx = add_cigar(m);
                 result.emplace_hint(it, node);
             } else {
                 result.emplace(ctx);
@@ -263,14 +294,14 @@ public:
 
             std::vector<search_state_t> states_stack;
             states_stack.reserve(m);
-            states_stack.emplace_back(search_state_t{empty_ctx, 0, 0, 0, no_mism});
+            states_stack.emplace_back(search_state_t{empty_ctx, 0, 0, 0, no_mism, char(0)});
 
             while (!states_stack.empty()) {
-                auto [ctx, k_cur, match_pos_idx, mism_count, added_pos] = states_stack.back(); states_stack.pop_back();
+                auto [ctx, k_cur, match_pos_idx, mism_count, added_pos, added_sym] = states_stack.back(); states_stack.pop_back();
 
                 if constexpr (mode == CIGAR && query_support == LOCATE) {
                     active_mism.resize(mism_count - (added_pos != no_mism ? 1 : 0));
-                    if (added_pos != no_mism) active_mism.emplace_back(added_pos);
+                    if (added_pos != no_mism) active_mism.emplace_back(added_pos, added_sym);
                 }
 
                 const auto& [p_idx, dir, part, beg, end, pos, ext_rem] = match_pos[match_pos_idx];
@@ -285,14 +316,19 @@ public:
                         if (next_is_separator(ext_ctx)) break;
                         auto ctx_nxt = ext_ctx.extend_next();
                         bool is_mismatch = ctx_nxt.last_added_symbol() != P[pos];
+                        char sym = (char) ctx_nxt.last_added_symbol();
                         pos_t k_nxt = k_cur + is_mismatch;
 
                         if (p_idx_nxt == p) {
                             ctx_nxt.set_errors(k_nxt);
-                            add_ctx(ctx_nxt, is_mismatch ? pos : no_mism);
+                            if constexpr (mode == CIGAR && query_support == LOCATE)
+                                if (is_mismatch) active_mism.emplace_back(pos, sym);
+                            add_ctx(ctx_nxt);
+                            if constexpr (mode == CIGAR && query_support == LOCATE)
+                                if (is_mismatch) active_mism.pop_back();
                         } else if (is_mismatch || S[p_idx_nxt].k_min <= k_nxt + ext_rem) {
                             states_stack.emplace_back(search_state_t{ctx_nxt, k_nxt, match_pos_idx_nxt,
-                                mism_count + (is_mismatch ? 1 : 0), is_mismatch ? pos : no_mism});
+                                mism_count + (is_mismatch ? 1 : 0), is_mismatch ? pos : no_mism, is_mismatch ? sym : char(0)});
                         }
                     }
                 } else {
@@ -301,9 +337,9 @@ public:
                     if (result) {
                         if (p_idx_nxt == p) {
                             ctx_nxt.set_errors(k_cur);
-                            add_ctx(ctx_nxt, no_mism);
+                            add_ctx(ctx_nxt);
                         } else {
-                            states_stack.emplace_back(search_state_t{ctx_nxt, k_cur, match_pos_idx_nxt, mism_count, no_mism});
+                            states_stack.emplace_back(search_state_t{ctx_nxt, k_cur, match_pos_idx_nxt, mism_count, no_mism, char(0)});
                         }
                     }
                 }

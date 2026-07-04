@@ -28,6 +28,7 @@
 #include <gtl/phmap.hpp>
 #include <move_rb/move_rb.hpp>
 #include <misc/apm.hpp>
+#include <ips2ra.hpp>
 
 std::random_device rd;
 std::mt19937 gen(rd());
@@ -99,7 +100,7 @@ void test_move_rb()
             auto correct_occurrences = locate<pos_t, dist_metr>(input_span, pattern_span, max_mismatches);
             const search_scheme_t scheme = min_u_scheme(max_mismatches);
             auto occurrences = index.template locate<dist_metr>(pattern, scheme);
-            ips4o::sort(occurrences.begin(), occurrences.end());
+            ips2ra::sort(occurrences.begin(), occurrences.end(), [](const auto& o){ return o.pos; });
 
             if constexpr (dist_metr == HAMMING_DISTANCE) {
                 EXPECT_EQ(index.count_hamming_dist(pattern, scheme), correct_occurrences.size());
@@ -146,7 +147,7 @@ void test_move_rb()
                 EXPECT_TRUE(it->second == occ.err && occ.err <= max_mismatches);
             }
 
-            ips4o::sort(cigar_occurrences.begin(), cigar_occurrences.end());
+            ips2ra::sort(cigar_occurrences.begin(), cigar_occurrences.end(), [](const auto& o){ return o.pos; });
             if constexpr (dist_metr == HAMMING_DISTANCE) {
                 EXPECT_EQ(cigar_occurrences, correct_occurrences);
             } else {

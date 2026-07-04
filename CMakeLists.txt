@@ -55,6 +55,13 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/external/ips2ra")
 set(LIBSAIS_USE_OPENMP ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/libsais/")
 
+set(BIGBWT_DIR "${CMAKE_SOURCE_DIR}/external/Big-BWT")
+if(EXISTS "${BIGBWT_DIR}/makefile" OR EXISTS "${BIGBWT_DIR}/Makefile")
+  add_custom_target(bigbwt ALL COMMAND make WORKING_DIRECTORY "${BIGBWT_DIR}"
+    COMMENT "Building bundled Big-BWT (bigbwt)")
+  add_compile_definitions(MOVE_R_BIGBWT_DIR="${BIGBWT_DIR}")
+endif()
+
 # malloc_count
 add_library(malloc_count INTERFACE)
 target_include_directories(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/malloc_count/")
@@ -270,23 +277,25 @@ if(MOVE_R_BUILD_BENCH)
     "${columba_src}/parameters/alignparameters.cpp"
     "${columba_src}/indexinterface.cpp")
 
+  set(columba_includes
+    "${columba_src}" "${CMAKE_SOURCE_DIR}/external/fmt/include" "${CMAKE_SOURCE_DIR}/external/parallel-hashmap"
+    "${CMAKE_SOURCE_DIR}/include"
+    "$<TARGET_PROPERTY:sdsl,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:gtl,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:sparse_map,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:ips4o,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:ips2ra,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:unordered_dense,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:ordered,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:sux,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:emhash,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:rmq,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:malloc_count,INTERFACE_INCLUDE_DIRECTORIES>")
+
   function(move_r_add_columba_plugin name)
     add_library(${name} SHARED
       "${CMAKE_SOURCE_DIR}/bench/move-rb-bench/indexes/columba_capi.cpp" ${columba_common_sources} ${ARGN})
-    target_include_directories(${name} PRIVATE
-      "${columba_src}" "${CMAKE_SOURCE_DIR}/external/fmt/include" "${CMAKE_SOURCE_DIR}/external/parallel-hashmap"
-      "${CMAKE_SOURCE_DIR}/include"
-      "$<TARGET_PROPERTY:sdsl,INTERFACE_INCLUDE_DIRECTORIES>"
-      "$<TARGET_PROPERTY:gtl,INTERFACE_INCLUDE_DIRECTORIES>"
-      "$<TARGET_PROPERTY:sparse_map,INTERFACE_INCLUDE_DIRECTORIES>"
-      "$<TARGET_PROPERTY:ips4o,INTERFACE_INCLUDE_DIRECTORIES>"
-      "$<TARGET_PROPERTY:ips2ra,INTERFACE_INCLUDE_DIRECTORIES>"
-      "$<TARGET_PROPERTY:unordered_dense,INTERFACE_INCLUDE_DIRECTORIES>"
-      "$<TARGET_PROPERTY:ordered,INTERFACE_INCLUDE_DIRECTORIES>"
-      "$<TARGET_PROPERTY:sux,INTERFACE_INCLUDE_DIRECTORIES>"
-      "$<TARGET_PROPERTY:emhash,INTERFACE_INCLUDE_DIRECTORIES>"
-      "$<TARGET_PROPERTY:rmq,INTERFACE_INCLUDE_DIRECTORIES>"
-      "$<TARGET_PROPERTY:malloc_count,INTERFACE_INCLUDE_DIRECTORIES>")
+    target_include_directories(${name} PRIVATE ${columba_includes})
     target_compile_options(${name} PRIVATE -O3 -fno-fast-math -fno-strict-aliasing)
     target_link_libraries(${name} PRIVATE sdsl)
     set_target_properties(${name} PROPERTIES
@@ -308,6 +317,60 @@ if(MOVE_R_BUILD_BENCH)
   add_library(br_index INTERFACE)
   target_include_directories(br_index INTERFACE "${CMAKE_SOURCE_DIR}/external/br-index/src")
   target_link_libraries(br_index INTERFACE sdsl divsufsort divsufsort64)
+
+  ############################# index-build CLI tools for the compared indexes #############################
+
+  # br-index's own index builder
+  add_executable(bri-build "${CMAKE_SOURCE_DIR}/external/br-index/src/bri-build.cpp")
+  target_link_libraries(bri-build PRIVATE br_index)
+  set_target_properties(bri-build PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
+
+  set(columba_build_sources
+    "${columba_src}/buildindex.cpp" "${columba_src}/logger.cpp"
+    "${columba_src}/parameters/buildparameters.cpp" "${columba_src}/seqfile.cpp")
+
+  set(columba_bigbwt_dir "${CMAKE_SOURCE_DIR}/external/columba/external/Big-BWT")
+  set(COLUMBA_BIGBWT_USABLE FALSE)
+  if(EXISTS "${columba_bigbwt_dir}/utils.h")
+    set(COLUMBA_BIGBWT_USABLE TRUE)
+  endif()
+
+  find_package(ZLIB REQUIRED)
+
+  function(move_r_add_columba_build name rlc bits)
+    add_executable(${name} ${columba_build_sources})
+    target_include_directories(${name} PRIVATE ${columba_includes})
+    target_compile_definitions(${name} PRIVATE ALPHABET=5 FMT_HEADER_ONLY HAVE_ZLIB)
+    if(rlc)
+      target_sources(${name} PRIVATE "${columba_src}/util.cpp" "${columba_src}/bmove/moverepr.cpp")
+      target_compile_definitions(${name} PRIVATE RUN_LENGTH_COMPRESSION PHI_MOVE)
+      if(COLUMBA_BIGBWT_USABLE)
+        target_compile_definitions(${name} PRIVATE BIG_BWT_USABLE)
+        target_include_directories(${name} PRIVATE "${columba_bigbwt_dir}")
+      endif()
+    endif()
+    if(bits EQUAL 32)
+      target_compile_definitions(${name} PRIVATE THIRTY_TWO)
+    endif()
+    target_compile_options(${name} PRIVATE -O3 -fno-fast-math -fno-strict-aliasing)
+    target_link_libraries(${name} PRIVATE sdsl libsais OpenMP::OpenMP_CXX ZLIB::ZLIB malloc_count)
+    set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/columba-internal")
+  endfunction()
+
+  move_r_add_columba_build(columba-build-fm-32   FALSE 32)
+  move_r_add_columba_build(columba-build-fm-64   FALSE 64)
+  move_r_add_columba_build(columba-rlc-build-32  TRUE  32)
+  move_r_add_columba_build(columba-rlc-build-64  TRUE  64)
+
+  function(move_r_add_columba_build_wrapper name variant32 variant64)
+    add_executable(${name} "${CMAKE_SOURCE_DIR}/cli/tools/columba-build-dispatch.cpp")
+    target_compile_definitions(${name} PRIVATE
+      COLUMBA_BUILD_32="columba-internal/${variant32}" COLUMBA_BUILD_64="columba-internal/${variant64}")
+    set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
+    add_dependencies(${name} ${variant32} ${variant64})
+  endfunction()
+  move_r_add_columba_build_wrapper(columba-build     columba-build-fm-32  columba-build-fm-64)
+  move_r_add_columba_build_wrapper(columba-rlc-build columba-rlc-build-32 columba-rlc-build-64)
 
   move_r_add_tool(move-rb-bench bench/move-rb-bench/move-rb-bench.cpp
     "${CMAKE_BINARY_DIR}/bench/" br_index ${CMAKE_DL_LIBS})
@@ -334,16 +397,12 @@ if(MOVE_R_BUILD_TESTS)
   set_target_properties(gtest gtest_main gmock gmock_main
     PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "")
 
+  # the test source files keep their underscore names (mirroring the include structure they test), but the
+  # executable/target names use hyphens like every other CLI tool (test-move-r, test-move-rb, ...)
   foreach(s move_r move_rb move_data_structure data_structures sa_index rlzsa_opt edit_distance_matrix)
-    move_r_add_tool(test-${s} "${CMAKE_SOURCE_DIR}/tests/test_${s}.cpp"
+    string(REPLACE "_" "-" tgt "test-${s}")
+    move_r_add_tool(${tgt} "${CMAKE_SOURCE_DIR}/tests/test_${s}.cpp"
       "${CMAKE_BINARY_DIR}/tests/" gtest_main)
+    gtest_discover_tests(${tgt})
   endforeach()
-
-  gtest_discover_tests(test-move_r)
-  gtest_discover_tests(test-move_rb)
-  gtest_discover_tests(test-move_data_structure)
-  gtest_discover_tests(test-data_structures)
-  gtest_discover_tests(test-sa_index)
-  gtest_discover_tests(test-rlzsa_opt)
-  gtest_discover_tests(test-edit_distance_matrix)
 endif()

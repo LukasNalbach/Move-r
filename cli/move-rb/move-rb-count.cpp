@@ -43,6 +43,9 @@ std::string name_text_file;
 std::string path_output_file;
 std::ofstream output_file;
 bool output_occurrences;
+bool hist_output = false; // whether to write a per-mismatch-count histogram
+std::string path_hist_file;
+std::ofstream hist_file;
 
 /**
  * @brief prints the usage information and exits
@@ -58,7 +61,9 @@ void help(std::string msg)
     std::cout << "   <scheme>                   search scheme to use (pigeon_hole, suffix_filter, min_u, 01 or path to a file)" << std::endl;
     std::cout << "   <mismatches>               maximum number of allowed mismatches; applies only to" << std::endl;
     std::cout << "                              pigeon_hole, suffix_filter, min_u and 01 search schemes" << std::endl;
-    std::cout << "   -o <output_file>           write pattern counts to this file (in ASCII format; one line per pattern)" << std::endl;
+    std::cout << "   -o <output_file>           write pattern counts to this file as TSV (one line \"pat<i>\\t<count>\" per pattern)" << std::endl;
+    std::cout << "   -hist <hist_file>          write a per-mismatch-count histogram as TSV (one line" << std::endl;
+    std::cout << "                              \"pat<i>\\t<c_0>\\t<c_1>...\\t<c_k>\" per pattern, c_e = occurrences with e mismatches)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in move-rb-patterns format containing the patterns." << std::endl;
     exit(0);
@@ -87,6 +92,10 @@ bool parse_args(char** argv, int argc)
         if (arg_idx >= argc - 1) help("error: missing parameter after -o option.");
         output_occurrences = true;
         path_output_file = argv[arg_idx++];
+    } else if (s == "-hist") {
+        if (arg_idx >= argc - 1) help("error: missing parameter after -hist option.");
+        hist_output = true;
+        path_hist_file = argv[arg_idx++];
     } else {
         help("error: unrecognized '" + s + "' option");
     }
@@ -143,19 +152,31 @@ void measure_count()
     uint64_t baseline_alloc = malloc_count_current();
     malloc_count_reset_peak();
     progress_meter meter(num_patterns);
+    std::vector<pos_t> hist; // per-mismatch-count histogram of the current pattern (only used with -hist)
 
     for (uint64_t i = 0; i < num_patterns; i++) {
         patterns_file.read(pattern.data(), pattern_length);
         t2 = now();
 
-        count = index.count_hamming_dist(pattern, search_scheme);
+        // with -hist, count broken down by mismatch count; the total is the sum, so no separate count is needed
+        if (hist_output) {
+            hist = index.count_hamming_dist_histogram(pattern, search_scheme);
+            count = 0;
+            for (pos_t c : hist) count += c;
+        } else {
+            count = index.count_hamming_dist(pattern, search_scheme);
+        }
         num_occurrences += count;
 
         t3 = now();
         time_count += time_diff_ns(t2, t3);
 
-        if (output_occurrences) {
-            output_file << count << std::endl;
+        if (output_occurrences) output_file << "pat" << i << '\t' << count << '\n'; // TSV row (no per-line flush)
+
+        if (hist_output) {
+            hist_file << "pat" << i;
+            for (pos_t c : hist) hist_file << '\t' << c;
+            hist_file << '\n';
         }
 
         meter.step();
@@ -246,6 +267,11 @@ int main(int argc, char** argv)
     if (output_occurrences) {
         output_file.open(path_output_file);
         if (!output_file.good()) help("error: could not create <output_file>");
+    }
+
+    if (hist_output) {
+        hist_file.open(path_hist_file);
+        if (!hist_file.good()) help("error: could not create <hist_file>");
     }
 
     bool is_64_bit;

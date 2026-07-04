@@ -30,6 +30,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
+#include <ostream>
 #include <utility>
 #include <vector>
 
@@ -39,10 +40,15 @@
  *         from the text) or a deletion (D, a text symbol absent from the pattern) */
 enum class cigar_op_t : uint8_t { MATCH, MISMATCH, INS, DEL };
 
-/** @brief one run of a CIGAR: an operation repeated len times */
+/** @brief one run of a CIGAR. A MATCH run spans len (>= 1) positions. A MISMATCH/INS/DEL run always spans one
+ *         position (len == 1) and additionally carries the involved symbol in @ref sym: the reference symbol for a
+ *         MISMATCH or DEL, the pattern symbol for an INS. Together with the pattern this lets the reference be
+ *         reconstructed and the SAM MD tag be derived. The struct is packed (6 bytes) to keep CIGARs compact. */
+#pragma pack(push, 1)
 struct cigar_run_t {
-    cigar_op_t op;
-    uint32_t len;
+    cigar_op_t op;  // the operation
+    uint32_t len;   // number of positions the run spans (always 1 for MISMATCH/INS/DEL)
+    char sym;       // MISMATCH/DEL: the reference symbol; INS: the pattern symbol; unused (0) for MATCH
 
     bool operator==(const cigar_run_t&) const = default;
 
@@ -58,25 +64,29 @@ struct cigar_run_t {
         }
     }
 };
+#pragma pack(pop)
 
-/** @brief a CIGAR alignment as a sequence of (operation, run-length) runs */
+/** @brief a CIGAR alignment as a sequence of runs (MISMATCH/INS/DEL runs are one position each and carry a symbol) */
 using cigar_t = std::vector<cigar_run_t>;
 
-/** @name CIGAR run factories: write the operation name and the run length, e.g. MATCH(3) or INS().
+/** @name CIGAR run factories: a MATCH takes a run length; a MISMATCH/INS/DEL takes its single symbol (its length is
+ *        1), e.g. MATCH(3), MISMATCH('A'), DEL('C').
  *  @{ */
-inline cigar_run_t MATCH(uint32_t len = 1)    { return {cigar_op_t::MATCH, len}; }
-inline cigar_run_t MISMATCH(uint32_t len = 1) { return {cigar_op_t::MISMATCH, len}; }
-inline cigar_run_t INS(uint32_t len = 1)      { return {cigar_op_t::INS, len}; }
-inline cigar_run_t DEL(uint32_t len = 1)      { return {cigar_op_t::DEL, len}; }
+inline cigar_run_t MATCH(uint32_t len = 1) { return {cigar_op_t::MATCH, len, 0}; }
+inline cigar_run_t MISMATCH(char sym)      { return {cigar_op_t::MISMATCH, 1, sym}; }
+inline cigar_run_t INS(char sym)           { return {cigar_op_t::INS, 1, sym}; }
+inline cigar_run_t DEL(char sym)           { return {cigar_op_t::DEL, 1, sym}; }
 /** @} */
 
 /** @brief whether an approximate-pattern-matching locate also computes a CIGAR alignment per occurrence */
 enum cigar_mode_t : uint8_t { NO_CIGAR = 0, CIGAR = 1 };
 
-/** @brief appends a CIGAR run, extending the last run if it has the same operation */
+/** @brief appends a CIGAR run, extending the last run only for MATCH (MISMATCH/INS/DEL runs stay one position each,
+ *         since each carries its own symbol) */
 inline void cigar_push(cigar_t& cigar, cigar_run_t run)
 {
-    if (!cigar.empty() && cigar.back().op == run.op) cigar.back().len += run.len;
+    if (run.op == cigar_op_t::MATCH && !cigar.empty() && cigar.back().op == cigar_op_t::MATCH)
+        cigar.back().len += run.len;
     else cigar.emplace_back(run);
 }
 
@@ -110,19 +120,19 @@ static cigar_t cigar_traceback(const edit_distance_matrix<word_t>& mat, const se
         int64_t cur = mat(i, j);
 
         if (i > 0 && j > 0 && in_band(i - 1, j - 1) && mat(i - 1, j - 1) + (P[i - 1] != M[j - 1] ? 1 : 0) == cur) {
-            cigar_push(cigar, P[i - 1] == M[j - 1] ? MATCH() : MISMATCH());
+            cigar_push(cigar, P[i - 1] == M[j - 1] ? MATCH() : MISMATCH((char) M[j - 1])); // reference symbol
             i--; j--;
         } else if (i > 0 && in_band(i - 1, j) && mat(i - 1, j) + 1 == cur) {
-            cigar_push(cigar, INS()); // a P-symbol absent from M
+            cigar_push(cigar, INS((char) P[i - 1])); // a P-symbol absent from M
             i--;
         } else if (j > 0 && in_band(i, j - 1) && mat(i, j - 1) + 1 == cur) {
-            cigar_push(cigar, DEL()); // an M-symbol absent from P
+            cigar_push(cigar, DEL((char) M[j - 1])); // an M-symbol absent from P
             j--;
         } else if (i > 0) {
-            cigar_push(cigar, INS()); // j == 0: only insertions of P remain
+            cigar_push(cigar, INS((char) P[i - 1])); // j == 0: only insertions of P remain
             i--;
         } else {
-            cigar_push(cigar, DEL()); // i == 0: only deletions of M remain
+            cigar_push(cigar, DEL((char) M[j - 1])); // i == 0: only deletions of M remain
             j--;
         }
     }
@@ -141,8 +151,8 @@ static std::pair<pos_t, cigar_t> edit_cigar(
     // an empty side aligns trivially: only insertions of P (M empty) or deletions of M (P empty) remain
     if (n1 == 0 || n2 == 0) {
         cigar_t cigar;
-        if (n1 > 0) cigar.emplace_back(INS(n1));
-        if (n2 > 0) cigar.emplace_back(DEL(n2));
+        for (int64_t i = 0; i < n1; i++) cigar.emplace_back(INS((char) P[i])); // M empty: all of P is inserted
+        for (int64_t j = 0; j < n2; j++) cigar.emplace_back(DEL((char) M[j])); // P empty: all of M is deleted
         return {pos_t(n1 + n2), std::move(cigar)};
     }
 
@@ -235,13 +245,63 @@ static int64_t num_cigar_edits(const sym_t* S1, uint64_t n1, const sym2_t* S2, u
         for (uint32_t r = 0; r < run.len; r++) {
             switch (run.op) {
                 case cigar_op_t::MATCH:    if (p1 >= n1 || p2 >= n2 || S1[p1] != S2[p2]) return -1; p1++; p2++; break;
-                case cigar_op_t::MISMATCH: if (p1 >= n1 || p2 >= n2 || S1[p1] == S2[p2]) return -1; p1++; p2++; edits++; break;
-                case cigar_op_t::INS:      if (p1 >= n1) return -1; p1++; edits++; break;
-                case cigar_op_t::DEL:      if (p2 >= n2) return -1; p2++; edits++; break;
+                case cigar_op_t::MISMATCH: if (p1 >= n1 || p2 >= n2 || S1[p1] == S2[p2] || (char) S2[p2] != run.sym) return -1; p1++; p2++; edits++; break;
+                case cigar_op_t::INS:      if (p1 >= n1 || (char) S1[p1] != run.sym) return -1; p1++; edits++; break;
+                case cigar_op_t::DEL:      if (p2 >= n2 || (char) S2[p2] != run.sym) return -1; p2++; edits++; break;
                 default:                   __builtin_unreachable();
             }
         }
     }
 
     return (p1 == n1 && p2 == n2) ? edits : -1;
+}
+
+/**
+ * @brief writes the SAM CIGAR string of a CIGAR to out, e.g. "5=1X2I3="; consecutive runs of the same operation are
+ *        merged (each MISMATCH/INS/DEL run is a single position, so two adjacent mismatches print as "2X"). The
+ *        extended operations = and X (rather than M) are used, since the alignment distinguishes matches from
+ *        mismatches.
+ * @param out the stream the CIGAR is written to
+ * @param cigar the CIGAR alignment
+ */
+inline void append_cigar(std::ostream& out, const cigar_t& cigar)
+{
+    for (size_t i = 0; i < cigar.size();) {
+        cigar_op_t op = cigar[i].op;
+        uint64_t len = 0;
+        size_t j = i;
+        while (j < cigar.size() && cigar[j].op == op) len += cigar[j++].len;
+        out << len << cigar[i].code();
+        i = j;
+    }
+}
+
+/**
+ * @brief writes the SAM MD-tag value of a CIGAR (the alignment of a read against the reference) to out: runs of
+ *        matching bases as counts, each mismatch as the reference base, and each maximal run of deletions as '^'
+ *        followed by the deleted reference bases (insertions are not part of the MD tag). E.g. "10=1X5=2D6=" over
+ *        reference bases G / TA yields "10G5^TA6". Uses the reference symbols stored in the CIGAR (only present in a
+ *        CIGAR built by cigar_traceback or the hamming mismatch capture).
+ * @param out the stream the MD-tag value is written to
+ * @param cigar the CIGAR alignment
+ */
+inline void append_md(std::ostream& out, const cigar_t& cigar)
+{
+    uint64_t matches = 0; // current run of matching (or, via '=', reference-equal) bases
+    bool in_del = false;  // whether the previous emitted op was a deletion (to group a '^'-run)
+
+    for (const cigar_run_t& run : cigar) {
+        switch (run.op) {
+            case cigar_op_t::MATCH:    matches += run.len; in_del = false; break;
+            case cigar_op_t::MISMATCH: out << matches << run.sym; matches = 0; in_del = false; break;
+            case cigar_op_t::INS:      in_del = false; break; // insertions do not appear in the MD tag
+            case cigar_op_t::DEL:
+                if (!in_del) { out << matches << '^'; matches = 0; in_del = true; }
+                out << run.sym;
+                break;
+            default: __builtin_unreachable();
+        }
+    }
+
+    out << matches; // the MD tag ends with a (possibly zero) match count
 }

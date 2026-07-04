@@ -26,6 +26,7 @@ This repository contains a collection of uni- and bi-directional compressed text
     - [rlzsa](#rlzsa)
     - [lzendsa](#lzendsa)
     - [Tools](#tools)
+    - [Competitor index builders](#competitor-index-builders)
     - [Benchmark tools](#benchmark-tools)
   - [Search Schemes](#search-schemes)
   - [Examples](#examples)
@@ -49,8 +50,8 @@ This repository contains a collection of uni- and bi-directional compressed text
 
 - [OpenMP](https://www.openmp.org/)
 - [Intel TBB](https://www.intel.com/content/www/us/en/developer/tools/oneapi/onetbb.html)
-- [Big-BWT](https://gitlab.com/manzai/Big-BWT) (for the `bigbwt` construction mode)
 - zlib (package `libz-dev`)
+- Python 3.8+ with [psutil](https://pypi.org/project/psutil/) (package `python3-psutil`) — only needed at runtime for the `bigbwt` construction mode; Big-BWT itself is bundled (see below), so it does not have to be installed
 
 ### Included (git submodules)
 
@@ -66,15 +67,16 @@ Core dependencies, pulled in automatically and linked into the `move_r` library:
 - [rmq](https://github.com/pdinklag/rmq) — a practical range-minimum query data structure
 - [malloc_count](https://github.com/ByteHamster-etc/malloc_count) — for measuring peak memory usage
 - [googletest](https://github.com/google/googletest) — for unit tests
+- [Big-BWT](https://gitlab.com/manzai/Big-BWT) — the prefix-free-parsing BWT builder used by the `bigbwt` construction mode of move-r/move-rb; compiled automatically, so `bigbwt` need not be installed separately (it only needs Python 3.8+ with `psutil` at runtime)
 
 Used only by the benchmark tools:
 
 - [rcomp](https://github.com/kampersanda/rcomp), [r-index](https://github.com/alshai/r-index), [r-index-f](https://github.com/drnatebrown/r-index-f), [OnlineRlbwt](https://github.com/itomomoti/OnlineRlbwt), [block_RLBWT](https://github.com/saskeli/block_RLBWT) — uni-directional competitor r-indexes
-- [columba](https://github.com/biointec/columba) — bi-directional competitor index, built in two flavors: the FM-index (*columba*) and its run-length-compressed move-structure flavor (*columba-rlc*, the successor of [b-move](https://github.com/biointec/b-move)). Its nested [Big-BWT](https://gitlab.com/manzai/Big-BWT) submodule is only needed to build the columba index-construction tools.
+- [columba](https://github.com/biointec/columba) — bi-directional competitor index, built in two flavors: the FM-index (*columba*) and its run-length-compressed move-structure flavor (*columba-rlc*, the successor of [b-move](https://github.com/biointec/b-move)).
 - [br-index](https://github.com/U-Ar/br-index) — bi-directional competitor r-index
 
 ## CLI Build Instructions
-This implementation has been tested on Ubuntu 24.04 with GCC 13.3.0, `libtbb-dev`, `libomp-dev`, `python3-psutil` and `libz-dev` installed. [Big-BWT](https://gitlab.com/manzai/Big-BWT) has to be built and installed manually
+This implementation has been tested on Ubuntu 24.04 with GCC 13.3.0, `libtbb-dev`, `libomp-dev`, `python3-psutil` and `libz-dev` installed. Big-BWT (used by the `bigbwt` construction mode) is bundled and built automatically — it only needs Python 3.8+ with `psutil` at runtime.
 ```shell
 git clone --recurse-submodules https://github.com/LukasNalbach/Move-r.git
 cd Move-r
@@ -347,19 +349,27 @@ The command-line tools are built into the `build/cli/` folder. Each tool prints 
 
 ### move-r
 
-- **move-r-build** — builds a move-r index for an input file. `-s` selects the locate support (`count`, `locate_move` or `locate_rlzsa`), `-c` the construction mode (`sa` or `bigbwt`), `-o` the output base name, `-p` the number of threads and `-a` the balancing parameter; `-m_idx`/`-m_mds` write measurement data.
-- **move-r-count** — counts the occurrences of each pattern in a patterns file (`-o` writes the counts to a file, `-m` writes measurement data).
-- **move-r-locate** — locates the occurrences of each pattern; can verify them against the input (`-c`/`-i`) and write them to a file (`-o`).
+- **move-r-build** — builds a move-r index for an input file. `-s` selects the locate support (`count`, `locate_move` or `locate_rlzsa`), `-c` the construction mode (`sa` or `bigbwt`), `-o` the output base name, `-p` the number of threads and `-a` the balancing parameter; `-m_idx`/`-m_mds` write measurement data. `-f` reads the input(s) as FASTA (strip headers, mask non-`ACGT` bases; `-A` sets the kept alphabet); multiple FASTA files may be given and are concatenated into one index.
+- **move-r-count** — counts the occurrences of each pattern in a patterns file (`-o` writes the counts as a `pat<i>\t<count>` TSV, `-m` writes measurement data).
+- **move-r-locate** — locates the occurrences of each pattern; can verify them against the input (`-c`/`-i`) and write them to a file (`-o`). For a FASTA-built index it can also report the occurrences in the biological **SAM** (`-sam`) and **BED** (`-bed`) formats with sequence-relative coordinates; by default it matches each pattern on both strands (the reverse-complement hits get strand `-` / SAM flag `0x10`; `-norc` disables this).
 - **move-r-revert** — reconstructs the original file from the index (`-im` reverts in memory, `-p` sets the number of threads).
 - **move-r-query** — loads an index and answers `count`/`locate` queries typed interactively on stdin.
 
 ### move-rb (bi-directional)
 
-- **move-rb-build** — builds a bi-directional move-r index (`-s`: `count`, `locate_move` or `locate_rlzsa`); other options as `move-r-build`.
-- **move-rb-count** — counts the approximate occurrences of each pattern w.r.t. the hamming distance using a search scheme (`-s pigeon_hole|suffix_filter|min_u|01|<file>`, `-k <mismatches>`).
-- **move-rb-locate** — locates the approximate occurrences of each pattern (`-d hamming|edit`, `-s <scheme>`, `-k <errors>`); can verify them against the input (`-c`/`-i`).
+- **move-rb-build** — builds a bi-directional move-r index (`-s`: `count`, `locate_move` or `locate_rlzsa`); other options as `move-r-build`. In FASTA mode (`-f`, optionally over several concatenated FASTA files) it also stores per-sequence names/boundaries for SAM output.
+- **move-rb-count** — counts the approximate occurrences of each pattern w.r.t. the hamming distance using a search scheme (`-s pigeon_hole|suffix_filter|min_u|01|<file>`, `-k <mismatches>`). `-o` writes the counts as a TSV; `-hist` writes a per-mismatch-count histogram (`pat<i>\t<c_0>\t…\t<c_k>`).
+- **move-rb-locate** — locates the approximate occurrences of each pattern (`-d hamming|edit`, `-s <scheme>`, `-k <errors>`); can verify them against the input (`-c`/`-i`). For a FASTA-built index it aligns reads (FASTQ via `-fastq`) on both strands and writes them in **SAM** (`-sam`, with `CIGAR`, `NM`/`MD` tags, `-seq` for `SEQ`/`QUAL`, `-nocigar` to skip the CIGAR, `-best` for one best hit, `-norc` to disable reverse-complement matching) and/or **PAF** (`-paf`) format.
 - **move-rb-revert** — reconstructs the original file from the index.
 - **move-rb-query** — loads an index and answers exact and approximate (`hamming-count`, `hamming-locate`, `edit-locate`) queries typed interactively on stdin.
+
+### Biological (FASTA / DNA) support
+
+Building either index with `-f` reads the input as (multi-sequence) FASTA — headers are stripped, non-`ACGT` bases masked to `N`, sequences delimited by a reserved separator that no search crosses — and stores each sequence's name and boundary so occurrences can be reported in sequence-relative coordinates. On such an index the locate tools emit the standard biological formats:
+
+- **move-r-locate** (exact matches): `-sam` and `-bed`, both strands (`-norc` to disable).
+- **move-rb-locate** (approximate matches): reads (incl. FASTQ) aligned on both strands, written as **SAM** (`CIGAR` with `=`/`X`/`I`/`D`, `NM:i` edit distance, `MD:Z` reference-mismatch string, optional `SEQ`/`QUAL`) and/or **PAF**; `-best` keeps only one best alignment per read.
+- **move-rb-count**: `-hist` reports the occurrence count per number of mismatches.
 
 ### rlzsa
 
@@ -384,6 +394,14 @@ The command-line tools are built into the `build/cli/` folder. Each tool prints 
 - **gen-patterns** — randomly extracts `<number>` substrings of length `<length>` from a file, producing a patterns file in Pizza&Chili format (an optional `<forbidden>` set of characters can be excluded).
 - **print-data-structures** — builds one of `rlzsa`, `rlzsa_opt`, `lzendsa`, `mds`, `move_r` or `move_rb` from a small input (`-t`/`-f`/stdin) and prints its contents; useful for inspection and debugging.
 
+### Competitor index builders
+
+Index construction tools for the competitor indexes measured by `move-rb-bench` (built into `build/cli/`):
+
+- **bri-build** — builds the [br-index](https://github.com/U-Ar/br-index) (`.bri`) for an input file.
+- **columba-build** — builds the columba FM-index. It automatically selects columba's 32- or 64-bit index-position type based on the total input size (a 32-bit index supports inputs up to ~4 GiB and is smaller/faster; larger inputs use the 64-bit build). Multiple FASTA files may be given with repeated `-f`. `-t` sets the number of OpenMP threads for suffix-array construction (libsais).
+- **columba-rlc-build** — builds the run-length-compressed *columba-rlc* (b-move) index, with the same automatic 32-/64-bit selection and `-t` threading. `-p` builds the index via prefix-free parsing (using the bundled Big-BWT), which is recommended for large, repetitive inputs.
+
 ### Benchmark tools
 
 - **move-r-bench** — benchmarks construction-, revert- and query performance of move-r against block-rlbwt (`-2`/`-v`/`-r`), r-index, r-index-f, rcomp-glfig and online-rlbwt; with `-a` it instead measures count/locate performance of move-r for a range of balancing parameters. Has to be run from the base folder.
@@ -392,7 +410,7 @@ The command-line tools are built into the `build/cli/` folder. Each tool prints 
 - **bench-int-rank-select** — benchmarks the internal integer rank/select data structures (built into `build/bench/`).
 
 ## Search Schemes
-Approximate pattern matching in `move_rb` is driven by *search schemes*. The built-in schemes `pigeon_hole`, `suffix_filter`, `min_u` and `01` are parameterized by the maximum number of errors `k`; alternatively a scheme can be read from a file. A collection of predefined scheme files (e.g. `kianfar`, `kuch_k+1`, `kuch_k+2`, `man_best`, `min_u`, each for several values of `k`) is provided in [search_schemes/](search_schemes/).
+Approximate pattern matching in `move_rb` is driven by *search schemes*. The built-in schemes `pigeon_hole`, `suffix_filter`, `min_u` and `01` are parameterized by the maximum number of errors `k`; alternatively a scheme can be read from a file. A collection of predefined scheme files (e.g. `kianfar`, `kuch_k+1`, `kuch_k+2`, `man_best`, each for several values of `k`) is provided in [search_schemes/](search_schemes/).
 
 ## Examples
 Self-contained example programs corresponding to the C++ snippets above live in [examples/](examples/) and are built into `build/examples/`:
@@ -406,18 +424,18 @@ Self-contained example programs corresponding to the C++ snippets above live in 
 ## Tests
 GoogleTest-based unit tests live in [tests/](tests/) and are built into `build/tests/`:
 
-- `test-move_r` — the uni-directional move-r index over all support and value types
-- `test-move_rb` — the bi-directional index, including approximate pattern matching
-- `test-move_data_structure` — the move data structure and its balancing algorithm
-- `test-data_structures` — the internal bit vectors, interleaved vectors and rank/select support
-- `test-sa_index` — the RLZSA / LZEndSA suffix-array indexes
+- `test-move-r` — the uni-directional move-r index over all support and value types
+- `test-move-rb` — the bi-directional index, including approximate pattern matching
+- `test-move-data-structure` — the move data structure and its balancing algorithm
+- `test-data-structures` — the internal bit vectors, interleaved vectors and rank/select support
+- `test-sa-index` — the RLZSA / LZEndSA suffix-array indexes
 
 ## Benchmarks
 A comparison of Move-r with other r-indexes (tested texts, query and construction performance) can be found in [benchmarks/move-r.md](benchmarks/move-r.md). The instructions on how to replicate the measurements presented in [2] can be found [here](measurements/move-r/replicate.md).
 
 ## References
 [1] Takaaki Nishimoto and Yasuo Tabei. Optimal-time queries on bwt-runs compressed indexes.
-In 48th International Colloquium on Automata, Languages, and Programming (ICALP), 2021. ([paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.ICALP.2021.101))
+In 48th International Colloquium on Automata, Languages, and Programming (ICALP), 2021. ([paper](https://arxiv.org/abs/2006.05104))
 
 [2] Nico Bertram, Johannes Fischer and Lukas Nalbach. Move-r: Optimizing the r-index.
 In Symposium on Experimental Algorithms (SEA), 2024. ([paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SEA.2024.1), [short slides](slides/move-r-slides-short.pdf), [long slides](slides/move-r-slides-long.pdf))
@@ -426,16 +444,16 @@ In Symposium on Experimental Algorithms (SEA), 2024. ([paper](https://drops.dags
 PhD thesis, University of Helsinki, Finland, 2024. ([thesis](http://hdl.handle.net/10138/570140))
 
 [4] Patrick Dinklage, Johannes Fischer, Lukas Nalbach and Jan Zumbrink. RLZ-r and LZ-End-r: Enhancing Move-r.
-In String Processing and Information Retrieval (SPIRE), 2024. ([paper](https://link.springer.com/chapter/10.1007/978-3-032-05228-5_7))
+In String Processing and Information Retrieval (SPIRE), 2024. ([paper](https://arxiv.org/abs/2507.17300))
 
 [5] Gene Myers. A fast bit-vector algorithm for approximate string matching based on dynamic programming.
-Journal of the ACM, 46(3):395–415, 1999.
+Journal of the ACM, 46(3):395–415, 1999. ([paper](https://doi.org/10.1145/316542.316550))
 
 [6] Heikki Hyyrö. Explaining and extending the bit-parallel approximate string matching algorithm of Myers.
-Technical Report A-2001-10, University of Tampere, 2001.
+Technical Report A-2001-10, University of Tampere, 2001. ([report](https://researchportal.tuni.fi/en/publications/explaining-and-extending-the-bit-parallel-approximate-string-matc/))
 
 [7] Gregory Kucherov, Kirill Salikhov and Dekel Tsur. Approximate string matching using a bidirectional index.
-Theoretical Computer Science, 638:145–158, 2016.
+Theoretical Computer Science, 638:145–158, 2016. ([paper](https://arxiv.org/abs/1310.1440))
 
 [8] Luca Renders, Kathleen Marchal and Jan Fostier. Dynamic partitioning of search patterns for approximate pattern matching using search schemes (Columba).
 iScience, 24(7):102687, 2021. ([paper](https://www.cell.com/iscience/fulltext/S2589-0042(21)00697-1))

@@ -24,6 +24,8 @@
 #include "logger.h"      // for Logger, logger
 #include "util.h"        // for fileExists..
 
+#include <malloc_count.h> // for malloc_count_peak / malloc_count_reset_peak
+
 #include <algorithm>  // for max, transform, equal, max_element, min_ele...
 #include <array>      // for array
 #include <cctype>     // for toupper
@@ -61,6 +63,82 @@
 #endif
 
 using namespace std;
+
+/**
+ * @brief Format a number of bytes as a human-readable string (B/KiB/MiB/GiB).
+ * @param bytes The number of bytes.
+ * @return The formatted string, e.g. "1.23 GiB".
+ */
+static std::string formatMemory(size_t bytes) {
+    const char* units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
+    double value = static_cast<double>(bytes);
+    int unit = 0;
+    while (value >= 1024.0 && unit < 4) {
+        value /= 1024.0;
+        unit++;
+    }
+    char buffer[64];
+    snprintf(buffer, sizeof(buffer), "%.2f %s", value, units[unit]);
+    return std::string(buffer);
+}
+
+#if defined(RUN_LENGTH_COMPRESSION) && defined(BIG_BWT_USABLE)
+/**
+ * @brief Extract the peak heap usage recorded by Big-BWT from one of its
+ * malloc_count log files. Big-BWT runs as a separate process (so this build's
+ * malloc_count cannot observe it directly) but each of its phases appends a
+ * line of the form "... exiting, peak: <value>, current: <value> (KBs)" to
+ * <input>.log. This returns the maximum such peak, converted to bytes.
+ * @param path Path to the Big-BWT log file (e.g. <baseFN>.log).
+ * @return The peak memory usage in bytes, or 0 if the log is absent/unreadable.
+ */
+static uint64_t parseBigbwtLogPeak(const std::string& path) {
+    std::ifstream ifs(path, std::ios::binary);
+    if (!ifs)
+        return 0;
+
+    std::string content;
+    ifs.seekg(0, std::ios::end);
+    content.resize(static_cast<size_t>(ifs.tellg()));
+    ifs.seekg(0, std::ios::beg);
+    ifs.read(&content[0], content.size());
+
+    // Big-BWT's bundled malloc_count reports the peak in KBs; convert to bytes.
+    uint64_t peakBytes = 0;
+    const std::string needle = "peak:";
+    for (size_t pos = content.find(needle); pos != std::string::npos;
+         pos = content.find(needle, pos + needle.size())) {
+        const double kbs = std::strtod(content.c_str() + pos + needle.size(), nullptr);
+        if (kbs > 0.0)
+            peakBytes = std::max(peakBytes, static_cast<uint64_t>(kbs * 1024.0));
+    }
+
+    return peakBytes;
+}
+#endif // RUN_LENGTH_COMPRESSION && BIG_BWT_USABLE
+
+/**
+ * @brief Log the peak heap usage of the construction. @p baseline is the heap
+ * usage of THIS process recorded before construction started (tracked via
+ * malloc_count; 0 B when malloc_count is disabled at compile time). @p
+ * externalPeak is the peak of any separate helper process (Big-BWT prefix-free
+ * parsing) folded in via max(), mirroring how move-r reports its own peak; the
+ * overall construction peak is the larger of the two since the stages run
+ * sequentially in separate processes.
+ * @param baseline The in-process heap usage recorded before construction.
+ * @param externalPeak Peak of an external helper process, in bytes (default 0).
+ */
+static void reportPeakMemory(size_t baseline, uint64_t externalPeak = 0) {
+    const size_t rawPeak = malloc_count_peak();
+    const uint64_t ownPeak = rawPeak > baseline ? rawPeak - baseline : rawPeak;
+    const uint64_t peak = std::max<uint64_t>(ownPeak, externalPeak);
+
+    logger.logInfo("Peak memory usage during construction: " + formatMemory(peak));
+    if (externalPeak > 0) {
+        logger.logInfo("\t(in-process: " + formatMemory(ownPeak) +
+                       ", Big-BWT: " + formatMemory(externalPeak) + ")");
+    }
+}
 
 // ============================================================================
 // PARSING
@@ -2003,6 +2081,12 @@ int main(int argc, char* argv[]) {
 
     logger.logInfo("Welcome to Columba's index construction!");
 
+    // Baseline the heap before construction so the reported peak reflects only
+    // the memory allocated while building the index (tracked via malloc_count;
+    // reports 0 B when malloc_count is disabled at compile time).
+    const size_t memBaseline = malloc_count_current();
+    malloc_count_reset_peak();
+
     BuildParameters params;
     if (!BuildParameters::parse(argc, argv, params)) {
         BuildParameters::showUsage();
@@ -2019,11 +2103,22 @@ int main(int argc, char* argv[]) {
 
 #if defined(RUN_LENGTH_COMPRESSION) && defined(BIG_BWT_USABLE)
     if (params.preprocessOnly) {
-        return preprocessingOnly(params);
+        int rc = preprocessingOnly(params);
+        reportPeakMemory(memBaseline);
+        return rc;
     }
 
     if (params.pfp) {
-        return indexConstructingAfterPFP(params);
+        int rc = indexConstructingAfterPFP(params);
+        // Fold in the peak of the separate Big-BWT process(es) that produced the
+        // .bwt/.ssa/.esa this step consumed, read from their malloc_count logs
+        // (still present at --pfp time), so the reported peak reflects the whole
+        // prefix-free-parsing construction, as move-r does.
+        const uint64_t bigbwtPeak =
+            std::max(parseBigbwtLogPeak(params.baseFN + ".log"),
+                     parseBigbwtLogPeak(params.baseFN + ".rev.log"));
+        reportPeakMemory(memBaseline, bigbwtPeak);
+        return rc;
     }
 #elif !defined(RUN_LENGTH_COMPRESSION)
     if (params.allSparsenessFactors) {
@@ -2052,6 +2147,8 @@ int main(int argc, char* argv[]) {
 
         return EXIT_FAILURE;
     }
+
+    reportPeakMemory(memBaseline);
 
     logger.logInfo("Index construction completed successfully!");
     logger.logInfo("Exiting... bye!");

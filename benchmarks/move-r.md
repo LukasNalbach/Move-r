@@ -1,10 +1,10 @@
 ## Comparison with other BWT-Runs Compressed Indexes
 ### Tested Texts
-![](measurements/results/texts.jpg?raw=true)
+![](../measurements/move-r/results/texts.jpg?raw=true)
 ### Query Performance
-![](measurements/results/queries.png?raw=true)
+![](../measurements/move-r/results/queries.png?raw=true)
 ### Construction Performance
-![](measurements/results/construction.png?raw=true)
+![](../measurements/move-r/results/construction.png?raw=true)
 
 #### GitHub repositories of the other indexes
 - [block-rlbwt](https://github.com/saskeli/block_RLBWT/tree/main)

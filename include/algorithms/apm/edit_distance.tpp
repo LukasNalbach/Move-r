@@ -231,8 +231,8 @@ protected:
     // move_rb can, diagnostic adapters (columba, b-move) cannot and simply skip it. The designated initializer selects
     // the retrieve_params overload unambiguously (a bare {} would also match the std::string / file-name overload)
     static constexpr bool can_decode_boundary = requires(const idx_t& i) {
-        i.backward_index().revert_range({.l = pos_t(0), .r = pos_t(0)});
-        i.forward_index().revert_range({.l = pos_t(0), .r = pos_t(0)});
+        i.backward_index().revert_range();
+        i.forward_index().revert_range();
     };
 
     template <query_support_t query_support>
@@ -691,12 +691,12 @@ protected:
         if (m == 0 || n == 0) return;
         pos_t w = std::min<pos_t>(n, m + k);
 
-        pos_t left_hi  = index.has_sequences() ? std::min<pos_t>(index.sequence_length(0), w) : w;
-        pos_t right_lo = index.has_sequences()
-            ? std::max<pos_t>(index.sequence_start(index.num_sequences() - 1), n - w) : n - w;
+        pos_t left_hi  = index.seq_data().has_sequences() ? std::min<pos_t>(index.seq_data().sequence_length(0), w) : w;
+        pos_t right_lo = index.seq_data().has_sequences()
+            ? std::max<pos_t>(index.seq_data().sequence_start(index.seq_data().num_sequences() - 1), n - w) : n - w;
 
-        inp_t left = index.backward_index().revert_range({.l = n - left_hi, .r = n - 1});
-        inp_t right = index.forward_index().revert_range({.l = right_lo, .r = n - 1});
+        inp_t left = index.backward_index().revert_range({.l = n - left_hi, .r = n - 1, .num_threads = 1});
+        inp_t right = index.forward_index().revert_range({.l = right_lo, .r = n - 1, .num_threads = 1});
         std::reverse(left.begin(), left.end());
 
         static thread_local edit_distance_matrix<word_t> mat;
@@ -866,8 +866,9 @@ protected:
     template <typename ext_ctx_t>
     bool next_is_separator(const ext_ctx_t& ext_ctx) const
     {
-        if constexpr (requires (const idx_t& ix) { ix.separator_sym(); ix.has_sequences(); }) {
-            return index.has_sequences() && ext_ctx.can_extend() && ext_ctx.next_symbol() == index.separator_sym();
+        if constexpr (requires (const idx_t& ix) { ix.seq_data(); }) {
+            return index.seq_data().has_sequences() && ext_ctx.can_extend()
+                && ext_ctx.next_symbol() == index.seq_data().separator_sym();
         } else {
             return false;
         }

@@ -28,6 +28,7 @@
 #include <iostream>
 #include <ips2ra.hpp>
 #include <move_rb/move_rb.hpp>
+#include <misc/fasta.hpp>
 #include <misc/progress.hpp>
 
 static constexpr int min_args = 6;
@@ -43,16 +44,20 @@ bool sam_include_seq = false;  // whether to include the read sequence (SEQ) in 
 bool sam_rc = true;            // whether to also align each read's reverse complement (SAM mode only)
 bool fastq_input = false;      // whether the patterns file is FASTQ (variable-length reads with per-base qualities)
 bool sam_best_only = false;    // whether to report only the best (minimum-error) alignment per read
+bool sam_no_cigar = false;     // whether to omit CIGARs from SAM records (faster: skips the CIGAR computation)
+bool paf_output = false;       // whether to write occurrences in PAF format (requires a FASTA-built index)
 std::ofstream mf;
 std::string path_index_file;
 std::string path_patterns_file;
 std::string path_output_file;
 std::string path_sam_file;
+std::string path_paf_file;
 std::ifstream index_file;
 std::ifstream patterns_file;
 std::ifstream input_file;
 std::ofstream output_file;
 std::ofstream sam_file;
+std::ofstream paf_file;
 std::string name_text_file;
 std::string path_input_file;
 std::string command_line; // the full command line, for the SAM @PG header
@@ -84,6 +89,10 @@ void help(std::string msg)
     std::cout << "                              becomes QNAME and the qualities are written to the SAM QUAL field" << std::endl;
     std::cout << "                              (requires -sam and -seq)" << std::endl;
     std::cout << "   -best                      in SAM mode, report only one best (minimum-error) alignment per read" << std::endl;
+    std::cout << "   -nocigar                   in SAM mode, omit the CIGAR (write '*'); faster, as the per-occurrence" << std::endl;
+    std::cout << "                              CIGAR is then not computed" << std::endl;
+    std::cout << "   -paf <paf_file>            write occurrences in PAF format to <paf_file> (one line per occurrence;" << std::endl;
+    std::cout << "                              requires an index built with move-rb-build -f). May be combined with -sam." << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in move-rb-patterns format containing the patterns." << std::endl;
     exit(0);
@@ -130,6 +139,12 @@ bool parse_args(char** argv, int argc)
         fastq_input = true;
     } else if (s == "-best") {
         sam_best_only = true;
+    } else if (s == "-nocigar") {
+        sam_no_cigar = true;
+    } else if (s == "-paf") {
+        if (arg_idx >= argc - 1) help("error: missing parameter after -paf option.");
+        paf_output = true;
+        path_paf_file = argv[arg_idx++];
     } else {
         help("error: unrecognized '" + s + "' option");
     }
@@ -148,36 +163,6 @@ const char* next_arg(int argc, char** argv, const std::string& what)
 {
     if (arg_idx >= argc) help("error: missing " + what);
     return argv[arg_idx++];
-}
-
-/**
- * @brief returns the reverse complement of a DNA read: the read reversed, with each base complemented (A<->T,
- *        C<->G, case-preserved); any other byte (e.g. a masked 'N') is left unchanged. Used to align a read to the
- *        reverse strand by searching its reverse complement against the forward index.
- * @param s the read
- * @return the reverse complement of s
- */
-static std::string reverse_complement(const std::string& s)
-{
-    std::string r(s.size(), 'N');
-
-    for (size_t i = 0; i < s.size(); i++) {
-        char c = s[s.size() - 1 - i];
-
-        switch (c) {
-            case 'A': r[i] = 'T'; break;
-            case 'T': r[i] = 'A'; break;
-            case 'C': r[i] = 'G'; break;
-            case 'G': r[i] = 'C'; break;
-            case 'a': r[i] = 't'; break;
-            case 't': r[i] = 'a'; break;
-            case 'c': r[i] = 'g'; break;
-            case 'g': r[i] = 'c'; break;
-            default:  r[i] = c;   break;
-        }
-    }
-
-    return r;
 }
 
 /**
@@ -203,27 +188,13 @@ static bool read_fastq(std::istream& in, std::string& name, std::string& seq, st
     return true;
 }
 
-/**
- * @brief appends the SAM CIGAR string of a CIGAR alignment to out (each run as its length followed by its
- *        operation code, e.g. "5=1X2I3="); the extended operations = and X (rather than M) are used since the
- *        alignment distinguishes matches from mismatches
- * @param out the string the CIGAR is appended to
- * @param cigar the CIGAR alignment
- */
-static void append_cigar(std::string& out, const cigar_t& cigar)
-{
-    for (const cigar_run_t& run : cigar) {
-        out += std::to_string(run.len);
-        out += run.code();
-    }
-}
 
 /**
  * @brief loads the index and benchmarks locating the input patterns
  * @tparam pos_t index integer type
  * @tparam support the move-r locate-support type
  */
-template <typename pos_t, move_r_support support>
+template <typename pos_t, move_r_support support, cigar_mode_t cm = CIGAR>
 void measure_locate()
 {
     std::cout << std::setprecision(4);
@@ -260,7 +231,7 @@ void measure_locate()
     std::string pattern;
     no_init_resize(pattern, pattern_length);
     std::vector<aprx_occ_t<pos_t>> occurrences;
-    using sam_list_t = std::vector<aprx_occ_t<pos_t, CIGAR>>; // occurrences, each carrying its CIGAR
+    using sam_list_t = std::vector<aprx_occ_t<pos_t, cm>>; // occurrences (each carrying its CIGAR unless -nocigar)
     sam_list_t fwd_results; // forward-strand occurrences of the current read
     sam_list_t rc_results;  // reverse-strand occurrences (of the read's reverse complement)
     uint64_t checksum = 0;
@@ -268,26 +239,39 @@ void measure_locate()
     malloc_count_reset_peak();
     progress_meter meter(fastq_input ? 0 : num_patterns); // FASTQ count is unknown up front, so disable the meter
 
+    const auto& seqs = index.seq_data();
+    pos_t seq_cursor = 0; // sequence-index cursor, advanced incrementally across the reported occurrences
+
     // writes one SAM alignment record of the current read. seq/qual are the read's forward-strand sequence and
     // qualities; for a reverse-strand record (reverse) the caller passes the reverse-complemented sequence and this
     // reverses the qualities to match. SEQ/QUAL are only written for the primary record and only when -seq is set.
-    auto emit_record = [&](const std::string& qname, const aprx_occ_t<pos_t, CIGAR>& o,
+    auto emit_record = [&](const std::string& qname, const aprx_occ_t<pos_t, cm>& o,
         bool reverse, bool primary, uint16_t mapq, const std::string& seq, const std::string& qual)
     {
-        pos_t seq_i = index.sequence_index(o.pos);
-        pos_t local = o.pos - index.sequence_start(seq_i);
+        pos_t seq_i = seqs.sequence_index(o.pos, seq_cursor);
+        pos_t local = o.pos - seqs.sequence_start(seq_i);
         uint16_t flag = (primary ? 0 : 0x100) | (reverse ? 0x10 : 0);
 
-        std::string cigar_str;
-        append_cigar(cigar_str, o.cigar);
+        sam_file << qname << '\t' << flag << '\t' << seqs.sequence_name(seq_i)
+                 << '\t' << (local + 1) << '\t' << mapq << '\t';
+        if constexpr (cm == CIGAR) append_cigar(sam_file, o.cigar);
+        else sam_file << '*'; // -nocigar: CIGAR omitted (not computed)
+        sam_file << "\t*\t0\t0\t";
 
-        std::string seq_out = (primary && sam_include_seq) ? seq : std::string("*");
-        std::string qual_out = (primary && sam_include_seq && !qual.empty())
-            ? (reverse ? std::string(qual.rbegin(), qual.rend()) : qual) : std::string("*");
+        // SEQ and QUAL are only written for the primary record and only when -seq is set; a reverse-strand record's
+        // qualities are reversed to match the reported (reverse-complemented) sequence
+        if (primary && sam_include_seq) {
+            sam_file << seq << '\t';
+            if (qual.empty()) sam_file << '*';
+            else if (reverse) for (auto it = qual.rbegin(); it != qual.rend(); ++it) sam_file << *it;
+            else sam_file << qual;
+        } else {
+            sam_file << "*\t*";
+        }
 
-        sam_file << qname << "\t" << flag << "\t" << index.sequence_name(seq_i)
-                 << "\t" << (local + 1) << "\t" << mapq << "\t" << cigar_str << "\t*\t0\t0\t"
-                 << seq_out << "\t" << qual_out << "\n";
+        sam_file << "\tNM:i:" << o.err; // NM = edit distance of this alignment
+        if constexpr (cm == CIGAR) { sam_file << "\tMD:Z:"; append_md(sam_file, o.cigar); } // reference-mismatch string
+        sam_file << '\n';
     };
 
     // emits the SAM records of one read: one primary = a minimum-error alignment over both strands, the rest
@@ -337,17 +321,51 @@ void measure_locate()
     };
 
     if (sam_output) {
-        if (!index.has_sequences())
+        if (!index.seq_data().has_sequences())
             help("error: -sam requires an index built with move-rb-build -f (no sequence names/boundaries stored)");
 
         sam_file.open(path_sam_file);
         if (!sam_file.good()) help("error: could not create <sam_file>");
 
         sam_file << "@HD\tVN:1.6\tSO:unsorted\n";
-        for (pos_t i = 0; i < index.num_sequences(); i++)
-            sam_file << "@SQ\tSN:" << index.sequence_name(i) << "\tLN:" << index.sequence_length(i) << "\n";
+        for (pos_t i = 0; i < index.seq_data().num_sequences(); i++)
+            sam_file << "@SQ\tSN:" << index.seq_data().sequence_name(i)
+                     << "\tLN:" << index.seq_data().sequence_length(i) << "\n";
         sam_file << "@PG\tID:move-rb\tPN:move-rb-locate\tCL:" << command_line << "\n";
     }
+
+    if (paf_output) {
+        if (!index.seq_data().has_sequences())
+            help("error: -paf requires an index built with move-rb-build -f (no sequence names/boundaries stored)");
+        paf_file.open(path_paf_file);
+        if (!paf_file.good()) help("error: could not create <paf_file>");
+    }
+
+    pos_t paf_cursor = 0; // sequence-index cursor for the PAF reporting loop
+
+    // writes one PAF line per occurrence: query name/length, query span (the whole read), strand, target
+    // name/length, target span, number of matching bases, alignment block length, mapping quality, then the NM
+    // (edit distance) and (in CIGAR mode) cg tags
+    auto emit_paf = [&](const std::string& qname, uint64_t read_len, sam_list_t& occs, bool reverse) {
+        for (const auto& o : occs) {
+            pos_t seq_i = seqs.sequence_index(o.pos, paf_cursor);
+            pos_t local = o.pos - seqs.sequence_start(seq_i);
+            pos_t matches, aln;
+
+            if constexpr (cm == CIGAR) {
+                matches = 0; aln = 0;
+                for (const cigar_run_t& run : o.cigar) { aln += run.len; if (run.op == cigar_op_t::MATCH) matches += run.len; }
+            } else { // no CIGAR: approximate from the occurrence's length and error
+                aln = o.len; matches = o.len > o.err ? pos_t(o.len - o.err) : 0;
+            }
+
+            paf_file << qname << '\t' << read_len << "\t0\t" << read_len << '\t' << (reverse ? '-' : '+') << '\t'
+                     << seqs.sequence_name(seq_i) << '\t' << seqs.sequence_length(seq_i) << '\t'
+                     << local << '\t' << (local + o.len) << '\t' << matches << '\t' << aln << "\t255\tNM:i:" << o.err;
+            if constexpr (cm == CIGAR) { paf_file << "\tcg:Z:"; append_cigar(paf_file, o.cigar); }
+            paf_file << '\n';
+        }
+    };
 
     std::string qname, qual; // current read's name and (FASTQ only) quality string
 
@@ -361,7 +379,7 @@ void measure_locate()
         }
         reads_processed++;
 
-        if (sam_output) {
+        if (sam_output || paf_output) {
             t2 = now();
 
             // locate one strand's occurrences (with CIGAR), then sort by position and remove redundancy. A read too
@@ -369,15 +387,15 @@ void measure_locate()
             auto locate_strand = [&](const std::string& read, sam_list_t& out) {
                 out.clear();
                 if (k > 0 && read.size() <= search_scheme.p) return;
-                auto collect = [&](aprx_occ_t<pos_t, CIGAR> occ){ out.emplace_back(std::move(occ)); };
+                auto collect = [&](aprx_occ_t<pos_t, cm> occ){ out.emplace_back(std::move(occ)); };
 
                 if (dist_metr == HAMMING_DISTANCE)
-                    index.template locate<HAMMING_DISTANCE, CIGAR>(read, search_scheme, collect);
+                    index.template locate<HAMMING_DISTANCE, cm>(read, search_scheme, collect);
                 else
-                    index.template locate<EDIT_DISTANCE, CIGAR>(read, search_scheme, collect);
+                    index.template locate<EDIT_DISTANCE, cm>(read, search_scheme, collect);
 
-                ips2ra::sort(out.begin(), out.end(), [](const aprx_occ_t<pos_t, CIGAR>& o){ return o.pos; });
-                filter_edit_distance_occurrences<pos_t, CIGAR>(out, pos_t(k));
+                ips2ra::sort(out.begin(), out.end(), [](const aprx_occ_t<pos_t, cm>& o){ return o.pos; });
+                filter_edit_distance_occurrences<pos_t, cm>(out, pos_t(k));
             };
 
             locate_strand(pattern, fwd_results);
@@ -395,7 +413,11 @@ void measure_locate()
 
             num_occurrences += fwd_results.size() + rc_results.size();
             checksum += fwd_results.size() + rc_results.size();
-            emit_sam(qname, pattern, rc_seq, qual, fwd_results, rc_results);
+            if (sam_output) emit_sam(qname, pattern, rc_seq, qual, fwd_results, rc_results);
+            if (paf_output) {
+                emit_paf(qname, pattern.size(), fwd_results, false);
+                emit_paf(qname, pattern.size(), rc_results, true);
+            }
             meter.step();
             continue;
         }
@@ -522,6 +544,23 @@ void measure_locate()
         sam_file.close();
         std::cout << "wrote SAM output to " << path_sam_file << std::endl;
     }
+
+    if (paf_output) {
+        paf_file.close();
+        std::cout << "wrote PAF output to " << path_paf_file << std::endl;
+    }
+}
+
+/**
+ * @brief dispatches measure_locate on the CIGAR mode: -nocigar (SAM only) skips the per-occurrence CIGAR computation
+ * @tparam pos_t index integer type
+ * @tparam support the move-r locate-support type
+ */
+template <typename pos_t, move_r_support support>
+void measure_locate_dispatch()
+{
+    if ((sam_output || paf_output) && sam_no_cigar) measure_locate<pos_t, support, NO_CIGAR>();
+    else                            measure_locate<pos_t, support, CIGAR>();
 }
 
 /**
@@ -584,8 +623,8 @@ int main(int argc, char** argv)
     if (sam_best_only && !sam_output)
         help("error: -best requires -sam");
 
-    if (fastq_input && (!sam_output || !sam_include_seq))
-        help("error: -fastq requires -sam and -seq (the qualities are written to the SAM QUAL field)");
+    if (fastq_input && !((sam_output && sam_include_seq) || paf_output))
+        help("error: -fastq requires either -paf, or -sam with -seq (so the qualities go to the SAM QUAL field)");
 
     if (arg_idx + 2 > argc) help("error: missing <index_file> and/or <patterns_file>");
     path_index_file = argv[arg_idx];
@@ -611,11 +650,11 @@ int main(int argc, char** argv)
     if (_support == _count) {
         help("error: this index does not support locate");
     } else if (_support == _locate_move) {
-        if (is_64_bit) measure_locate<uint64_t, _locate_move>();
-        else           measure_locate<uint32_t, _locate_move>();
+        if (is_64_bit) measure_locate_dispatch<uint64_t, _locate_move>();
+        else           measure_locate_dispatch<uint32_t, _locate_move>();
     } else if (_support == _locate_rlzsa) {
-        if (is_64_bit) measure_locate<uint64_t, _locate_rlzsa>();
-        else           measure_locate<uint32_t, _locate_rlzsa>();
+        if (is_64_bit) measure_locate_dispatch<uint64_t, _locate_rlzsa>();
+        else           measure_locate_dispatch<uint32_t, _locate_rlzsa>();
     }
     
     return 0;
