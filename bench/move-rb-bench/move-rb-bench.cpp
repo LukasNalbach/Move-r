@@ -67,12 +67,16 @@ struct bench_job_t {
 
 // the configuration of one benchmark run
 struct bench_config_t {
-    std::string index_path; // directory containing all index files (named <text_name>.{move-rb,move-rb-rlzsa,bri} and the b-move files)
-    std::string br_index_path; // path to the br-index (.bri) file
-    std::string move_rb_move_path; // path to the move_rb index using move data structures
-    std::string move_rb_rlzsa_path; // path to the move_rb index using an rlzsa
     std::string text_name; // name of the original text (used in the output and pattern file names)
     std::string patterns_path; // directory containing the pattern files
+    // per-index locations, each set from its own optional flag; an index is measured iff its path is given. The
+    // indexes are fully independent (they may live in different directories / use different base names), so the
+    // two columba flavors no longer have to share a base name (which would collide on .cct/.pos/.sna/.fsid/.meta)
+    std::string move_rb_move_path;  // --move-rb: path to the move_rb index using move data structures
+    std::string move_rb_rlzsa_path; // --move-rb-rlzsa: path to the move_rb index using an rlzsa
+    std::string br_index_path;      // --bri: path to the br-index (.bri) file
+    std::string columba_path;       // --columba: base name of the columba FM-index
+    std::string columba_rlc_path;   // --columba-rlc: base name of the columba-rlc (b-move) index
     std::vector<bench_job_t> jobs; // the pattern files to measure
 
     // search scheme to use (like move-rb-locate's -s): the name of a built-in scheme
@@ -495,10 +499,8 @@ inline std::string columba_scheme_name(const std::string& mr_scheme)
 // plugin's C ABI (@p api). algo is locate_columba_rlc (run-length-compressed = b-move) or locate_columba
 // (FM-index). Under --cigar every locate job is additionally measured with CIGAR generation (columba computes
 // real CIGARs -- from the matched string in RLC, from the located text in FM).
-void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg)
+void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, const std::string& base)
 {
-    // each flavor has its own base name (RLC: <text_name>, FM: <text_name>.fm) so their index files do not collide
-    std::string base = (std::filesystem::path(cfg.index_path) / cfg.text_name).string() + api.base_suffix;
     const std::string scheme_str = columba_scheme_name(cfg.scheme);
     const std::string flavor = api.flavor;
     std::cerr << "loading the " << flavor << " (native) index from " << base << " ..." << std::endl;
@@ -601,7 +603,8 @@ inline std::string executable_dir()
 
 // dlopen()s one columba flavor plugin (RTLD_LOCAL keeps its columba symbols private, so both flavors coexist in
 // one process) and measures it through the api getter @p api_symbol
-void measure_columba_plugin(const std::string& so_name, const std::string& api_symbol, const bench_config_t& cfg)
+void measure_columba_plugin(const std::string& so_name, const std::string& api_symbol,
+                            const bench_config_t& cfg, const std::string& base)
 {
     const std::string so_path = executable_dir() + "/" + so_name;
     void* lib = dlopen(so_path.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -616,7 +619,7 @@ void measure_columba_plugin(const std::string& so_name, const std::string& api_s
         dlclose(lib);
         return;
     }
-    measure_columba_api(*getter(), cfg);
+    measure_columba_api(*getter(), cfg, base);
     // the plugin is intentionally left mapped (not dlclose'd) until process exit
 }
 
@@ -633,25 +636,27 @@ int columba_meta_width_bytes(const std::string& base)
 
 // measures one columba flavor. Its length_t width is fixed at compile time and must match the provided index (columba's
 // loader throws otherwise), so the 32- or 64-bit plugin (lib<plugin_base>_{32,64}.so) is picked from the width recorded
-// in the index's meta file. @p base_suffix is appended to <index_dir>/<text_name> to form the flavor's index base name
-// (empty for RLC, ".fm" for the FM-index). A 32-bit index caps inputs at ~4 GB but is smaller/faster.
-void measure_columba_flavor(const bench_config_t& cfg, const std::string& base_suffix,
+// in the index's meta file. @p base is the flavor's index base name (given explicitly on the command line via
+// --columba / --columba-rlc). A 32-bit index caps inputs at ~4 GB but is smaller/faster.
+void measure_columba_flavor(const bench_config_t& cfg, const std::string& base,
                             const std::string& plugin_base, const char* api_symbol)
 {
-    const std::string base = (std::filesystem::path(cfg.index_path) / cfg.text_name).string() + base_suffix;
     const int width = columba_meta_width_bytes(base);
     if (width == 0)
         std::cerr << "warning: cannot read " << base << ".meta; defaulting to the 64-bit plugin" << std::endl;
     const std::string so = "lib" + plugin_base + (width == 4 ? "_32" : "_64") + ".so";
     std::cerr << "columba index at " << base << " is " << (width ? width * 8 : 64) << "-bit; loading " << so << std::endl;
-    measure_columba_plugin(so, api_symbol, cfg);
+    measure_columba_plugin(so, api_symbol, cfg, base);
 }
 
-// measures the selected columba flavors (run-length-compressed = b-move, and the FM-index), each via its plugin
+// measures the selected columba flavors (run-length-compressed = b-move, and the FM-index), each via its plugin,
+// from its own explicitly given base name
 void measure_columba_native(const bench_config_t& cfg)
 {
-    if (cfg.selected("columba_rlc")) measure_columba_flavor(cfg, "",    "columba_rlc_plugin", "columba_rlc_api");
-    if (cfg.selected("columba"))     measure_columba_flavor(cfg, ".fm", "columba_fm_plugin",  "columba_fm_api");
+    if (!cfg.columba_rlc_path.empty() && cfg.selected("columba_rlc"))
+        measure_columba_flavor(cfg, cfg.columba_rlc_path, "columba_rlc_plugin", "columba_rlc_api");
+    if (!cfg.columba_path.empty() && cfg.selected("columba"))
+        measure_columba_flavor(cfg, cfg.columba_path, "columba_fm_plugin", "columba_fm_api");
 }
 
 // measures br-index's NATIVE approximate count & locate algorithm (hamming distance only)
@@ -763,9 +768,9 @@ void help(const std::string& msg)
     if (!msg.empty()) std::cout << msg << std::endl;
     std::cout << "move-rb-bench: benchmarks approximate count- and locate-performance of" << std::endl;
     std::cout << "               b-move, br-index and move_rb (move & rlzsa). The indexes must be" << std::endl;
-    std::cout << "               built beforehand (each with its own build tool) and placed in <index_path>;" << std::endl;
-    std::cout << "               the pattern sets are generated by move-rb-gen-queries." << std::endl << std::endl;
-    std::cout << "usage: move-rb-bench [...] <text_name> <index_path> <patterns_path>" << std::endl;
+    std::cout << "               built beforehand (each with its own build tool); each is measured only if" << std::endl;
+    std::cout << "               its path is given below. The pattern sets are generated by move-rb-gen-queries." << std::endl << std::endl;
+    std::cout << "usage: move-rb-bench [...] <index flags...> <text_name> <patterns_path>" << std::endl;
     std::cout << "   -s <scheme>          search scheme to use (default: min_u): one of" << std::endl;
     std::cout << "                        pigeon_hole, suffix_filter, min_u, 01, or a path to a search-scheme file." << std::endl;
     std::cout << "                        For the built-in schemes the number of errors k is taken from each pattern" << std::endl;
@@ -783,11 +788,14 @@ void help(const std::string& msg)
     std::cout << "                        have been measured for it (>= one pass); the reported time_* is then the" << std::endl;
     std::cout << "                        average time for one pass over the set (num_patterns and num_occurrences stay" << std::endl;
     std::cout << "                        per-pass). 0 = a single pass; default: 10" << std::endl;
+    std::cout << "   index flags          (all optional, all independent) the location of each index to measure;" << std::endl;
+    std::cout << "                        an index is measured only if its flag is given. At least one is required:" << std::endl;
+    std::cout << "     --move-rb <file>         move_rb index using move data structures" << std::endl;
+    std::cout << "     --move-rb-rlzsa <file>   move_rb index using an rlzsa" << std::endl;
+    std::cout << "     --bri <file>             br-index (.bri); drives both br_index and br_index_native" << std::endl;
+    std::cout << "     --columba <base>         columba FM-index base name (columba is ACGT-only)" << std::endl;
+    std::cout << "     --columba-rlc <base>     columba-rlc (b-move) index base name (ACGT-only)" << std::endl;
     std::cout << "   <text_name>          name of the original text (used in the output and pattern file names)" << std::endl;
-    std::cout << "   <index_path>         directory containing the index files; each index is measured if present:" << std::endl;
-    std::cout << "                        <text_name>.move-rb (move_rb move), <text_name>.move-rb-rlzsa (move_rb rlzsa)," << std::endl;
-    std::cout << "                        <text_name>.bri (br-index), the columba-rlc index (base <index_path>/<text_name>)" << std::endl;
-    std::cout << "                        and the columba FM index (base <index_path>/<text_name>.fm); columba is ACGT-only" << std::endl;
     std::cout << "   <patterns_path>      directory containing the pattern files (from move-rb-gen-queries) of the form" << std::endl;
     std::cout << "                        <text_name>.patterns-{count,locate}-{hamming,edit}-k<value>-m<value>" << std::endl;
     exit(0);
@@ -903,25 +911,36 @@ int main(int argc, char** argv)
         } else if (opt == "--m") {
             if (arg_idx >= argc) help("error: missing m list after --m");
             for (const std::string& s : split_csv(argv[arg_idx++])) cfg.m_filter.push_back(std::stoull(s));
+        } else if (opt == "--move-rb") {
+            if (arg_idx >= argc) help("error: missing file after --move-rb");
+            cfg.move_rb_move_path = argv[arg_idx++];
+        } else if (opt == "--move-rb-rlzsa") {
+            if (arg_idx >= argc) help("error: missing file after --move-rb-rlzsa");
+            cfg.move_rb_rlzsa_path = argv[arg_idx++];
+        } else if (opt == "--bri") {
+            if (arg_idx >= argc) help("error: missing file after --bri");
+            cfg.br_index_path = argv[arg_idx++];
+        } else if (opt == "--columba") {
+            if (arg_idx >= argc) help("error: missing base name after --columba");
+            cfg.columba_path = argv[arg_idx++];
+        } else if (opt == "--columba-rlc") {
+            if (arg_idx >= argc) help("error: missing base name after --columba-rlc");
+            cfg.columba_rlc_path = argv[arg_idx++];
         } else {
             help("error: unrecognized option '" + opt + "'");
         }
     }
 
-    // the three positional arguments
-    if (argc - arg_idx != 3) help("");
+    // the two positional arguments
+    if (argc - arg_idx != 2) help("");
     cfg.text_name = argv[arg_idx++];
-    cfg.index_path = argv[arg_idx++];
     cfg.patterns_path = argv[arg_idx++];
 
-    if (!std::filesystem::is_directory(cfg.index_path)) {
-        help("error: <index_path> is not a directory");
+    // at least one index must be given (each is measured only if its path was passed)
+    if (cfg.move_rb_move_path.empty() && cfg.move_rb_rlzsa_path.empty() && cfg.br_index_path.empty() &&
+        cfg.columba_path.empty() && cfg.columba_rlc_path.empty()) {
+        help("error: no index given; pass at least one of --move-rb, --move-rb-rlzsa, --bri, --columba, --columba-rlc");
     }
-
-    // all index files live in <index_path> and share the base name <text_name>
-    cfg.move_rb_move_path  = (std::filesystem::path(cfg.index_path) / (cfg.text_name + ".move-rb")).string();
-    cfg.move_rb_rlzsa_path = (std::filesystem::path(cfg.index_path) / (cfg.text_name + ".move-rb-rlzsa")).string();
-    cfg.br_index_path      = (std::filesystem::path(cfg.index_path) / (cfg.text_name + ".bri")).string();
 
     resolve_scheme(cfg);
 
@@ -964,13 +983,15 @@ int main(int argc, char** argv)
         }
     };
 
-    // measure every selected index found in <index_path> (all if --only was not given); a missing index is
-    // reported and skipped (guarded). columba (both flavors) is handled per-flavor inside measure_columba_native
-    if (cfg.selected("br_index"))                                 guarded("br-index", measure_br_index, cfg);
-    if (cfg.selected("columba_rlc") || cfg.selected("columba"))   guarded("columba (native)", measure_columba_native, cfg);
-    if (cfg.selected("br_index_native"))                          guarded("br-index (native)", measure_br_index_native, cfg);
-    if (cfg.selected("move_rb_move"))                             guarded("move_rb (move)", measure_move_rb_move, cfg);
-    if (cfg.selected("move_rb_rlzsa"))                            guarded("move_rb (rlzsa)", measure_move_rb_rlzsa, cfg);
+    // measure every index whose path was given (and that passes an optional --only filter); a failure to load one
+    // is reported and skipped (guarded). columba (both flavors) is handled per-flavor inside measure_columba_native.
+    // --bri drives both the br-index adapter and its native algorithm; columba is gated on either flavor's path
+    if (!cfg.br_index_path.empty()  && cfg.selected("br_index"))          guarded("br-index", measure_br_index, cfg);
+    if ((!cfg.columba_rlc_path.empty() && cfg.selected("columba_rlc")) ||
+        (!cfg.columba_path.empty()     && cfg.selected("columba")))       guarded("columba (native)", measure_columba_native, cfg);
+    if (!cfg.br_index_path.empty()  && cfg.selected("br_index_native"))   guarded("br-index (native)", measure_br_index_native, cfg);
+    if (!cfg.move_rb_move_path.empty()  && cfg.selected("move_rb_move"))  guarded("move_rb (move)", measure_move_rb_move, cfg);
+    if (!cfg.move_rb_rlzsa_path.empty() && cfg.selected("move_rb_rlzsa")) guarded("move_rb (rlzsa)", measure_move_rb_rlzsa, cfg);
 
     return 0;
 }
