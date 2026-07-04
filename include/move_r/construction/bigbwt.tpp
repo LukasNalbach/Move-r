@@ -27,6 +27,7 @@
 #pragma once
 
 #include <filesystem>
+#include <misc/bigbwt.hpp>
 #include <move_r/move_r.hpp>
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -44,6 +45,7 @@ void move_r<support, sym_t, pos_t>::construction::bigbwt(bool delete_T)
 
     bool build_sa = is_bidirectional || has_rlzsa || p > 1;
 
+    ensure_bigbwt_on_path();
     system(("taskset -c 0-$(($(nproc)-1)) bigbwt " +
         (std::string)(supports_locate ? (build_sa ? "-S " : "-s -e ") : "") +
         (std::string)(p > 1 ? ("-t " + std::to_string(p) + " ") : "") +

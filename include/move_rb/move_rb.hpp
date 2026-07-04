@@ -31,6 +31,7 @@
 #include <move_r/move_r.hpp>
 // lightweight approximate-pattern-matching dependencies + query_support_t
 #include <misc/apm.hpp>
+#include <misc/fasta_sequence_data.hpp>
 
 // approximate-pattern-matching helper, defined completely outside the move_rb class;
 // generic over the index type idx_t (move_rb or a compatible bidirectional index)
@@ -102,11 +103,9 @@ protected:
     interleaved_bit_aligned_vectors<pos_t> _SA_s_pos;
     interleaved_bit_aligned_vectors<pos_t> _SA_e_pos;
 
-    // multi-sequence (FASTA/DNA) metadata; empty unless the index was built from a multi-sequence input
-    sd_array<pos_t> _seq_boundaries;     // marks each sequence's body start position in the text
-    std::vector<std::string> _seq_names; // _seq_names[i] = the name (SAM RNAME) of sequence i
-    i_sym_t _separator_sym = 0;          // the internal symbol a search must not extend into (the sequence
-                                         // separator); 0 means none, so a search never crosses a sequence boundary
+    // the multi-sequence (FASTA/DNA) metadata (start positions, names and separator symbol of the sequences), empty
+    // unless the index was built from a multi-sequence input (see misc/fasta_sequence_data.hpp)
+    fasta_sequence_data<pos_t, sym_t> _seq_data;
 
     // ############################# INTERNAL METHODS #############################
 
@@ -256,103 +255,24 @@ public:
         return idx_fwd.unmap_symbol(sym);
     }
 
-    // ############################# MULTI-SEQUENCE (FASTA) METADATA #############################
-
     /**
-     * @brief returns whether the index carries multi-sequence (FASTA/DNA) boundary metadata; if not, the input is
-     *        treated as a single anonymous sequence and no sequence-relative coordinates or names are available
-     * @return whether the index was built from a multi-sequence input
+     * @brief returns the index's multi-sequence (FASTA/DNA) metadata (start positions, names and separator symbol of
+     *        the sequences); empty (has_sequences() == false) unless the index was built from a multi-sequence input
+     * @return the multi-sequence metadata
      */
-    inline bool has_sequences() const
+    inline const fasta_sequence_data<pos_t, sym_t>& seq_data() const
     {
-        return !_seq_names.empty();
+        return _seq_data;
     }
 
     /**
-     * @brief returns the number of sequences the index was built from (0 unless the index has multi-sequence metadata)
-     * @return the number of sequences
+     * @brief attaches multi-sequence (FASTA/DNA) metadata to the index (as produced by process_fasta), enabling
+     *        sequence-relative coordinates and names for SAM output; call after construction
+     * @param seq_data the multi-sequence metadata
      */
-    inline pos_t num_sequences() const
+    inline void set_fasta_sequence_data(fasta_sequence_data<pos_t, sym_t> seq_data)
     {
-        return _seq_names.size();
-    }
-
-    /**
-     * @brief returns the index of the sequence containing the global text position pos
-     * @param pos a position in [0, n)
-     * @return the index of the sequence containing pos
-     */
-    inline pos_t sequence_index(pos_t pos) const
-    {
-        return _seq_boundaries.rank_1(pos + 1) - 1;
-    }
-
-    /**
-     * @brief returns the start position of sequence i's body in the text
-     * @param i a sequence index in [0, num_sequences())
-     * @return the start position of sequence i in the text
-     */
-    inline pos_t sequence_start(pos_t i) const
-    {
-        return _seq_boundaries.select_1(i + 1);
-    }
-
-    /**
-     * @brief returns the length of sequence i's body (excluding the separator symbol)
-     * @param i a sequence index in [0, num_sequences())
-     * @return the length of sequence i
-     */
-    inline pos_t sequence_length(pos_t i) const
-    {
-        // sequence i ends just before sequence i+1's separator symbol, or at the sentinel for the last sequence
-        pos_t end = (i + 1 < num_sequences()) ? sequence_start(i + 1) - 1 : n - 1;
-        return end - sequence_start(i);
-    }
-
-    /**
-     * @brief returns the name (SAM RNAME) of sequence i
-     * @param i a sequence index in [0, num_sequences())
-     * @return the name of sequence i
-     */
-    inline const std::string& sequence_name(pos_t i) const
-    {
-        return _seq_names[i];
-    }
-
-    /**
-     * @brief returns the internal symbol a search must not extend into (the sequence separator), or 0 if the index
-     *        has no separator (so that no search ever crosses a sequence boundary)
-     * @return the forbidden separator symbol
-     */
-    inline sym_t separator_sym() const
-    {
-        return idx_fwd.unmap_symbol(_separator_sym);
-    }
-
-    /**
-     * @brief attaches multi-sequence (FASTA/DNA) metadata to the index, enabling sequence-relative coordinates and
-     *        names for SAM output, and forbids searches from crossing the separator symbol; call after construction
-     *        with the metadata returned by process_fasta
-     * @param seq_starts the body start position of each sequence in the text (strictly increasing, each < n)
-     * @param seq_names the name of each sequence (same length as seq_starts)
-     * @param separator the separator byte that delimits the sequences (a search never extends into it)
-     */
-    void set_sequences(const std::vector<pos_t>& seq_starts, std::vector<std::string> seq_names, sym_t separator)
-    {
-        _seq_names = std::move(seq_names);
-
-        if (_seq_names.empty()) {
-            return;
-        }
-
-        _separator_sym = idx_fwd.map_symbol(separator);
-        sdsl::sd_vector_builder builder(n, seq_starts.size());
-
-        for (pos_t s : seq_starts) {
-            builder.set(s);
-        }
-
-        _seq_boundaries = sd_array<pos_t>(sdsl::sd_vector<>(builder));
+        _seq_data = std::move(seq_data);
     }
 
     /**
@@ -370,7 +290,7 @@ public:
             _S_MPhi_m1_p.size_in_bytes() +
             _SA_s_pos.size_in_bytes() +
             _SA_e_pos.size_in_bytes() +
-            _seq_boundaries.size_in_bytes();
+            _seq_data.size_in_bytes();
     }
 
     /**
@@ -584,7 +504,9 @@ public:
          */
         bool operator==(const search_context_t& other) const
         {
-            return b == other.b && e == other.e;
+            return b == other.b &&
+                   e == other.e &&
+                   m == other.m;
         }
 
         /**
@@ -614,6 +536,7 @@ public:
                 auto [b, e] = ctx.forward_sa_interval();
                 pos_t hash = pos_hash<pos_t>(b);
                 hash_combine<pos_t>(hash, pos_hash<pos_t>(e));
+                hash_combine<pos_t>(hash, pos_hash<pos_t>(ctx.m));
                 return hash;
             }
         };
@@ -1012,6 +935,17 @@ public:
     }
 
     /**
+     * @brief counts a pattern with at most k errors (w.r.t. hamming distance), broken down by number of mismatches
+     * @param P the pattern to search
+     * @param scheme the search scheme to use (provides k)
+     * @return a histogram h of length k+1, where h[e] is the number of occurrences of P in T with exactly e mismatches
+     */
+    std::vector<pos_t> count_hamming_dist_histogram(const inp_t& P, const search_scheme_t& scheme) const
+    {
+        return apm_hamming{*this}.count_histogram(P, scheme);
+    }
+
+    /**
      * @brief locates a pattern with at most k errors (w.r.t. dist_metr)
      * @tparam dist_metr distance metric (HAMMING_DISTANCE or EDIT_DISTANCE)
      * @tparam report_fnc_t type of the function report
@@ -1071,19 +1005,7 @@ public:
         _SA_s_pos.serialize(out);
         _SA_e_pos.serialize(out);
 
-        pos_t num_seq = _seq_names.size();
-        out.write((char*) &num_seq, sizeof(pos_t));
-
-        if (num_seq > 0) {
-            out.write((char*) &_separator_sym, sizeof(i_sym_t));
-            _seq_boundaries.serialize(out);
-
-            for (const std::string& name : _seq_names) {
-                pos_t len = name.size();
-                out.write((char*) &len, sizeof(pos_t));
-                out.write(name.data(), len);
-            }
-        }
+        _seq_data.serialize(out);
     }
 
     /**
@@ -1119,23 +1041,7 @@ public:
         _SA_s_pos.load(in);
         _SA_e_pos.load(in);
 
-        if (in.peek() != std::char_traits<char>::eof()) {
-            pos_t num_seq;
-            in.read((char*) &num_seq, sizeof(pos_t));
-
-            if (num_seq > 0) {
-                in.read((char*) &_separator_sym, sizeof(i_sym_t));
-                _seq_boundaries.load(in);
-                _seq_names.resize(num_seq);
-
-                for (pos_t i = 0; i < num_seq; i++) {
-                    pos_t len;
-                    in.read((char*) &len, sizeof(pos_t));
-                    _seq_names[i].resize(len);
-                    in.read(_seq_names[i].data(), len);
-                }
-            }
-        }
+        _seq_data.load(in);
     }
 
     /**

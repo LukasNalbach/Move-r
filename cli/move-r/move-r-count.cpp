@@ -51,7 +51,7 @@ void help(std::string msg)
     std::cout << "usage: move-r-count [...] <index_file> <patterns_file>" << std::endl;
     std::cout << "   -m <m_file> <text_name>    m_file is the file to write measurement data to," << std::endl;
     std::cout << "                              text_name should be the name of the original file" << std::endl;
-    std::cout << "   -o <output_file>           write pattern counts to this file (in ASCII format; one line per pattern)" << std::endl;
+    std::cout << "   -o <output_file>           write pattern counts to this file as TSV (one line \"pat<i>\\t<count>\" per pattern)" << std::endl;
     std::cout << "   <index_file>               index file (with extension .move-r)" << std::endl;
     std::cout << "   <patterns_file>            file in pizza&chili format containing the patterns." << std::endl;
     exit(0);
@@ -122,7 +122,7 @@ void measure_count()
         time_count += time_diff_ns(t2, t3);
 
         if (output_occurrences) {
-            output_file << count << std::endl;
+            output_file << "pat" << i << '\t' << count << '\n'; // TSV row (no per-line flush)
         }
 
         meter.step();

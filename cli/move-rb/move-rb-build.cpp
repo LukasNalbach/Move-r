@@ -41,7 +41,7 @@ std::string fasta_allowed = "ACGT";      // the alphabet kept verbatim in FASTA 
 std::ofstream mf_idx;
 std::ofstream mf_mds;
 std::ofstream index_file;
-std::string path_input_file;
+std::vector<std::string> path_input_files; // the input file(s); more than one is only allowed in FASTA mode
 std::string name_text_file;
 std::string path_index_file;
 
@@ -53,7 +53,7 @@ void help(std::string msg)
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-rb-build: builds move-rb." << std::endl << std::endl;
-    std::cout << "usage: move-rb-build [...] <input_file>" << std::endl;
+    std::cout << "usage: move-rb-build [...] <input_file> [<input_file> ...]" << std::endl;
     std::cout << "   -c <mode>           construction mode: sa or bigbwt (default: sa)" << std::endl;
     std::cout << "   -o <base_name>      names the index file base_name.move-rb(-rlzsa) (default: input_file)" << std::endl;
     std::cout << "   -s <support>        support: count, locate_move or locate_rlzsa" << std::endl;
@@ -64,11 +64,12 @@ void help(std::string msg)
     std::cout << "   -m_idx <m_file_idx> m_file_idx is file to write measurement data of the index construction to" << std::endl;
     std::cout << "   -m_mds <m_file_mds> m_file_mds is file to write measurement data of the construction of the move" << std::endl;
     std::cout << "                       data structures to" << std::endl;
-    std::cout << "   -f                  FASTA/DNA mode: read <input_file> as FASTA (strip headers, mask non-allowed" << std::endl;
-    std::cout << "                       bases) and store per-sequence names/boundaries for SAM output" << std::endl;
+    std::cout << "   -f                  FASTA/DNA mode: read the <input_file>(s) as FASTA (strip headers, mask non-" << std::endl;
+    std::cout << "                       allowed bases) and store per-sequence names/boundaries for SAM output;" << std::endl;
+    std::cout << "                       multiple FASTA files may be given and are concatenated into one index" << std::endl;
     std::cout << "   -A <alphabet>       in FASTA mode, the alphabet kept verbatim (default: ACGT); any other base is" << std::endl;
     std::cout << "                       replaced with '" << fasta_mask_symbol << "' and cannot be matched" << std::endl;
-    std::cout << "   <input_file>        input file" << std::endl;
+    std::cout << "   <input_file>        input file (multiple only in FASTA mode)" << std::endl;
     exit(0);
 }
 
@@ -83,21 +84,21 @@ void parse_args(char** argv, int argc)
     arg_idx++;
 
     if (s == "-o") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -o option");
+        if (arg_idx >= argc) help("error: missing parameter after -o option");
         path_prefix_index_file = argv[arg_idx++];
     } else if (s == "-p") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -p option");
+        if (arg_idx >= argc) help("error: missing parameter after -p option");
         p = atoi(argv[arg_idx++]);
         if (p < 1) help("error: p < 1");
         if (p > omp_get_max_threads()) help("error: p > maximum number of threads");
     } else if (s == "-c") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -p option");
+        if (arg_idx >= argc) help("error: missing parameter after -p option");
         std::string construction_mode_str = argv[arg_idx++];
         if (construction_mode_str == "sa") mode = _suffix_array;
         else if (construction_mode_str == "bigbwt") mode = _bigbwt;
         else help("error: invalid option for -c");
     } else if (s == "-s") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -s option");
+        if (arg_idx >= argc) help("error: missing parameter after -s option");
         std::string support_str = argv[arg_idx++];
         if (support_str == "count") {
             support = _count;
@@ -109,21 +110,21 @@ void parse_args(char** argv, int argc)
             support = _locate_rlzsa;
         } else help("error: unknown mode provided with -s option");
     } else if (s == "-a") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -a option");
+        if (arg_idx >= argc) help("error: missing parameter after -a option");
         a = atoi(argv[arg_idx++]);
         if (a < 2) help("error: a < 2");
     } else if (s == "-f") {
         fasta_mode = true;
     } else if (s == "-A") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -A option");
+        if (arg_idx >= argc) help("error: missing parameter after -A option");
         fasta_allowed = argv[arg_idx++];
     } else if (s == "-m_idx") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -m_idx option");
+        if (arg_idx >= argc) help("error: missing parameter after -m_idx option");
         std::string path_mf_idx = argv[arg_idx++];
         mf_idx.open(path_mf_idx, std::filesystem::exists(path_mf_idx) ? std::ios::app : std::ios::out);
         if (!mf_idx.good()) help("error: cannot open nor create <m_file_idx>");
     } else if (s == "-m_mds") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -m_mds option");
+        if (arg_idx >= argc) help("error: missing parameter after -m_mds option");
         std::string path_mf_mds = argv[arg_idx++];
         mf_mds.open(path_mf_mds, std::filesystem::exists(path_mf_mds) ? std::ios::app : std::ios::out);
         if (!mf_mds.good()) help("error: cannot open nor create <m_file_mds>");
@@ -141,21 +142,23 @@ template <typename pos_t, move_r_support support>
 void build()
 {
     move_rb<support, char, pos_t> index;
-    fasta_index_t fasta_index;
-    std::string path_build_file = path_input_file; // the file the index is built from
-    std::string path_fasta_text;                   // the temporary preprocessed-text file (FASTA mode only)
+    fasta_sequence_data<pos_t, char> fasta_data;
+    std::string path_build_file = path_input_files[0]; // the file the index is built from (single non-FASTA input)
+    std::string path_fasta_text;                       // the temporary preprocessed-text file (FASTA mode only)
 
     if (fasta_mode) {
-        // stream the FASTA file to a temporary on-disk text (headers stripped, non-allowed bases masked); the text
-        // is never held in memory so arbitrarily large genomes fit the index's memory budget. Only the small
-        // per-sequence metadata is kept, then we build from the temporary file as for a plain on-disk input.
+        // stream the FASTA file(s) to a single temporary on-disk text (headers stripped, non-allowed bases masked);
+        // multiple files are concatenated into one text. The text is never held in memory so arbitrarily large
+        // genomes fit the index's memory budget. Only the small per-sequence metadata is kept, then we build from the
+        // temporary file as for a plain on-disk input.
         path_fasta_text = path_index_file + ".tmp_text";
 
         auto time = now();
-        log_phase_start(true, time, "preprocessing the FASTA file");
-        fasta_index = process_fasta(path_input_file, path_fasta_text, fasta_allowed);
+        log_phase_start(true, time, "preprocessing the FASTA file(s)");
+        fasta_data = process_fasta<pos_t>(path_input_files, path_fasta_text, fasta_allowed);
         log_phase_end(true, time);
-        std::cout << "read " << fasta_index.seq_names.size() << " sequence(s)" << std::endl;
+        std::cout << "read " << fasta_data.num_sequences() << " sequence(s) from "
+                  << path_input_files.size() << " file(s)" << std::endl;
 
         path_build_file = path_fasta_text;
     }
@@ -172,9 +175,8 @@ void build()
     });
 
     if (fasta_mode) {
-        // attach the per-sequence boundaries and names for sequence-relative SAM coordinates, then drop the temp file
-        std::vector<pos_t> seq_starts(fasta_index.seq_starts.begin(), fasta_index.seq_starts.end());
-        index.set_sequences(seq_starts, std::move(fasta_index.seq_names), fasta_separator_symbol);
+        // attach the per-sequence names/boundaries for sequence-relative SAM coordinates, then drop the temp file
+        index.set_fasta_sequence_data(std::move(fasta_data));
         std::filesystem::remove(path_fasta_text);
     }
 
@@ -193,20 +195,30 @@ void build()
 int main(int argc, char** argv)
 {
     if (argc < 2) help("");
-    while (arg_idx < argc - 1) parse_args(argv, argc);
-    path_input_file = argv[arg_idx];
-    if (!std::filesystem::exists(path_input_file) || !std::filesystem::is_regular_file(path_input_file))
-        help("error: <input_file> does not exist");
-    if (path_prefix_index_file == "") path_prefix_index_file = path_input_file;
+    // parse the options, then collect all remaining (non-option) arguments as input file(s)
+    while (arg_idx < argc && argv[arg_idx][0] == '-') parse_args(argv, argc);
+    while (arg_idx < argc) path_input_files.emplace_back(argv[arg_idx++]);
+
+    if (path_input_files.empty()) help("error: no <input_file> given");
+    if (!fasta_mode && path_input_files.size() > 1)
+        help("error: multiple input files are only supported in FASTA mode (-f)");
+    for (const std::string& f : path_input_files)
+        if (!std::filesystem::exists(f) || !std::filesystem::is_regular_file(f))
+            help("error: <input_file> does not exist: " + f);
+    if (path_prefix_index_file == "") path_prefix_index_file = path_input_files[0];
 
     std::cout << std::setprecision(4);
-    name_text_file = path_input_file.substr(path_input_file.find_last_of("/\\") + 1);
+    name_text_file = path_input_files[0].substr(path_input_files[0].find_last_of("/\\") + 1);
     path_index_file = path_prefix_index_file.append(".move-rb");
     if (support == _locate_rlzsa) path_index_file = path_index_file.append("-rlzsa");
 
     index_file.open(path_index_file);
     if (!index_file.good()) help("error: invalid input, could not create <index_file>");
-    n = std::filesystem::file_size(path_input_file) + 1;
+    // an upper bound on the produced text length: the total size of the input file(s) (+1 for the sentinel). In FASTA
+    // mode the actual text is smaller (headers become one byte each), but the bound suffices for the thread heuristic
+    // and the 32-/64-bit index-type choice below
+    n = 1;
+    for (const std::string& f : path_input_files) n += std::filesystem::file_size(f);
 
     if (p > 1 && 1000 * p > n) {
         p = std::max<uint16_t>(1, n / 1000);
@@ -215,7 +227,8 @@ int main(int argc, char** argv)
         p = std::max<uint16_t>(1, std::min<uint64_t>({ uint64_t{omp_get_max_threads()}, n / 1000, p }));
     }
 
-    std::cout << "building move-rb of " << path_input_file;
+    std::cout << "building move-rb of " << name_text_file << (path_input_files.size() > 1
+        ? " (+" + std::to_string(path_input_files.size() - 1) + " more file(s))" : "");
     std::cout << " using " << format_threads(p) << " and a = " << a << std::endl;
     std::cout << "the index will be saved to " << path_index_file << std::endl << std::endl;
 

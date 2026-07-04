@@ -36,6 +36,7 @@
 #include <misc/utils.hpp>
 #include <misc/files.hpp>
 #include <misc/search.hpp>
+#include <misc/fasta_sequence_data.hpp>
 #include <misc/log.hpp>
 #include <omp.h>
 #include <tsl/sparse_map.h>
@@ -177,7 +178,7 @@ public:
 
 protected:
     pos_t n = 0; // the length of the input
-    pos_t sigma = 0; // the number of distinct characters (including the terminator symbol 1) of T
+    pos_t sigma = 0; // the number of distinct characters (including the terminator symbol 0) of T
     pos_t r = 0; // r, the number of runs in L
     pos_t r_ = 0; // r', the number of input/output intervals in M_LF
     pos_t r__ = 0; // r'', the number of input/output intervals in M_Phi^{-1}
@@ -230,6 +231,10 @@ protected:
 
     // relative-Lempel-Ziv encoding of the differential suffix array (standalone, see rlzsa_opt/rlzsa_opt.hpp)
     rlzsa_opt<pos_t> _rlzsa;
+
+    // the multi-sequence (FASTA/DNA) metadata (start positions, names and separator symbol of the sequences), empty
+    // unless the index was built from a multi-sequence input (see misc/fasta_sequence_data.hpp)
+    fasta_sequence_data<pos_t, sym_t> _seq_data;
 
     // ############################# INTERNAL METHODS #############################
 
@@ -306,6 +311,26 @@ public:
     inline pos_t input_size() const
     {
         return n - 1;
+    }
+
+    /**
+     * @brief returns the index's multi-sequence (FASTA/DNA) metadata (start positions, names and separator symbol of
+     *        the sequences); empty (has_sequences() == false) unless the index was built from a multi-sequence input
+     * @return the multi-sequence metadata
+     */
+    inline const fasta_sequence_data<pos_t, sym_t>& seq_data() const
+    {
+        return _seq_data;
+    }
+
+    /**
+     * @brief attaches multi-sequence (FASTA/DNA) metadata to the index (as produced by process_fasta), enabling
+     *        sequence-relative coordinates and names for SAM output; call after construction
+     * @param seq_data the multi-sequence metadata
+     */
+    inline void set_fasta_sequence_data(fasta_sequence_data<pos_t, sym_t> seq_data)
+    {
+        _seq_data = std::move(seq_data);
     }
 
     /**
@@ -424,7 +449,8 @@ public:
             _SA_Phi_m1.size_in_bytes() +
             _SA_s.size_in_bytes() +
             _SA_e.size_in_bytes() +
-            _rlzsa.size_in_bytes();
+            _rlzsa.size_in_bytes() +
+            _seq_data.size_in_bytes();
     }
 
     /**
@@ -1121,6 +1147,10 @@ public:
         uint16_t num_threads = omp_get_max_threads(); // maximum number of threads to use
         // maximum number of bytes to allocate (only applicable if the method writes data to a file; default (if set to -1): ~ (r-l+1)/500)
         int64_t max_bytes_alloc = -1;
+        // internal (set by retrieve_range for file output): the size in positions of one output buffer block; the
+        // per-thread ranges are aligned to a multiple of it so that no two threads write into the same buffer block
+        // (which would corrupt each other on flush). 0 means no alignment (in-memory retrieval).
+        uint64_t buffer_align = 0;
     };
 
 protected:
@@ -1137,6 +1167,61 @@ protected:
         }
 
         params.r = std::min(params.r, range_max);
+    }
+
+    /**
+     * @brief runs fnc(i_p) once for each thread index i_p in [0, p): for p > 1 in an OpenMP parallel region of p
+     *        threads, and for p == 1 directly on the calling thread, avoiding the overhead of spawning a (one-thread)
+     *        parallel region for a single-threaded range retrieval (e.g. the short ranges of the boundary decode)
+     * @tparam fnc_t type of the per-thread fnc
+     * @param p the number of threads to run the fnc with (p >= 1)
+     * @param fnc the per-thread fnc, invoked with the thread index i_p in [0, p)
+     */
+    template <typename fnc_t>
+    inline static void run_parallel_threads(uint16_t p, fnc_t&& fnc)
+    {
+        if (p > 1) {
+            #pragma omp parallel num_threads(p)
+            fnc(uint16_t(omp_get_thread_num()));
+        } else {
+            fnc(uint16_t(0));
+        }
+    }
+
+    /**
+     * @brief number of threads to use for a range retrieval: at least 1, and at most the requested number of threads,
+     *        the number of available threads and max_useful (a method-specific cap on the useful parallelism)
+     * @param requested the number of threads requested via the retrieve parameters
+     * @param max_useful a method-specific upper bound on the number of threads that can do useful work
+     * @return the number of threads to use
+     */
+    inline static uint16_t retrieve_num_threads(uint16_t requested, uint64_t max_useful)
+    {
+        return std::max<uint64_t>(1, std::min<uint64_t>(
+            { (uint64_t) omp_get_max_threads(), (uint64_t) requested, max_useful }));
+    }
+
+    /**
+     * @brief start position of thread i_p's chunk when partitioning [l, r] into p contiguous chunks; thread i_p then
+     *        processes [thread_range_start(i_p, ...), thread_range_start(i_p + 1, ...) - 1] (which may be empty). The
+     *        internal boundaries (0 < i_p < p) are rounded up to a multiple of @p align positions (relative to l), so
+     *        that when the retrieved range is written to a file, no two threads write into the same output buffer
+     *        block -- which would otherwise corrupt each other on flush. @p align <= 1 leaves the boundaries
+     *        unaligned (e.g. for in-memory retrieval, where there are no output buffers).
+     * @param i_p a thread index in [0, p]
+     * @param p the number of threads
+     * @param l the left limit of the range being retrieved
+     * @param r the right limit of the range being retrieved
+     * @param align the output buffer block size in positions (0 or 1 => no alignment)
+     * @return the start position of thread i_p's chunk (l for i_p == 0, r + 1 for i_p >= p)
+     */
+    inline static pos_t thread_range_start(uint16_t i_p, uint16_t p, pos_t l, pos_t r, uint64_t align)
+    {
+        if (i_p == 0) return l;
+        if (i_p >= p) return r + 1;
+        uint64_t off = (uint64_t(i_p) * (r - l + 1)) / p; // unaligned offset from l
+        if (align > 1) off = div_ceil<uint64_t>(off, align) * align; // round up to a whole buffer block
+        return std::min<pos_t>(l + off, r + 1);
     }
 
     /**
@@ -1282,9 +1367,6 @@ public:
         move_r_support _support = support;
         out.write((char*) &_support, sizeof(move_r_support));
 
-        std::streampos pos_data_structure_offsets = out.tellp();
-        out.seekp(pos_data_structure_offsets + (std::streamoff)sizeof(std::streamoff), std::ios::beg);
-
         out.write((char*) &n, sizeof(pos_t));
         out.write((char*) &sigma, sizeof(uint32_t));
         out.write((char*) &r, sizeof(pos_t));
@@ -1345,10 +1427,7 @@ public:
             _SA_e.serialize(out);
         }
 
-        std::streamoff offs_end = out.tellp() - pos_data_structure_offsets;
-        out.seekp(pos_data_structure_offsets, std::ios::beg);
-        out.write((char*) &offs_end, sizeof(std::streamoff));
-        out.seekp(pos_data_structure_offsets + offs_end, std::ios::beg);
+        _seq_data.serialize(out);
     }
 
     /**
@@ -1368,10 +1447,6 @@ public:
 
         move_r_support _support;
         in.read((char*) &_support, sizeof(move_r_support));
-
-        std::streampos pos_data_structure_offsets = in.tellg();
-        std::streamoff offs_end;
-        in.read((char*) &offs_end, sizeof(std::streamoff));
 
         in.read((char*) &n, sizeof(pos_t));
         in.read((char*) &sigma, sizeof(uint32_t));
@@ -1445,7 +1520,7 @@ public:
             _SA_e.load(in);
         }
 
-        in.seekg(pos_data_structure_offsets + offs_end, std::ios::beg);
+        _seq_data.load(in);
     }
 
     /**

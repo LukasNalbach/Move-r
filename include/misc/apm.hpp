@@ -70,7 +70,7 @@ struct aprx_occ_t {
     /** @brief orders occurrences by position, then by error count, then by length (the CIGAR is ignored) */
     bool operator<(const aprx_occ_t& other) const
     {
-        return pos != other.pos ?  :
+        return pos != other.pos ? pos < other.pos :
               (err != other.err ? err < other.err :
                                   len < other.len);
     }

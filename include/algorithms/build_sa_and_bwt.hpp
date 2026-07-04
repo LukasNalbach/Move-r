@@ -31,6 +31,7 @@
 #include <libsais.h>
 #include <libsais64.h>
 #include <vector>
+#include <misc/bigbwt.hpp>
 #include <misc/utils.hpp>
 #include <misc/files.hpp>
 #include <misc/search.hpp>
@@ -57,6 +58,7 @@ std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input,
         n = std::filesystem::file_size(input) + 1;
 
         log_phase_start(log, time, "building Suffix Array and BWT using Big-BWT");
+        ensure_bigbwt_on_path();
         system(("bigbwt -S " + input + (std::string)(log ? "" : " >log_1 >log_2")).c_str());
         
         if (!log) {
