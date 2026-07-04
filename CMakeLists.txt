@@ -292,12 +292,18 @@ if(MOVE_R_BUILD_BENCH)
     set_target_properties(${name} PROPERTIES
       POSITION_INDEPENDENT_CODE ON LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bench/")
   endfunction()
-  move_r_add_columba_plugin(columba_rlc_plugin
+  move_r_add_columba_plugin(columba_rlc_plugin_32
     "${columba_src}/bmove/bmove.cpp" "${columba_src}/bmove/moverepr.cpp")
-  target_compile_definitions(columba_rlc_plugin PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY)
-  move_r_add_columba_plugin(columba_fm_plugin
+  target_compile_definitions(columba_rlc_plugin_32 PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY THIRTY_TWO)
+  move_r_add_columba_plugin(columba_rlc_plugin_64
+    "${columba_src}/bmove/bmove.cpp" "${columba_src}/bmove/moverepr.cpp")
+  target_compile_definitions(columba_rlc_plugin_64 PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY)
+  move_r_add_columba_plugin(columba_fm_plugin_32
     "${columba_src}/fmindex/fmindex.cpp")
-  target_compile_definitions(columba_fm_plugin PRIVATE ALPHABET=5 THIRTY_TWO FMT_HEADER_ONLY)
+  target_compile_definitions(columba_fm_plugin_32 PRIVATE ALPHABET=5 FMT_HEADER_ONLY THIRTY_TWO)
+  move_r_add_columba_plugin(columba_fm_plugin_64
+    "${columba_src}/fmindex/fmindex.cpp")
+  target_compile_definitions(columba_fm_plugin_64 PRIVATE ALPHABET=5 FMT_HEADER_ONLY)
 
   add_library(br_index INTERFACE)
   target_include_directories(br_index INTERFACE "${CMAKE_SOURCE_DIR}/external/br-index/src")
@@ -306,7 +312,7 @@ if(MOVE_R_BUILD_BENCH)
   move_r_add_tool(move-rb-bench bench/move-rb-bench/move-rb-bench.cpp
     "${CMAKE_BINARY_DIR}/bench/" br_index ${CMAKE_DL_LIBS})
   target_link_options(move-rb-bench PRIVATE -rdynamic)
-  add_dependencies(move-rb-bench columba_rlc_plugin columba_fm_plugin)
+  add_dependencies(move-rb-bench columba_rlc_plugin_32 columba_rlc_plugin_64 columba_fm_plugin_32 columba_fm_plugin_64)
   move_r_add_tool(move-rb-gen-queries bench/move-rb-bench/move-rb-gen-queries.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 endif()

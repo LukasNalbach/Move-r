@@ -620,11 +620,38 @@ void measure_columba_plugin(const std::string& so_name, const std::string& api_s
     // the plugin is intentionally left mapped (not dlclose'd) until process exit
 }
 
+// reads the index-position width (sizeof(length_t), in bytes: 4 for 32-bit, 8 for 64-bit) that the columba index at
+// base name @p base was built with, from the second line of its <base>.meta (line 1 = build tag, line 3 = flavor).
+// Returns 0 if the meta file is missing or unreadable.
+int columba_meta_width_bytes(const std::string& base)
+{
+    std::ifstream ifs(base + ".meta");
+    long tag = 0, width_bytes = 0;
+    if (ifs && (ifs >> tag >> width_bytes)) return (int) width_bytes;
+    return 0;
+}
+
+// measures one columba flavor. Its length_t width is fixed at compile time and must match the provided index (columba's
+// loader throws otherwise), so the 32- or 64-bit plugin (lib<plugin_base>_{32,64}.so) is picked from the width recorded
+// in the index's meta file. @p base_suffix is appended to <index_dir>/<text_name> to form the flavor's index base name
+// (empty for RLC, ".fm" for the FM-index). A 32-bit index caps inputs at ~4 GB but is smaller/faster.
+void measure_columba_flavor(const bench_config_t& cfg, const std::string& base_suffix,
+                            const std::string& plugin_base, const char* api_symbol)
+{
+    const std::string base = (std::filesystem::path(cfg.index_path) / cfg.text_name).string() + base_suffix;
+    const int width = columba_meta_width_bytes(base);
+    if (width == 0)
+        std::cerr << "warning: cannot read " << base << ".meta; defaulting to the 64-bit plugin" << std::endl;
+    const std::string so = "lib" + plugin_base + (width == 4 ? "_32" : "_64") + ".so";
+    std::cerr << "columba index at " << base << " is " << (width ? width * 8 : 64) << "-bit; loading " << so << std::endl;
+    measure_columba_plugin(so, api_symbol, cfg);
+}
+
 // measures the selected columba flavors (run-length-compressed = b-move, and the FM-index), each via its plugin
 void measure_columba_native(const bench_config_t& cfg)
 {
-    if (cfg.selected("columba_rlc")) measure_columba_plugin("libcolumba_rlc_plugin.so", "columba_rlc_api", cfg);
-    if (cfg.selected("columba"))     measure_columba_plugin("libcolumba_fm_plugin.so", "columba_fm_api", cfg);
+    if (cfg.selected("columba_rlc")) measure_columba_flavor(cfg, "",    "columba_rlc_plugin", "columba_rlc_api");
+    if (cfg.selected("columba"))     measure_columba_flavor(cfg, ".fm", "columba_fm_plugin",  "columba_fm_api");
 }
 
 // measures br-index's NATIVE approximate count & locate algorithm (hamming distance only)
