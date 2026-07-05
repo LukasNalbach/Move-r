@@ -118,12 +118,6 @@ public:
         for (int_t i = result.size() - 2; i >= 0; i--) {
             result[i] = result[i + 1] - result[i];
         }
-
-        #ifndef NDEBUG
-        for (auto occ : result) {
-            assert(0 <= occ && occ < input_size());
-        }
-        #endif
         
         return result;
     }

@@ -447,7 +447,7 @@ public:
         std::cout << std::endl;
 
         aligned_log log_r;
-        log_r.add_row("R:", _R.size(), [&](pos_t i) { return int32_t{_R[i]} - int32_t{n}; });
+        log_r.add_row("R:", _R.size(), [&](pos_t i) { return (int32_t)_R[i] - (int32_t)n; });
         log_r.print();
 
         log_indexed("PT:", _PT);
@@ -456,7 +456,7 @@ public:
         log_indexed("SR:", _SR);
 
         aligned_log log_lp;
-        log_lp.add_row("LP:", _LP.size(), [&](pos_t i) { return int32_t{_LP[i]} - int32_t{n}; });
+        log_lp.add_row("LP:", _LP.size(), [&](pos_t i) { return (int32_t)_LP[i] - (int32_t)n; });
         log_lp.print();
     }
 

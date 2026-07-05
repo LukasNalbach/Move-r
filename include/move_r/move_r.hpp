@@ -74,7 +74,7 @@ enum move_r_construction_mode {
  * @param support a locate-support type
  * @return the file-name suffix for the given locate-support type
  */
-static std::string move_r_support_suffix(move_r_support support)
+inline std::string move_r_support_suffix(move_r_support support)
 {
     std::string support_suffix;
         

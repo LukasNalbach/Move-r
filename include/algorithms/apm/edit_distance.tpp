@@ -1031,7 +1031,7 @@ protected:
                 ) return;
             }
 
-            if (desc_dir.back().match_len() == matrix.num_rows() - 1) return;
+            if (desc_dir.back().match_len() == pos_t(matrix.num_rows() - 1)) return;
             if (!dir_switch) node = desc_dir.back();
             old_depth = desc_dir.back().match_len();
         }

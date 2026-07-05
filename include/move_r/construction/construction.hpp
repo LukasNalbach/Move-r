@@ -268,7 +268,7 @@ public:
     {
         if constexpr (bigbwt) {
             if (i == 0) [[unlikely]] return n - 1;
-            return pos_t { SA_file_bufs[i_p][i - 1] };
+            return (pos_t)(SA_file_bufs[i_p][i - 1]);
         } else {
             return get_sa<sa_sint_t>()[i];
         }
@@ -370,10 +370,14 @@ public:
         std::cout << std::endl;
         std::cout << "construction time: " << format_time(time_construction) << std::endl;
         std::cout << "peak memory usage: " << format_size(peak_mem_usage) << std::endl;
-        if (!is_bidirectional) idx.log_data_structure_sizes();
+        if (!is_bidirectional) {
+            std::cout << "construction throughput: " << format_construction_throughput(n, time_construction) << std::endl;
+            idx.log_data_structure_sizes();
+        }
 
         if (mf_idx != nullptr) {
             *mf_idx << " time_construction=" << time_construction;
+            *mf_idx << " construction_throughput_mb_per_s=" << construction_throughput_mb_per_s(n, time_construction);
             *mf_idx << " peak_mem_usage=" << peak_mem_usage;
             idx.log_data_structure_sizes(*mf_idx);
         }
@@ -421,10 +425,10 @@ public:
         requires(str_input)
         : T_str(T)
         , T_vec(T_vec_tmp)
-        , L(L_tmp)
+        , idx(index)
         , SA_32(SA_32_tmp)
         , SA_64(SA_64_tmp)
-        , idx(index)
+        , L(L_tmp)
     {
         this->delete_T = delete_T;
         read_parameters(params);
@@ -488,10 +492,10 @@ public:
         requires(int_input)
         : T_str(T_str_tmp)
         , T_vec(T)
-        , L(L_tmp)
+        , idx(index)
         , SA_32(SA_32_tmp)
         , SA_64(SA_64_tmp)
-        , idx(index)
+        , L(L_tmp)
     {
         this->delete_T = delete_T;
         read_parameters(params);
@@ -532,10 +536,10 @@ public:
         requires(str_input)
         : T_str(T_str_tmp)
         , T_vec(T_vec_tmp)
-        , L(bwt)
+        , idx(index)
         , SA_32(suffix_array)
         , SA_64(SA_64_tmp)
-        , idx(index)
+        , L(bwt)
     {
         read_parameters(params);
         construct_from_sa_and_l<int32_t>();
@@ -552,10 +556,10 @@ public:
         requires(str_input)
         : T_str(T_str_tmp)
         , T_vec(T_vec_tmp)
-        , L(bwt)
+        , idx(index)
         , SA_32(SA_32_tmp)
         , SA_64(suffix_array)
-        , idx(index)
+        , L(bwt)
     {
         read_parameters(params);
         construct_from_sa_and_l<int64_t>();

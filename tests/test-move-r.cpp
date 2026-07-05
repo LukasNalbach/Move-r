@@ -26,7 +26,7 @@
 
 #include <gtest/gtest.h>
 #include <move_r/move_r.hpp>
-#include "test_index_common.hpp"
+#include "test-index-common.hpp"
 
 /**
  * @brief index adapter for the generic index fuzz-test (test_index_instance) that tests the move_r index;

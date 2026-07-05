@@ -29,7 +29,7 @@
 #include <lzendsa/r_index_lzendsa.hpp>
 #include <rlzsa/rlzsa.hpp>
 #include <rlzsa/r_index_rlzsa.hpp>
-#include "test_index_common.hpp"
+#include "test-index-common.hpp"
 
 // adapters for the generic index fuzz-test (test_index_instance) that test the standalone SA-based indexes.
 // each concrete index supplies a small config type:
@@ -41,7 +41,7 @@
  * @param input_size the size of the input
  * @return the number of queries
  */
-static uint64_t num_sa_index_queries(uint64_t input_size)
+static uint64_t num_queries(uint64_t input_size)
 {
     return std::min<uint64_t>(1000, std::max<uint64_t>(100, input_size / 10));
 }
@@ -53,7 +53,7 @@ static uint64_t num_sa_index_queries(uint64_t input_size)
  * @tparam config_t the index config (provides index_t, make() and name())
  */
 template <typename int_t, typename config_t>
-struct sa_self_index_adapter {
+struct csa_index_adapter {
     using pos_t = int_t;
     using inp_t = std::string;
     using index_t = typename config_t::index_t;
@@ -61,10 +61,10 @@ struct sa_self_index_adapter {
     static constexpr bool serializable = true;
 
     static std::string name() { return config_t::name(); }
-    static char min_sym() { return sa_index_min_uchar; }
-    static char max_sym() { return sa_index_max_uchar; }
+    static char min_sym() { return min_char; }
+    static char max_sym() { return max_char; }
     static uint64_t max_pattern_length(uint64_t) { return 100; }
-    static uint64_t num_queries(uint64_t n) { return num_sa_index_queries(n); }
+    static uint64_t num_queries(uint64_t n) { return num_queries(n); }
 
     template <typename gen_t>
     static index_t build(std::string& input, gen_t&, uint16_t) { return config_t::make(input); }
@@ -85,7 +85,7 @@ struct sa_self_index_adapter {
     template <typename gen_t>
     static void verify_pattern(index_t& index, std::string& pattern, const std::vector<pos_t>& correct, gen_t&)
     {
-        verify_count_locate_basic<sa_self_index_adapter>(index, pattern, correct);
+        verify_count_locate_basic<csa_index_adapter>(index, pattern, correct);
     }
 
     template <typename gen_t>
@@ -95,7 +95,7 @@ struct sa_self_index_adapter {
         uint64_t n = sa.size();
         std::uniform_int_distribution<uint64_t> sa_pos_distrib(0, n - 1);
 
-        for (uint64_t q = 0; q < num_sa_index_queries(n); q++) {
+        for (uint64_t q = 0; q < num_queries(n); q++) {
             uint64_t beg = sa_pos_distrib(gen);
             uint64_t end = sa_pos_distrib(gen);
             if (beg > end) std::swap(beg, end);
@@ -128,10 +128,10 @@ struct sa_r_index_adapter {
     static constexpr bool serializable = true;
 
     static std::string name() { return config_t::name(); }
-    static char min_sym() { return sa_index_min_uchar; }
-    static char max_sym() { return sa_index_max_uchar; }
+    static char min_sym() { return min_char; }
+    static char max_sym() { return max_char; }
     static uint64_t max_pattern_length(uint64_t) { return 100; }
-    static uint64_t num_queries(uint64_t n) { return num_sa_index_queries(n); }
+    static uint64_t num_queries(uint64_t n) { return num_queries(n); }
 
     template <typename gen_t>
     static index_t build(std::string& input, gen_t&, uint16_t) { return config_t::make(input); }
@@ -204,11 +204,11 @@ uint64_t min_input_size = 1;
 uint64_t max_input_size = 100000;
 
 std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
-std::uniform_int_distribution<int> sa_index_distrib(0, 3);
+std::uniform_int_distribution<int> index_distrib(0, 3);
 
 // all standalone SA-based indexes (lzendsa & r-index-lzendsa & rlzsa & r-index-rlzsa), rotating over the
 // index type and the 32-/64-bit suffix-array integer type
-TEST(test_sa_index, fuzzy_test)
+TEST(test_csa_indexes, fuzzy_test)
 {
     auto start_time = now();
 
@@ -220,10 +220,10 @@ TEST(test_sa_index, fuzzy_test)
             else            test_index_instance<adapter_t<int32_t, config_t<int32_t>>>(gen, max_num_threads, min_input_size, max_input_size);
         };
 
-        switch (sa_index_distrib(gen)) {
-            case 0: run.template operator()<lzendsa_config,         sa_self_index_adapter>(); break;
+        switch (index_distrib(gen)) {
+            case 0: run.template operator()<lzendsa_config,         csa_index_adapter>(); break;
             case 1: run.template operator()<r_index_lzendsa_config, sa_r_index_adapter>();    break;
-            case 2: run.template operator()<rlzsa_config,           sa_self_index_adapter>(); break;
+            case 2: run.template operator()<rlzsa_config,           csa_index_adapter>(); break;
             case 3: run.template operator()<r_index_rlzsa_config,   sa_r_index_adapter>();    break;
         }
     }

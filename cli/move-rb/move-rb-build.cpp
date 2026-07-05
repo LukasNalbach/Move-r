@@ -224,7 +224,7 @@ int main(int argc, char** argv)
         p = std::max<uint16_t>(1, n / 1000);
         std::cout << "n = " << n << ", warning: p > n/1000, setting p to n/1000 ~ " << std::to_string(p) << std::endl;
     } else {
-        p = std::max<uint16_t>(1, std::min<uint64_t>({ uint64_t{omp_get_max_threads()}, n / 1000, p }));
+        p = std::max<uint16_t>(1, std::min<uint64_t>({ (uint64_t)omp_get_max_threads(), n / 1000, p }));
     }
 
     std::cout << "building move-rb of " << name_text_file << (path_input_files.size() > 1

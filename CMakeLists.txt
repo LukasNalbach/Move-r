@@ -19,24 +19,34 @@ endif()
 
 message("building in ${CMAKE_BUILD_TYPE} mode")
 
+# options
+option(MOVE_R_BUILD_MOVE_R_CLI  "Build the move-r binaries"  ON)
+option(MOVE_R_BUILD_MOVE_RB_CLI "Build the move-rb cli tools " ON)
+option(MOVE_R_BUILD_LZENDSA_CLI "Build LZend-SA binaries" ON)
+option(MOVE_R_BUILD_RLZSA_CLI "Build RLZ-SA binaries" ON)
+option(MOVE_R_BUILD_MOVE_R_BENCH  "Build move-r-bench" ON)
+option(MOVE_R_BUILD_MOVE_RB_BENCH "Build move-rb-bench & move-rb-gen-queries" ON)
+option(MOVE_R_BUILD_EXAMPLES "Build the example programs" ON)
+option(MOVE_R_BUILD_TESTS "Build tests" ON)
+option(MOVE_R_BUILD_INTERNAL_BENCH "Build programs for benchmarking Move-r's internal data structures" ON)
+option(MOVE_R_USE_MALLOC_COUNT "Track memory usage via malloc_count (overrides malloc/free)" ON)
+option(MOVE_R_MARCH_NATIVE "Tune the build for the host CPU (-march=native); turn OFF for portable binaries" ON)
+option(MOVE_R_ENABLE_LTO "Enable link-time optimization (LTO/IPO) for move-r targets" ON)
+
 # compile flags
+if(MOVE_R_MARCH_NATIVE)
+  set(move_r_arch_flags "-march=native")
+else()
+  set(move_r_arch_flags "")
+endif()
+
 set(move_r_debug_flags "-Wall -Wextra -Wpedantic -ggdb")
-set(move_r_release_flags "-w -march=native -DNDEBUG")
+set(move_r_release_flags "-w ${move_r_arch_flags} -DNDEBUG")
 
 set(CMAKE_CXX_FLAGS_DEBUG           "${move_r_debug_flags} -O0")
 set(CMAKE_CXX_FLAGS_RELEASE         "${move_r_release_flags} -Ofast")
 set(CMAKE_CXX_FLAGS_MINSIZEREL      "${move_r_release_flags} -Os")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO  "${move_r_debug_flags} -Ofast")
-
-# options
-option(MOVE_R_BUILD_CLI "Build cli programs" ON)
-option(MOVE_R_BUILD_LZENDSA_CLI "Builds LZend-SA binaries" ON)
-option(MOVE_R_BUILD_RLZSA_CLI "Builds RLZ-SA binaries" ON)
-option(MOVE_R_BUILD_BENCH "Build the Move-r benchmark cli program" ON)
-option(MOVE_R_BUILD_EXAMPLES "Build the example programs" ON)
-option(MOVE_R_BUILD_TESTS "Build tests" ON)
-option(MOVE_R_BUILD_INTERNAL_BENCH "Build programs for benchmarking Move-r's internal data structures" ON)
-option(MOVE_R_USE_MALLOC_COUNT "Track memory usage via malloc_count (overrides malloc/free)" ON)
 
 ############################# move-r dependencies #############################
 
@@ -82,9 +92,11 @@ set(SDSL_INCLUDE_DIR "${SDSL_ROOT}/include")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_DIVSUFSORT64 ON CACHE BOOL "" FORCE)
+set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 add_subdirectory("${SDSL_ROOT}/external/libdivsufsort" "${CMAKE_BINARY_DIR}/external/libdivsufsort")
 unset(CMAKE_POLICY_VERSION_MINIMUM)
+set(CMAKE_WARN_DEPRECATED ON CACHE BOOL "" FORCE)
 set(DIVSUFSORT_INCLUDE_DIR "${CMAKE_BINARY_DIR}/external/libdivsufsort/include")
 set_target_properties(divsufsort divsufsort64 PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(divsufsort INTERFACE "${DIVSUFSORT_INCLUDE_DIR}")
@@ -133,23 +145,38 @@ target_link_libraries(move_r INTERFACE
   emhash sux ordered rmq unordered_dense divsufsort divsufsort64
 )
 
+if(MOVE_R_ENABLE_LTO)
+  include(CheckIPOSupported)
+  check_ipo_supported(RESULT MOVE_R_IPO_SUPPORTED OUTPUT MOVE_R_IPO_ERROR LANGUAGES CXX)
+  if(NOT MOVE_R_IPO_SUPPORTED)
+    message(WARNING "MOVE_R_ENABLE_LTO is ON but LTO/IPO is not supported by the toolchain: ${MOVE_R_IPO_ERROR}")
+  endif()
+endif()
+
 function(move_r_add_tool name src outdir)
   add_executable(${name} "${src}")
   target_link_libraries(${name} PRIVATE move_r ${ARGN})
   set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${outdir}")
+  if(MOVE_R_ENABLE_LTO AND MOVE_R_IPO_SUPPORTED)
+    set_target_properties(${name} PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
+  endif()
 endfunction()
 
 ############################# move-r cli #############################
 
-if(MOVE_R_BUILD_CLI)
+if(MOVE_R_BUILD_MOVE_R_CLI)
   foreach(tool move-r-build move-r-revert move-r-count move-r-locate move-r-query)
     move_r_add_tool(${tool} cli/move-r/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
   endforeach()
+endif()
 
+if(MOVE_R_BUILD_MOVE_RB_CLI)
   foreach(tool move-rb-build move-rb-revert move-rb-count move-rb-locate move-rb-query)
     move_r_add_tool(${tool} cli/move-rb/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
   endforeach()
+endif()
 
+if(MOVE_R_BUILD_MOVE_R_CLI OR MOVE_R_BUILD_MOVE_RB_CLI)
   move_r_add_tool(gen-patterns cli/tools/gen-patterns.cpp "${CMAKE_BINARY_DIR}/cli/")
   move_r_add_tool(print-data-structures cli/tools/print-data-structures.cpp "${CMAKE_BINARY_DIR}/cli/")
 endif()
@@ -171,14 +198,14 @@ endif()
 ############################# move-r examples #############################
 
 if(MOVE_R_BUILD_EXAMPLES)
-  foreach(ex move_data_structure move_r-queries move_r-retrieval move_r-store-load move-rb-queries)
+  foreach(ex move-data-structure move-r-queries move-r-retrieval move-r-store-load move-rb-queries)
     move_r_add_tool(example-${ex} examples/${ex}.cpp "${CMAKE_BINARY_DIR}/examples/")
   endforeach()
 endif()
 
 ############################# move-r benchmark cli #############################
 
-if(MOVE_R_BUILD_BENCH)
+if(MOVE_R_BUILD_MOVE_R_BENCH)
   # rcomp
   add_library(rcomp INTERFACE)
   target_include_directories(rcomp INTERFACE "${CMAKE_SOURCE_DIR}/external/rcomp/include/")
@@ -218,8 +245,10 @@ if(MOVE_R_BUILD_BENCH)
 
   # grlBWT
   set(GRLBWT_ROOT "${CMAKE_SOURCE_DIR}/external/grlBWT/")
+  set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
   add_subdirectory("${GRLBWT_ROOT}/external/cdt/")
   add_subdirectory("${GRLBWT_ROOT}/external/bioparsers/")
+  set(CMAKE_WARN_DEPRECATED ON CACHE BOOL "" FORCE)
   add_library(grlbwt STATIC
     "${GRLBWT_ROOT}/lib/exact_algo/exact_ind_phase.cpp"
     "${GRLBWT_ROOT}/lib/exact_algo/exact_par_phase.cpp"
@@ -265,8 +294,21 @@ endif()
 
 ############################# move_rb approximate-pattern-matching benchmark #############################
 
-if(MOVE_R_BUILD_BENCH)
+if(MOVE_R_BUILD_MOVE_RB_BENCH)
   set(columba_src "${CMAKE_SOURCE_DIR}/external/columba/src")
+  set(MOVE_R_COLUMBA_BITS "both" CACHE STRING "columba index widths to build for move-rb-bench: both, 32 or 64")
+  set_property(CACHE MOVE_R_COLUMBA_BITS PROPERTY STRINGS both 32 64)
+  if(NOT MOVE_R_COLUMBA_BITS MATCHES "^(both|32|64)$")
+    message(FATAL_ERROR "MOVE_R_COLUMBA_BITS must be one of: both, 32, 64 (got '${MOVE_R_COLUMBA_BITS}')")
+  endif()
+  set(columba_bits_32 FALSE)
+  set(columba_bits_64 FALSE)
+  if(MOVE_R_COLUMBA_BITS STREQUAL "both" OR MOVE_R_COLUMBA_BITS STREQUAL "32")
+    set(columba_bits_32 TRUE)
+  endif()
+  if(MOVE_R_COLUMBA_BITS STREQUAL "both" OR MOVE_R_COLUMBA_BITS STREQUAL "64")
+    set(columba_bits_64 TRUE)
+  endif()
   set(columba_common_sources
     "${columba_src}/indexhelpers.cpp"
     "${columba_src}/bitparallelmatrix.cpp"
@@ -301,18 +343,22 @@ if(MOVE_R_BUILD_BENCH)
     set_target_properties(${name} PROPERTIES
       POSITION_INDEPENDENT_CODE ON LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bench/")
   endfunction()
-  move_r_add_columba_plugin(columba_rlc_plugin_32
-    "${columba_src}/bmove/bmove.cpp" "${columba_src}/bmove/moverepr.cpp")
-  target_compile_definitions(columba_rlc_plugin_32 PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY THIRTY_TWO)
-  move_r_add_columba_plugin(columba_rlc_plugin_64
-    "${columba_src}/bmove/bmove.cpp" "${columba_src}/bmove/moverepr.cpp")
-  target_compile_definitions(columba_rlc_plugin_64 PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY)
-  move_r_add_columba_plugin(columba_fm_plugin_32
-    "${columba_src}/fmindex/fmindex.cpp")
-  target_compile_definitions(columba_fm_plugin_32 PRIVATE ALPHABET=5 FMT_HEADER_ONLY THIRTY_TWO)
-  move_r_add_columba_plugin(columba_fm_plugin_64
-    "${columba_src}/fmindex/fmindex.cpp")
-  target_compile_definitions(columba_fm_plugin_64 PRIVATE ALPHABET=5 FMT_HEADER_ONLY)
+  if(columba_bits_32)
+    move_r_add_columba_plugin(columba_rlc_plugin_32
+      "${columba_src}/bmove/bmove.cpp" "${columba_src}/bmove/moverepr.cpp")
+    target_compile_definitions(columba_rlc_plugin_32 PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY THIRTY_TWO)
+    move_r_add_columba_plugin(columba_fm_plugin_32
+      "${columba_src}/fmindex/fmindex.cpp")
+    target_compile_definitions(columba_fm_plugin_32 PRIVATE ALPHABET=5 FMT_HEADER_ONLY THIRTY_TWO)
+  endif()
+  if(columba_bits_64)
+    move_r_add_columba_plugin(columba_rlc_plugin_64
+      "${columba_src}/bmove/bmove.cpp" "${columba_src}/bmove/moverepr.cpp")
+    target_compile_definitions(columba_rlc_plugin_64 PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY)
+    move_r_add_columba_plugin(columba_fm_plugin_64
+      "${columba_src}/fmindex/fmindex.cpp")
+    target_compile_definitions(columba_fm_plugin_64 PRIVATE ALPHABET=5 FMT_HEADER_ONLY)
+  endif()
 
   add_library(br_index INTERFACE)
   target_include_directories(br_index INTERFACE "${CMAKE_SOURCE_DIR}/external/br-index/src")
@@ -357,25 +403,61 @@ if(MOVE_R_BUILD_BENCH)
     set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/columba-internal")
   endfunction()
 
-  move_r_add_columba_build(columba-build-fm-32   FALSE 32)
-  move_r_add_columba_build(columba-build-fm-64   FALSE 64)
-  move_r_add_columba_build(columba-rlc-build-32  TRUE  32)
-  move_r_add_columba_build(columba-rlc-build-64  TRUE  64)
+  if(columba_bits_32)
+    move_r_add_columba_build(columba-build-fm-32   FALSE 32)
+    move_r_add_columba_build(columba-rlc-build-32  TRUE  32)
+  endif()
+  if(columba_bits_64)
+    move_r_add_columba_build(columba-build-fm-64   FALSE 64)
+    move_r_add_columba_build(columba-rlc-build-64  TRUE  64)
+  endif()
 
   function(move_r_add_columba_build_wrapper name variant32 variant64)
+    set(v32 "${variant32}")
+    set(v64 "${variant64}")
+    if(NOT v32)
+      set(v32 "${v64}")
+    endif()
+    if(NOT v64)
+      set(v64 "${v32}")
+    endif()
     add_executable(${name} "${CMAKE_SOURCE_DIR}/cli/tools/columba-build-dispatch.cpp")
     target_compile_definitions(${name} PRIVATE
-      COLUMBA_BUILD_32="columba-internal/${variant32}" COLUMBA_BUILD_64="columba-internal/${variant64}")
+      COLUMBA_BUILD_32="columba-internal/${v32}" COLUMBA_BUILD_64="columba-internal/${v64}")
     set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
-    add_dependencies(${name} ${variant32} ${variant64})
+    if(variant32)
+      add_dependencies(${name} ${variant32})
+    endif()
+    if(variant64)
+      add_dependencies(${name} ${variant64})
+    endif()
   endfunction()
-  move_r_add_columba_build_wrapper(columba-build     columba-build-fm-32  columba-build-fm-64)
-  move_r_add_columba_build_wrapper(columba-rlc-build columba-rlc-build-32 columba-rlc-build-64)
+  set(columba_fm_build_32 "")
+  set(columba_fm_build_64 "")
+  set(columba_rlc_build_32 "")
+  set(columba_rlc_build_64 "")
+  if(columba_bits_32)
+    set(columba_fm_build_32 columba-build-fm-32)
+    set(columba_rlc_build_32 columba-rlc-build-32)
+  endif()
+  if(columba_bits_64)
+    set(columba_fm_build_64 columba-build-fm-64)
+    set(columba_rlc_build_64 columba-rlc-build-64)
+  endif()
+  move_r_add_columba_build_wrapper(columba-build     "${columba_fm_build_32}"  "${columba_fm_build_64}")
+  move_r_add_columba_build_wrapper(columba-rlc-build "${columba_rlc_build_32}" "${columba_rlc_build_64}")
 
   move_r_add_tool(move-rb-bench bench/move-rb-bench/move-rb-bench.cpp
     "${CMAKE_BINARY_DIR}/bench/" br_index ${CMAKE_DL_LIBS})
   target_link_options(move-rb-bench PRIVATE -rdynamic)
-  add_dependencies(move-rb-bench columba_rlc_plugin_32 columba_rlc_plugin_64 columba_fm_plugin_32 columba_fm_plugin_64)
+  set(columba_plugins "")
+  if(columba_bits_32)
+    list(APPEND columba_plugins columba_rlc_plugin_32 columba_fm_plugin_32)
+  endif()
+  if(columba_bits_64)
+    list(APPEND columba_plugins columba_rlc_plugin_64 columba_fm_plugin_64)
+  endif()
+  add_dependencies(move-rb-bench ${columba_plugins})
   move_r_add_tool(move-rb-gen-queries bench/move-rb-bench/move-rb-gen-queries.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 endif()
@@ -397,12 +479,9 @@ if(MOVE_R_BUILD_TESTS)
   set_target_properties(gtest gtest_main gmock gmock_main
     PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "")
 
-  # the test source files keep their underscore names (mirroring the include structure they test), but the
-  # executable/target names use hyphens like every other CLI tool (test-move-r, test-move-rb, ...)
-  foreach(s move_r move_rb move_data_structure data_structures sa_index rlzsa_opt edit_distance_matrix)
-    string(REPLACE "_" "-" tgt "test-${s}")
-    move_r_add_tool(${tgt} "${CMAKE_SOURCE_DIR}/tests/test_${s}.cpp"
+  foreach(s move-r move-rb move-data-structure data-structures csa-indexes rlzsa-opt edit-distance-matrix)
+    move_r_add_tool("test-${s}" "${CMAKE_SOURCE_DIR}/tests/test-${s}.cpp"
       "${CMAKE_BINARY_DIR}/tests/" gtest_main)
-    gtest_discover_tests(${tgt})
+    gtest_discover_tests("test-${s}")
   endforeach()
 endif()

@@ -43,7 +43,7 @@ void help()
     std::cout << "Usage: rlzsa-build [...] <text file>" << std::endl;
     std::cout << "   <text file>     path to the input file (should contain text)" << std::endl;
     std::cout << "   -o              path to the desired output file (the extension .rlzsa will be added automatically)" << std::endl;
-    std::cout << "   -d              delta, if not provided the sample will be about 10\% of the index size" << std::endl;
+    std::cout << "   -d              delta, if not provided the sample will be about 10% of the index size" << std::endl;
     std::cout << "   --bigbwt        use Big-BWT instead of libsais" << std::endl;
     std::cout << "   --f64           explicitly use 64-bit-integers regardless of the file size" << std::endl;
 }
@@ -150,11 +150,13 @@ int main(int argc, char** argv)
     }
 
     out.close();
+    std::cout << "construction throughput: " << format_construction_throughput(n, time_diff_ns(t1, t2)) << std::endl;
     std::cout << "Wrote " << format_size(size_index) << " bytes to disk." << std::endl;
     uint64_t memory_peak = malloc_count_peak();
     uint64_t time_ns = time_diff_ns(t1, t2);
 
     std::cout << "RESULT"
+        << " construction_throughput_mb_per_s=" << construction_throughput_mb_per_s(n, time_ns)
         << " algo=rlzsa_build"
         << " time_ms=" << time_ns
         << " peak_mem_usage=" << memory_peak

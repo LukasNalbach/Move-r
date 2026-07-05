@@ -171,7 +171,7 @@ public:
  * @param str the string to resize
  * @param size the new size
  */
-static void no_init_resize(std::string& str, size_t size)
+inline void no_init_resize(std::string& str, size_t size)
 {
     (*reinterpret_cast<std::basic_string<char, std::char_traits<char>, default_init_allocator<char>>*>(&str)).resize(size);
 }
@@ -218,7 +218,7 @@ static void no_init_resize(std::vector<std::tuple<T, T, T>>& vec, size_t size)
  * @param path the path
  * @return the file name (path itself if it contains no separator)
  */
-static std::string basename(const std::string& path)
+inline std::string basename(const std::string& path)
 {
     return path.substr(path.find_last_of("/\\") + 1);
 }

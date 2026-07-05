@@ -30,6 +30,8 @@
 #include <string>
 #include <chrono>
 #include <iostream>
+#include <iomanip>
+#include <sstream>
 
 /**
  * @brief formats a pair as the string "(first,second)"
@@ -85,7 +87,7 @@ static std::string format_time(uint64_t ns)
  * @param ns the duration in nanoseconds
  * @return the formatted query throughput
  */
-static std::string format_query_throughput(uint64_t num_queries, uint64_t ns)
+inline std::string format_query_throughput(uint64_t num_queries, uint64_t ns)
 {
     std::string str;
     double queries_per_ns = num_queries / (double)ns;
@@ -104,11 +106,35 @@ static std::string format_query_throughput(uint64_t num_queries, uint64_t ns)
 }
 
 /**
+ * @brief computes an index-construction throughput in MB/s (megabytes = 10^6 bytes, matching format_size)
+ * @param n_bytes the number of input bytes processed (the text length)
+ * @param time_ns the construction duration in nanoseconds
+ * @return the throughput in MB/s (0 if time_ns is 0)
+ */
+inline double construction_throughput_mb_per_s(uint64_t n_bytes, uint64_t time_ns)
+{
+    return time_ns == 0 ? 0.0 : (n_bytes * 1000.0) / time_ns; // (n_bytes / 1e6) / (time_ns / 1e9)
+}
+
+/**
+ * @brief formats an index-construction throughput in MB/s (megabytes = 10^6 bytes, matching format_size)
+ * @param n_bytes the number of input bytes processed (the text length)
+ * @param time_ns the construction duration in nanoseconds
+ * @return the formatted throughput, e.g. "123.45 MB/s"
+ */
+inline std::string format_construction_throughput(uint64_t n_bytes, uint64_t time_ns)
+{
+    std::ostringstream str;
+    str << std::fixed << std::setprecision(2) << construction_throughput_mb_per_s(n_bytes, time_ns) << " MB/s";
+    return str.str();
+}
+
+/**
  * @brief formats a size in bytes with an appropriate unit (B, KB, MB or GB)
  * @param B a size in bytes
  * @return the formatted size
  */
-static std::string format_size(uint64_t B)
+inline std::string format_size(uint64_t B)
 {
     std::string size_str;
 
@@ -130,7 +156,7 @@ static std::string format_size(uint64_t B)
  * @param p a number of threads
  * @return the formatted thread count
  */
-static std::string format_threads(uint16_t p)
+inline std::string format_threads(uint16_t p)
 {
     if (p == 1) {
         return "1 thread";
@@ -166,7 +192,7 @@ static uint64_t time_diff_ns(std::chrono::steady_clock::time_point t1, std::chro
  * @param t the earlier time point
  * @return the time difference now - t in minutes
  */
-static uint64_t time_diff_min(std::chrono::steady_clock::time_point t)
+inline uint64_t time_diff_min(std::chrono::steady_clock::time_point t)
 {
     return time_diff_min(t, std::chrono::steady_clock::now());
 }
@@ -176,7 +202,7 @@ static uint64_t time_diff_min(std::chrono::steady_clock::time_point t)
  * @param t the earlier time point
  * @return the time difference now - t in nanoseconds
  */
-static uint64_t time_diff_ns(std::chrono::steady_clock::time_point t)
+inline uint64_t time_diff_ns(std::chrono::steady_clock::time_point t)
 {
     return time_diff_ns(t, std::chrono::steady_clock::now());
 }
@@ -209,7 +235,7 @@ static std::chrono::steady_clock::time_point log_runtime(std::chrono::steady_clo
  * @param time phase timer; set to now() (only when logging)
  * @param msg message describing the phase
  */
-static void log_phase_start(bool log, std::chrono::steady_clock::time_point& time, const std::string& msg)
+inline void log_phase_start(bool log, std::chrono::steady_clock::time_point& time, const std::string& msg)
 {
     if (log) {
         time = now();
@@ -225,7 +251,7 @@ static void log_phase_start(bool log, std::chrono::steady_clock::time_point& tim
  * @param mf measurement-file stream (nullptr => nothing written)
  * @param mf_key measurement-file key for the elapsed time (empty => nothing written)
  */
-static void log_phase_end(bool log, std::chrono::steady_clock::time_point& time, std::ostream* mf = nullptr, const std::string& mf_key = "")
+inline void log_phase_end(bool log, std::chrono::steady_clock::time_point& time, std::ostream* mf = nullptr, const std::string& mf_key = "")
 {
     if (log) {
         if (!mf_key.empty() && mf != nullptr)
@@ -238,7 +264,7 @@ static void log_phase_end(bool log, std::chrono::steady_clock::time_point& time,
  * @brief prints a message to std::cout
  * @param message the message to print
  */
-static void log_message(std::string message)
+inline void log_message(std::string message)
 {
     std::cout << message << std::flush;
 }
@@ -249,7 +275,7 @@ static void log_message(std::string message)
  * @param log whether logging is enabled
  * @param message message to print (include a trailing "\n" for a header line)
  */
-static void log_message(bool log, const std::string& message)
+inline void log_message(bool log, const std::string& message)
 {
     if (log) std::cout << message << std::flush;
 }

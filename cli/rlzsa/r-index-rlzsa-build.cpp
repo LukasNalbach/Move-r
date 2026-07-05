@@ -148,11 +148,13 @@ int main(int argc, char** argv)
     }
 
     out.close();
+    std::cout << "construction throughput: " << format_construction_throughput(n, time_diff_ns(t1, t2)) << std::endl;
     std::cout << "Wrote " << format_size(size_index) << " bytes to disk." << std::endl;
     uint64_t memory_peak = malloc_count_peak();
     uint64_t time_ns = time_diff_ns(t1, t2);
 
     std::cout << "RESULT"
+        << " construction_throughput_mb_per_s=" << construction_throughput_mb_per_s(n, time_ns)
         << " algo=r_index_rlzsa_build"
         << " time_construction=" << time_ns
         << " peak_mem_usage=" << memory_peak

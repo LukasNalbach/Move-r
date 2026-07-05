@@ -33,7 +33,7 @@
 
 static constexpr int min_args = 6;
 int arg_idx = 1;
-int64_t k = -1;
+uint64_t k = -1;
 std::string scheme_str;
 distance_metric_t dist_metr = NO_METRIC;
 search_scheme_t search_scheme;
@@ -606,8 +606,9 @@ int main(int argc, char** argv)
     if (is_default_scheme) {
         arg = next_arg(argc, argv, "'-k <mismatches>'");
         if (arg != "-k") help("error: expected '-k <mismatches>'");
-        k = atoi(next_arg(argc, argv, "<mismatches>"));
-        if (k < 0) help("error: invalid k value");
+        int32_t k_arg = atoi(next_arg(argc, argv, "<mismatches>"));
+        k = k_arg;
+        if (k_arg < 0) help("error: invalid k value");
         if      (scheme_str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k);
         else if (scheme_str == "suffix_filter") search_scheme = suffix_filter_scheme(k);
         else if (scheme_str == "min_u")         search_scheme = min_u_scheme(k);

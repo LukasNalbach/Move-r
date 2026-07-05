@@ -50,8 +50,8 @@
 // the standalone SA-based indexes (lzendsa, rlzsa, ...) are designed for byte values >= 2: the value 0 is
 // reserved as the suffix-array sentinel and 1 is used internally as a BWT-escape, so their inputs are drawn
 // from the remaining alphabet (matching how the indexes are used on real text)
-static constexpr char sa_index_min_uchar = 2;
-static constexpr char sa_index_max_uchar = std::numeric_limits<char>::max() - 2;
+static constexpr char min_char = std::numeric_limits<char>::min();
+static constexpr char max_char = std::numeric_limits<char>::max() - 2;
 
 /**
  * @brief computes the suffix array of input with an appended 0-sentinel (i.e. over the n + 1 suffixes), which

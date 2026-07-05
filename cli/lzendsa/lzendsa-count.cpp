@@ -48,7 +48,7 @@ void help()
 }
 
 template <typename int_t>
-void count(std::string& input, std::ifstream& index_file, std::ifstream& patterns_file, std::string output_filename, std::string file_name)
+void count(std::string& input, std::ifstream& index_file, std::ifstream& patterns_file, std::string /*output_filename*/, std::string file_name)
 {
     std::cout << "Loading lzendsa" << std::flush;
     lzendsa<int_t> index;

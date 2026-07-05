@@ -48,8 +48,9 @@ inline static pos_t bin_search_max_leq(pos_t value, pos_t left, pos_t right, fnc
 
     while (left != right) {
         middle = left + (right - left) / 2 + 1;
+        pos_t middle_value = value_at(middle);
 
-        if (value_at(middle) <= value) {
+        if (middle_value <= value) {
             left = middle;
         } else {
             right = middle - 1;
@@ -77,8 +78,9 @@ inline static pos_t bin_search_min_geq(pos_t value, pos_t left, pos_t right, fnc
 
     while (left != right) {
         middle = left + (right - left) / 2;
+        pos_t middle_value = value_at(middle);
 
-        if (value <= value_at(middle)) {
+        if (value <= middle_value) {
             right = middle;
         } else {
             left = middle + 1;

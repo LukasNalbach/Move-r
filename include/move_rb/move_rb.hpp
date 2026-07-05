@@ -531,7 +531,7 @@ public:
              * @param ctx the given search context
              * @return the hash computed from just the beginning of the interval
              */
-            inline static pos_t operator()(const search_context_t& ctx)
+            inline pos_t operator()(const search_context_t& ctx) const
             {
                 auto [b, e] = ctx.forward_sa_interval();
                 pos_t hash = pos_hash<pos_t>(b);
