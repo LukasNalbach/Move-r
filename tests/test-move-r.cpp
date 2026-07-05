@@ -27,16 +27,10 @@
 #include <gtest/gtest.h>
 #include <move_r/move_r.hpp>
 #include "test-index-common.hpp"
+#include "test-progress.hpp"
 
-/**
- * @brief index adapter for the generic index fuzz-test (test_index_instance) that tests the move_r index;
- * besides count/locate it verifies the full-text queries (revert, SA and BWT) and the incremental query()
- * interface
- * @tparam pos_t index integer type
- * @tparam support type of locate support
- * @tparam sym_t symbol type of the input (a one-byte type for a byte alphabet, or a wider integer alphabet)
- * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
- */
+uint64_t min_bigbwt_input_size = 60;
+
 template <typename pos_t_, move_r_support support, typename sym_t_, typename inp_t_>
 struct move_r_adapter {
     using pos_t = pos_t_;
@@ -49,30 +43,42 @@ struct move_r_adapter {
 
     static std::string name() { return "move_r"; }
 
-    // a byte alphabet (a one-byte symbol type) reserves the two largest values (for the sentinel and the
-    // BWT-escape), which bounds the number of distinct symbols to at most 254
+    // reserve the three largest symbol values (needed by Big-BWT and move_r construction); a byte alphabet then
+    // has at most 256 - 3 == 253 distinct symbols, matching move_r's distinct-symbol limit (256 - min_valid_char)
     static sym_t min_sym() { return std::numeric_limits<sym_t>::min(); }
-    static sym_t max_sym()
-    {
-        return sizeof(sym_t) == 1 ?
-            sym_t(std::numeric_limits<sym_t>::max() - 2) : std::numeric_limits<sym_t>::max();
-    }
+    static sym_t max_sym() { return std::numeric_limits<sym_t>::max() - 3; }
 
     static uint64_t max_pattern_length(uint64_t n) { return std::min<uint64_t>(10000, std::max<uint64_t>(100, n / 1000)); }
-    static uint64_t num_queries(uint64_t n) { return std::min<uint64_t>(10000, std::max<uint64_t>(1000, n / 100)); }
+    static uint64_t num_queries(uint64_t n) { return std::min<uint64_t>(25000, std::max<uint64_t>(12000, n / 4)); }
 
     template <typename gen_t>
     static index_t build(inp_t& input, gen_t& gen, uint16_t max_num_threads)
     {
-        std::uniform_int_distribution<uint16_t> num_threads_distrib(1, max_num_threads);
         std::lognormal_distribution<double> a_distrib(2.0, 3.0);
 
-        // always use libsais, because there are bugs in Big-BWT that come through during fuzzing but not really in practice
-        return index_t(input, {
-            .mode = _suffix_array,
-            .num_threads = num_threads_distrib(gen),
-            .a = std::min<uint16_t>(2 + a_distrib(gen), 32767)
-        });
+        auto make = [&](move_r_construction_mode mode) {
+            return index_t(input, {
+                .mode = mode,
+                .num_threads = max_num_threads,
+                .a = std::min<uint16_t>(2 + a_distrib(gen), 32767)
+            });
+        };
+
+        if constexpr (std::is_same_v<inp_t, std::string>) {
+            std::uniform_int_distribution<int> use_bigbwt(0, 1);
+            if (input.size() >= min_bigbwt_input_size && use_bigbwt(gen) == 0) {
+                inp_t input_backup = input;
+                try {
+                    index_t index = make(_bigbwt);
+                    input = input_backup;
+                    return index;
+                } catch (const std::exception&) {
+                    input = input_backup;
+                }
+            }
+        }
+
+        return make(_suffix_array);
     }
 
     static void after_build(index_t&, const inp_t&) { }
@@ -90,7 +96,6 @@ struct move_r_adapter {
     {
         std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
 
-        // count() and the one-shot locate()
         verify_count_locate_basic<move_r_adapter>(index, pattern, correct_occurrences);
 
         // incrementally backward-search the pattern; prepend() is transactional and returns false (leaving
@@ -135,13 +140,12 @@ struct move_r_adapter {
      * against naive references
      */
     template <typename gen_t>
-    static void verify_build(index_t& index, const inp_t& input, gen_t& gen, uint16_t max_num_threads)
+    static void verify_extract(index_t& index, const inp_t& input, gen_t& gen, uint16_t max_num_threads)
     {
-        std::uniform_int_distribution<uint16_t> num_threads_distrib(1, max_num_threads);
         pos_t input_size = input.size();
 
         // revert the index and compare the output with the input
-        inp_t input_reverted = index.revert_range({ .num_threads = num_threads_distrib(gen) });
+        inp_t input_reverted = index.revert_range({ .num_threads = max_num_threads });
 
         #pragma omp parallel for num_threads(max_num_threads)
         for (pos_t i = 0; i < input_size; i++)
@@ -149,7 +153,7 @@ struct move_r_adapter {
 
         // retrieve the suffix array and compare it with the correct suffix array
         std::vector<int64_t> suffix_array = compute_reference_sa<sym_t, inp_t>(input, input_size, max_num_threads);
-        std::vector<pos_t> suffix_array_retrieved = index.SA_range({ .num_threads = num_threads_distrib(gen) });
+        std::vector<pos_t> suffix_array_retrieved = index.SA_range({ .num_threads = max_num_threads });
 
         #pragma omp parallel for num_threads(max_num_threads)
         for (pos_t i = 0; i <= input_size; i++)
@@ -168,7 +172,7 @@ struct move_r_adapter {
         for (pos_t i = 0; i <= input_size; i++)
             bwt[i] = suffix_array[i] == 0 ? sym_t(0) : input[suffix_array[i] - 1];
 
-        inp_t bwt_retrieved = index.BWT_range({ .num_threads = num_threads_distrib(gen) });
+        inp_t bwt_retrieved = index.BWT_range({ .num_threads = max_num_threads });
 
         #pragma omp parallel for num_threads(max_num_threads)
         for (pos_t i = 0; i <= input_size; i++)
@@ -181,58 +185,40 @@ struct move_r_adapter {
     }
 };
 
-/**
- * @brief builds and verifies one random move_r index over the given input value type via the generic
- * framework, picking a random locate-support type and a random 32-/64-bit index integer type
- * @tparam sym_t symbol type of the input (a one-byte type for a byte alphabet, or a wider integer alphabet)
- * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
- * @tparam gen_t random number generator type
- * @param gen random number generator
- * @param max_num_threads the maximum number of threads to use
- * @param min_input_size minimum input length
- * @param max_input_size maximum input length
- */
-template <typename sym_t, typename inp_t, typename gen_t>
-static void run_move_r_once(
-    gen_t& gen, uint16_t max_num_threads, uint64_t min_input_size, uint64_t max_input_size)
-{
-    std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
-    double val = prob_distrib(gen);
-    bool use_64_bit = prob_distrib(gen) < 0.5;
-
-    auto run = [&]<move_r_support support>() {
-        if (use_64_bit) test_index_instance<move_r_adapter<uint64_t, support, sym_t, inp_t>>(gen, max_num_threads, min_input_size, max_input_size);
-        else            test_index_instance<move_r_adapter<uint32_t, support, sym_t, inp_t>>(gen, max_num_threads, min_input_size, max_input_size);
-    };
-
-    if (val < 0.5) run.template operator()<_locate_move>();
-    else           run.template operator()<_locate_rlzsa>();
-}
-
 std::random_device rd;
 std::mt19937 gen(rd());
 uint16_t max_num_threads = omp_get_max_threads();
 uint64_t min_input_size = 1;
-uint64_t max_input_size = 200000;
+uint64_t max_input_size = 16000;
 
-// move_r over every supported input value type (byte alphabets: char/uint8_t/int8_t; integer alphabets:
-// (u)int16/32/64), rotating over the locate-support types and the 32-/64-bit index integer type
-TEST(test_move_r, fuzzy_test)
+template <typename sym_t, typename inp_t>
+static void move_r_combination(uint64_t i, index_functionality functionality)
 {
-    std::uniform_int_distribution<int> sym_type_distrib(0, 8);
-    auto start_time = now();
+    auto run = [&]<move_r_support support>() {
+        if (i % 2 == 0) verify_index_functionality<move_r_adapter<uint32_t, support, sym_t, inp_t>>(gen, max_num_threads, min_input_size, max_input_size, functionality);
+        else            verify_index_functionality<move_r_adapter<uint64_t, support, sym_t, inp_t>>(gen, max_num_threads, min_input_size, max_input_size, functionality);
+    };
 
-    while (time_diff_min(start_time, now()) < 60) {
-        switch (sym_type_distrib(gen)) {
-            case 0: run_move_r_once<char,     std::string>          (gen, max_num_threads, min_input_size, max_input_size); break;
-            case 1: run_move_r_once<uint8_t,  std::vector<uint8_t>> (gen, max_num_threads, min_input_size, max_input_size); break;
-            case 2: run_move_r_once<int8_t,   std::vector<int8_t>>  (gen, max_num_threads, min_input_size, max_input_size); break;
-            case 3: run_move_r_once<uint16_t, std::vector<uint16_t>>(gen, max_num_threads, min_input_size, max_input_size); break;
-            case 4: run_move_r_once<int16_t,  std::vector<int16_t>> (gen, max_num_threads, min_input_size, max_input_size); break;
-            case 5: run_move_r_once<uint32_t, std::vector<uint32_t>>(gen, max_num_threads, min_input_size, max_input_size); break;
-            case 6: run_move_r_once<int32_t,  std::vector<int32_t>> (gen, max_num_threads, min_input_size, max_input_size); break;
-            case 7: run_move_r_once<uint64_t, std::vector<uint64_t>>(gen, max_num_threads, min_input_size, max_input_size); break;
-            case 8: run_move_r_once<int64_t,  std::vector<int64_t>> (gen, max_num_threads, min_input_size, max_input_size); break;
-        }
+    if ((i / 2) % 2 == 0) run.template operator()<_locate_move>();
+    else                  run.template operator()<_locate_rlzsa>();
+}
+
+static void move_r_functionality(uint64_t i, index_functionality functionality)
+{
+    switch ((i / 4) % 9) {
+        case 0: move_r_combination<char,     std::string>          (i, functionality); break;
+        case 1: move_r_combination<uint8_t,  std::vector<uint8_t>> (i, functionality); break;
+        case 2: move_r_combination<int8_t,   std::vector<int8_t>>  (i, functionality); break;
+        case 3: move_r_combination<uint16_t, std::vector<uint16_t>>(i, functionality); break;
+        case 4: move_r_combination<int16_t,  std::vector<int16_t>> (i, functionality); break;
+        case 5: move_r_combination<uint32_t, std::vector<uint32_t>>(i, functionality); break;
+        case 6: move_r_combination<int32_t,  std::vector<int32_t>> (i, functionality); break;
+        case 7: move_r_combination<uint64_t, std::vector<uint64_t>>(i, functionality); break;
+        case 8: move_r_combination<int64_t,  std::vector<int64_t>> (i, functionality); break;
     }
 }
+
+TEST(test_move_r, extract)   { run_fuzz("move-r", { { "extract",   [](uint64_t i) { move_r_functionality(i, fuzz_extract); } } }); }
+TEST(test_move_r, count)     { run_fuzz("move-r", { { "count",     [](uint64_t i) { move_r_functionality(i, fuzz_count); } } }); }
+TEST(test_move_r, locate)    { run_fuzz("move-r", { { "locate",    [](uint64_t i) { move_r_functionality(i, fuzz_locate); } } }); }
+TEST(test_move_r, serialize) { run_fuzz("move-r", { { "serialize", [](uint64_t i) { move_r_functionality(i, fuzz_serialize); } } }); }

@@ -35,6 +35,7 @@
 #include <misc/strings.hpp>
 #include <misc/utils.hpp>
 #include "test-index-common.hpp"
+#include "test-progress.hpp"
 
 std::random_device rd;
 std::mt19937 gen(rd());
@@ -49,14 +50,156 @@ uint16_t max_num_threads = omp_get_max_threads();
  * symbol type), so the input value type is fixed and only pos_t is varied.
  * @tparam pos_t index integer type (uint32_t or uint64_t)
  */
+enum decode_op { decode_report, decode_step, decode_skip, decode_turn };
+
+// each of the following verifies one group of rlzsa decode-context operations for one query (1 <= l < c <= r
+// <= n-1), against the reference suffix array sa; verify_decode_context below just dispatches to the selected one
+
+// range reporting: report_right decodes SA[l..r] left-to-right, report_left decodes SA[c-1..l] right-to-left
 template <typename pos_t>
-static void verify_decode_context()
+static void verify_decode_report(const rlzsa_opt<pos_t>& rlz, const std::vector<int64_t>& sa, pos_t l, pos_t c, pos_t r)
+{
+    {
+        auto dec = rlz.decode();
+        dec.init_right(l);
+        dec.set_value(sa[l - 1]);
+        EXPECT_EQ(dec.pos(), l);
+
+        pos_t cnt = 0;
+        dec.report_right(r, [&](pos_t p, pos_t v) {
+            EXPECT_EQ(v, sa[p]);
+            cnt++;
+        });
+        EXPECT_EQ(cnt, r - l + 1);
+    }
+
+    {
+        auto dec = rlz.decode();
+        dec.init_left(c);
+        dec.set_value(sa[c]);
+        EXPECT_EQ(dec.pos(), c);
+        EXPECT_EQ(dec.value(), sa[c]);
+
+        std::vector<pos_t> res;
+        dec.report_left(l, [&](pos_t v) { res.push_back(v); });
+        EXPECT_EQ(res.size(), c - l);
+        for (pos_t k = 0; k < res.size() && k < c - l; k++)
+            EXPECT_EQ(res[k], sa[c - 1 - k]);
+    }
+}
+
+// single-stepping: next() decodes SA[l..r] one value forward, prev() decodes SA[c-1..l] one value backward,
+// plus the set_pos()/set_value() accessor round-trip
+template <typename pos_t>
+static void verify_decode_step(const rlzsa_opt<pos_t>& rlz, const std::vector<int64_t>& sa, pos_t l, pos_t c, pos_t r)
+{
+    {
+        auto dec = rlz.decode();
+        dec.init_right(l);
+        dec.set_value(sa[l - 1]);
+        for (pos_t p = l; p <= r; p++)
+            EXPECT_EQ(dec.next(), sa[p]);
+    }
+
+    {
+        auto dec = rlz.decode();
+        dec.init_left(c);
+        dec.set_value(sa[c]);
+        for (pos_t p = c; p > l; p--)
+            EXPECT_EQ(dec.prev(), sa[p - 1]);
+    }
+
+    {
+        auto dec = rlz.decode();
+        dec.set_pos(c);
+        EXPECT_EQ(dec.pos(), c);
+        dec.set_value(sa[c]);
+        EXPECT_EQ(dec.value(), sa[c]);
+    }
+}
+
+// skipping: skip_right jumps l -> c then decodes SA[c..r]; skip_left jumps r -> c then decodes SA[c-1..l]
+template <typename pos_t>
+static void verify_decode_skip(const rlzsa_opt<pos_t>& rlz, const std::vector<int64_t>& sa, pos_t l, pos_t c, pos_t r)
+{
+    {
+        auto dec = rlz.decode();
+        dec.init_right(l);
+        dec.set_value(sa[l - 1]);
+        dec.skip_right(c);
+        EXPECT_EQ(dec.pos(), c);
+        EXPECT_EQ(dec.value(), sa[c - 1]);
+
+        pos_t cnt = 0;
+        dec.report_right(r, [&](pos_t v) {
+            EXPECT_EQ(v, sa[c + cnt]);
+            cnt++;
+        });
+        EXPECT_EQ(cnt, r - c + 1);
+    }
+
+    {
+        auto dec = rlz.decode();
+        dec.init_left(r);
+        dec.set_value(sa[r]);
+        dec.skip_left(c);
+        EXPECT_EQ(dec.pos(), c);
+        EXPECT_EQ(dec.value(), sa[c]);
+
+        std::vector<pos_t> res;
+        dec.report_left(l, [&](pos_t v) { res.push_back(v); });
+        EXPECT_EQ(res.size(), c - l);
+        for (pos_t k = 0; k < res.size() && k < c - l; k++)
+            EXPECT_EQ(res[k], sa[c - 1 - k]);
+    }
+}
+
+// direction turning: turn_left makes a right-ready context left-ready (then prev()), turn_right the converse
+// (then next()), and turn_left+turn_right is the identity
+template <typename pos_t>
+static void verify_decode_turn(const rlzsa_opt<pos_t>& rlz, const std::vector<int64_t>& sa, pos_t l, pos_t c, pos_t r)
+{
+    {
+        auto dec = rlz.decode();
+        dec.init_right(c);
+        dec.turn_left();
+        EXPECT_EQ(dec.pos(), c);
+        dec.set_value(sa[c]);
+        for (pos_t p = c; p > l; p--)
+            EXPECT_EQ(dec.prev(), sa[p - 1]);
+    }
+
+    {
+        auto dec = rlz.decode();
+        dec.init_left(c);
+        dec.turn_right();
+        EXPECT_EQ(dec.pos(), c);
+        dec.set_value(sa[c - 1]);
+        for (pos_t p = c; p <= r; p++)
+            EXPECT_EQ(dec.next(), sa[p]);
+    }
+
+    {
+        auto dec = rlz.decode();
+        dec.init_right(c);
+        dec.turn_left();
+        dec.turn_right();
+        dec.set_value(sa[c - 1]);
+        for (pos_t p = c; p <= r; p++)
+            EXPECT_EQ(dec.next(), sa[p]);
+    }
+}
+
+// builds a move_r index (with an rlzsa) over a random repetitive input and verifies one group of decode-context
+// operations in parallel against the reference suffix array
+template <typename pos_t>
+static void verify_decode_context(decode_op op)
 {
     char min_sym = std::numeric_limits<char>::min();
     char max_sym = std::numeric_limits<char>::max() - 2;
 
     // a repetitive input over a small, random alphabet, so the rlzsa contains both literal and copy phrases
-    std::string input = random_repetitive_input<std::string>(500, 30000, min_sym, max_sym);
+    std::string input = random_repetitive_input<std::string>(500, 165000, min_sym, max_sym);
     uint64_t input_size = input.size();
 
     // build from a copy (the constructor appends a sentinel) and keep input for the reference suffix array
@@ -78,146 +221,27 @@ static void verify_decode_context()
         std::mt19937 gen_thr(rd_thr());
 
         for (uint64_t q = 0; q < queries_per_thread; q++) {
-            // pick 1 <= l < c <= r <= n-1: l >= 1 so SA[l-1] exists as the rightward seed, and c > l so the
-            // leftward decode range [l, c) is non-empty
             pos_t l = std::uniform_int_distribution<pos_t>(1, n - 2)(gen_thr);
             pos_t r = std::uniform_int_distribution<pos_t>(l + 1, n - 1)(gen_thr);
             pos_t c = std::uniform_int_distribution<pos_t>(l + 1, r)(gen_thr);
 
-            // init_right + report_right: decode SA[l..r] from left to right (reporting (pos, value))
-            {
-                auto dec = rlz.decode();
-                dec.init_right(l);
-                dec.set_value(sa[l - 1]);
-                EXPECT_EQ(dec.pos(), l);
-
-                pos_t cnt = 0;
-                dec.report_right(r, [&](pos_t p, pos_t v) {
-                    EXPECT_EQ(v, sa[p]);
-                    cnt++;
-                });
-                EXPECT_EQ(cnt, r - l + 1);
-            }
-
-            // init_left + report_left: decode SA[c-1 .. l] from right to left
-            {
-                auto dec = rlz.decode();
-                dec.init_left(c);
-                dec.set_value(sa[c]);
-                EXPECT_EQ(dec.pos(), c);
-                EXPECT_EQ(dec.value(), sa[c]);
-
-                std::vector<pos_t> res;
-                dec.report_left(l, [&](pos_t v) { res.push_back(v); });
-                EXPECT_EQ(res.size(), c - l);
-                for (pos_t k = 0; k < res.size() && k < c - l; k++)
-                    EXPECT_EQ(res[k], sa[c - 1 - k]);
-            }
-
-            // next: decode SA[l..r] one value at a time
-            {
-                auto dec = rlz.decode();
-                dec.init_right(l);
-                dec.set_value(sa[l - 1]);
-                for (pos_t p = l; p <= r; p++)
-                    EXPECT_EQ(dec.next(), sa[p]);
-            }
-
-            // prev: decode SA[c-1 .. l] one value at a time
-            {
-                auto dec = rlz.decode();
-                dec.init_left(c);
-                dec.set_value(sa[c]);
-                for (pos_t p = c; p > l; p--)
-                    EXPECT_EQ(dec.prev(), sa[p - 1]);
-            }
-
-            // skip_right then report_right: skip from l to c, then decode SA[c..r]
-            {
-                auto dec = rlz.decode();
-                dec.init_right(l);
-                dec.set_value(sa[l - 1]);
-                dec.skip_right(c);
-                EXPECT_EQ(dec.pos(), c);
-                EXPECT_EQ(dec.value(), sa[c - 1]);
-
-                pos_t cnt = 0;
-                dec.report_right(r, [&](pos_t v) {
-                    EXPECT_EQ(v, sa[c + cnt]);
-                    cnt++;
-                });
-                EXPECT_EQ(cnt, r - c + 1);
-            }
-
-            // skip_left then report_left: skip from r to c, then decode SA[c-1 .. l]
-            {
-                auto dec = rlz.decode();
-                dec.init_left(r);
-                dec.set_value(sa[r]);
-                dec.skip_left(c);
-                EXPECT_EQ(dec.pos(), c);
-                EXPECT_EQ(dec.value(), sa[c]);
-
-                std::vector<pos_t> res;
-                dec.report_left(l, [&](pos_t v) { res.push_back(v); });
-                EXPECT_EQ(res.size(), c - l);
-                for (pos_t k = 0; k < res.size() && k < c - l; k++)
-                    EXPECT_EQ(res[k], sa[c - 1 - k]);
-            }
-
-            // turn_left: a right-ready context becomes left-ready, then decode SA[c-1 .. l]
-            {
-                auto dec = rlz.decode();
-                dec.init_right(c);
-                dec.turn_left();
-                EXPECT_EQ(dec.pos(), c);
-                dec.set_value(sa[c]);
-                for (pos_t p = c; p > l; p--)
-                    EXPECT_EQ(dec.prev(), sa[p - 1]);
-            }
-
-            // turn_right: a left-ready context becomes right-ready, then decode SA[c..r]
-            {
-                auto dec = rlz.decode();
-                dec.init_left(c);
-                dec.turn_right();
-                EXPECT_EQ(dec.pos(), c);
-                dec.set_value(sa[c - 1]);
-                for (pos_t p = c; p <= r; p++)
-                    EXPECT_EQ(dec.next(), sa[p]);
-            }
-
-            // turn_left followed by turn_right is the identity (restores the right-ready state)
-            {
-                auto dec = rlz.decode();
-                dec.init_right(c);
-                dec.turn_left();
-                dec.turn_right();
-                dec.set_value(sa[c - 1]);
-                for (pos_t p = c; p <= r; p++)
-                    EXPECT_EQ(dec.next(), sa[p]);
-            }
-
-            // set_pos / set_value accessor round-trip
-            {
-                auto dec = rlz.decode();
-                dec.set_pos(c);
-                EXPECT_EQ(dec.pos(), c);
-                dec.set_value(sa[c]);
-                EXPECT_EQ(dec.value(), sa[c]);
+            switch (op) {
+                case decode_report: verify_decode_report<pos_t>(rlz, sa, l, c, r); break;
+                case decode_step:   verify_decode_step<pos_t>(rlz, sa, l, c, r);   break;
+                case decode_skip:   verify_decode_skip<pos_t>(rlz, sa, l, c, r);   break;
+                case decode_turn:   verify_decode_turn<pos_t>(rlz, sa, l, c, r);   break;
             }
         }
     }
 }
 
-// rlzsa decode context, rotating over the 32-/64-bit index integer type
-TEST(test_rlzsa_opt, fuzzy_test)
+static void rlzsa_functionality(uint64_t i, decode_op op)
 {
-    std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
-    auto start_time = now();
-
-    while (time_diff_min(start_time, now()) < 60) {
-        if (prob_distrib(gen) < 0.5) verify_decode_context<uint32_t>();
-        else                         verify_decode_context<uint64_t>();
-    }
+    if (i % 2 == 0) verify_decode_context<uint32_t>(op);
+    else            verify_decode_context<uint64_t>(op);
 }
+
+TEST(test_rlzsa_opt, report) { run_fuzz("rlzsa-opt", { { "report", [](uint64_t i) { rlzsa_functionality(i, decode_report); } } }); }
+TEST(test_rlzsa_opt, step)   { run_fuzz("rlzsa-opt", { { "step",   [](uint64_t i) { rlzsa_functionality(i, decode_step); } } }); }
+TEST(test_rlzsa_opt, skip)   { run_fuzz("rlzsa-opt", { { "skip",   [](uint64_t i) { rlzsa_functionality(i, decode_skip); } } }); }
+TEST(test_rlzsa_opt, turn)   { run_fuzz("rlzsa-opt", { { "turn",   [](uint64_t i) { rlzsa_functionality(i, decode_turn); } } }); }

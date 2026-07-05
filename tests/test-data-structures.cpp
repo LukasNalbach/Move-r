@@ -38,11 +38,13 @@
 #include <data_structures/interleaved_bit_aligned_vectors.hpp>
 #include <data_structures/interleaved_byte_aligned_vectors.hpp>
 #include <misc/utils.hpp>
+#include <misc/strings.hpp>
 #include <misc/log.hpp>
+#include "test-progress.hpp"
 
-std::random_device rd;
-std::mt19937 gen(rd());
-std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
+// thread-local so run_fuzz can validate independent instances concurrently across the threads
+thread_local std::mt19937 gen(std::random_device{}());
+thread_local std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
 
 using pos_t = uint32_t;
 
@@ -54,10 +56,9 @@ using pos_t = uint32_t;
  * @return a random bit vector
  */
 template <typename gen_t>
-static sdsl::bit_vector random_bit_vector(gen_t& gen)
+static sdsl::bit_vector random_bit_vector(gen_t& gen, uint64_t max_size)
 {
-    std::uniform_int_distribution<uint64_t> size_distrib(1, 20000);
-    uint64_t n = size_distrib(gen);
+    uint64_t n = random_log_uniform_size(1, max_size, gen);
     sdsl::bit_vector bits(n, 0);
 
     double r = prob_distrib(gen);
@@ -133,7 +134,7 @@ static void verify_bit_vector(const sdsl::bit_vector& bits)
  * @param gen random number generator
  */
 template <typename gen_t>
-static void verify_interleaved_bit_aligned_vectors(gen_t& gen)
+static void verify_interleaved_bit_aligned_vectors(gen_t& gen, uint64_t max_size)
 {
     constexpr uint8_t num_vectors = 4;
     std::array<uint8_t, num_vectors> widths = { 1, 9, 21, 33 }; // widths in bits
@@ -143,8 +144,7 @@ static void verify_interleaved_bit_aligned_vectors(gen_t& gen)
     for (uint8_t v = 0; v < num_vectors; v++)
         masks[v] = (uint64_t{1} << widths[v]) - 1;
 
-    std::uniform_int_distribution<uint64_t> size_distrib(1, 5000);
-    uint64_t n = size_distrib(gen);
+    uint64_t n = random_log_uniform_size(1, max_size, gen);
     std::uniform_int_distribution<uint64_t> val_distrib(0, ULONG_MAX);
 
     std::array<std::vector<uint64_t>, num_vectors> reference;
@@ -223,7 +223,7 @@ static void verify_interleaved_bit_aligned_vectors(gen_t& gen)
  * @param gen random number generator
  */
 template <typename gen_t>
-static void verify_interleaved_byte_aligned_vectors(gen_t& gen)
+static void verify_interleaved_byte_aligned_vectors(gen_t& gen, uint64_t max_size)
 {
     constexpr uint8_t num_vectors = 4;
     std::array<uint8_t, num_vectors> widths = { 1, 2, 3, 5 }; // widths in bytes
@@ -233,8 +233,7 @@ static void verify_interleaved_byte_aligned_vectors(gen_t& gen)
     for (uint8_t v = 0; v < num_vectors; v++)
         masks[v] = (uint64_t{1} << (8 * widths[v])) - 1;
 
-    std::uniform_int_distribution<uint64_t> size_distrib(1, 5000);
-    uint64_t n = size_distrib(gen);
+    uint64_t n = random_log_uniform_size(1, max_size, gen);
     std::uniform_int_distribution<uint64_t> val_distrib(0, ULONG_MAX);
 
     std::array<std::vector<uint64_t>, num_vectors> reference;
@@ -331,11 +330,10 @@ static void verify_rank_select_queries(const input_t& input, rank_select_t& inde
  * @param gen random number generator
  */
 template <typename gen_t>
-static void verify_rank_select_support_byte(gen_t& gen)
+static void verify_rank_select_support_byte(gen_t& gen, uint64_t max_size)
 {
-    std::uniform_int_distribution<uint64_t> size_distrib(1, 20000);
     std::uniform_int_distribution<int> sigma_distrib(1, 60);
-    uint64_t n = size_distrib(gen);
+    uint64_t n = random_log_uniform_size(1, max_size, gen);
     int sigma = sigma_distrib(gen);
     std::uniform_int_distribution<int> sym_distrib(1, sigma);
 
@@ -360,12 +358,11 @@ static void verify_rank_select_support_byte(gen_t& gen)
  * @param gen random number generator
  */
 template <typename gen_t>
-static void verify_rank_select_support_int(gen_t& gen)
+static void verify_rank_select_support_int(gen_t& gen, uint64_t max_size)
 {
     // rank_select_support requires an unsigned symbol type for its integer alphabet
-    std::uniform_int_distribution<uint64_t> size_distrib(1, 20000);
     std::uniform_int_distribution<uint32_t> sigma_distrib(1, 200);
-    uint64_t n = size_distrib(gen);
+    uint64_t n = random_log_uniform_size(1, max_size, gen);
     uint32_t sigma = sigma_distrib(gen);
     std::uniform_int_distribution<uint32_t> sym_distrib(0, sigma - 1);
 
@@ -384,27 +381,53 @@ static void verify_rank_select_support_int(gen_t& gen)
     verify_rank_select_queries<uint32_t>(input, index_reloaded, "rank_select (int, reloaded)");
 }
 
-TEST(test_data_structures, fuzzy_test)
+// one gtest test per data structure; each iteration builds a fresh random instance and runs the structure's
+// full verification (build, rank/select/access-style queries and a serialize/load round-trip)
+TEST(test_data_structures, plain_bit_vector)
 {
-    auto start_time = now();
+    run_fuzz("plain-bit-vector", {
+        { "verify", [](uint64_t) { verify_bit_vector<plain_bit_vector<pos_t, true, true, true>>(random_bit_vector(gen, 250'000)); }, true },
+    }, fuzz_iterations(138000));
+}
 
-    while (time_diff_min(start_time, now()) < 60) {
-        double val = prob_distrib(gen);
+TEST(test_data_structures, sd_array)
+{
+    run_fuzz("sd-array", {
+        { "verify", [](uint64_t) { verify_bit_vector<sd_array<pos_t>>(random_bit_vector(gen, 250'000)); }, true },
+    }, fuzz_iterations(30000));
+}
 
-        if (val < 1.0 / 7.0) {
-            verify_bit_vector<plain_bit_vector<pos_t, true, true, true>>(random_bit_vector(gen));
-        } else if (val < 2.0 / 7.0) {
-            verify_bit_vector<sd_array<pos_t>>(random_bit_vector(gen));
-        } else if (val < 3.0 / 7.0) {
-            verify_bit_vector<hybrid_bit_vector<pos_t, true, true, true>>(random_bit_vector(gen));
-        } else if (val < 4.0 / 7.0) {
-            verify_interleaved_bit_aligned_vectors(gen);
-        } else if (val < 5.0 / 7.0) {
-            verify_interleaved_byte_aligned_vectors(gen);
-        } else if (val < 6.0 / 7.0) {
-            verify_rank_select_support_byte(gen);
-        } else {
-            verify_rank_select_support_int(gen);
-        }
-    }
+TEST(test_data_structures, hybrid_bit_vector)
+{
+    run_fuzz("hybrid-bit-vector", {
+        { "verify", [](uint64_t) { verify_bit_vector<hybrid_bit_vector<pos_t, true, true, true>>(random_bit_vector(gen, 250'000)); }, true },
+    }, fuzz_iterations(97000));
+}
+
+TEST(test_data_structures, interleaved_bit_aligned_vectors)
+{
+    run_fuzz("interleaved-bit-aligned-vectors", {
+        { "verify", [](uint64_t) { verify_interleaved_bit_aligned_vectors(gen, 90'000); }, true },
+    }, fuzz_iterations(96000));
+}
+
+TEST(test_data_structures, interleaved_byte_aligned_vectors)
+{
+    run_fuzz("interleaved-byte-aligned-vectors", {
+        { "verify", [](uint64_t) { verify_interleaved_byte_aligned_vectors(gen, 85'000); }, true },
+    }, fuzz_iterations(155000));
+}
+
+TEST(test_data_structures, rank_select_support_byte)
+{
+    run_fuzz("rank-select-support-byte", {
+        { "verify", [](uint64_t) { verify_rank_select_support_byte(gen, 280'000); }, true },
+    }, fuzz_iterations(6850));
+}
+
+TEST(test_data_structures, rank_select_support_int)
+{
+    run_fuzz("rank-select-support-int", {
+        { "verify", [](uint64_t) { verify_rank_select_support_int(gen, 200'000); }, true },
+    }, fuzz_iterations(2000));
 }

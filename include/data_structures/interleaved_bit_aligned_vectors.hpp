@@ -198,17 +198,19 @@ public:
      */
     inline wide_t read_block(uint64_t byte_idx) const
     {
-        return *reinterpret_cast<const wide_t*>(&data_vectors[byte_idx]);
+        wide_t block;
+        std::memcpy(&block, &data_vectors[byte_idx], sizeof(wide_t));
+        return block;
     }
 
     /**
-     * @brief returns a writable reference to the wide_t-sized block of data starting at byte byte_idx
+     * @brief writes the wide_t-sized block of data starting at byte byte_idx
      * @param byte_idx byte index into the interleaved data
-     * @return reference to the wide_t-sized block of data starting at byte byte_idx
+     * @param block the wide_t-sized block of data to write
      */
-    inline wide_t& block(uint64_t byte_idx)
+    inline void write_block(uint64_t byte_idx, wide_t block)
     {
-        return *reinterpret_cast<wide_t*>(&data_vectors[byte_idx]);
+        std::memcpy(&data_vectors[byte_idx], &block, sizeof(wide_t));
     }
 
     /**
@@ -356,7 +358,9 @@ public:
     inline void set(uint64_t i, T v)
     {
         auto [byte_idx, bit_offs] = block_info<vec_idx>(i);
-        block(byte_idx) = (read_block(byte_idx) & ~(masks[vec_idx] << bit_offs)) | ((wide_t(v) & masks[vec_idx]) << bit_offs);
+        write_block(byte_idx,
+            (read_block(byte_idx) & ~(masks[vec_idx] << bit_offs)) |
+            ((wide_t(v) & masks[vec_idx]) << bit_offs));
     }
 
     /**

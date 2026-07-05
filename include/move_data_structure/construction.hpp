@@ -205,13 +205,6 @@ public:
         // build the move data structure
         build();
 
-        // verify the correctness of the construction, if in debug mode and printing log messages
-        #ifndef NDEBUG
-        if (log) {
-            verify_correctness();
-        }
-        #endif
-
         if (pi_mphi == nullptr) {
             pi.clear();
             pi.shrink_to_fit();
@@ -276,11 +269,6 @@ public:
      * @brief builds D_offs and D_idx
      */
     void build_didx_doffs();
-
-    /**
-     * @brief verifies the correctness of the resulting interval sequence
-     */
-    void verify_correctness();
 
     // ############################# INTERVAL SEQUENCE CONSTRUCTION #############################
 

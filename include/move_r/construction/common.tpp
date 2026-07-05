@@ -84,11 +84,12 @@ void move_r<support, sym_t, pos_t>::construction::preprocess_t(bool in_memory, b
             }
         }
 
-        pos_t max_num_chars = 256 - min_valid_char;
-        if (idx.sigma > max_num_chars) {
-            /* If T[0..n-2] contains more than 256 - min_valid_char distinct characters, we cannot remap them into the
+        /* If T[0..n-2] contains more than 256 - min_valid_char distinct characters, we cannot remap them into the
             range [0..255] without using a character less than min_valid_char, hence we cannot build an index for T. */
-            std::cout << "Error: the input contains more than " << std::to_string(256 - min_valid_char) << " distinct characters" << std::endl;
+        pos_t max_num_chars = 256 - min_valid_char;
+
+        if (idx.sigma - 1 > max_num_chars) {
+            std::cout << "Error: the input contains more than " << std::to_string(max_num_chars) << " distinct characters" << std::endl;
             return;
         }
 
