@@ -71,28 +71,23 @@ inline uint64_t malloc_count_peak_memory_usage(std::ifstream& leftg_file)
     no_init_resize(leftg_file_content, leftg_file.tellg());
     leftg_file.seekg(0, std::ios::beg);
     leftg_file.read((char*) &leftg_file_content[0], leftg_file_content.size());
-    int32_t pos = 0;
-    uint64_t cur_peak = 0;
-    std::string str_cur_peak;
+    int64_t size = (int64_t) leftg_file_content.size();
+    int64_t pos = 0;
+    double cur_peak_kib = 0.0;
 
-    while ((pos = leftg_file_content.find(", peak", pos)) != -1) {
-        while (!('0' <= leftg_file_content[pos] && leftg_file_content[pos] <= '9')) {
-            pos++;
-        }
+    auto is_digit = [&](int64_t i) { return '0' <= leftg_file_content[i] && leftg_file_content[i] <= '9'; };
 
-        while (('0' <= leftg_file_content[pos] && leftg_file_content[pos] <= '9') || leftg_file_content[pos] == '.') {
-            if (leftg_file_content[pos] != '.') {
-                str_cur_peak.push_back(leftg_file_content[pos]);
-            }
-
-            pos++;
-        }
-
-        cur_peak = std::max(cur_peak, (uint64_t)stol(str_cur_peak));
-        str_cur_peak.clear();
+    while ((pos = leftg_file_content.find(", peak", pos)) != (int64_t) std::string::npos) {
+        pos += 6;
+        while (pos < size && !is_digit(pos)) pos++;
+        std::string str_cur_peak;
+        while (pos < size && (is_digit(pos) || leftg_file_content[pos] == '.'))
+            str_cur_peak.push_back(leftg_file_content[pos++]);
+        if (!str_cur_peak.empty())
+            cur_peak_kib = std::max(cur_peak_kib, std::stod(str_cur_peak));
     }
 
-    return cur_peak;
+    return (uint64_t) (cur_peak_kib * 1024.0);
 }
 
 /**

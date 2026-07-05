@@ -30,8 +30,9 @@
 #include <rlzsa/rlzsa.hpp>
 #include <rlzsa/r_index_rlzsa.hpp>
 #include "test-index-common.hpp"
+#include "test-progress.hpp"
 
-// adapters for the generic index fuzz-test (test_index_instance) that test the standalone SA-based indexes.
+// adapters for the generic index fuzz-test (verify_index_functionality) that test the standalone SA-based indexes.
 // each concrete index supplies a small config type:
 //   - self SA indexes (lzendsa, rlzsa):   { using index_t; static index_t make(std::string&); static std::string name(); }
 //   - r-index variants (r_index_lzendsa, r_index_rlzsa): additionally { static std::vector<int_t> do_locate(index_t&, std::string&); }
@@ -89,7 +90,7 @@ struct csa_index_adapter {
     }
 
     template <typename gen_t>
-    static void verify_build(index_t& index, const std::string& input, gen_t& gen, uint16_t num_threads)
+    static void verify_extract(index_t& index, const std::string& input, gen_t& gen, uint16_t num_threads)
     {
         std::vector<int64_t> sa = compute_reference_sa<char, std::string>(input, input.size(), num_threads);
         uint64_t n = sa.size();
@@ -128,7 +129,7 @@ struct sa_r_index_adapter {
     static constexpr bool serializable = true;
 
     static std::string name() { return config_t::name(); }
-    static char min_sym() { return min_char; }
+    static char min_sym() { return 2; }
     static char max_sym() { return max_char; }
     static uint64_t max_pattern_length(uint64_t) { return 100; }
     static uint64_t num_queries(uint64_t n) { return ::num_queries(n); }
@@ -156,7 +157,7 @@ struct sa_r_index_adapter {
     }
 
     template <typename gen_t>
-    static void verify_build(index_t&, const std::string&, gen_t&, uint16_t) { }
+    static void verify_extract(index_t&, const std::string&, gen_t&, uint16_t) { }
 };
 
 // ############################# lzendsa #############################
@@ -201,30 +202,32 @@ std::random_device rd;
 std::mt19937 gen(rd());
 uint16_t max_num_threads = omp_get_max_threads();
 uint64_t min_input_size = 1;
-uint64_t max_input_size = 100000;
 
-std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
-std::uniform_int_distribution<int> index_distrib(0, 3);
-
-// all standalone SA-based indexes (lzendsa & r-index-lzendsa & rlzsa & r-index-rlzsa), rotating over the
-// index type and the 32-/64-bit suffix-array integer type
-TEST(test_csa_indexes, fuzzy_test)
+// verifies one functionality of the given index, alternating the 32-/64-bit suffix-array integer type on
+// even/odd iterations so both template instantiations get an equal share of the iterations
+template <template <typename> typename config_t, template <typename, typename> typename adapter_t>
+static void csa_functionality(uint64_t i, index_functionality functionality, uint64_t max_input_size)
 {
-    auto start_time = now();
-
-    while (time_diff_min(start_time, now()) < 60) {
-        bool use_64_bit = prob_distrib(gen) < 0.5;
-
-        auto run = [&]<template <typename> typename config_t, template <typename, typename> typename adapter_t>() {
-            if (use_64_bit) test_index_instance<adapter_t<int64_t, config_t<int64_t>>>(gen, max_num_threads, min_input_size, max_input_size);
-            else            test_index_instance<adapter_t<int32_t, config_t<int32_t>>>(gen, max_num_threads, min_input_size, max_input_size);
-        };
-
-        switch (index_distrib(gen)) {
-            case 0: run.template operator()<lzendsa_config,         csa_index_adapter>(); break;
-            case 1: run.template operator()<r_index_lzendsa_config, sa_r_index_adapter>();    break;
-            case 2: run.template operator()<rlzsa_config,           csa_index_adapter>(); break;
-            case 3: run.template operator()<r_index_rlzsa_config,   sa_r_index_adapter>();    break;
-        }
-    }
+    if (i % 2 == 0) verify_index_functionality<adapter_t<int32_t, config_t<int32_t>>>(gen, max_num_threads, min_input_size, max_input_size, functionality);
+    else            verify_index_functionality<adapter_t<int64_t, config_t<int64_t>>>(gen, max_num_threads, min_input_size, max_input_size, functionality);
 }
+
+// one gtest test per (standalone SA-based index, functionality) pair; the r-indexes have no random-access
+// queries, so they omit the extract functionality
+TEST(test_csa_indexes, rlzsa_extract)   { run_fuzz("rlzsa", { { "extract",   [](uint64_t i) { csa_functionality<rlzsa_config, csa_index_adapter>(i, fuzz_extract, 48000); } } }); }
+TEST(test_csa_indexes, rlzsa_count)     { run_fuzz("rlzsa", { { "count",     [](uint64_t i) { csa_functionality<rlzsa_config, csa_index_adapter>(i, fuzz_count, 48000); } } }); }
+TEST(test_csa_indexes, rlzsa_locate)    { run_fuzz("rlzsa", { { "locate",    [](uint64_t i) { csa_functionality<rlzsa_config, csa_index_adapter>(i, fuzz_locate, 48000); } } }); }
+TEST(test_csa_indexes, rlzsa_serialize) { run_fuzz("rlzsa", { { "serialize", [](uint64_t i) { csa_functionality<rlzsa_config, csa_index_adapter>(i, fuzz_serialize, 48000); } } }); }
+
+TEST(test_csa_indexes, lzendsa_extract)   { run_fuzz("lzendsa", { { "extract",   [](uint64_t i) { csa_functionality<lzendsa_config, csa_index_adapter>(i, fuzz_extract, 67000); } } }); }
+TEST(test_csa_indexes, lzendsa_count)     { run_fuzz("lzendsa", { { "count",     [](uint64_t i) { csa_functionality<lzendsa_config, csa_index_adapter>(i, fuzz_count, 67000); } } }); }
+TEST(test_csa_indexes, lzendsa_locate)    { run_fuzz("lzendsa", { { "locate",    [](uint64_t i) { csa_functionality<lzendsa_config, csa_index_adapter>(i, fuzz_locate, 67000); } } }); }
+TEST(test_csa_indexes, lzendsa_serialize) { run_fuzz("lzendsa", { { "serialize", [](uint64_t i) { csa_functionality<lzendsa_config, csa_index_adapter>(i, fuzz_serialize, 67000); } } }); }
+
+TEST(test_csa_indexes, r_index_rlzsa_count)     { run_fuzz("r-index-rlzsa", { { "count",     [](uint64_t i) { csa_functionality<r_index_rlzsa_config, sa_r_index_adapter>(i, fuzz_count, 72000); } } }); }
+TEST(test_csa_indexes, r_index_rlzsa_locate)    { run_fuzz("r-index-rlzsa", { { "locate",    [](uint64_t i) { csa_functionality<r_index_rlzsa_config, sa_r_index_adapter>(i, fuzz_locate, 72000); } } }); }
+TEST(test_csa_indexes, r_index_rlzsa_serialize) { run_fuzz("r-index-rlzsa", { { "serialize", [](uint64_t i) { csa_functionality<r_index_rlzsa_config, sa_r_index_adapter>(i, fuzz_serialize, 72000); } } }); }
+
+TEST(test_csa_indexes, r_index_lzendsa_count)     { run_fuzz("r-index-lzendsa", { { "count",     [](uint64_t i) { csa_functionality<r_index_lzendsa_config, sa_r_index_adapter>(i, fuzz_count, 235000); } } }); }
+TEST(test_csa_indexes, r_index_lzendsa_locate)    { run_fuzz("r-index-lzendsa", { { "locate",    [](uint64_t i) { csa_functionality<r_index_lzendsa_config, sa_r_index_adapter>(i, fuzz_locate, 235000); } } }); }
+TEST(test_csa_indexes, r_index_lzendsa_serialize) { run_fuzz("r-index-lzendsa", { { "serialize", [](uint64_t i) { csa_functionality<r_index_lzendsa_config, sa_r_index_adapter>(i, fuzz_serialize, 235000); } } }); }

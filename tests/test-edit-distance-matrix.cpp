@@ -36,13 +36,14 @@
 #include <misc/strings.hpp>
 #include <misc/utils.hpp>
 #include <misc/log.hpp>
+#include "test-progress.hpp"
 
-std::random_device rd;
-std::mt19937 gen(rd());
+// thread-local so run_fuzz can validate independent instances concurrently across the threads
+thread_local std::mt19937 gen(std::random_device{}());
 uint64_t min_input_size = 1;
-uint64_t max_input_size = 200;
+uint64_t max_input_size = 80000;
 
-std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
+thread_local std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
 
 /**
  * @brief computes the edit (Levenshtein) distance of two sequences using a full (unbanded) dynamic-programming
@@ -234,7 +235,8 @@ static void verify_locate_edit_dist(const inp_t& input, gen_t& gen)
     using pos_t = uint32_t;
     std::uniform_int_distribution<pos_t> k_distrib(0, 6);
     inp_t P = random_substring(input, 20, true, gen);
-    pos_t k = k_distrib(gen);
+    // bound the edit-distance budget by a third of the pattern length (matching the locate tests elsewhere)
+    pos_t k = std::min<pos_t>(k_distrib(gen), P.size() / 3);
     int64_t n = input.size(), m = P.size();
 
     // reference: for each starting position, the shortest window with the minimum (within-budget) edit distance
@@ -256,43 +258,44 @@ static void verify_locate_edit_dist(const inp_t& input, gen_t& gen)
     EXPECT_EQ(locate_edit_dist<pos_t>(input, P, k), ref) << "n=" << n << " m=" << m << " k=" << k;
 }
 
-/**
- * @brief runs one round of every verification over the given input value type: generates a random repetitive
- * input over the exhaustive alphabet and verifies the matrix (alternating the two word types) and the
- * edit-distance routines on strings drawn from it
- * @tparam sym_t symbol type of the input (a one-byte type: char, uint8_t or int8_t)
- * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
- */
-template <typename sym_t, typename inp_t>
-static void run_edit_distance_once()
+// generates a random repetitive input over the byte-alphabet value type selected by i (char/uint8_t/int8_t)
+// and passes it to verify(input), so each functionality gets an equal share of the three value types
+template <typename verify_t>
+static void with_edit_distance_input(uint64_t i, verify_t verify)
 {
-    // a byte alphabet reserves the two largest values (for the sentinel and the BWT-escape), matching the
-    // alphabet the apm machinery sees in the move-r indexes
-    sym_t min_sym = std::numeric_limits<sym_t>::min();
-    sym_t max_sym = std::numeric_limits<sym_t>::max() - 2;
+    auto run = [&]<typename sym_t, typename inp_t>() {
+        // a byte alphabet reserves the two largest values, matching the alphabet the apm machinery sees
+        sym_t min_sym = std::numeric_limits<sym_t>::min();
+        sym_t max_sym = std::numeric_limits<sym_t>::max() - 2;
+        inp_t input = random_repetitive_input<inp_t>(min_input_size, max_input_size, min_sym, max_sym);
+        verify(input);
+    };
 
-    inp_t input = random_repetitive_input<inp_t>(min_input_size, max_input_size, min_sym, max_sym);
-
-    // alternate the two matrix word types (k up to 10 / up to 20)
-    if (prob_distrib(gen) < 0.5) verify_edit_distance_matrix<uint64_t>(input, gen);
-    else                         verify_edit_distance_matrix<__uint128_t>(input, gen);
-
-    verify_edit_dist_routines(input, gen);
-    verify_locate_edit_dist(input, gen);
+    switch (i % 3) {
+        case 0: run.template operator()<char,    std::string>();          break;
+        case 1: run.template operator()<uint8_t, std::vector<uint8_t>>(); break;
+        case 2: run.template operator()<int8_t,  std::vector<int8_t>>();  break;
+    }
 }
 
-// the edit-distance machinery over every supported input value type (the byte alphabets char/uint8_t/int8_t),
-// rotating over the two matrix word types
-TEST(test_edit_distance_matrix, fuzzy_test)
+TEST(test_edit_distance_matrix, matrix)
 {
-    std::uniform_int_distribution<int> sym_type_distrib(0, 2);
-    auto start_time = now();
+    run_fuzz("edit-distance-matrix", { { "matrix", [](uint64_t i) { with_edit_distance_input(i, [](auto& input) {
+        if (prob_distrib(gen) < 0.5) verify_edit_distance_matrix<uint64_t>(input, gen);
+        else                         verify_edit_distance_matrix<__uint128_t>(input, gen);
+    }); }, true } }, fuzz_iterations(320000));
+}
 
-    while (time_diff_min(start_time, now()) < 60) {
-        switch (sym_type_distrib(gen)) {
-            case 0: run_edit_distance_once<char,    std::string>();          break;
-            case 1: run_edit_distance_once<uint8_t, std::vector<uint8_t>>(); break;
-            case 2: run_edit_distance_once<int8_t,  std::vector<int8_t>>();  break;
-        }
-    }
+TEST(test_edit_distance_matrix, distance)
+{
+    run_fuzz("edit-distance-matrix", { { "distance", [](uint64_t i) {
+        with_edit_distance_input(i, [](auto& input) { verify_edit_dist_routines(input, gen); }); }, true } },
+        fuzz_iterations(320000));
+}
+
+TEST(test_edit_distance_matrix, locate)
+{
+    run_fuzz("edit-distance-matrix", { { "locate", [](uint64_t i) {
+        with_edit_distance_input(i, [](auto& input) { verify_locate_edit_dist(input, gen); }); }, true } },
+        fuzz_iterations(430));
 }

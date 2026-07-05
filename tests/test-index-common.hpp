@@ -28,7 +28,7 @@
 
 // shared framework for the index fuzz tests (move_r, move_r_int, lzendsa, rlzsa): reference suffix array
 // construction, pattern generation, count-/locate-occurrence verification, and a single generic driver
-// (test_index_instance) that builds a random index via an adapter and verifies its queries. Each index type
+// (verify_index_functionality) that builds a random index via an adapter and verifies its queries. Each index type
 // provides a small adapter describing how to build it, how to run count/locate, and which extra checks apply
 // (full-text SA/BWT/revert/query, suffix-array random access, or none).
 
@@ -177,7 +177,7 @@ static std::pair<inp_t, std::vector<pos_t>> random_pattern_and_occurrences(
 /**
  * @brief verifies a single count- and locate-query of an index against the naive occurrences (the part of
  * the verification that is common to every index); used by the adapters' verify_pattern()
- * @tparam adapter_t the index adapter type (see test_index_instance)
+ * @tparam adapter_t the index adapter type (see verify_index_functionality)
  * @param index the index to query
  * @param pattern the pattern to query for
  * @param correct_occurrences the ascending starting positions of all exact occurrences of pattern
@@ -192,10 +192,16 @@ static void verify_count_locate_basic(
     verify_occurrences<pos_t>(adapter_t::count(index, pattern), located, correct_occurrences, adapter_t::name());
 }
 
+// the individual functionalities of an index that the fuzz-test verifies, one per gtest test
+enum index_functionality {
+    fuzz_extract,  // adapter_t::verify_extract (random access / sa_values / access queries)
+    fuzz_count,    // count-queries only
+    fuzz_locate,   // locate-queries only
+    fuzz_serialize // a serialize/load round-trip, re-verifying random-access, count and locate
+};
+
 /**
- * @brief the generic index fuzz-test: builds a random index via the adapter, runs the adapter's build-time
- * checks (verify_build) and a parallel fuzz of count-/locate-queries (verify_pattern), and, if the index is
- * serializable, repeats the checks after a serialize/load round-trip
+ * @brief builds one random index via the adapter and verifies exactly one functionality of it
  *
  * an adapter is a type providing:
  *   - types: index_t, inp_t (input/pattern sequence), pos_t (occurrence type)
@@ -208,8 +214,7 @@ static void verify_count_locate_basic(
  *   - static void after_build(index_t&, const inp_t& input)     // e.g. set_input (or a no-op)
  *   - static uint64_t count(index_t&, inp_t& pattern)
  *   - static std::vector<pos_t> locate(index_t&, inp_t& pattern)
- *   - static void verify_pattern(index_t&, inp_t& pattern, const std::vector<pos_t>& correct, gen_t&)
- *   - static void verify_build(index_t&, const inp_t& input, gen_t&, uint16_t max_num_threads)
+ *   - static void verify_extract(index_t&, const inp_t& input, gen_t&, uint16_t max_num_threads)
  *
  * @tparam adapter_t the index adapter type
  * @tparam gen_t random number generator type
@@ -217,10 +222,12 @@ static void verify_count_locate_basic(
  * @param max_num_threads the maximum number of threads to use
  * @param min_input_size minimum input length
  * @param max_input_size maximum input length
+ * @param functionality the single functionality to build a fresh index for and verify
  */
 template <typename adapter_t, typename gen_t>
-static void test_index_instance(
-    gen_t& gen, uint16_t max_num_threads, uint64_t min_input_size, uint64_t max_input_size)
+static void verify_index_functionality(
+    gen_t& gen, uint16_t max_num_threads, uint64_t min_input_size, uint64_t max_input_size,
+    index_functionality functionality)
 {
     using inp_t = typename adapter_t::inp_t;
     using pos_t = typename adapter_t::pos_t;
@@ -236,7 +243,8 @@ static void test_index_instance(
     uint64_t max_pattern_length = adapter_t::max_pattern_length(n);
     uint64_t total_queries = adapter_t::num_queries(n);
 
-    auto run_queries = [&](index_t& idx) {
+    // runs total_queries pattern-queries in parallel, applying check(idx, pattern, correct_occurrences) to each
+    auto run_pattern_queries = [&](index_t& idx, auto check) {
         uint64_t queries_per_thread = std::max<uint64_t>(1, total_queries / max_num_threads);
 
         #pragma omp parallel num_threads(max_num_threads)
@@ -247,21 +255,46 @@ static void test_index_instance(
             for (uint64_t q = 0; q < queries_per_thread; q++) {
                 auto [pattern, correct_occurrences] =
                     random_pattern_and_occurrences<pos_t, inp_t>(input, max_pattern_length, true, gen_thr);
-                adapter_t::verify_pattern(idx, pattern, correct_occurrences, gen_thr);
+                check(idx, pattern, correct_occurrences);
             }
         }
     };
 
-    adapter_t::verify_build(index, input, gen, max_num_threads);
-    run_queries(index);
+    auto verify_count = [&](index_t& idx) {
+        run_pattern_queries(idx, [](index_t& i, inp_t& pattern, const std::vector<pos_t>& correct) {
+            EXPECT_EQ(adapter_t::count(i, pattern), correct.size()) << adapter_t::name() << ": count";
+        });
+    };
 
-    if constexpr (adapter_t::serializable) {
-        std::stringstream stream;
-        index.serialize(stream);
-        index_t index_reloaded;
-        index_reloaded.load(stream);
-        adapter_t::after_build(index_reloaded, input);
-        adapter_t::verify_build(index_reloaded, input, gen, max_num_threads);
-        run_queries(index_reloaded);
+    auto verify_locate = [&](index_t& idx) {
+        run_pattern_queries(idx, [](index_t& i, inp_t& pattern, const std::vector<pos_t>& correct) {
+            std::vector<pos_t> located = adapter_t::locate(i, pattern);
+            ips4o::sort(located.begin(), located.end());
+            EXPECT_EQ(located, correct) << adapter_t::name() << ": locate";
+        });
+    };
+
+    switch (functionality) {
+        case fuzz_extract:
+            adapter_t::verify_extract(index, input, gen, max_num_threads);
+            break;
+        case fuzz_count:
+            verify_count(index);
+            break;
+        case fuzz_locate:
+            verify_locate(index);
+            break;
+        case fuzz_serialize:
+            if constexpr (adapter_t::serializable) {
+                std::stringstream stream;
+                index.serialize(stream);
+                index_t index_reloaded;
+                index_reloaded.load(stream);
+                adapter_t::after_build(index_reloaded, input);
+                adapter_t::verify_extract(index_reloaded, input, gen, max_num_threads);
+                verify_count(index_reloaded);
+                verify_locate(index_reloaded);
+            }
+            break;
     }
 }
