@@ -574,7 +574,7 @@ public:
     {
         if (print_index_size) std::cout << "index size: " << format_size(size_in_bytes()) << std::endl;
 
-        uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
+        uint64_t size_l_ = (_M_LF.width_l_() * (r_ + 1)) / 8;
         std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes() - size_l_) << std::endl;
         std::cout << "L': " << format_size(size_l_) << std::endl;
 
@@ -610,7 +610,7 @@ public:
         out << " size_index" << suffix << "=" << size_in_bytes();
         out << " a=" << a;
 
-        uint64_t size_l_ = (_M_LF.width_l_() / 8) * (r_ + 1);
+        uint64_t size_l_ = (_M_LF.width_l_() * (r_ + 1)) / 8;
         out << " size_m_lf" << suffix << "=" << _M_LF.size_in_bytes() - size_l_;
         out << " size_l_" << suffix << "=" << size_l_;
 

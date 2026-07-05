@@ -64,6 +64,10 @@ static aligned_alloc_type real_aligned_alloc = NULL;
 static free_type real_free = NULL;
 static realloc_type real_realloc = NULL;
 
+static void init(void);
+
+static int mc_initializing = 0;
+
 /* a sentinel value prefixed to each allocation */
 static const size_t sentinel = 0xDEADC0DE;
 
@@ -161,6 +165,12 @@ extern void* malloc(size_t size)
     void* ret;
 
     if (size == 0) return NULL;
+
+    if (!real_malloc && !mc_initializing) {
+        mc_initializing = 1;
+        init();
+        mc_initializing = 0;
+    }
 
     if (real_malloc)
     {
@@ -392,6 +402,8 @@ extern void* realloc(void* ptr, size_t size)
 static __attribute__((constructor)) void init(void)
 {
     char *error;
+
+    if (real_malloc) return;
 
     setlocale(LC_NUMERIC, ""); /* for better readable numbers */
 

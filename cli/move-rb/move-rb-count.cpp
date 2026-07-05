@@ -185,7 +185,8 @@ void measure_count()
     meter.finish();
     patterns_file.close();
     std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
-    std::cout << "additional memory consumption during the search phase: " << format_size(malloc_count_peak() - baseline_alloc) << std::endl;
+    if (MOVE_R_USE_MALLOC_COUNT)
+        std::cout << "additional memory consumption during the search phase: " << format_size(malloc_count_peak() - baseline_alloc) << std::endl;
     std::cout << "number of patterns: " << num_patterns << std::endl;
     std::cout << "pattern length: " << pattern_length << std::endl;
     std::cout << "maximum number of mismatches: " << k << std::endl;

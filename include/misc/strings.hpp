@@ -26,6 +26,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -45,7 +47,7 @@ inline std::string random_alphanumeric_string(uint64_t length)
 
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<uint8_t> char_idx_distrib(0, possible_chars.size() - 1);
+    std::uniform_int_distribution<uint32_t> char_idx_distrib(0, possible_chars.size() - 1);
     
     std::string str_rand;
     str_rand.reserve(length);
@@ -94,6 +96,25 @@ inline uint64_t malloc_count_peak_memory_usage(std::ifstream& leftg_file)
 }
 
 /**
+ * @brief draws an integer in [min_size, max_size] log-uniformly, so inputs of every magnitude
+ *        (including very small ones) are generated about equally often — unlike a plain uniform draw,
+ *        which almost never picks a small size when the range spans several orders of magnitude
+ * @tparam gen_t random number generator type
+ * @param min_size minimum size (inclusive)
+ * @param max_size maximum size (inclusive)
+ * @param gen random number generator
+ * @return a log-uniformly distributed size in [min_size, max_size]
+ */
+template <typename gen_t>
+inline uint64_t random_log_uniform_size(uint64_t min_size, uint64_t max_size, gen_t& gen)
+{
+    std::uniform_real_distribution<double> log_distrib(
+        std::log((double) std::max<uint64_t>(1, min_size)),
+        std::log((double) std::max<uint64_t>(1, max_size)));
+    return std::clamp<uint64_t>((uint64_t) std::llround(std::exp(log_distrib(gen))), min_size, max_size);
+}
+
+/**
  * @brief generates a random, repetitive input sequence (composed of new symbols, repetitions and runs)
  * @tparam inp_t sequence type to generate (e.g. std::string or std::vector<int32_t>)
  * @param min_size minimum length of the generated sequence
@@ -111,10 +132,12 @@ static inp_t random_repetitive_input(
     std::random_device rd;
     std::mt19937 mt(rd());
     std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
-    std::uniform_int_distribution<uint64_t> input_size_distrib(min_size, max_size);
-    std::uniform_int_distribution<typename inp_t::value_type> sym_distrib(min_sym, max_sym);
+    using sym_t = typename inp_t::value_type;
+    using sym_dist_t = std::conditional_t<sizeof(sym_t) == 1,
+        std::conditional_t<std::is_signed_v<sym_t>, int, unsigned int>, sym_t>;
+    std::uniform_int_distribution<sym_dist_t> sym_distrib(min_sym, max_sym);
 
-    uint64_t target_input_size = input_size_distrib(mt);
+    uint64_t target_input_size = random_log_uniform_size(min_size, max_size, mt);
     enum construction_operation { new_symbol = 0, repetition = 1, run = 2 };
     double repetition_repetitiveness = prob_distrib(mt);
     double run_repetitiveness = prob_distrib(mt);
@@ -125,7 +148,7 @@ static inp_t random_repetitive_input(
     std::uniform_int_distribution<uint64_t> run_length_distrib(
         1, std::max<double>(1.0, ((run_repetitiveness * target_input_size) / 200)));
 
-    std::discrete_distribution<uint8_t> next_operation_distrib({
+    std::discrete_distribution<uint32_t> next_operation_distrib({
         2 - (repetition_repetitiveness + run_repetitiveness),
         repetition_repetitiveness,
         run_repetitiveness });
@@ -138,7 +161,7 @@ static inp_t random_repetitive_input(
     while (input.size() < target_input_size) {
         switch (next_operation_distrib(mt)) {
             case new_symbol: {
-                input.push_back(sym_distrib(mt));
+                input.push_back((sym_t)sym_distrib(mt));
                 break;
             }
             case repetition: {

@@ -221,7 +221,7 @@ public:
             n = input.size() + 1;
         }
 
-        if (params.mode == _suffix_array) {
+        if (params.mode == _suffix_array || params.mode == _suffix_array_space) {
             if (std::is_same_v<pos_t, uint32_t> && n <= INT_MAX) {
                 build<false, int32_t>(input, params);
             } else {

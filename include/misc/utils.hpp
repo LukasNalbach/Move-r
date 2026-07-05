@@ -37,6 +37,10 @@
 
 #include <malloc_count.h>
 
+#ifndef MOVE_R_USE_MALLOC_COUNT
+#define MOVE_R_USE_MALLOC_COUNT 1
+#endif
+
 /**
  * @brief returns the absolute difference of x and y
  * @tparam int_t signed integer type the operands are cast to before subtracting
@@ -82,7 +86,7 @@ template <typename sym_t>
 inline static uint8_t sym_to_uchar(sym_t c)
 {
     static_assert(sizeof(sym_t) == 1);
-    return static_cast<uint8_t>(c);
+    return *reinterpret_cast<uint8_t*>(&c);
 }
 
 /**

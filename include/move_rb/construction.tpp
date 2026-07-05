@@ -26,7 +26,10 @@
 
 #pragma once
 
+#include <fcntl.h>
+#include <unistd.h>
 #include <hash_table6.hpp>
+#include <misc/files.hpp>
 #include <move_rb/move_rb.hpp>
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -36,12 +39,11 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
     auto time = now();
     auto time_start = time;
     bool log = params.log;
+    bool space = !bigbwt && params.mode == _suffix_array_space;
     uint64_t baseline_mem_usage = malloc_count_current();
     std::string prefix_tmp_files = "move-r_" + random_alphanumeric_string(10);
     std::string input_file_name;
 
-    // file-/Big-BWT-based input handling only applies to the byte-string input (str_input); the integer-vector
-    // input is always provided and processed in-memory
     if constexpr (str_input) {
         if (bigbwt && params.file_input) {
             input_file_name = input;
@@ -127,16 +129,8 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
     log_message(log, "mapping T to its internal alphabet");
 
     if constexpr (bigbwt) {
-        std::vector<sdsl::int_vector_buffer<8>> T_buf;
-
-        for (uint16_t i = 0; i < p; i++) {
-            T_buf.emplace_back(sdsl::int_vector_buffer<8>(input_file_name, std::ios::in, 128 * 1024, 8, true));
-        }
-
-        #pragma omp parallel for num_threads(p)
-        for (uint64_t i = 0; i < n - 1; i++) {
-            T_buf[omp_get_thread_num()][i] = map_int[T_buf[omp_get_thread_num()][i]];
-        }
+        transform_byte_file_parallel(input_file_name, n - 1, p,
+            [&](uint8_t c) { return map_int[c]; });
     } else {
         #pragma omp parallel for num_threads(p)
         for (uint64_t i = 0; i < n - 1; i++) {
@@ -173,6 +167,7 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
         new_params.file_input = true;
         new_params.sa_file_name = &sa_fwd_file_name;
 
+        try {
         idx_fwd = move_r_fwd_t(input_file_name, new_params);
         idx_fwd.set_alphabet_maps(map_int, map_ext);
 
@@ -200,13 +195,47 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
         log_phase_start(log, time, "\n");
 
         reverse(input_file_name, p, false, log);
+        } catch (...) {
+            std::error_code ec;
+            if (!params.file_input) std::filesystem::remove(input_file_name, ec);
+            if (!idx_fwd_file_name.empty()) std::filesystem::remove(idx_fwd_file_name, ec);
+            if (!sa_fwd_file_name.empty()) std::filesystem::remove(sa_fwd_file_name, ec);
+            throw;
+        }
     } else {
         move_r_params new_params = params;
         new_params.sa_vector = reinterpret_cast<void*>(&SA_fwd);
         new_params.file_input = false;
-        
+        new_params.mode = _suffix_array;
+
+        try {
         idx_fwd = move_r_fwd_t(input, new_params);
         idx_fwd.set_alphabet_maps(map_int, map_ext);
+
+        if (space) {
+            if constexpr (support != _count) {
+                log_phase_start(log, time, "\nstoring forward suffix array to disk");
+
+                sa_fwd_file_name = prefix_tmp_files + ".sa_fwd";
+                sdsl::int_vector_buffer<40> sa_fwd_ofile(sa_fwd_file_name, std::ios::out, 128 * 1024, 40, true);
+                for (uint64_t i = 0; i < n; i++) sa_fwd_ofile[i] = SA_fwd[i];
+                sa_fwd_ofile.close();
+                SA_fwd = std::vector<sa_sint_t>();
+                SA_fwd.shrink_to_fit();
+
+                log_phase_end(log, time);
+            }
+
+            log_phase_start(log, time, "\nstoring forward index to disk");
+
+            idx_fwd_file_name = prefix_tmp_files + ".move_r_fwd";
+            std::ofstream idx_fwd_ofile(idx_fwd_file_name);
+            idx_fwd.serialize(idx_fwd_ofile);
+            idx_fwd = move_r_fwd_t();
+            idx_fwd_ofile.close();
+
+            log_phase_end(log, time);
+        }
 
         log_phase_start(log, time, "\n");
 
@@ -218,6 +247,12 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
         log_phase_start(log, time, "\n");
 
         reverse(input, p, true, log);
+        } catch (...) {
+            std::error_code ec;
+            if (!sa_fwd_file_name.empty()) std::filesystem::remove(sa_fwd_file_name, ec);
+            if (!idx_fwd_file_name.empty()) std::filesystem::remove(idx_fwd_file_name, ec);
+            throw;
+        }
     }
 
     if constexpr (support != _count) {
@@ -256,7 +291,7 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
         _SA_s_pos.resize_no_init(r_bwd);
         _SA_e_pos.resize_no_init(r_bwd);
 
-        if constexpr (bigbwt) {
+        if (bigbwt || space) {
             for (uint16_t i = 0; i < p; i++) {
                 SA_fwd_file_bufs.emplace_back(sdsl::int_vector_buffer<40>(
                     sa_fwd_file_name, std::ios::in,
@@ -274,6 +309,8 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
                 } else {
                     SA_fwd_i = SA_fwd_file_bufs[omp_get_thread_num()][i - 1];
                 }
+            } else if (space) {
+                SA_fwd_i = SA_fwd_file_bufs[omp_get_thread_num()][i];
             } else {
                 SA_fwd_i = SA_fwd[i];
             }
@@ -294,7 +331,7 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
         H_SA.clear();
         H_SA.shrink_to_fit();
 
-        if constexpr (bigbwt) {
+        if (bigbwt || space) {
             SA_fwd_file_bufs.clear();
             SA_fwd_file_bufs.shrink_to_fit();
             std::filesystem::remove(sa_fwd_file_name);
@@ -302,14 +339,14 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
 
         log_phase_end(log, time);
 
-        if constexpr (bigbwt) {
+        if (bigbwt || space) {
             log_phase_start(log, time, "loading forward index from disk");
 
             std::ifstream idx_fwd_ifile(idx_fwd_file_name);
             idx_fwd.load(idx_fwd_ifile);
             idx_fwd_ifile.close();
             std::filesystem::remove(idx_fwd_file_name);
-            
+
             log_phase_end(log, time);
         }
 
@@ -326,6 +363,19 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
             _S_MPhi_m1_p = build_sampling(
                 idx_fwd.M_Phi_m1().num_intervals(), n, sample_rate_input_intervals,
                 [&](pos_t i){return idx_fwd.M_Phi_m1().p(i);});
+
+            log_phase_end(log, time);
+        }
+    }
+
+    if constexpr (support == _count) {
+        if (bigbwt || space) {
+            log_phase_start(log, time, "loading forward index from disk");
+
+            std::ifstream idx_fwd_ifile(idx_fwd_file_name);
+            idx_fwd.load(idx_fwd_ifile);
+            idx_fwd_ifile.close();
+            std::filesystem::remove(idx_fwd_file_name);
 
             log_phase_end(log, time);
         }
@@ -365,16 +415,8 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
     }
 
     if (bigbwt && params.file_input) {
-        std::vector<sdsl::int_vector_buffer<8>> T_buf;
-
-        for (uint16_t i = 0; i < p; i++) {
-            T_buf.emplace_back(sdsl::int_vector_buffer<8>(input_file_name, std::ios::in, 128 * 1024, 8, true));
-        }
-
-        #pragma omp parallel for num_threads(p)
-        for (uint64_t i = 0; i < n - 1; i++) {
-            T_buf[omp_get_thread_num()][i] = *reinterpret_cast<i_sym_t*>(&map_ext[T_buf[omp_get_thread_num()][i]]);
-        }
+        transform_byte_file_parallel(input_file_name, n - 1, p,
+            [&](uint8_t c) { return *reinterpret_cast<i_sym_t*>(&map_ext[c]); });
     } else if (!bigbwt && !params.file_input) {
         #pragma omp parallel for num_threads(p)
         for (uint64_t i = 0; i < n - 1; i++) {
@@ -388,7 +430,8 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
         uint64_t time_construction = time_diff_ns(time_start, now());
         std::cout << std::endl;
         std::cout << "overall construction time: " << format_time(time_construction) << std::endl;
-        std::cout << "overall peak memory usage: " << format_size(peak_memory_usage) << std::endl;
+        if (MOVE_R_USE_MALLOC_COUNT)
+            std::cout << "overall peak memory usage: " << format_size(peak_memory_usage) << std::endl;
         std::cout << "construction throughput: " << format_construction_throughput(n, time_construction) << std::endl;
         if (params.mf_idx != nullptr)
             *params.mf_idx << " construction_throughput_mb_per_s=" << construction_throughput_mb_per_s(n, time_construction);
@@ -411,21 +454,50 @@ void move_rb<support, sym_t, pos_t>::reverse(seq_t& T, uint16_t p, bool in_memor
             std::swap(T[i], T[(n - i) - 2]);
         }
     } else if constexpr (std::is_same_v<seq_t, std::string>) {
-        // on-disk reversal (only used for the file-/Big-BWT-based construction, i.e. for str_input)
-        std::vector<sdsl::int_vector_buffer<8>> T_buf_left;
-        std::vector<sdsl::int_vector_buffer<8>> T_buf_right;
+        int fd = open(T.c_str(), O_RDWR);
+        if (fd < 0) { perror("reverse: open"); exit(1); }
 
-        for (uint16_t i = 0; i < p; i++) {
-            T_buf_left.emplace_back(sdsl::int_vector_buffer<8>(T, std::ios::in, 128 * 1024, 8, true));
-            T_buf_right.emplace_back(sdsl::int_vector_buffer<8>(T, std::ios::in, 128 * 1024, 8, true));
+        auto pread_full = [&](uint8_t* buf, uint64_t cnt, uint64_t off) {
+            for (uint64_t done = 0; done < cnt;) {
+                ssize_t r = pread(fd, buf + done, cnt - done, off + done);
+                if (r <= 0) { perror("reverse: pread"); exit(1); }
+                done += r;
+            }
+        };
+        auto pwrite_full = [&](const uint8_t* buf, uint64_t cnt, uint64_t off) {
+            for (uint64_t done = 0; done < cnt;) {
+                ssize_t w = pwrite(fd, buf + done, cnt - done, off + done);
+                if (w <= 0) { perror("reverse: pwrite"); exit(1); }
+                done += w;
+            }
+        };
+
+        static constexpr uint64_t bufsize = 128 * 1024;
+        uint64_t chunk = div_ceil<uint64_t>(n_2, uint64_t(p));
+
+        #pragma omp parallel num_threads(p)
+        {
+            uint16_t i_p = omp_get_thread_num();
+            uint64_t b = std::min<uint64_t>(n_2, uint64_t(i_p) * chunk);
+            uint64_t e = std::min<uint64_t>(n_2, b + chunk);
+            std::vector<uint8_t> lb(bufsize);
+            std::vector<uint8_t> rb(bufsize);
+
+            for (uint64_t off = b; off < e; off += bufsize) {
+                uint64_t m = std::min<uint64_t>(bufsize, e - off);
+                pread_full(lb.data(), m, off);
+                pread_full(rb.data(), m, (n - 1) - off - m);
+
+                for (uint64_t k = 0; k < m; k++) {
+                    std::swap(lb[k], rb[m - 1 - k]);
+                }
+
+                pwrite_full(lb.data(), m, off);
+                pwrite_full(rb.data(), m, (n - 1) - off - m);
+            }
         }
 
-        #pragma omp parallel for num_threads(p)
-        for (uint64_t i = 0; i < n_2; i++) {
-            uint64_t tmp = T_buf_left[omp_get_thread_num()][i];
-            T_buf_left[omp_get_thread_num()][i] = T_buf_right[omp_get_thread_num()][(n - i) - 2];
-            T_buf_right[omp_get_thread_num()][(n - i) - 2] = tmp;
-        }
+        close(fd);
     }
 
     log_phase_end(log, time);

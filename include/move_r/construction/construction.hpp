@@ -343,6 +343,7 @@ public:
      */
     void log_mem_usage()
     {
+        if (!MOVE_R_USE_MALLOC_COUNT) return;
         std::cout << "current memory allocation: "
                   << format_size(malloc_count_current() - baseline_mem_usage)
                   << std::endl;
@@ -353,6 +354,7 @@ public:
      */
     void log_peak_mem_usage()
     {
+        if (!MOVE_R_USE_MALLOC_COUNT) return;
         std::cout << "peak memory allocation until now: "
                   << format_size(std::max(malloc_count_peak() - baseline_mem_usage, bigbwt_peak_mem_usage))
                   << std::endl;
@@ -369,7 +371,8 @@ public:
 
         std::cout << std::endl;
         std::cout << "construction time: " << format_time(time_construction) << std::endl;
-        std::cout << "peak memory usage: " << format_size(peak_mem_usage) << std::endl;
+        if (MOVE_R_USE_MALLOC_COUNT)
+            std::cout << "peak memory usage: " << format_size(peak_mem_usage) << std::endl;
         if (!is_bidirectional) {
             std::cout << "construction throughput: " << format_construction_throughput(n, time_construction) << std::endl;
             idx.log_data_structure_sizes();
