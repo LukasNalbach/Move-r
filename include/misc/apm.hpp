@@ -65,7 +65,7 @@ struct aprx_occ_t {
     pos_t pos;
     pos_t len;
     pos_t err;
-    [[no_unique_address]] std::conditional_t<mode == CIGAR, cigar_t, std::monostate> cigar;
+    [[no_unique_address]] std::conditional_t<mode == CIGAR, cigar_t, std::monostate> cigar = {};
 
     /** @brief orders occurrences by position, then by error count, then by length (the CIGAR is ignored) */
     bool operator<(const aprx_occ_t& other) const

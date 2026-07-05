@@ -64,7 +64,7 @@ struct csa_index_adapter {
     static char min_sym() { return min_char; }
     static char max_sym() { return max_char; }
     static uint64_t max_pattern_length(uint64_t) { return 100; }
-    static uint64_t num_queries(uint64_t n) { return num_queries(n); }
+    static uint64_t num_queries(uint64_t n) { return ::num_queries(n); }
 
     template <typename gen_t>
     static index_t build(std::string& input, gen_t&, uint16_t) { return config_t::make(input); }
@@ -131,7 +131,7 @@ struct sa_r_index_adapter {
     static char min_sym() { return min_char; }
     static char max_sym() { return max_char; }
     static uint64_t max_pattern_length(uint64_t) { return 100; }
-    static uint64_t num_queries(uint64_t n) { return num_queries(n); }
+    static uint64_t num_queries(uint64_t n) { return ::num_queries(n); }
 
     template <typename gen_t>
     static index_t build(std::string& input, gen_t&, uint16_t) { return config_t::make(input); }

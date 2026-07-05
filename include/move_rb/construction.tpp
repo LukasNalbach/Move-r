@@ -250,8 +250,8 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
         log_phase_end(log, time);
         log_message(log, "building SA_s_pos and SA_e_pos");
 
-        _SA_s_pos = interleaved_bit_aligned_vectors<pos_t>({ std::bit_width(uint64_t(n)) });
-        _SA_e_pos = interleaved_bit_aligned_vectors<pos_t>({ std::bit_width(uint64_t(n)) });
+        _SA_s_pos = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
+        _SA_e_pos = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
 
         _SA_s_pos.resize_no_init(r_bwd);
         _SA_e_pos.resize_no_init(r_bwd);

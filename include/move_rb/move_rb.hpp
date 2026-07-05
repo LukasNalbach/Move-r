@@ -442,9 +442,9 @@ public:
         friend class move_rb;
         template <typename, cigar_mode_t> friend class apm_hamming;
         template <typename, cigar_mode_t> friend class apm_edit;
-        friend class locate_context_t;
+        friend struct locate_context_t;
         template <query_support_t _query_support> friend struct extend_context_t;
-        template <query_support_t _query_support> friend class search_context_t;
+        template <query_support_t _query_support> friend struct search_context_t;
 
     protected:
         // ############################# VARIABLES FOR THE SEARCH PHASE #############################

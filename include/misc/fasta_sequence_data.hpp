@@ -168,7 +168,7 @@ public:
         }
 
         _separator_sym = separator;
-        _seq_starts = interleaved_bit_aligned_vectors<pos_t>({ std::bit_width(uint64_t(n)) });
+        _seq_starts = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
         _seq_starts.resize_no_init(seq_starts.size());
         for (pos_t i = 0; i < seq_starts.size(); i++) _seq_starts.template set<0>(i, seq_starts[i]);
     }

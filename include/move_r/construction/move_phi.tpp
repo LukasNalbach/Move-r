@@ -43,8 +43,8 @@ void move_r<support, sym_t, pos_t>::construction::build_sas_from_sa()
         }
     }
 
-    idx._SA_s = interleaved_bit_aligned_vectors<pos_t>({ std::bit_width(uint64_t(n)) });
-    idx._SA_e = interleaved_bit_aligned_vectors<pos_t>({ std::bit_width(uint64_t(n)) });
+    idx._SA_s = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
+    idx._SA_e = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
 
     idx._SA_s.resize_no_init(r_);
     idx._SA_e.resize_no_init(r_);
@@ -80,11 +80,11 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sas_from_sa()
     if constexpr (support == _locate_move) {
         no_init_resize(SA_s, r_);
     } else {
-        idx._SA_s = interleaved_bit_aligned_vectors<pos_t>({ std::bit_width(uint64_t(n)) });
+        idx._SA_s = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
         idx._SA_s.resize_no_init(r_);
 
         if constexpr (is_bidirectional) {
-            idx._SA_e = interleaved_bit_aligned_vectors<pos_t>({ std::bit_width(uint64_t(n)) });
+            idx._SA_e = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
             idx._SA_e.resize_no_init(r_);
         }
     }
@@ -281,7 +281,7 @@ void move_r<support, sym_t, pos_t>::construction::build_saphim1()
     }
 
     idx.omega_idx = idx._M_Phi_m1.width_idx();
-    idx._SA_Phi_m1 = interleaved_bit_aligned_vectors<pos_t>({ uint64_t(idx.omega_idx) });
+    idx._SA_Phi_m1 = interleaved_bit_aligned_vectors<pos_t>({ idx.omega_idx });
     idx._SA_Phi_m1.resize_no_init(r_);
 
     /* Now we will divide the range [0..n-1] up into p non-overlapping sub-ranges [s[i_p]..s[i_p+1]-1],

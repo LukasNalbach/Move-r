@@ -40,6 +40,8 @@ else()
   set(move_r_arch_flags "")
 endif()
 
+add_compile_options(-pthread)
+
 set(move_r_debug_flags "-Wall -Wextra -Wpedantic -ggdb")
 set(move_r_release_flags "-w ${move_r_arch_flags} -DNDEBUG")
 
