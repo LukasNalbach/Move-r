@@ -150,7 +150,7 @@ protected:
     void build(read_fnc_t read, pos_t l, pos_t r)
     {
         input_size = r - l + 1;
-        uint64_t bits_per_entry = 0; // tight bit-width for c_arr/occs entries (values in [0,input_size])
+        uint8_t bits_per_entry = 0; // tight bit-width for c_arr/occs entries (values in [0,input_size])
         pos_t alphabet_range = byte_alphabet ? 256 : sigma;
         freq.resize(alphabet_range, 0);
 
@@ -159,7 +159,7 @@ protected:
         }
 
         if constexpr (int_alphabet) {
-            bits_per_entry = std::bit_width(uint64_t(input_size));
+            bits_per_entry = bit_width(input_size);
             c_arr = interleaved_bit_aligned_vectors<pos_t>({ bits_per_entry });
             c_arr.resize_no_init(alphabet_range + 1);
             c_arr.template set_parallel<0, pos_t>(0, 0);
@@ -197,7 +197,7 @@ protected:
 
         if constexpr (int_alphabet) {
             min_occ_vec_tmp = std::min<pos_t>(min_occ_vec, max_occ_plain);
-            vec_idx = interleaved_bit_aligned_vectors<pos_t>({ std::bit_width(uint64_t(sigma)) });
+            vec_idx = interleaved_bit_aligned_vectors<pos_t>({ bit_width(sigma) });
             vec_idx.resize_no_init(sigma);
             no_init_resize(occ_idx, alphabet_range);
         } else {

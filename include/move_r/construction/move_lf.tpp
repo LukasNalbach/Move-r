@@ -110,7 +110,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
         if constexpr (support == _locate_move) {
             no_init_resize(SA_s, r_);
         } else {
-            idx._SA_s = interleaved_bit_aligned_vectors<pos_t>({ std::bit_width(uint64_t(n)) });
+            idx._SA_s = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
             idx._SA_s.resize_no_init(r_);
         }
     }
@@ -136,7 +136,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
         pos_t l_ = b;
 
         for (pos_t i = 0; i < rp_diff; i++) {
-            idx._M_LF.template set_L_(j, run_sym(i_p, i));
+            idx._M_LF.set_L_(j, run_sym(i_p, i));
 
             if (build_sas) {
                 if constexpr (support == _locate_move) {
@@ -162,7 +162,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
                     }
                 }
 
-                idx._M_LF.template set_L_(j, run_sym(i_p, i));
+                idx._M_LF.set_L_(j, run_sym(i_p, i));
                 j++;
             }
         }
@@ -195,7 +195,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l_prev_next()
 {
     log_phase_start("building L'_prev & L'_next");
 
-    uint64_t bits_prev_next = std::bit_width(uint64_t(r_)); // tight width; values are in [0,r_] (r_ = no occurrence)
+    uint8_t bits_prev_next = bit_width(r_); // tight width; values are in [0,r_] (r_ = no occurrence)
     int64_t blk_size = std::min<pos_t>(_l_blk_size_factor * idx.sigma, r_);
     int64_t num_blks = div_ceil<int64_t>(r_, blk_size);
     idx._l_blk_size = blk_size;

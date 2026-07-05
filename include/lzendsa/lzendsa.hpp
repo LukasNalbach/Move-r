@@ -85,7 +85,7 @@ protected:
         auto time = now();
         log_phase_start(log, time, "building SA-Samples, d = " + std::to_string(d));
         uint64_t num_samples = n / d;
-        sa_samples = interleaved_bit_aligned_vectors<uint64_t, 1>({ std::bit_width(uint64_t{n}) });
+        sa_samples = interleaved_bit_aligned_vectors<uint64_t, 1>({ bit_width(n) });
         sa_samples.resize_no_init(num_samples);
 
         for (uint64_t i = 0; i < num_samples; i++) {

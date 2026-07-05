@@ -289,7 +289,7 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_r()
     log_message(log, "num. of segments: " + std::to_string(T_s.size()) + "\n");
     log_message(log, "building R");
 
-    R = interleaved_bit_aligned_vectors<uint64_t>({ std::bit_width(2 * n + 1) });
+    R = interleaved_bit_aligned_vectors<uint64_t>({ bit_width(2 * n + 1) });
     R.resize_no_init(size_R);
     uint64_t i = 0;
 
@@ -372,8 +372,8 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_rlzsa_factorization()
 
     idx_revr_t<sad_t, irr_pos_t>& idx_revR = get_idx_revR<sad_t, irr_pos_t>();
 
-    uint64_t width_sr = std::bit_width(uint64_t(size_R)); // tight; SR values are positions in R, in [0,size_R]
-    uint64_t width_lp = std::bit_width(uint64_t(2 * n)); // tight; LP values are in [0,2n]
+    uint8_t width_sr = bit_width(size_R); // tight; SR values are positions in R, in [0,size_R]
+    uint8_t width_lp = bit_width(2 * n); // tight; LP values are in [0,2n]
 
     if constexpr (space) {
         for (uint16_t i = 0; i < p; i++) {

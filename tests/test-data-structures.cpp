@@ -136,7 +136,7 @@ template <typename gen_t>
 static void verify_interleaved_bit_aligned_vectors(gen_t& gen)
 {
     constexpr uint8_t num_vectors = 4;
-    std::array<uint64_t, num_vectors> widths = { 1, 9, 21, 33 }; // widths in bits
+    std::array<uint8_t, num_vectors> widths = { 1, 9, 21, 33 }; // widths in bits
     interleaved_bit_aligned_vectors<uint64_t, num_vectors> vectors(widths);
 
     std::array<uint64_t, num_vectors> masks;

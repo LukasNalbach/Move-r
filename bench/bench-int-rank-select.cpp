@@ -66,7 +66,7 @@ void bench_rank(
         << ", mode: " << mode_str
         << "): " << std::flush;
 
-    uint32_t dummy_var;
+    uint32_t dummy_var = 0;
     auto time_start = now();
 
     for (uint32_t query=0; query<num_queries; query++) {
@@ -120,7 +120,7 @@ void bench_select(
         << ", mode: " << mode_str
         << "): " << std::flush;
 
-    uint32_t dummy_var;
+    uint32_t dummy_var = 0;
     auto time_start = now();
 
     for (uint32_t query=0; query<num_queries; query++) {

@@ -80,12 +80,12 @@ public:
         }
 
         sources_extensions = interleaved_bit_aligned_vectors<uint64_t, 2>({
-            std::bit_width(uint64_t{z}), // bit-width of the sources vector
-            std::bit_width((uint64_t)(max_ext - min_ext)) // bit-width of the extensions vector
+            bit_width(z), // bit-width of the sources vector
+            bit_width(max_ext - min_ext) // bit-width of the extensions vector
         });
 
         end_positions = interleaved_bit_aligned_vectors<uint64_t, 1>({
-            std::bit_width((uint64_t)n)
+            bit_width(n)
         });
 
         sources_extensions.resize_no_init(z);
@@ -200,7 +200,6 @@ public:
     {
         if (end < beg) return;
         int64_t phrase_id = phrase_containing(end);
-        int64_t pos_in_sa = end;
 
         struct SearchInterval {
             int64_t beg;
@@ -239,7 +238,6 @@ public:
 
                 if (end_pos == end) {
                     report(extension(phrase_id));
-                    --pos_in_sa;
 
                     if (phrase_id != 0 && end_position(phrase_id - 1) == end - 1) {
                         --phrase_id;
@@ -315,7 +313,7 @@ public:
      * @return the reconstructed values in the range [beg, end]
      */
     template <typename out_t>
-    std::vector<out_t> extract(int64_t beg, int64_t end, int64_t sa_end) const
+    std::vector<out_t> extract(int64_t beg, int64_t end, [[maybe_unused]] int64_t sa_end) const
     {
         std::vector<out_t> result;
         no_init_resize(result, end - beg + 1);

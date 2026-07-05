@@ -66,7 +66,7 @@ protected:
     std::vector<char> data_vectors;
 
     // [0 .. num_vectors - 1] or shorter; widths of the stored vectors; widths[i] = width of vector i
-    std::array<uint64_t, num_vectors> widths {};
+    std::array<uint8_t, num_vectors> widths {};
 
     /** @brief [0 .. num_vectors - 1] pointers to the first entries of each vector; bases[vec_idx] = base
      *        of the first entry of the vector with index vec_idx */
@@ -565,7 +565,7 @@ public:
         out.write((char*) &width_entry, sizeof(uint64_t));
 
         if (num_vectors > 0) {
-            out.write((char*) widths.data(), num_vectors * sizeof(uint64_t));
+            out.write((char*) widths.data(), sizeof(widths));
             out.write((char*) masks_get.data(), num_vectors * sizeof(val_t));
             out.write((char*) masks_set.data(), num_vectors * sizeof(val_t));
         }
@@ -587,7 +587,7 @@ public:
         in.read((char*) &width_entry, sizeof(uint64_t));
 
         if (num_vectors > 0) {
-            in.read((char*) widths.data(), num_vectors * sizeof(uint64_t));
+            in.read((char*) widths.data(), sizeof(widths));
             in.read((char*) masks_get.data(), num_vectors * sizeof(val_t));
             in.read((char*) masks_set.data(), num_vectors * sizeof(val_t));
         }

@@ -83,7 +83,7 @@ protected:
     std::vector<char> data_vectors;
 
     // [0 .. num_vectors - 1] widths of the stored vectors; widths[i] = width (in bits) of vector i
-    std::array<uint64_t, num_vectors> widths {};
+    std::array<uint8_t, num_vectors> widths {};
 
     // [0 .. num_vectors - 1] offsets[i] = offset (in bits) of the ith vectors entry within the region storing all ith entries
     std::array<uint64_t, num_vectors> offsets {};
@@ -99,7 +99,7 @@ protected:
      * @brief initializes the interleaved_bit_aligned_vectors with the vector-widths stored in widths
      * @param widths vector containing the widths (in bits) of the interleaved arrays
      */
-    void initialize(std::array<uint64_t, num_vectors> widths)
+    void initialize(std::array<uint8_t, num_vectors> widths)
     {
         size_vectors = 0;
         capacity_vectors = 0;
@@ -139,7 +139,7 @@ public:
      * @brief Construct a new interleaved_bit_aligned_vectors
      * @param widths vector containing the widths (in bits) of the interleaved arrays
      */
-    interleaved_bit_aligned_vectors(std::array<uint64_t, num_vectors> widths)
+    interleaved_bit_aligned_vectors(std::array<uint8_t, num_vectors> widths)
     {
         initialize(widths);
     }
@@ -511,7 +511,7 @@ public:
     void serialize(std::ostream& out) const
     {
         out.write((char*) &size_vectors, sizeof(uint64_t));
-        out.write((char*) widths.data(), num_vectors * sizeof(uint64_t));
+        out.write((char*) widths.data(), sizeof(widths));
 
         if (size_vectors > 0) {
             // write only the bytes actually holding entries (capacity and padding are scratch)
@@ -527,7 +527,7 @@ public:
     {
         uint64_t old_size;
         in.read((char*) &old_size, sizeof(uint64_t));
-        in.read((char*) widths.data(), num_vectors * sizeof(uint64_t));
+        in.read((char*) widths.data(), sizeof(widths));
         initialize(widths);
 
         if (old_size > 0) {

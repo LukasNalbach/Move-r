@@ -163,7 +163,7 @@ public:
     template <typename U>
     void construct(U* ptr) noexcept(std::is_nothrow_default_constructible<U>::value) { ::new (static_cast<void*>(ptr)) U; }
     template <typename U, typename... Args>
-    void construct(U* ptr, Args&&... args) { }
+    void construct(U*, Args&&...) { }
 };
 
 /**
@@ -351,6 +351,18 @@ template <typename uint_t>
 inline static uint_t div_ceil(uint_t x, uint_t y)
 {
     return x == 0 ? 0 : (1 + (x - 1) / y);
+}
+
+/**
+ * @brief returns the number of bits needed to store the value val
+ * @tparam T integer type of val
+ * @param val a value
+ * @return the number of bits needed to store val, as a uint8_t (suitable for interleaved-vector width lists)
+ */
+template <typename T>
+inline static uint8_t bit_width(T val)
+{
+    return std::bit_width(uint64_t(val));
 }
 
 /**
