@@ -189,14 +189,14 @@ public:
         two_a = 2 * a;
 
         if (p > 1 && 1000 * p > k) {
-            p = std::max((pos_t)1, k / 1000);
+            p = std::max<pos_t>(1, k / 1000);
             if (log)
                 std::cout << "warning: p > k/1000, setting p to k/1000 ~ " << p << std::endl;
         }
 
         omp_set_num_threads(p);
         // tight bit-width for D_offs (its values are limited to l_max = 2^omega_offs - 1 below)
-        mds.omega_offs = std::bit_width(uint64_t{ (8.0 * n) / k });
+        mds.omega_offs = std::bit_width((uint64_t)((8.0 * n) / k));
 
         /* in order to store D_offs with at most omega_offs bits, we have to limit the interval length
          * to l_max = 2^omega_offs */

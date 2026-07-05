@@ -50,7 +50,7 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_freq_sad()
     SAd_freq.reserve(r);
 
     for (pos_t i = 0; i < r; i++) {
-        sad_t sad = (sad_t { I_Phi_m1[i].second } + n_sad) - sad_t { I_Phi_m1[i].first };
+        sad_t sad = ((sad_t)I_Phi_m1[i].second + n_sad) - (sad_t)I_Phi_m1[i].first;
         pos_t count = (i == r - 1 ? n : I_Phi_m1[i + 1].first) - I_Phi_m1[i].first;
         auto it = SAd_freq.find(sad);
 
@@ -84,7 +84,7 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_r()
 
     for (uint16_t i_p = 0; i_p < p; i_p++) {
         pos_distrib.emplace_back(n_p[i_p],
-            std::max<int64_t>(n_p[i_p], int64_t { n_p[i_p + 1] } - seg_size));
+            std::max<int64_t>(n_p[i_p], (int64_t)n_p[i_p + 1] - seg_size));
         if (from_file)
             SA_file_bufs[i_p].buffersize(8 * seg_size);
     }

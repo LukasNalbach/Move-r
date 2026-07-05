@@ -46,7 +46,7 @@ void help()
     std::cout << "Usage: rlzsa-convert [...] <input index> <output index>" << std::endl;
     std::cout << "   <input index>    path to the input index (file with extension .r-index-rlzsa)" << std::endl;
     std::cout << "   <output index>   path to the output index (file with extension .rlzsa)" << std::endl;
-    std::cout << "   -d               delta, if not provided the sample will be about 10\% of the index size" << std::endl;
+    std::cout << "   -d               delta, if not provided the sample will be about 10% of the index size" << std::endl;
 }
 
 template <typename int_t>

@@ -39,7 +39,7 @@
  * @param length number of characters in the generated string
  * @return a random string of the given length over the alphabet [0-9A-Za-z]
  */
-static std::string random_alphanumeric_string(uint64_t length)
+inline std::string random_alphanumeric_string(uint64_t length)
 {
     static std::string possible_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
@@ -62,7 +62,7 @@ static std::string random_alphanumeric_string(uint64_t length)
  * @param leftg_file input stream of the malloc_count log file
  * @return the maximum peak memory usage reported in the log file
  */
-static uint64_t malloc_count_peak_memory_usage(std::ifstream& leftg_file)
+inline uint64_t malloc_count_peak_memory_usage(std::ifstream& leftg_file)
 {
     std::string leftg_file_content;
     leftg_file.seekg(0, std::ios::end);

@@ -69,7 +69,6 @@ std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input,
         std::string sa_file_name = input + ".sa";
         std::string bwt_file_name = input + ".bwt";
         std::ifstream sa_file(sa_file_name);
-        bool test = n == std::filesystem::file_size(bwt_file_name);
         sa.resize(n);
         sa[0] = n - 1;
 

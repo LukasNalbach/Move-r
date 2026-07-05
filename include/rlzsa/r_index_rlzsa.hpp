@@ -129,18 +129,12 @@ public:
         if (r_idx.has_sa_samples()) {
             auto [beg, end, sa_beg] = r_idx.count_and_get_occ(pattern);
             if (end < beg) return {};
-            Occ = rlzsa_enc.template extract<out_t>(beg, end, int64_t{sa_beg});
+            Occ = rlzsa_enc.template extract<out_t>(beg, end, (int64_t)sa_beg);
         } else {
             auto [beg, end] = r_idx.count(pattern);
             if (end < beg) return {};
             Occ = rlzsa_enc.template extract<out_t>(beg, end);
         }
-
-        #ifndef NDEBUG
-        for (auto occ : Occ) {
-            assert(0 <= occ && occ < input_size());
-        }
-        #endif
 
         return Occ;
     }

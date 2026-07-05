@@ -34,7 +34,7 @@
 #include <rlzsa_opt/rlzsa_opt.hpp>
 #include <misc/strings.hpp>
 #include <misc/utils.hpp>
-#include "test_index_common.hpp"
+#include "test-index-common.hpp"
 
 std::random_device rd;
 std::mt19937 gen(rd());

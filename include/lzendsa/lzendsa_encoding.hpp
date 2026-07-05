@@ -69,7 +69,7 @@ public:
      */
     template <typename int_t>
     lzendsa_encoding(const std::vector<lzend_phr_t<int_t>>& lzend_phrases,int64_t n, int64_t h = 8192)
-        : n(n), h(h), z(lzend_phrases.size())
+        : n(n), z(lzend_phrases.size()), h(h)
     {
         min_ext = lzend_phrases[0].ext;
         int64_t max_ext = lzend_phrases[0].ext;
@@ -81,11 +81,11 @@ public:
 
         sources_extensions = interleaved_bit_aligned_vectors<uint64_t, 2>({
             std::bit_width(uint64_t{z}), // bit-width of the sources vector
-            std::bit_width(uint64_t{max_ext - min_ext}) // bit-width of the extensions vector
+            std::bit_width((uint64_t)(max_ext - min_ext)) // bit-width of the extensions vector
         });
 
         end_positions = interleaved_bit_aligned_vectors<uint64_t, 1>({
-            std::bit_width(uint64_t{n})
+            std::bit_width((uint64_t)n)
         });
 
         sources_extensions.resize_no_init(z);
@@ -128,7 +128,7 @@ public:
      */
     inline int64_t extension(int64_t i) const
     {
-        return min_ext + int64_t{sources_extensions.get<1>(i)};
+        return min_ext + (int64_t)sources_extensions.get<1>(i);
     }
 
     /**

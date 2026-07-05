@@ -364,15 +364,18 @@ public:
         static_assert(vec_idx < num_vectors);
         char* dst = bases[vec_idx] + i * width_entry;
 
+        // the memcpy for a width larger than sizeof(T) is never instantiated (it cannot occur, as
+        // widths[vec_idx] <= sizeof(T) holds), which both avoids the read past v and keeps each
+        // reachable case a single fixed-size store
         switch (widths[vec_idx]) {
-            case 1: {std::memcpy(dst, &v, 1); break;}
-            case 2: {std::memcpy(dst, &v, 2); break;}
-            case 3: {std::memcpy(dst, &v, 3); break;}
-            case 4: {std::memcpy(dst, &v, 4); break;}
-            case 5: {std::memcpy(dst, &v, 5); break;}
-            case 6: {std::memcpy(dst, &v, 6); break;}
-            case 7: {std::memcpy(dst, &v, 7); break;}
-            case 8: {std::memcpy(dst, &v, 8); break;}
+            case 1: {if constexpr (sizeof(T) >= 1) std::memcpy(dst, &v, 1); break;}
+            case 2: {if constexpr (sizeof(T) >= 2) std::memcpy(dst, &v, 2); break;}
+            case 3: {if constexpr (sizeof(T) >= 3) std::memcpy(dst, &v, 3); break;}
+            case 4: {if constexpr (sizeof(T) >= 4) std::memcpy(dst, &v, 4); break;}
+            case 5: {if constexpr (sizeof(T) >= 5) std::memcpy(dst, &v, 5); break;}
+            case 6: {if constexpr (sizeof(T) >= 6) std::memcpy(dst, &v, 6); break;}
+            case 7: {if constexpr (sizeof(T) >= 7) std::memcpy(dst, &v, 7); break;}
+            case 8: {if constexpr (sizeof(T) >= 8) std::memcpy(dst, &v, 8); break;}
             default: __builtin_unreachable();
         }
     }

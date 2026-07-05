@@ -385,9 +385,13 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
     if (log) {
         time = log_runtime(time);
         peak_memory_usage = std::max(peak_memory_usage, malloc_count_peak() - baseline_mem_usage);
+        uint64_t time_construction = time_diff_ns(time_start, now());
         std::cout << std::endl;
-        std::cout << "overall construction time: " << format_time(time_diff_ns(time_start, now())) << std::endl;
+        std::cout << "overall construction time: " << format_time(time_construction) << std::endl;
         std::cout << "overall peak memory usage: " << format_size(peak_memory_usage) << std::endl;
+        std::cout << "construction throughput: " << format_construction_throughput(n, time_construction) << std::endl;
+        if (params.mf_idx != nullptr)
+            *params.mf_idx << " construction_throughput_mb_per_s=" << construction_throughput_mb_per_s(n, time_construction);
         log_data_structure_sizes();
         std::cout << std::endl;
     }

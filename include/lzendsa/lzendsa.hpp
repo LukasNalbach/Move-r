@@ -237,7 +237,7 @@ public:
     {
         auto [beg, end] = binary_sa_search_and_extract<int_t>(*input, pattern, num_samples(),
             [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
-            [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, auto report){
+            [&](uint64_t b, uint64_t e, uint64_t /*sa_b*/, uint64_t sa_e, auto report){
                 lzendsa_enc.template extract<int_t>(b, e, sa_e, report);}, [](int_t){}, true, false);
 
         return {beg, end};
@@ -253,9 +253,9 @@ public:
     template <typename out_t, typename report_fnc_t>
     void locate(const std::string& pattern, report_fnc_t report) const
     {
-        auto [beg, end] = binary_sa_search_and_extract<out_t>(*input, pattern, num_samples(),
+        binary_sa_search_and_extract<out_t>(*input, pattern, num_samples(),
             [&](uint64_t i){return sample(i);}, [&](uint64_t i){return sample_pos(i);},
-            [&](uint64_t b, uint64_t e, uint64_t sa_b, uint64_t sa_e, auto report){
+            [&](uint64_t b, uint64_t e, uint64_t /*sa_b*/, uint64_t sa_e, auto report){
                 lzendsa_enc.template extract<out_t>(b, e, sa_e, report);}, report, true, true);
     }
 

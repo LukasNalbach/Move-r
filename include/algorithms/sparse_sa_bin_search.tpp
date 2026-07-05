@@ -336,10 +336,10 @@ std::tuple<uint64_t, uint64_t> binary_sa_search_and_extract(
     } else {
         // the unsampled regions surrounding the (lexicographical) boundary-samples are not connected
 
-        uint64_t prev_fst_smpl_idx = std::max<int64_t>(int64_t{fst_smpl_idx} - 1, 0);
-        uint64_t next_fst_smpl_idx = std::min<int64_t>(int64_t{fst_smpl_idx} + 1, num_samples - 1);
-        uint64_t prev_lst_smpl_idx = std::max<int64_t>(int64_t{lst_smpl_idx} - 1, 0);
-        uint64_t next_lst_smpl_idx = std::min<int64_t>(int64_t{lst_smpl_idx} + 1, num_samples - 1);
+        uint64_t prev_fst_smpl_idx = std::max<uint64_t>(fst_smpl_idx - 1, 0);
+        uint64_t next_fst_smpl_idx = std::min<uint64_t>(fst_smpl_idx + 1, num_samples - 1);
+        uint64_t prev_lst_smpl_idx = std::max<uint64_t>(lst_smpl_idx - 1, 0);
+        uint64_t next_lst_smpl_idx = std::min<uint64_t>(lst_smpl_idx + 1, num_samples - 1);
 
         uint64_t prev_fst_smpl_pos = get_sa_smpl_pos(prev_fst_smpl_idx);
         uint64_t next_fst_smpl_pos = get_sa_smpl_pos(next_fst_smpl_idx);

@@ -297,7 +297,7 @@ static const search_scheme_t gen_min_u_scheme(uint8_t k)
                 l = std::max<int16_t>(0, j - profile_c(m));
             }
 
-            s.emplace_back(search_step_t{.part = pi[j], .k_min = l, .k_max = u});
+            s.emplace_back(search_step_t{.part = pi[j], .k_min = (uint8_t)l, .k_max = (uint8_t)u});
         }
 
         S.emplace_back(std::move(s));
@@ -315,7 +315,7 @@ static const search_scheme_t gen_min_u_scheme(uint8_t k)
  * @param k the maximum number of errors
  * @return the minU search scheme for k errors
  */
-static const search_scheme_t min_u_scheme(uint8_t k) {
+inline const search_scheme_t min_u_scheme(uint8_t k) {
     switch (k) {
         case 0:  return minU_0;
         case 1:  return minU_1;

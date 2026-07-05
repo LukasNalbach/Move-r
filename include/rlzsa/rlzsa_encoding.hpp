@@ -260,9 +260,10 @@ public:
                         is_segment_processed[best_segment] = 1;
 
                         do {
-                            uint64_t seg = sa_dsa[p] / segment_size;
+                            uint64_t sa_p = sa_dsa[p];
+                            uint64_t seg = sa_p / segment_size;
 
-                            if (sa_dsa[p] < (seg + 1) * segment_size - k &&
+                            if (sa_p < (seg + 1) * segment_size - k &&
                                 is_segment_processed[seg] == 0 &&
                                 is_segment_selected[seg] == 0
                             ) {

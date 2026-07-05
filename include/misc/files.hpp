@@ -71,7 +71,7 @@ static int64_t value_from_key(std::string str, std::string key)
  * @param header the header line
  * @return the number of patterns (exits with an error if the header is malformed)
  */
-static uint64_t number_of_patterns(std::string header)
+inline uint64_t number_of_patterns(std::string header)
 {
     int64_t num = value_from_key(header, "number=");
 
@@ -87,7 +87,7 @@ static uint64_t number_of_patterns(std::string header)
  * @param header the header line
  * @return the pattern length (exits with an error if the header is malformed)
  */
-static uint64_t patterns_length(std::string header)
+inline uint64_t patterns_length(std::string header)
 {
     int64_t len = value_from_key(header, "length=");
 
@@ -104,7 +104,7 @@ static uint64_t patterns_length(std::string header)
  * @param data the destination buffer (must hold at least size bytes)
  * @param size the number of bytes to read
  */
-static void read_from_file(std::istream& in, const char* data, uint64_t size)
+inline void read_from_file(std::istream& in, const char* data, uint64_t size)
 {
     uint64_t size_left = size;
     uint64_t bytes_to_read;
@@ -122,7 +122,7 @@ static void read_from_file(std::istream& in, const char* data, uint64_t size)
  * @param data the source buffer (must hold at least size bytes)
  * @param size the number of bytes to write
  */
-static void write_to_file(std::ostream& out, const char* data, uint64_t size)
+inline void write_to_file(std::ostream& out, const char* data, uint64_t size)
 {
     uint64_t size_left = size;
     uint64_t bytes_to_write;

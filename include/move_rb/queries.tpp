@@ -44,10 +44,11 @@ inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::bui
     const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = const_vars<dir>();
 
     pos_t blk = div_ceil<pos_t>(b_, blk_size);
+    pos_t end_pos = std::min<pos_t>(blk * blk_size, e_);
     int64_t beg = b_;
-    int64_t end = std::min<pos_t>(blk * blk_size, e_);
+    int64_t end = end_pos;
 
-    if (end != e_) [[likely]] {
+    if (end_pos != e_) [[likely]] {
         pos_t blk_beg = blk * idx->sigma;
 
         for (pos_t i = 0; i <= max; i++) {
@@ -62,10 +63,11 @@ inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::bui
     }
 
     blk = e_ / blk_size;
-    beg = std::max<pos_t>(blk * blk_size, b_);
+    pos_t beg_pos = std::max<pos_t>(blk * blk_size, b_);
+    beg = beg_pos;
     end = e_;
 
-    if (beg != b_) [[likely]] {
+    if (beg_pos != b_) [[likely]] {
         pos_t blk_beg = blk * idx->sigma;
 
         for (pos_t i = 0; i <= max; i++) {
@@ -153,8 +155,9 @@ inline auto move_rb<support, sym_t, pos_t>::search_context_t<query_support>::ext
     std::array<int64_t, 256> prev;
     std::array<int64_t, 256> next;
     build_prev_next<dir>(prev, next, i_sym);
+    int64_t bwt_sub_runs = idx_dir.M_LF().num_intervals();
 
-    if (next[i_sym] > prev[i_sym] || prev[i_sym] >= idx_dir.M_LF().num_intervals()) [[unlikely]] {
+    if (next[i_sym] > prev[i_sym] || prev[i_sym] >= bwt_sub_runs) [[unlikely]] {
         return {search_context_t{}, false};
     }
 
@@ -179,11 +182,11 @@ inline auto move_rb<support, sym_t, pos_t>::search_context_t<query_support>::ext
     }
 
     prime_tuple_t prime{b, e, b_, e_};
-    bool is_term_in_iv = next[0] <= prev[0] && prev[0] < idx_dir.M_LF().num_intervals();
+    bool is_term_in_iv = next[0] <= prev[0] && prev[0] < bwt_sub_runs;
     b_R = b_R_old + is_term_in_iv;
 
     for (i_sym_t i = 1; i < i_sym; i++) {
-        if (next[i] <= prev[i] && prev[i] < idx_dir.M_LF().num_intervals()) {
+        if (next[i] <= prev[i] && prev[i] < bwt_sub_runs) {
             pos_t x = next[i];
             pos_t y = prev[i];
 
@@ -270,7 +273,8 @@ void move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::prepare_ex
     ctx->template update_input_intervals<dir>();
     ctx->template build_prev_next<dir>(prev, next, idx->sigma);
 
-    bool is_term_in_iv = next[0] <= prev[0] && prev[0] < idx->template index<dir>().M_LF().num_intervals();
+    int64_t bwt_sub_runs = idx->template index<dir>().M_LF().num_intervals();
+    bool is_term_in_iv = next[0] <= prev[0] && prev[0] < bwt_sub_runs;
     b_R_nxt = b_R + is_term_in_iv;
 
     sym_nxt = 0;
@@ -533,9 +537,11 @@ template <query_support_t query_support>
 template <direction_t dir>
 void move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::advance_symbol()
 {
+    int64_t bwt_sub_runs = idx->template index<dir>().M_LF().num_intervals();
+
     do {
         sym_nxt++;
     } while (sym_nxt < idx->sigma && (
              next[sym_nxt] > prev[sym_nxt] ||
-             prev[sym_nxt] == idx->template index<dir>().M_LF().num_intervals()));
+             prev[sym_nxt] == bwt_sub_runs));
 }

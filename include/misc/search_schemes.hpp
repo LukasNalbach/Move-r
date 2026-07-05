@@ -67,7 +67,7 @@ struct search_scheme_t {
  * @param k the maximum number of errors
  * @return the pigeonhole search scheme for k errors
  */
-static const search_scheme_t pigeon_hole_scheme(uint8_t k)
+inline const search_scheme_t pigeon_hole_scheme(uint8_t k)
 {
     uint8_t p = k + 1;
     std::vector<search_t> S;
@@ -76,14 +76,14 @@ static const search_scheme_t pigeon_hole_scheme(uint8_t k)
     for (int16_t i = 0; i < k + 1; i++) {
         search_t s;
         s.reserve(p);
-        s.emplace_back(search_step_t{.part = i, .k_min = 0, .k_max = 0});
+        s.emplace_back(search_step_t{.part = (uint8_t)i, .k_min = 0, .k_max = 0});
 
         for (int16_t j = i + 1; j < p; j++) {
-            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k});
+            s.emplace_back(search_step_t{.part = (uint8_t)j, .k_min = 0, .k_max = k});
         }
 
         for (int16_t j = i - 1; j >= 0; j--) {
-            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k});
+            s.emplace_back(search_step_t{.part = (uint8_t)j, .k_min = 0, .k_max = k});
         }
 
         S.emplace_back(std::move(s));
@@ -101,7 +101,7 @@ static const search_scheme_t pigeon_hole_scheme(uint8_t k)
  * @param k the maximum number of errors
  * @return the suffix-filter search scheme for k errors
  */
-static const search_scheme_t suffix_filter_scheme(uint8_t k)
+inline const search_scheme_t suffix_filter_scheme(uint8_t k)
 {
     uint8_t p = k + 1;
     std::vector<search_t> S;
@@ -112,11 +112,11 @@ static const search_scheme_t suffix_filter_scheme(uint8_t k)
         s.reserve(p);
 
         for (int16_t j = i; j < p; j++) {
-            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = j - i});
+            s.emplace_back(search_step_t{.part = (uint8_t)j, .k_min = 0, .k_max = (uint8_t)(j - i)});
         }
 
         for (int16_t j = i - 1; j >= 0; j--) {
-            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k});
+            s.emplace_back(search_step_t{.part = (uint8_t)j, .k_min = 0, .k_max = k});
         }
 
         S.emplace_back(std::move(s));
@@ -134,7 +134,7 @@ static const search_scheme_t suffix_filter_scheme(uint8_t k)
  * @param k the maximum number of errors
  * @return the 0/1-seeds search scheme for k errors
  */
-static const search_scheme_t zero_one_scheme(uint8_t k)
+inline const search_scheme_t zero_one_scheme(uint8_t k)
 {
     uint8_t p = k + 2;
     std::vector<search_t> S;
@@ -143,15 +143,15 @@ static const search_scheme_t zero_one_scheme(uint8_t k)
     for (int16_t i = 0; i < k + 1; i++) {
         search_t s;
         s.reserve(p);
-        s.emplace_back(search_step_t{.part = i, .k_min = 0, .k_max = 0});
-        s.emplace_back(search_step_t{.part = i + 1, .k_min = 0, .k_max = (i == k ? 0 : 1)});
+        s.emplace_back(search_step_t{.part = (uint8_t)i, .k_min = 0, .k_max = 0});
+        s.emplace_back(search_step_t{.part = (uint8_t)(i + 1), .k_min = 0, .k_max = (uint8_t)(i == k ? 0 : 1)});
 
         for (int16_t j = i + 2; j < p; j++) {
-            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k});
+            s.emplace_back(search_step_t{.part = (uint8_t)j, .k_min = 0, .k_max = k});
         }
 
         for (int16_t j = i - 1; j >= 0; j--) {
-            s.emplace_back(search_step_t{.part = j, .k_min = 0, .k_max = k});
+            s.emplace_back(search_step_t{.part = (uint8_t)j, .k_min = 0, .k_max = k});
         }
 
         S.emplace_back(std::move(s));
@@ -194,7 +194,7 @@ static std::vector<uint8_t> parse_bracket(std::string content, int64_t p)
  * @param str the textual representation of the search scheme (a header line "p=.. k=.." followed by one line per search)
  * @return the parsed search scheme
  */
-static search_scheme_t parse_search_scheme(const std::string& str)
+inline search_scheme_t parse_search_scheme(const std::string& str)
 {
     std::stringstream ss_input(str);
     std::string line;
@@ -232,8 +232,8 @@ static search_scheme_t parse_search_scheme(const std::string& str)
     }
 
     return search_scheme_t {
-        .k = k,
-        .p = p,
+        .k = (uint8_t)k,
+        .p = (uint8_t)p,
         .S = std::move(S)
     };
 }

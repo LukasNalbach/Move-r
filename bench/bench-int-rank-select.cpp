@@ -94,7 +94,7 @@ void bench_rank(
     }
 
     auto time_end = now();
-    std::to_string(dummy_var);
+    [[maybe_unused]] volatile uint32_t sink = dummy_var;
 
     std::cout << format_query_throughput(
         num_queries,time_diff_ns(time_start,time_end))
@@ -143,7 +143,7 @@ void bench_select(
     }
 
     auto time_end = now();
-    std::to_string(dummy_var);
+    [[maybe_unused]] volatile uint32_t sink = dummy_var;
 
     std::cout << format_query_throughput(
         num_queries,time_diff_ns(time_start,time_end))
