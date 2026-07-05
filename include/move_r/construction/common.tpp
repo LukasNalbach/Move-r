@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include <misc/files.hpp>
 #include <move_r/move_r.hpp>
 
 template <move_r_support support, typename sym_t, typename pos_t>
@@ -120,16 +121,8 @@ void move_r<support, sym_t, pos_t>::construction::preprocess_t(bool in_memory, b
                 T<i_sym_t>(i) = idx._map_int[T<i_sym_t>(i)];
             }
         } else {
-            std::vector<sdsl::int_vector_buffer<8>> T_buf;
-
-            for (uint16_t i = 0; i < p; i++) {
-                T_buf.emplace_back(sdsl::int_vector_buffer<8>(T_file_name, std::ios::in, 128 * 1024, 8, true));
-            }
-
-            #pragma omp parallel for num_threads(p)
-            for (uint64_t i = 0; i < n - 1; i++) {
-                T_buf[omp_get_thread_num()][i] = idx._map_int[T_buf[omp_get_thread_num()][i]];
-            }
+            transform_byte_file_parallel(T_file_name, n - 1, p,
+                [&](uint8_t c) { return idx._map_int[c]; });
         }
 
         if (bigbwt) {
@@ -222,20 +215,13 @@ void move_r<support, sym_t, pos_t>::construction::unmap_t(bool in_memory)
             }
         } else {
             std::vector<uint64_t> map_ext_adj(256, 0);
-            std::vector<sdsl::int_vector_buffer<8>> T_buf;
-
-            for (uint16_t i = 0; i < p; i++) {
-                T_buf.emplace_back(sdsl::int_vector_buffer<8>(prefix_tmp_files, std::ios::in, 128 * 1024, 8, true));
-            }
 
             for (uint16_t c = 2; c < 256; c++) {
                 map_ext_adj[c] = char_to_uchar(idx._map_ext[c - 2]);
             }
 
-            #pragma omp parallel for num_threads(p)
-            for (uint64_t i = 0; i < n - 1; i++) {
-                T_buf[omp_get_thread_num()][i] = map_ext_adj[T_buf[omp_get_thread_num()][i]];
-            }
+            transform_byte_file_parallel(prefix_tmp_files, n - 1, p,
+                [&](uint8_t c) { return map_ext_adj[c]; });
         }
     } else {
         #pragma omp parallel for num_threads(p)

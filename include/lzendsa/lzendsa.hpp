@@ -285,7 +285,7 @@ public:
     {
         int64_t len = end - beg + 1;
         int64_t smpl_idx = beg / d;
-        int64_t smpl_pos = smpl_idx * d;
+        int64_t smpl_pos = sample_pos(smpl_idx);
         std::vector<out_t> rng;
         
         if (smpl_pos < beg) {

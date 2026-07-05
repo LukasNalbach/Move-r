@@ -128,6 +128,8 @@ std::tuple<std::vector<int_t>, std::string> build_sa_and_bwt(std::string& input,
 
             log_phase_end(log, time);
         }
+
+        input.pop_back();
     }
 
     return { sa, bwt };

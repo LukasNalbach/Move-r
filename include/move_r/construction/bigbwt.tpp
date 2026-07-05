@@ -27,6 +27,8 @@
 #pragma once
 
 #include <filesystem>
+#include <stdexcept>
+#include <system_error>
 #include <misc/bigbwt.hpp>
 #include <move_r/move_r.hpp>
 
@@ -50,6 +52,18 @@ void move_r<support, sym_t, pos_t>::construction::bigbwt(bool delete_T)
         (std::string)(supports_locate ? (build_sa ? "-S " : "-s -e ") : "") +
         (std::string)(p > 1 ? ("-t " + std::to_string(p) + " ") : "") +
         prefix_tmp_files + (std::string)(log ? "" : " >log_1 >log_2")).c_str());
+
+    if (!std::filesystem::exists(prefix_tmp_files + ".bwt")) {
+        for (const char* ext : { ".log", ".sa", ".ssa", ".esa", ".parse", ".parse_old", ".last",
+                 ".bwlast", ".dict", ".ilist", ".occ", ".sai", ".bwsai", ".dicz", ".dicz.len" }) {
+            std::error_code ec;
+            std::filesystem::remove(prefix_tmp_files + ext, ec);
+        }
+        if (delete_T) std::filesystem::remove(prefix_tmp_files);
+        if (!log) { std::filesystem::remove("log_1"); std::filesystem::remove("log_2"); }
+        throw std::runtime_error("Big-BWT failed to build the BWT (the input likely parses into a "
+            "single prefix-free phrase, which happens for very short or short-period inputs)");
+    }
 
     std::ifstream log_ifile(prefix_tmp_files + ".log");
     bigbwt_peak_mem_usage = (malloc_count_current() - baseline_mem_usage) + malloc_count_peak_memory_usage(log_ifile);

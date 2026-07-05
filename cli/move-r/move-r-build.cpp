@@ -35,7 +35,7 @@ uint64_t n;
 uint16_t a = 8;
 uint16_t p = omp_get_max_threads();
 std::string path_prefix_index_file;
-move_r_construction_mode mode = _suffix_array;
+move_r_construction_mode mode = _suffix_array_space;
 move_r_support support = _locate_move;
 std::ofstream mf_idx;
 std::ofstream mf_mds;
@@ -55,7 +55,9 @@ void help(std::string msg)
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-build: builds move-r." << std::endl << std::endl;
     std::cout << "usage: move-r-build [...] <input_file> [<input_file> ...]" << std::endl;
-    std::cout << "   -c <mode>           construction mode: sa or bigbwt (default: sa)" << std::endl;
+    std::cout << "   -c <mode>           construction mode: sa, sa_space or bigbwt (default: sa_space). sa builds" << std::endl;
+    std::cout << "                       everything in-memory; sa_space additionally offloads idle data structures to" << std::endl;
+    std::cout << "                       disk to lower peak memory; bigbwt builds the BWT with Big-BWT" << std::endl;
     std::cout << "   -o <base_name>      names the index file base_name.move-r(-rlzsa) (default: input_file)" << std::endl;
     std::cout << "   -s <support>        support: count, locate_move or locate_rlzsa" << std::endl;
     std::cout << "                       (default: locate_move)" << std::endl;
@@ -95,6 +97,7 @@ void parse_args(char** argv, int argc)
         if (arg_idx >= argc) help("error: missing parameter after -p option");
         std::string construction_mode_str = argv[arg_idx++];
         if (construction_mode_str == "sa") mode = _suffix_array;
+        else if (construction_mode_str == "sa_space") mode = _suffix_array_space;
         else if (construction_mode_str == "bigbwt") mode = _bigbwt;
         else help("error: invalid option for -c");
     } else if (s == "-s") {

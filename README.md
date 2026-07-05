@@ -11,6 +11,10 @@ This repository contains a collection of uni- and bi-directional compressed text
     - [External (install manually)](#external-install-manually)
     - [Included (git submodules)](#included-git-submodules)
   - [CLI Build Instructions](#cli-build-instructions)
+  - [Supported Compilers and Systems](#supported-compilers-and-systems)
+    - [oneTBB on Windows](#onetbb-on-windows)
+    - [Building on Windows (Clang)](#building-on-windows-clang)
+    - [Building on Windows (MinGW-w64)](#building-on-windows-mingw-w64)
   - [CMake Build Options](#cmake-build-options)
   - [Usage in C++](#usage-in-c)
     - [Cmake](#cmake)
@@ -23,6 +27,7 @@ This repository contains a collection of uni- and bi-directional compressed text
   - [CLI Tools](#cli-tools)
     - [move-r](#move-r-2)
     - [move-rb (bi-directional)](#move-rb-bi-directional-1)
+    - [Biological (FASTA / DNA) support](#biological-fasta--dna-support)
     - [rlzsa](#rlzsa)
     - [lzendsa](#lzendsa)
     - [Tools](#tools)
@@ -57,7 +62,7 @@ This repository contains a collection of uni- and bi-directional compressed text
 
 Core dependencies, pulled in automatically and linked into the `move_r` library:
 
-- [SDSL](https://github.com/simongog/sdsl-lite) — succinct data structures; built from source as a position-independent static library (with its bundled [libdivsufsort](https://github.com/simongog/libdivsufsort)), so the one archive links both the ordinary executables and the shared columba benchmark plugins — no system SDSL install is needed
+- [sdsl-lite](https://github.com/simongog/sdsl-lite) — succinct data structures (bundled with [libdivsufsort](https://github.com/simongog/libdivsufsort))
 - [libsais](https://github.com/IlyaGrebnov/libsais) — suffix-array construction
 - [ips4o](https://github.com/ips4o/ips4o) — for (parallel) sorting
 - [ips2ra](https://github.com/ips4o/ips2ra) — in-place radix sort, used for the integer-key occurrence sorts
@@ -67,16 +72,16 @@ Core dependencies, pulled in automatically and linked into the `move_r` library:
 - [rmq](https://github.com/pdinklag/rmq) — a practical range-minimum query data structure
 - [malloc_count](https://github.com/ByteHamster-etc/malloc_count) — for measuring peak memory usage
 - [googletest](https://github.com/google/googletest) — for unit tests
-- [Big-BWT](https://gitlab.com/manzai/Big-BWT) — the prefix-free-parsing BWT builder used by the `bigbwt` construction mode of move-r/move-rb; compiled automatically, so `bigbwt` need not be installed separately (it only needs Python 3.8+ with `psutil` at runtime)
+- [Big-BWT](https://gitlab.com/manzai/Big-BWT) — prefix-free-parsing based BWT and SA construction
 
 Used only by the benchmark tools:
 
 - [rcomp](https://github.com/kampersanda/rcomp), [r-index](https://github.com/alshai/r-index), [r-index-f](https://github.com/drnatebrown/r-index-f), [OnlineRlbwt](https://github.com/itomomoti/OnlineRlbwt), [block_RLBWT](https://github.com/saskeli/block_RLBWT) — uni-directional competitor r-indexes
-- [columba](https://github.com/biointec/columba) — bi-directional competitor index, built in two flavors: the FM-index (*columba*) and its run-length-compressed move-structure flavor (*columba-rlc*, the successor of [b-move](https://github.com/biointec/b-move)).
-- [br-index](https://github.com/U-Ar/br-index) — bi-directional competitor r-index
+- [columba](https://github.com/biointec/columba) — bi-directional competitor index, built in two flavors: the FM-index (*columba*) and run-length-compressed (*columba-rlc*).
+- [br-index](https://github.com/U-Ar/br-index) — original bi-directional r-index
 
 ## CLI Build Instructions
-This implementation has been tested on Ubuntu 24.04 with GCC 13.3.0, `libtbb-dev`, `libomp-dev`, `python3-psutil` and `libz-dev` installed. Big-BWT (used by the `bigbwt` construction mode) is bundled and built automatically — it only needs Python 3.8+ with `psutil` at runtime.
+This implementation has been tested on Ubuntu 24.04 with GCC 13.3.0, `libtbb-dev`, `libomp-dev`, `python3-psutil` and `libz-dev` installed. 
 ```shell
 git clone --recurse-submodules https://github.com/LukasNalbach/Move-r.git
 cd Move-r
@@ -90,28 +95,97 @@ The `cp -rf ../patched-files/*` step applies the patches in [patched-files/](pat
 
 This creates the command-line tools (`move-r-build`, `move-r-count`, `move-r-locate`, ...) in the `build/cli/` folder, the example programs in `build/examples/`, and the test and benchmark binaries in `build/tests/` and `build/bench/`. The tools are described in the [CLI Tools](#cli-tools) section below.
 
+## Supported Compilers and Systems
+
+Move-r is developed on Linux and its own code is portable C++20; the platform differences are almost entirely in third-party dependencies. A 64-bit x86 CPU is required (the library uses 128-bit integers and the `cmpxchg16b` instruction).
+
+| System | Compiler | Status |
+| --- | --- | --- |
+| Linux (x86-64) | GCC ≥ 13 | ✅ Primary development / test target |
+| Linux (x86-64) | Clang ≥ 18 | ✅ Supported |
+| Windows (x64) | LLVM/Clang (`clang++`, GNU driver) | ✅ **Recommended Windows toolchain** — builds and runs |
+| Windows (x64) | MinGW-w64 (g++) | ✅ Supported — needs a MinGW-built oneTBB (see below) |
+
+Native MSVC (`cl.exe`) is not supported: it lacks `__uint128_t` and the `__atomic_*` / `__builtin_*` intrinsics that move_r and its dependencies use throughout. Use `clang++` for MSVC-ABI-compatible binaries.
+
+Everything Windows-specific is handled automatically by the `if(WIN32)` block in `CMakeLists.txt` (the `MSVC_COMPILER` / `_REENTRANT` defines, `-mcx16`, `libatomic` for MinGW, the OpenMP/libomp wiring, a `<sys/mman.h>`/`<sys/resource.h>` shim for `sux`/`sdsl`, and copying the required runtime DLLs next to the executables).
+
+### oneTBB on Windows
+
+ips4o's parallel sort links Intel oneTBB. Point `-DMOVE_R_WINDOWS_TBB_ROOT=<dir>` at an extracted oneTBB:
+
+- **Clang** (`clang++`, MSVC ABI): use a prebuilt [`oneapi-tbb-*-win`](https://github.com/uxlfoundation/oneTBB/releases) release directly.
+- **MinGW** (GNU ABI): the prebuilt release is MSVC-ABI and will not link. Use a MinGW-ABI oneTBB — e.g. MSYS2's `mingw-w64-x86_64-tbb` package, or build oneTBB from source with your MinGW (`cmake -G Ninja -DTBB_TEST=OFF -DCMAKE_INSTALL_PREFIX=<dir>`, then `cmake --build . --target install`) and point `MOVE_R_WINDOWS_TBB_ROOT` at the install prefix. Note: some oneTBB versions probe the assembler with a Unix `/dev/null` in `cmake/compilers/GNU.cmake`, which fails on Windows; if configuring oneTBB errors there, replace that `/dev/null` with `NUL`.
+
+The build picks up whichever oneTBB you point at. If you build oneTBB **static** (add `-DBUILD_SHARED_LIBS=OFF`), TBB is linked *into* the executables and no `tbb`/`tbb12` DLL is needed beside them. A prebuilt/shared oneTBB instead ships its DLL next to the exe (copied automatically).
+
+### Building on Windows (Clang)
+
+Requirements: **LLVM/Clang** for Windows (`winget install LLVM.LLVM` — provides `clang`, `clang++`, `libomp`), **Visual Studio** / Build Tools (MSVC runtime + Windows SDK + bundled CMake and Ninja), and a prebuilt **oneTBB** (above). From an *x64 Native Tools Command Prompt* (`vcvars64`):
+
+```shell
+cmake -S . -B build -G Ninja ^
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ ^
+  -DCMAKE_BUILD_TYPE=Release -DMOVE_R_MARCH_NATIVE=OFF ^
+  -DMOVE_R_WINDOWS_TBB_ROOT="C:/path/to/oneapi-tbb-2023.0.0"
+ninja -C build
+```
+
+### Building on Windows (MinGW-w64)
+
+Requirements: **MinGW-w64** (e.g. WinLibs, POSIX-threads build — provides `gcc`, `g++`, `libgomp`), CMake + Ninja, and a **MinGW-built oneTBB** (above). The GCC/C++/OpenMP/pthreads/atomic runtimes are all statically linked (`-static`; libgomp's `dlopen`/`dlsym` are satisfied by MinGW's static `libdl`), so no MinGW `bin` on `PATH` is required at runtime. With a **static** oneTBB (`-DBUILD_SHARED_LIBS=OFF`, recommended) the executables are fully self-contained — they import only the Windows OS DLLs (`KERNEL32` and the UCRT `api-ms-win-crt-*`) and need nothing beside them. With a shared oneTBB, only its `tbb12.dll` sits beside the exe (copied there automatically).
+
+```shell
+cmake -S . -B build -G Ninja ^
+  -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ ^
+  -DCMAKE_BUILD_TYPE=Release -DMOVE_R_MARCH_NATIVE=OFF ^
+  -DMOVE_R_WINDOWS_TBB_ROOT="C:/path/to/tbb-mingw"
+ninja -C build
+```
+
+**Windows limitations:**
+
+- The `bigbwt` construction mode is unavailable — Big-BWT is POSIX-only (POSIX semaphores, System V shared memory, file `mmap`, a Python driver). Use the default (in-memory / libsais) construction, or run Big-BWT under WSL/MSYS2; all other construction modes work.
+- Peak-memory reporting is disabled — `malloc_count` relies on glibc symbol interposition, so the no-op stub is used.
+- The competitor-index benchmarks (grlBWT, columba, r-index, ...) are not ported to Windows. The CLIs, examples, unit tests and the internal data-structure benchmark all build; the CLIs, tests and examples run — the sole exception is anything using the `_bigbwt` construction mode (unavailable per the point above), including `example-move-r-queries`, which demonstrates that mode.
+
 ## CMake Build Options
 The build can be tailored via the following options (all `ON` by default):
 
 | Option | Description |
 | --- | --- |
-| `MOVE_R_BUILD_CLI` | Build the move-r / move-rb command-line tools |
+| `MOVE_R_BUILD_MOVE_R_CLI` | Build the move-r command-line tools |
+| `MOVE_R_BUILD_MOVE_RB_CLI` | Build the move-rb command-line tools |
 | `MOVE_R_BUILD_LZENDSA_CLI` | Build the LZEndSA command-line tools |
 | `MOVE_R_BUILD_RLZSA_CLI` | Build the RLZSA command-line tools |
-| `MOVE_R_BUILD_BENCH` | Build the benchmark programs (pulls in the comparison indexes) |
+| `MOVE_R_BUILD_MOVE_R_BENCH` | Build `move-r-bench` (pulls in the comparison indexes) |
+| `MOVE_R_BUILD_MOVE_RB_BENCH` | Build `move-rb-bench` & `move-rb-gen-queries` (pulls in the comparison indexes) |
 | `MOVE_R_BUILD_EXAMPLES` | Build the example programs |
 | `MOVE_R_BUILD_TESTS` | Build the unit tests |
 | `MOVE_R_BUILD_INTERNAL_BENCH` | Build the internal data-structure benchmarks |
-| `MOVE_R_USE_MALLOC_COUNT` | Measure peak memory usage via malloc_count |
+| `MOVE_R_USE_MALLOC_COUNT` | Measure peak memory usage via malloc_count (overrides malloc/free) |
+| `MOVE_R_MARCH_NATIVE` | Tune the build for the host CPU (`-march=native`); turn `OFF` for portable binaries |
+| `MOVE_R_ENABLE_LTO` | Enable link-time optimization (LTO/IPO) for move-r targets |
+
+The two benchmark options (`MOVE_R_BUILD_MOVE_R_BENCH` / `MOVE_R_BUILD_MOVE_RB_BENCH`) are forced `OFF` on Windows, since the comparison indexes are not ported there.
+
+Two additional non-boolean cache variables are available:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MOVE_R_COLUMBA_BITS` | `both` | columba index widths to build for `move-rb-bench`: `both`, `32` or `64` (only used when `MOVE_R_BUILD_MOVE_RB_BENCH` is `ON`) |
+| `MOVE_R_WINDOWS_TBB_ROOT` | *(empty)* | Root of an extracted oneAPI TBB (Windows) release; see [oneTBB on Windows](#onetbb-on-windows) |
 
 ## Usage in C++
 ### Cmake
 ```cmake
 add_subdirectory(move_r/)
-option(MOVE_R_BUILD_CLI OFF)
+option(MOVE_R_BUILD_MOVE_R_CLI OFF)
+option(MOVE_R_BUILD_MOVE_RB_CLI OFF)
 option(MOVE_R_BUILD_LZENDSA_CLI OFF)
 option(MOVE_R_BUILD_RLZSA_CLI OFF)
-option(MOVE_R_BUILD_BENCH OFF)
+option(MOVE_R_BUILD_MOVE_R_BENCH OFF)
+option(MOVE_R_BUILD_MOVE_RB_BENCH OFF)
 option(MOVE_R_BUILD_EXAMPLES OFF)
 option(MOVE_R_BUILD_TESTS OFF)
 option(MOVE_R_BUILD_INTERNAL_BENCH OFF)

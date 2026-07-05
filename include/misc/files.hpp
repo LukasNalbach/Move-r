@@ -26,11 +26,51 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <iostream>
 #include <fstream>
 #include <climits>
+#include <vector>
+#include <omp.h>
+#include <sdsl/int_vector_buffer.hpp>
+#include <misc/utils.hpp>
+
+static constexpr uint64_t byte_file_block_size = 128 * 1024;
+
+/**
+ * @brief applies f to every byte T[0..len-1] of the plain byte file `file`, in place, using up to p threads
+ * @tparam fnc_t type of the byte-mapping function (uint8_t -> uint8_t)
+ * @param file path of the plain byte file to transform in place
+ * @param len number of bytes of `file` to transform (T[0..len-1])
+ * @param p number of threads to use
+ * @param f byte-mapping function; each byte c is replaced with f(c)
+ */
+template <typename fnc_t>
+inline void transform_byte_file_parallel(const std::string& file, uint64_t len, uint16_t p, fnc_t f)
+{
+    static constexpr uint64_t block = byte_file_block_size;
+    std::vector<sdsl::int_vector_buffer<8>> buf;
+    buf.reserve(p);
+
+    for (uint16_t i = 0; i < p; i++) {
+        buf.emplace_back(sdsl::int_vector_buffer<8>(file, std::ios::in, block, 8, true));
+    }
+
+    uint64_t chunk = div_ceil<uint64_t>(div_ceil<uint64_t>(len, uint64_t(p)), block) * block;
+
+    #pragma omp parallel num_threads(p)
+    {
+        uint16_t i_p = omp_get_thread_num();
+        uint64_t b = std::min<uint64_t>(len, uint64_t(i_p) * chunk);
+        uint64_t e = std::min<uint64_t>(len, b + chunk);
+
+        for (uint64_t i = b; i < e; i++) {
+            buf[i_p][i] = f(buf[i_p][i]);
+        }
+    }
+}
 
 /**
  * @brief prints an error message about a malformed patterns-file header and exits

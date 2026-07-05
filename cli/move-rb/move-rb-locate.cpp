@@ -507,7 +507,8 @@ void measure_locate()
     patterns_file.close();
     if (fastq_input) num_patterns = reads_processed; // the actual read count is only known after reading the file
     std::cout << "checksum: " << checksum << std::endl;
-    std::cout << "additional memory consumption during the search phase: " << format_size(malloc_count_peak() - baseline_alloc) << std::endl;
+    if (MOVE_R_USE_MALLOC_COUNT)
+        std::cout << "additional memory consumption during the search phase: " << format_size(malloc_count_peak() - baseline_alloc) << std::endl;
     if (num_patterns != 0)
         std::cout << "average occurrences per pattern: " << (num_occurrences / num_patterns) << std::endl;
     std::cout << "number of patterns: " << num_patterns << std::endl;

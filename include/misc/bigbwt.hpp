@@ -27,6 +27,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <stdexcept>
 #include <string>
 
 /**
@@ -40,7 +41,10 @@
  */
 inline void ensure_bigbwt_on_path()
 {
-#ifdef MOVE_R_BIGBWT_DIR
+#if defined(_WIN32)
+    throw std::runtime_error("Big-BWT construction (mode _bigbwt) is not available on Windows; "
+        "use the default (suffix-array / in-memory) construction, or run under WSL/MSYS2");
+#elif defined(MOVE_R_BIGBWT_DIR)
     static const bool prepended = [] {
         const std::string dir = MOVE_R_BIGBWT_DIR;
         const char* current = std::getenv("PATH");

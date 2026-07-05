@@ -33,6 +33,11 @@ option(MOVE_R_USE_MALLOC_COUNT "Track memory usage via malloc_count (overrides m
 option(MOVE_R_MARCH_NATIVE "Tune the build for the host CPU (-march=native); turn OFF for portable binaries" ON)
 option(MOVE_R_ENABLE_LTO "Enable link-time optimization (LTO/IPO) for move-r targets" ON)
 
+if(WIN32)
+  set(MOVE_R_BUILD_MOVE_R_BENCH OFF CACHE BOOL "" FORCE)
+  set(MOVE_R_BUILD_MOVE_RB_BENCH OFF CACHE BOOL "" FORCE)
+endif()
+
 # compile flags
 if(MOVE_R_MARCH_NATIVE)
   set(move_r_arch_flags "-march=native")
@@ -46,9 +51,63 @@ set(move_r_debug_flags "-Wall -Wextra -Wpedantic -ggdb")
 set(move_r_release_flags "-w ${move_r_arch_flags} -DNDEBUG")
 
 set(CMAKE_CXX_FLAGS_DEBUG           "${move_r_debug_flags} -O0")
-set(CMAKE_CXX_FLAGS_RELEASE         "${move_r_release_flags} -Ofast")
+set(CMAKE_CXX_FLAGS_RELEASE         "${move_r_release_flags} -O3")
 set(CMAKE_CXX_FLAGS_MINSIZEREL      "${move_r_release_flags} -Os")
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO  "${move_r_debug_flags} -Ofast")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO  "${move_r_debug_flags} -O3")
+
+if(WIN32)
+  include_directories(BEFORE "${CMAKE_SOURCE_DIR}/cmake/winshim")
+  add_compile_definitions(_REENTRANT)
+  set(IPS4O_OPTIMIZE_FOR_NATIVE OFF CACHE BOOL "" FORCE)
+  set(IPS2RA_OPTIMIZE_FOR_NATIVE OFF CACHE BOOL "" FORCE)
+  set(IPS4O_DISABLE_PARALLEL ON CACHE BOOL "" FORCE)
+
+  if(NOT MINGW)
+    add_compile_definitions(MSVC_COMPILER _HAS_DEPRECATED_RESULT_OF=1)
+  else()
+    get_filename_component(_mingw_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(_mingw_root "${_mingw_bin}" DIRECTORY)
+    if(EXISTS "${_mingw_root}/lib/libgomp.a")
+      set(OpenMP_gomp_LIBRARY "${_mingw_root}/lib/libgomp.a" CACHE FILEPATH "" FORCE)
+    endif()
+  endif()
+
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    add_compile_options(-mcx16)
+  endif()
+
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    get_filename_component(_llvm_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(_llvm_root "${_llvm_bin}" DIRECTORY)
+    if(EXISTS "${_llvm_root}/lib/libomp.lib")
+      foreach(_lang C CXX)
+        set(OpenMP_${_lang}_FLAGS "-fopenmp=libomp" CACHE STRING "" FORCE)
+        set(OpenMP_${_lang}_LIB_NAMES "libomp" CACHE STRING "" FORCE)
+      endforeach()
+      set(OpenMP_libomp_LIBRARY "${_llvm_root}/lib/libomp.lib" CACHE FILEPATH "" FORCE)
+      if(EXISTS "${_llvm_root}/bin/libomp.dll")
+        list(APPEND MOVE_R_WIN_RUNTIME_DLLS "${_llvm_root}/bin/libomp.dll")
+      endif()
+    endif()
+  endif()
+  
+  set(MOVE_R_WINDOWS_TBB_ROOT "" CACHE PATH "Root of an extracted oneAPI TBB (Windows) release")
+  if(MOVE_R_WINDOWS_TBB_ROOT)
+    include_directories(BEFORE "${MOVE_R_WINDOWS_TBB_ROOT}/include")
+    find_library(MOVE_R_WIN_TBB_LIB NAMES tbb12 tbb
+      PATHS "${MOVE_R_WINDOWS_TBB_ROOT}/lib/intel64/vc14" "${MOVE_R_WINDOWS_TBB_ROOT}/lib" NO_DEFAULT_PATH)
+    file(GLOB _tbb_dll "${MOVE_R_WINDOWS_TBB_ROOT}/redist/intel64/vc14/tbb12.dll"
+                       "${MOVE_R_WINDOWS_TBB_ROOT}/redist/intel64/vc14/tbb.dll"
+                       "${MOVE_R_WINDOWS_TBB_ROOT}/bin/*tbb12*.dll"
+                       "${MOVE_R_WINDOWS_TBB_ROOT}/bin/*tbb.dll")
+    if(_tbb_dll)
+      list(APPEND MOVE_R_WIN_RUNTIME_DLLS ${_tbb_dll})
+    endif()
+  else()
+    message(WARNING "MOVE_R_WINDOWS_TBB_ROOT is not set: ips4o's parallel sort needs Intel "
+      "oneTBB on Windows. Download an 'oneapi-tbb-*-win' release and set MOVE_R_WINDOWS_TBB_ROOT.")
+  endif()
+endif()
 
 ############################# move-r dependencies #############################
 
@@ -68,16 +127,15 @@ set(LIBSAIS_USE_OPENMP ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_SOURCE_DIR}/external/libsais/")
 
 set(BIGBWT_DIR "${CMAKE_SOURCE_DIR}/external/Big-BWT")
-if(EXISTS "${BIGBWT_DIR}/makefile" OR EXISTS "${BIGBWT_DIR}/Makefile")
+if(NOT WIN32 AND (EXISTS "${BIGBWT_DIR}/makefile" OR EXISTS "${BIGBWT_DIR}/Makefile"))
   add_custom_target(bigbwt ALL COMMAND make WORKING_DIRECTORY "${BIGBWT_DIR}"
     COMMENT "Building bundled Big-BWT (bigbwt)")
   add_compile_definitions(MOVE_R_BIGBWT_DIR="${BIGBWT_DIR}")
 endif()
 
-# malloc_count
 add_library(malloc_count INTERFACE)
 target_include_directories(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/malloc_count/")
-if(MOVE_R_USE_MALLOC_COUNT)
+if(MOVE_R_USE_MALLOC_COUNT AND NOT WIN32)
   target_sources(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/malloc_count/malloc_count.c")
   target_link_libraries(malloc_count INTERFACE dl)
   target_compile_definitions(malloc_count INTERFACE MOVE_R_USE_MALLOC_COUNT=1)
@@ -142,10 +200,20 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/external/unordered_dense/")
 # move-r
 add_library(move_r INTERFACE)
 target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
+target_compile_options(move_r INTERFACE -fno-strict-aliasing)
 target_link_libraries(move_r INTERFACE
   OpenMP::OpenMP_CXX sdsl libsais ips4o ips2ra gtl sparse_map malloc_count
   emhash sux ordered rmq unordered_dense divsufsort divsufsort64
 )
+
+if(WIN32 AND MOVE_R_WIN_TBB_LIB)
+  target_link_libraries(move_r INTERFACE "${MOVE_R_WIN_TBB_LIB}")
+endif()
+
+if(MINGW)
+  target_link_libraries(move_r INTERFACE atomic dl)
+  target_link_options(move_r INTERFACE -static)
+endif()
 
 if(MOVE_R_ENABLE_LTO)
   include(CheckIPOSupported)
@@ -162,6 +230,10 @@ function(move_r_add_tool name src outdir)
   if(MOVE_R_ENABLE_LTO AND MOVE_R_IPO_SUPPORTED)
     set_target_properties(${name} PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
   endif()
+  foreach(_dll ${MOVE_R_WIN_RUNTIME_DLLS})
+    add_custom_command(TARGET ${name} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" "${outdir}")
+  endforeach()
 endfunction()
 
 ############################# move-r cli #############################
@@ -256,7 +328,7 @@ if(MOVE_R_BUILD_MOVE_R_BENCH)
     "${GRLBWT_ROOT}/lib/exact_algo/exact_par_phase.cpp"
     "${GRLBWT_ROOT}/lib/opt_algo/opt_ind_phase.cpp"
     "${GRLBWT_ROOT}/lib/opt_algo/opt_par_phase.cpp"
-    "${GRLBWT_ROOT}/external/malloc_count-master/malloc_count.c"
+    "${CMAKE_SOURCE_DIR}/external/malloc_count/malloc_count.c"
   )
   target_link_libraries(grlbwt PUBLIC z pthread cdt dl sdsl biopar)
   target_include_directories(grlbwt PUBLIC
@@ -264,7 +336,7 @@ if(MOVE_R_BUILD_MOVE_R_BENCH)
     "${GRLBWT_ROOT}/include/exact_algo/"
     "${GRLBWT_ROOT}/include/opt_algo/"
     "${GRLBWT_ROOT}/external/"
-    "${GRLBWT_ROOT}/external/malloc_count-master/"
+    "${CMAKE_SOURCE_DIR}/external/malloc_count/"
   )
   add_executable(grlbwt-cli "${GRLBWT_ROOT}/main.cpp")
   add_executable(grlbwt2rle "${GRLBWT_ROOT}/scripts/grlbwt2rle.cpp")

@@ -277,7 +277,7 @@ public:
     template <typename out_t>
     std::vector<out_t> sa_values(uint64_t beg, uint64_t end) const
     {
-        uint64_t smpl_idx = beg / d;
+        uint64_t smpl_idx = std::min<uint64_t>(beg / d, sa_samples.size() - 1);
         uint64_t smpl_pos = smpl_idx * d;
         uint64_t smpl = sa_samples[smpl_idx];
 

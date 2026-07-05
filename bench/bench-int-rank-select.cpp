@@ -27,7 +27,7 @@
 #define BENCH_RANK_SELECT
 
 #include <ctime>
-#include <experimental/random>
+#include <random>
 
 #include <data_structures/rank_select_support.hpp>
 #include <misc/utils.hpp>
@@ -177,7 +177,7 @@ int main() {
             uint32_t sym = sym_distrib(gen);
             rank_queries.emplace_back(sym,pos_distrib(gen));
             select_queries.emplace_back(sym,
-                std::experimental::randint(uint32_t{1},num_occ[sym]));
+                std::uniform_int_distribution<uint32_t>(1,num_occ[sym])(gen));
         }
 
         if (avg_occ <= 4096) {

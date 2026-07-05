@@ -70,8 +70,6 @@ void move_r<support, sym_t, pos_t>::construction::build_sa()
         if constexpr (sizeof(i_sym_t) == 2) {
             no_init_resize(SA, n);
 
-            // libsais16's 4th/5th arguments are the free space at the end of SA (0 is enough) and an optional
-            // frequency table (NULL) - it has no separate alphabet-size argument, unlike libsais_int below
             if constexpr (sizeof(sa_sint_t) == 4) {
                 libsais16_omp(&T<uint16_t>(0), SA.data(), n, 0, nullptr, p);
             } else {
