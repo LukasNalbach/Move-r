@@ -135,7 +135,7 @@ public:
     {
         const read_fnc_t& rd = *read;
         pos_t blk = div_ceil<pos_t>(x, blk_size);
-        pos_t max_x = std::min<pos_t>(blk * blk_size, max);
+        pos_t max_x = std::min<pos_t>({blk * blk_size, max, input_size});
         while (x <= max_x && sym != rd(x)) x++;
 
         if (x > max_x && sym != rd(x)) [[likely]] {
