@@ -122,89 +122,44 @@ public:
         return result;
     }
 
-    /**
-     * @brief returns a reference to the r-index
-     * @return the r-index
-     */
-    const custom_r_index::index<_run_ends>& r_index() const
-    {
-        return r_idx;
-    }
+    // returns a reference to the r-index
+    const custom_r_index::index<_run_ends>& r_index() const { return r_idx; }
 
-    /**
-     * @brief returns a reference to the LZ-End encoding
-     * @return the LZ-End encoding
-     */
-    const lzendsa_encoding& sa_encoding() const
-    {
-        return lzendsa_enc;
-    }
+    // returns a reference to the LZ-End encoding
+    const lzendsa_encoding& sa_encoding() const { return lzendsa_enc; }
 
     /**
      * @brief counts the occurrences of pattern in the input
      * @param pattern the pattern to count
      * @return the suffix array interval [beg, end] of the pattern
      */
-    std::pair<uint64_t, uint64_t> count(std::string &pattern) const
-    {
-        return r_idx.count(pattern);
-    }
+    std::pair<uint64_t, uint64_t> count(std::string &pattern) const { return r_idx.count(pattern); }
 
-    /**
-     * @brief returns the size of the input text
-     * @return the size of the input text
-     */
-    uint64_t input_size() const
-    {
-        return lzendsa_enc.input_size();
-    }
+    // returns the size of the input text
+    uint64_t input_size() const { return lzendsa_enc.input_size(); }
 
-    /**
-     * @brief returns the number of phrases in the LZ-End encoding
-     * @return the number of phrases
-     */
-    uint64_t num_phrases() const
-    {
-        return lzendsa_enc.num_phrases();
-    }
+    // returns the number of phrases in the LZ-End encoding
+    uint64_t num_phrases() const { return lzendsa_enc.num_phrases(); }
 
-    /**
-     * @brief returns the number of suffix array samples (one per BWT run)
-     * @return the number of suffix array samples
-     */
-    uint64_t num_samples() const
-    {
-        return r_idx.num_bwt_runs();
-    }
+    // returns the number of suffix array samples (one per BWT run)
+    uint64_t num_samples() const { return r_idx.num_bwt_runs(); }
 
     /**
      * @brief returns the i-th suffix array sample
      * @param i a sample index
      * @return the i-th suffix array sample
      */
-    uint64_t sample(uint64_t i) const
-    {
-        return r_idx.sample(i);
-    }
+    uint64_t sample(uint64_t i) const { return r_idx.sample(i); }
 
     /**
      * @brief returns the position in the suffix array of the i-th sample
      * @param i a sample index
      * @return the position in SA of the i-th sample
      */
-    uint64_t sample_pos(uint64_t i) const
-    {
-        return r_idx.sample_pos(i);
-    }
+    uint64_t sample_pos(uint64_t i) const { return r_idx.sample_pos(i); }
 
-    /**
-     * @brief returns the size of the data structure in bytes
-     * @return the size of the data structure in bytes
-     */
-    uint64_t size_in_bytes() const
-    {
-        return sizeof(this) + lzendsa_enc.size_in_bytes() + r_idx.size_in_bytes();
-    }
+    // returns the size of the data structure in bytes
+    uint64_t size_in_bytes() const { return sizeof(this) + lzendsa_enc.size_in_bytes() + r_idx.size_in_bytes(); }
 
     /**
      * @brief serializes the index to an output stream

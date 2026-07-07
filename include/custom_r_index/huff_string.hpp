@@ -34,7 +34,6 @@ public:
     {
         s.push_back(0);
         construct_im(wt, s.c_str(), 1);
-
         assert(wt.size() == s.size() - 1);
     }
 
@@ -49,14 +48,8 @@ public:
         return wt[i];
     }
 
-    /**
-     * @brief returns the length of the string
-     * @return the length of the string
-     */
-    uint64_t size() const
-    {
-        return wt.size();
-    }
+    // returns the length of the string
+    uint64_t size() const { return wt.size(); }
 
     /**
      * @brief returns the number of occurrences of c before position i
@@ -73,35 +66,20 @@ public:
     /*
      * position of i-th character c. i starts from 0!
      */
-    uint64_t select(uint64_t i, unsigned char c) const
-    {
-        return wt.select(i + 1, c);
-    }
+    uint64_t select(uint64_t i, unsigned char c) const { return wt.select(i + 1, c); }
 
-    /**
-     * @brief returns the size of the structure in bytes
-     * @return the size of the structure in bytes
-     */
-    uint64_t size_in_bytes() const
-    {
-        return sizeof(this) + sdsl::size_in_bytes(wt);
-    }
+    // returns the size of the structure in bytes
+    uint64_t size_in_bytes() const { return sizeof(this) + sdsl::size_in_bytes(wt); }
 
     /* serialize the structure to the ostream
      * \param out	 the ostream
      */
-    uint64_t serialize(std::ostream& out) const
-    {
-        return wt.serialize(out);
-    }
+    uint64_t serialize(std::ostream& out) const { return wt.serialize(out); }
 
     /* load the structure from the istream
      * \param in the istream
      */
-    void load(std::istream& in)
-    {
-        wt.load(in);
-    }
+    void load(std::istream& in) { wt.load(in); }
 };
 
 }

@@ -111,147 +111,74 @@ public:
 
     // ############################# ACCESS METHODS #############################
 
-    /**
-     * @brief returns whether the rlzsa is empty (i.e, has not been built)
-     */
-    inline bool empty() const
-    {
-        return z == 0;
-    }
+    // returns whether the rlzsa is empty (i.e, has not been built)
+    inline bool empty() const { return z == 0; }
 
-    /**
-     * @brief returns the length of the input (including the terminator symbol)
-     */
-    inline pos_t input_size() const
-    {
-        return n;
-    }
+    // returns the length of the input (including the terminator symbol)
+    inline pos_t input_size() const { return n; }
 
-    /**
-     * @brief returns the number of phrases in the rlzsa
-     */
-    inline pos_t num_phrases() const
-    {
-        return z;
-    }
+    // returns the number of phrases in the rlzsa
+    inline pos_t num_phrases() const { return z; }
 
-    /**
-     * @brief returns the number of literal phrases in the rlzsa
-     */
-    inline pos_t num_literal_phrases() const
-    {
-        return z_l;
-    }
+    // returns the number of literal phrases in the rlzsa
+    inline pos_t num_literal_phrases() const { return z_l; }
 
-    /**
-     * @brief returns the number of copy phrases in the rlzsa
-     */
-    inline pos_t num_copy_phrases() const
-    {
-        return z_c;
-    }
+    // returns the number of copy phrases in the rlzsa
+    inline pos_t num_copy_phrases() const { return z_c; }
 
-    /**
-     * @brief returns a reference to R
-     */
-    inline const interleaved_bit_aligned_vectors<uint64_t>& R() const
-    {
-        return _R;
-    }
+    // returns a reference to R
+    inline const interleaved_bit_aligned_vectors<uint64_t>& R() const { return _R; }
 
-    /**
-     * @brief returns a reference to PT
-     */
-    inline const plain_bit_vector<pos_t, true, true, true>& PT() const
-    {
-        return _PT;
-    }
+    // returns a reference to PT
+    inline const plain_bit_vector<pos_t, true, true, true>& PT() const { return _PT; }
 
-    /**
-     * @brief returns a reference to CPL
-     */
-    inline const std::vector<uint16_t>& CPL() const
-    {
-        return _CPL;
-    }
+    // returns a reference to CPL
+    inline const std::vector<uint16_t>& CPL() const { return _CPL; }
 
-    /**
-     * @brief returns a reference to SCP_S
-     */
-    inline const sd_array<pos_t>& SCP_S() const
-    {
-        return _SCP_S;
-    }
+    // returns a reference to SCP_S
+    inline const sd_array<pos_t>& SCP_S() const { return _SCP_S; }
 
-    /**
-     * @brief returns a reference to SR
-     */
-    inline const interleaved_bit_aligned_vectors<pos_t>& SR() const
-    {
-        return _SR;
-    }
+    // returns a reference to SR
+    inline const interleaved_bit_aligned_vectors<pos_t>& SR() const { return _SR; }
 
-    /**
-     * @brief returns a reference to LP
-     */
-    inline const interleaved_bit_aligned_vectors<pos_t>& LP() const
-    {
-        return _LP;
-    }
+    // returns a reference to LP
+    inline const interleaved_bit_aligned_vectors<pos_t>& LP() const { return _LP; }
 
     /**
      * @brief returns R[x]
      * @param x [0..|R|-1] index in R
      */
-    inline uint64_t R(pos_t x) const
-    {
-        return _R[x];
-    }
+    inline uint64_t R(pos_t x) const { return _R[x]; }
 
     /**
      * @brief returns PT[x]
      * @param x [0..z-1] index in PT
      */
-    inline bool PT(pos_t x) const
-    {
-        return _PT[x];
-    }
+    inline bool PT(pos_t x) const { return _PT[x]; }
 
     /**
      * @brief returns CPL[x]
      * @param x [0..z_c-1] index in CPL
      */
-    inline uint16_t CPL(pos_t x) const
-    {
-        return _CPL[x];
-    }
+    inline uint16_t CPL(pos_t x) const { return _CPL[x]; }
 
     /**
      * @brief returns SCP_S[x]
      * @param x [0..z_c/sample_rate_scp-1] index in SCP_S
      */
-    inline pos_t SCP_S(pos_t x) const
-    {
-        return _SCP_S.select_1(x + 1);
-    }
+    inline pos_t SCP_S(pos_t x) const { return _SCP_S.select_1(x + 1); }
 
     /**
      * @brief returns SR[x]
      * @param x [0..z_c-1] index in SR
      */
-    inline pos_t SR(pos_t x) const
-    {
-        return _SR[x];
-    }
+    inline pos_t SR(pos_t x) const { return _SR[x]; }
 
     /**
      * @brief returns LP[x]
      * @param x [0..z_l-1] index in LP
      */
-    inline pos_t LP(pos_t x) const
-    {
-        return _LP[x];
-    }
+    inline pos_t LP(pos_t x) const { return _LP[x]; }
 
     // ############################# DECODING #############################
 
@@ -292,41 +219,23 @@ public:
             : rlz(&rlz)
         { }
 
-        /**
-         * @brief returns the current position i in the suffix array
-         * @return i (the position the context is currently at)
-         */
-        pos_t pos() const
-        {
-            return i;
-        }
+        // returns the current position i in the suffix array
+        pos_t pos() const { return i; }
 
         /**
          * @brief sets the current position i in the suffix array
          * @param p the position to set i to
          */
-        inline void set_pos(pos_t p)
-        {
-            i = p;
-        }
+        inline void set_pos(pos_t p) { i = p; }
 
-        /**
-         * @brief returns the current suffix-array value s = SA[i]
-         * @return s (the current suffix array value)
-         */
-        pos_t value() const
-        {
-            return s;
-        }
+        // returns the current suffix-array value s = SA[i]
+        pos_t value() const { return s; }
 
         /**
          * @brief sets the current suffix-array value s = SA[i] (e.g, to seed the context before decoding)
          * @param v the value to set s to
          */
-        inline void set_value(pos_t v)
-        {
-            s = v;
-        }
+        inline void set_value(pos_t v) { s = v; }
 
         /**
          * @brief prepares the context to decode SA[i] and advance to the right (i.e, with next()/
@@ -410,14 +319,8 @@ public:
         inline void report_right(pos_t e, report_fnc_t report);
     };
 
-    /**
-     * @brief returns a decode context for the rlzsa
-     * @return decode_context_t
-     */
-    inline decode_context_t decode() const
-    {
-        return decode_context_t(*this);
-    }
+    // returns a decode context for the rlzsa
+    inline decode_context_t decode() const { return decode_context_t(*this); }
 
     // ############################# MISC METHODS #############################
 

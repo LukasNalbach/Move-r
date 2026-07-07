@@ -174,10 +174,7 @@ class columba_native {
      * @brief wraps a pattern in a single-strand read bundle (its reverse
      *        complement is computed but never searched)
      */
-    inline ReadBundle make_bundle(const std::string& P)
-    {
-        return ReadBundle(Read(_id, P, "*"));
-    }
+    inline ReadBundle make_bundle(const std::string& P) { return ReadBundle(Read(_id, P, "*")); }
 
     /**
      * @brief locates the occurrences of the pattern in @p bundle with at most k
@@ -201,10 +198,7 @@ class columba_native {
      * @param metric HAMMING or EDIT
      * @return the number of (native, deduplicated) occurrences reported
      */
-    inline uint64_t locate(DistanceMetric metric, ReadBundle& bundle, uint64_t k)
-    {
-        return locate_occ(metric, bundle, k).size();
-    }
+    inline uint64_t locate(DistanceMetric metric, ReadBundle& bundle, uint64_t k) { return locate_occ(metric, bundle, k).size(); }
 
     /**
      * @brief like locate_occ, but additionally computes each occurrence's CIGAR

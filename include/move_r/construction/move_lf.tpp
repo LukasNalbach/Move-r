@@ -28,8 +28,8 @@
 
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::build_ilf()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_ilf()
 {
     log_phase_start("building I_LF");
 
@@ -70,8 +70,8 @@ void move_r<support, sym_t, pos_t>::construction::build_ilf()
     log_phase_end("time_build_ilf");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::build_mlf()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_mlf()
 {
     if (log && mf_mds != nullptr) {
         *mf_mds << "RESULT"
@@ -84,14 +84,9 @@ void move_r<support, sym_t, pos_t>::construction::build_mlf()
 
     uint8_t width_l_ = std::bit_width(idx.sigma);
 
-    idx._M_LF = move_data_structure_l_<pos_t, i_sym_t>(
-        std::move(I_LF), n, {
-            .num_threads = p,
-            .a = idx.a,
-            .log = log,
-            .mf = mf_mds,
-        },
-        width_l_);
+    mds_params mlf_params { .num_threads = p, .a = idx.a, .log = log, .mf = mf_mds };
+    if constexpr (mlf_enc == DIFF) mlf_params.d = idx.mlf_delta;
+    idx._M_LF = mlf_t(std::move(I_LF), n, mlf_params, { width_l_ });
 
     r_ = idx._M_LF.num_intervals();
     idx.r_ = r_;
@@ -99,8 +94,8 @@ void move_r<support, sym_t, pos_t>::construction::build_mlf()
     log_mds_phase_end("time_build_mlf", "r_", r_);
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::build_l__sas()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_l__sas()
 {
     bool build_sas = p == 1 && (support == _locate_move || support == _locate_rlzsa);
 
@@ -136,7 +131,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
         pos_t l_ = b;
 
         for (pos_t i = 0; i < rp_diff; i++) {
-            idx._M_LF.set_L_(j, run_sym(i_p, i));
+            idx._M_LF.template set_row<0>(j, run_sym(i_p, i));
 
             if (build_sas) {
                 if constexpr (support == _locate_move) {
@@ -162,7 +157,7 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
                     }
                 }
 
-                idx._M_LF.set_L_(j, run_sym(i_p, i));
+                idx._M_LF.template set_row<0>(j, run_sym(i_p, i));
                 j++;
             }
         }
@@ -180,71 +175,17 @@ void move_r<support, sym_t, pos_t>::construction::build_l__sas()
     log_phase_end("time_build_l__sas");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::build_rsl_()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_pred_succ_l_()
 {
-    log_phase_start("building RS_L'");
+    log_phase_start("building character predecessor/successor support");
 
-    idx._RS_L_ = rsl_t([&](pos_t i) { return idx.L_(i); }, idx.sigma, 0, r_ - 1);
-
-    log_phase_end("time_build_rsl_");
-}
-
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::build_l_prev_next()
-{
-    log_phase_start("building L'_prev & L'_next");
-
-    uint8_t bits_prev_next = bit_width(r_); // tight width; values are in [0,r_] (r_ = no occurrence)
-    int64_t blk_size = std::min<pos_t>(_l_blk_size_factor * idx.sigma, r_);
-    int64_t num_blks = div_ceil<int64_t>(r_, blk_size);
-    idx._l_blk_size = blk_size;
-    idx._num_blks_l_ = num_blks;
-
-    #pragma omp parallel sections num_threads(p)
-    {
-        #pragma omp section
-        {
-            idx._L_next = interleaved_bit_aligned_vectors<pos_t>({ bits_prev_next });
-            idx._L_next.resize_no_init((num_blks + 1) * idx.sigma);
-            std::vector<pos_t> next(idx.sigma, r_);
-
-            for (int64_t blk = num_blks; blk >= 0; blk--) {
-                int64_t beg = blk * blk_size;
-                int64_t end = std::min<int64_t>(beg + blk_size, r_);
-                pos_t beg_next = blk * idx.sigma;
-
-                for (int64_t i = end - 1; i >= beg; i--) {
-                    next[idx.L_(i)] = i;
-                }
-
-                for (pos_t c = 0; c < idx.sigma; c++) {
-                    idx._L_next.template set<0, pos_t>(beg_next + c, next[c]);
-                }
-            }
-        }
-
-        #pragma omp section
-        {
-            idx._L_prev = interleaved_bit_aligned_vectors<pos_t>({ bits_prev_next });
-            idx._L_prev.resize_no_init(num_blks * idx.sigma);
-            std::vector<pos_t> prev(idx.sigma, r_);
-
-            for (int64_t blk = 0; blk < num_blks; blk++) {
-                int64_t beg = blk * blk_size;
-                int64_t end = std::min<int64_t>(beg + blk_size, r_);
-                pos_t beg_prev = blk * idx.sigma;
-
-                for (pos_t c = 0; c < idx.sigma; c++) {
-                    idx._L_prev.template set<0, pos_t>(beg_prev + c, prev[c]);
-                }
-
-                for (int64_t i = beg; i < end; i++) {
-                    prev[idx.L_(i)] = i;
-                }
-            }
-        }
+    // build the char predecessor/successor support from a read function over L'
+    if constexpr (byte_alphabet) {
+        idx._PS_L_ = ps_l_t(L_reader { &idx }, r_, idx.sigma, p);
+    } else {
+        idx._RS_L_ = rs_l_t([&](pos_t i) { return idx.L_(i); }, r_, idx.sigma);
     }
 
-    log_phase_end("time_build_l_prev_next");
+    log_phase_end("time_build_pred_succ_l_");
 }

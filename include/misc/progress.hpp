@@ -46,10 +46,7 @@ class progress_meter {
      * @brief redraws the progress line for the given percentage
      * @param perc the percentage to display
      */
-    void draw(int64_t perc)
-    {
-        std::cout << '\r' << prefix << perc << "% done" << std::flush;
-    }
+    void draw(int64_t perc) { std::cout << '\r' << prefix << perc << "% done" << std::flush; }
 
 public:
     /**
@@ -57,11 +54,7 @@ public:
      * @param total total number of steps (a value of 0 disables all output)
      * @param prefix text printed in front of the percentage
      */
-    progress_meter(uint64_t total, std::string prefix = "")
-        : prefix(std::move(prefix)), total(total)
-    {
-        if (total != 0) draw(0);
-    }
+    progress_meter(uint64_t total, std::string prefix = "") : prefix(std::move(prefix)), total(total) { if (total != 0) draw(0); }
 
     /**
      * @brief advances the meter by one step, redrawing only when the integer

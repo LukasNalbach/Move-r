@@ -29,9 +29,9 @@
 #include <ips4o.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 template <rlbwt_build_mode mode, typename sa_sint_t>
-void move_r<support, sym_t, pos_t>::construction::build_rlbwt_c()
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_rlbwt_c()
 {
     log_phase_start("building RLBWT");
 
@@ -207,8 +207,8 @@ void move_r<support, sym_t, pos_t>::construction::build_rlbwt_c()
     log_phase_end("time_build_rlbwt");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::process_c()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::process_c()
 {
     /* Now, C[i_p][c] is the number of occurrences of c in L[b..e], where [b..e] is the range of the
     thread i_p in [0..p'-1]. Also, we have C[p'][0..255] = 0. */

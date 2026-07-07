@@ -134,231 +134,43 @@ public:
 
     ~plain_bit_vector() { reset(); }
 
-    /**
-     * @brief constructs a new plain_bit_vector from a bit vector
-     * @param vec a bit vector
-     */
-    plain_bit_vector(const sdsl::bit_vector& vec)
-    {
-        this->vec = vec;
-        setup();
-    }
+    plain_bit_vector(const sdsl::bit_vector& vec) { this->vec = vec; setup(); }
+    plain_bit_vector(sdsl::bit_vector&& vec) { this->vec = std::move(vec); setup(); }
 
-    /**
-     * @brief constructs a new plain_bit_vector from a bit vector
-     * @param vec a bit vector
-     */
-    plain_bit_vector(sdsl::bit_vector&& vec)
-    {
-        this->vec = std::move(vec);
-        setup();
-    }
+    inline pos_t size() const { return vec.size(); }
+    inline bool empty() const { return size() == 0; }
+    inline pos_t num_ones() const { return ones; }
+    inline pos_t num_zeros() const { return zeros; }
+    inline pos_t rank_1(pos_t i) const { return rank_1_support.rank(i); } // number of ones before index i
+    inline pos_t select_1(pos_t i) const { return select_1_support.select(i - 1); } // index of the i-th one
+    inline pos_t rank_0(pos_t i) const { return i - rank_1(i); } // number of zeros before index i
+    inline pos_t select_0(pos_t i) const { return select_0_support.selectZero(i - 1); } // index of the i-th zero
+    inline pos_t next_1(pos_t i) const { return select_1(rank_1(i + 1) + 1); } // index of the next one after i
+    inline pos_t previous_1(pos_t i) const { return select_1(rank_1(i)); } // index of the previous one before i
+    inline pos_t next_0(pos_t i) const { return select_0(rank_0(i + 1) + 1); } // index of the next zero after i
+    inline pos_t previous_0(pos_t i) const { return select_0(rank_0(i)); } // index of the previous zero before i
+    inline bool operator[](pos_t i) const { return vec[i]; } // whether there is a one at index i
 
-    /**
-     * @brief returns the size of the bit vector
-     * @return the size of the bit vector
-     */
-    inline pos_t size() const
-    {
-        return vec.size();
-    }
-
-    /**
-     * @brief returns whether the input bit vector is empty
-     * @return whether the bit vector is empty
-     */
-    inline bool empty() const
-    {
-        return size() == 0;
-    }
-
-    /**
-     * @brief returns the number of ones in the bit vector
-     * @return the number of ones in the bit vector
-     */
-    inline pos_t num_ones() const
-    {
-        return ones;
-    }
-
-    /**
-     * @brief returns the number of zeros in the bit vector
-     * @return the number of ones in the bit vector
-     */
-    inline pos_t num_zeros() const
-    {
-        return zeros;
-    }
-
-    /**
-     * @brief returns the number of ones before index i
-     * @param i [0..size]
-     * @return the number of ones before index i
-     */
-    inline pos_t rank_1(pos_t i) const
-    {
-        return rank_1_support.rank(i);
-    }
-
-    /**
-     * @brief returns the index of the i-th one
-     * @param i [1..number of ones]
-     * @return the index of the i-th one
-     */
-    inline pos_t select_1(pos_t i) const
-    {
-        return select_1_support.select(i - 1);
-    }
-
-    /**
-     * @brief returns the number of zeros before index i
-     * @param i [0..size]
-     * @return the number of zeros before index i
-     */
-    inline pos_t rank_0(pos_t i) const
-    {
-        return i - (rank_1(i));
-    }
-
-    /**
-     * @brief returns the index of the i-th zero
-     * @param i [1..number of zeros]
-     * @return the index of the i-th zero
-     */
-    inline pos_t select_0(pos_t i) const
-    {
-        return select_0_support.selectZero(i - 1);
-    }
-
-    /**
-     * @brief returns the index of the next one after index i
-     * @param i [1..size-1]
-     * @return the index of the next one after index i
-     */
-    inline pos_t next_1(pos_t i) const
-    {
-        return select_1(rank_1(i + 1) + 1);
-    }
-
-    /**
-     * @brief returns the index of the previous one before index i
-     * @param i [1..size-1]
-     * @return the index of the previous one before index i
-     */
-    inline pos_t previous_1(pos_t i) const
-    {
-        return select_1(rank_1(i));
-    }
-
-    /**
-     * @brief returns the index of the next zero after index i
-     * @param i [1..size-1]
-     * @return the index of the next zero after index i
-     */
-    inline pos_t next_0(pos_t i) const
-    {
-        return select_0(rank_0(i + 1) + 1);
-    }
-
-    /**
-     * @brief returns the index of the previous zero before index i
-     * @param i [1..size-1]
-     * @return the index of the previous zero before index i
-     */
-    inline pos_t previous_0(pos_t i) const
-    {
-        return select_0(rank_0(i));
-    }
-
-    /**
-     * @brief returns whether there is a one at index i
-     * @param i [0..size-1]
-     * @return whether there is a one at index i
-     */
-    inline bool operator[](pos_t i) const
-    {
-        return vec[i];
-    }
-
-    /**
-     * @brief logs the contents of all vectos
-     */
+    // logs the contents of the bit vector
     void log_contents() const
     {
         if (empty()) return;
-
-        for (uint64_t i = 0; i < size() - 1; i++) {
-            std::cout << operator[](i) << " ";
-        }
-
+        for (uint64_t i = 0; i < size() - 1; i++) std::cout << operator[](i) << " ";
         std::cout << operator[](size() - 1) << std::endl;
     }
 
-    /**
-     * @brief returns the size of the data structure in bytes
-     * @return size of the data structure in bytes
-     */
     uint64_t size_in_bytes() const
     {
-        return
-            sdsl::size_in_bytes(vec) +
-            sdsl::size_in_bytes(rank_1_support) +
-            select_0_support.size_in_bytes() +
-            select_1_support.size_in_bytes();
+        return sdsl::size_in_bytes(vec) + sdsl::size_in_bytes(rank_1_support) +
+            select_0_support.size_in_bytes() + select_1_support.size_in_bytes();
     }
 
-    /**
-     * @brief serializes the plain_bit_vector to an output stream
-     * @param out output stream
-     */
-    void serialize(std::ostream& out) const
-    {
-        out.write((char*) &ones, sizeof(pos_t));
-        out.write((char*) &zeros, sizeof(pos_t));
+    // only the bit vector is serialized; the rank/select supports (and ones/zeros) are derivable and are rebuilt
+    // by setup() on load
+    void serialize(std::ostream& out) const { vec.serialize(out); }
+    void load(std::istream& in) { vec.load(in); setup(); }
 
-        vec.serialize(out);
-
-        rank_1_support.serialize(out);
-        select_0_support.serialize(out);
-        select_1_support.serialize(out);
-    }
-
-    /**
-     * @brief loads the plain_bit_vector from an input stream
-     * @param in input stream
-     */
-    void load(std::istream& in)
-    {
-        in.read((char*) &ones, sizeof(pos_t));
-        in.read((char*) &zeros, sizeof(pos_t));
-
-        vec.load(in);
-
-        rank_1_support.load(in);
-        select_0_support.load(in);
-        select_1_support.load(in);
-
-        rank_1_support.set_vector(&vec);
-        select_0_support.set_vector(vec.data());
-        select_1_support.set_vector(vec.data());
-    }
-
-    /**
-     * @brief serializes the plain_bit_vector to an output stream
-     * @param os output stream
-     * @return the output stream
-     */
-    std::ostream& operator>>(std::ostream& os) const
-    {
-        serialize(os);
-        return os;
-    }
-
-    /**
-     * @brief loads the plain_bit_vector from an input stream
-     * @param is input stream
-     * @return the input stream
-     */
+    std::ostream& operator>>(std::ostream& os) const { serialize(os); return os; }
     std::istream& operator<<(std::istream& is)
     {
         load(is);

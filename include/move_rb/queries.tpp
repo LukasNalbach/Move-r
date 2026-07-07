@@ -38,7 +38,7 @@ inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::bui
     i_sym_t max_sym) const
 {
     const auto& idx_dir = idx->index<dir>();
-    pos_t blk_size = idx_dir.L_block_size();
+    pos_t blk_size = idx_dir.PS_L_().block_size();
     pos_t max = max_sym;
 
     const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = const_vars<dir>();
@@ -49,10 +49,8 @@ inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::bui
     int64_t end = end_pos;
 
     if (end_pos != e_) [[likely]] {
-        pos_t blk_beg = blk * idx->sigma;
-
         for (pos_t i = 0; i <= max; i++) {
-            next[i] = idx_dir.L_next(blk_beg + i);
+            next[i] = idx_dir.PS_L_().succ_blk(blk, i);
         }
     } else {
         std::fill_n(next.begin(), max_sym + 1, LONG_MAX);
@@ -68,10 +66,8 @@ inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::bui
     end = e_;
 
     if (beg_pos != b_) [[likely]] {
-        pos_t blk_beg = blk * idx->sigma;
-
         for (pos_t i = 0; i <= max; i++) {
-            prev[i] = idx_dir.L_prev(blk_beg + i);
+            prev[i] = idx_dir.PS_L_().pred_blk(blk, i);
         }
     } else {
         std::fill_n(prev.begin(), max_sym + 1, LONG_MIN);
@@ -155,9 +151,9 @@ inline auto move_rb<support, sym_t, pos_t>::search_context_t<query_support>::ext
     std::array<int64_t, 256> prev;
     std::array<int64_t, 256> next;
     build_prev_next<dir>(prev, next, i_sym);
-    int64_t bwt_sub_runs = idx_dir.M_LF().num_intervals();
+    int64_t num_sub_runs = idx_dir.M_LF().num_intervals();
 
-    if (next[i_sym] > prev[i_sym] || prev[i_sym] >= bwt_sub_runs) [[unlikely]] {
+    if (next[i_sym] > prev[i_sym] || prev[i_sym] >= num_sub_runs) [[unlikely]] {
         return {search_context_t{}, false};
     }
 
@@ -182,20 +178,17 @@ inline auto move_rb<support, sym_t, pos_t>::search_context_t<query_support>::ext
     }
 
     prime_tuple_t prime{b, e, b_, e_};
-    bool is_term_in_iv = next[0] <= prev[0] && prev[0] < bwt_sub_runs;
-    b_R = b_R_old + is_term_in_iv;
+    b_R = b_R_old + (next[0] <= prev[0] && prev[0] < num_sub_runs);
 
     for (i_sym_t i = 1; i < i_sym; i++) {
-        if (next[i] <= prev[i] && prev[i] < bwt_sub_runs) {
+        if (next[i] <= prev[i] && prev[i] < num_sub_runs) {
             pos_t x = next[i];
             pos_t y = prev[i];
 
-            pos_t add_p = idx_dir.M_LF().p(y + 1) - idx_dir.M_LF().p(y);
-            b_R += add_p;
-            pos_t add_q = 0;
+            b_R += idx_dir.M_LF().p(y + 1) - idx_dir.M_LF().p(y);
+
             if (x < y) [[likely]] {
-                add_q = idx_dir.M_LF().q(y) - idx_dir.M_LF().q(x);
-                b_R += add_q;
+                b_R += idx_dir.M_LF().q(y) - idx_dir.M_LF().q(x);
             }
         }
     }
@@ -273,9 +266,8 @@ void move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::prepare_ex
     ctx->template update_input_intervals<dir>();
     ctx->template build_prev_next<dir>(prev, next, idx->sigma);
 
-    int64_t bwt_sub_runs = idx->template index<dir>().M_LF().num_intervals();
-    bool is_term_in_iv = next[0] <= prev[0] && prev[0] < bwt_sub_runs;
-    b_R_nxt = b_R + is_term_in_iv;
+    int64_t num_sub_runs = idx->template index<dir>().M_LF().num_intervals();
+    b_R_nxt = b_R + (next[0] <= prev[0] && prev[0] < num_sub_runs);
 
     sym_nxt = 0;
     this->template advance_symbol<dir>();
@@ -537,11 +529,11 @@ template <query_support_t query_support>
 template <direction_t dir>
 void move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::advance_symbol()
 {
-    int64_t bwt_sub_runs = idx->template index<dir>().M_LF().num_intervals();
+    int64_t num_sub_runs = idx->template index<dir>().M_LF().num_intervals();
 
     do {
         sym_nxt++;
     } while (sym_nxt < idx->sigma && (
              next[sym_nxt] > prev[sym_nxt] ||
-             prev[sym_nxt] == bwt_sub_runs));
+             prev[sym_nxt] == num_sub_runs));
 }

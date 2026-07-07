@@ -189,7 +189,7 @@ void build_mds()
     if (intervals.empty()) help("error: the interval sequence is empty");
     if (n_mds < 0) help("error: <n> (the universe size) is required for mds; provide it with -n");
 
-    move_data_structure<pos_t> mds(std::move(intervals), (pos_t) n_mds,
+    move_data_structure<pos_t, POS> mds(std::move(intervals), (pos_t) n_mds,
         { .num_threads = p, .a = a });
 
     std::cout << "n = " << n_mds << ", k' = " << mds.num_intervals()

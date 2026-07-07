@@ -284,10 +284,7 @@ public:
         return result;
     }
 
-    /**
-     * @brief returns the length of the string
-     * @return the length of the string
-     */
+    // returns the length of the string
     uint64_t size() const { return n; }
 
     /*
@@ -320,10 +317,7 @@ public:
         return runs_per_letter[c].gapAt(run_heads.rank(i, c));
     }
 
-    /**
-     * @brief returns the number of runs in the string
-     * @return the number of runs in the string
-     */
+    // returns the number of runs in the string
     uint64_t number_of_runs() const { return R; }
 
     /**

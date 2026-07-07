@@ -107,98 +107,62 @@ class edit_dist_search
      * @param i index of the search step
      * @return the lower error bound of the i-th search step
      */
-    uint8_t lower_bound(uint8_t i) const
-    {
-        return search_arr[i].k_min;
-    }
+    uint8_t lower_bound(uint8_t i) const { return search_arr[i].k_min; }
 
     /**
      * @brief returns the maximum number of errors allowed after the i-th search step
      * @param i index of the search step
      * @return the upper error bound of the i-th search step
      */
-    uint8_t upper_bound(uint8_t i) const
-    {
-        return search_arr[i].k_max;
-    }
+    uint8_t upper_bound(uint8_t i) const { return search_arr[i].k_max; }
 
     /**
      * @brief returns the pattern part processed in the i-th search step
      * @param i index of the search step
      * @return the index of the pattern part processed in the i-th search step
      */
-    uint8_t part(uint8_t i) const
-    {
-        return search_arr[i].part;
-    }
+    uint8_t part(uint8_t i) const { return search_arr[i].part; }
 
     /**
      * @brief returns the leftmost pattern part processed before the idx-th search step
      * @param idx index of the search step
      * @return the index of the leftmost previously processed part
      */
-    uint8_t leftmost_previous_part(uint8_t idx) const
-    {
-        return leftmost_prev_part[idx - 1];
-    }
+    uint8_t leftmost_previous_part(uint8_t idx) const { return leftmost_prev_part[idx - 1]; }
 
     /**
      * @brief returns the rightmost pattern part processed before the idx-th search step
      * @param idx index of the search step
      * @return the index of the rightmost previously processed part
      */
-    uint8_t rightmost_previous_part(uint8_t idx) const
-    {
-        return rightmost_prev_part[idx - 1];
-    }
+    uint8_t rightmost_previous_part(uint8_t idx) const { return rightmost_prev_part[idx - 1]; }
 
     /**
      * @brief returns the direction in which the i-th search step extends the pattern
      * @param i index of the search step
      * @return the search direction of the i-th search step
      */
-    direction_t part_dir(uint8_t i) const
-    {
-        return dirs[i];
-    }
+    direction_t part_dir(uint8_t i) const { return dirs[i]; }
 
     /**
      * @brief returns whether the i-th search step switches the search direction
      * @param i index of the search step
      * @return whether the i-th search step switches the search direction
      */
-    bool does_part_switch_dir(uint8_t i) const
-    {
-        return is_dir_switch[i];
-    }
+    bool does_part_switch_dir(uint8_t i) const { return is_dir_switch[i]; }
 
-    /**
-     * @brief returns the number of pattern parts
-     * @return the number of pattern parts
-     */
-    uint8_t num_parts() const
-    {
-        return scheme.p;
-    }
+    // returns the number of pattern parts
+    uint8_t num_parts() const { return scheme.p; }
 
-    /**
-     * @brief returns the index of this search within its search scheme
-     * @return the index of this search within its search scheme
-     */
-    uint8_t search_index() const
-    {
-        return search_idx;
-    }
+    // returns the index of this search within its search scheme
+    uint8_t search_index() const { return search_idx; }
 
     /**
      * @brief returns whether the part processed in the i-th search step is an outer (edge) part of the pattern
      * @param i index of the search step
      * @return whether the i-th part is the first or the last pattern part
      */
-    bool is_edge(uint8_t i) const
-    {
-        return search_arr[i].part == 0 || search_arr[i].part == scheme.p - 1;
-    }
+    bool is_edge(uint8_t i) const { return search_arr[i].part == 0 || search_arr[i].part == scheme.p - 1; }
 };
 
 /**
@@ -346,10 +310,7 @@ protected:
     }
 
     // increments a cell's reference count (saturating, so an extremely shared hub cell is pinned, never wrapping)
-    void inc_ref(pos_t idx) const
-    {
-        if (match_pool[idx].refs != UINT16_MAX) match_pool[idx].refs++;
-    }
+    void inc_ref(pos_t idx) const { if (match_pool[idx].refs != UINT16_MAX) match_pool[idx].refs++; }
 
     // decrements a cell's reference count; on reaching zero the cell is freed and its prev released in turn
     // (iteratively -- chains can be long). A saturated (pinned) cell is never freed.
@@ -681,7 +642,7 @@ protected:
     void locate_boundary(const inp_t& P, pos_t m, pos_t k, report_fnc_t report) const
     {
         if (k <= edit_distance_matrix<uint64_t>::k_limit) locate_boundary_impl<uint64_t>(P, m, k, report);
-        else                                              locate_boundary_impl<__uint128_t>(P, m, k, report);
+        else                                              locate_boundary_impl<uint128_t>(P, m, k, report);
     }
 
     template <typename word_t, typename report_fnc_t>
@@ -753,7 +714,7 @@ public:
         if constexpr (mode == CIGAR) cigars.reserve(ctxts.size());
         if (scheme.k <= edit_distance_matrix<uint64_t>::k_limit)
              recompute_errors<uint64_t>(ctxts, P, m, scheme.k, ctxts_sorted, cigars);
-        else recompute_errors<__uint128_t>(ctxts, P, m, scheme.k, ctxts_sorted, cigars);
+        else recompute_errors<uint128_t>(ctxts, P, m, scheme.k, ctxts_sorted, cigars);
 
         // sort the contexts by SA-interval (required by effective_intervals). In CIGAR mode each element carries its
         // CIGAR's index, so this single in-place sort leaves the cigars array untouched -- the index rides along
@@ -807,7 +768,7 @@ public:
         band_k = scheme.k;
         if (scheme.k <= edit_distance_matrix<uint64_t>::k_limit)
              return search<uint64_t>(P, scheme);
-        else return search<__uint128_t>(P, scheme);
+        else return search<uint128_t>(P, scheme);
     }
 
     /**

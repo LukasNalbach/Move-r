@@ -30,8 +30,8 @@
 #include <data_structures/interleaved_byte_aligned_vectors.hpp>
 #include <data_structures/interleaved_bit_aligned_vectors.hpp>
 #include <move_data_structure/move_data_structure.hpp>
-#include <move_data_structure/move_data_structure_l_.hpp>
-#include <data_structures/rank_select_support.hpp>
+#include <data_structures/pred_succ_byte.hpp>
+#include <data_structures/rank_select_int.hpp>
 #include <rlzsa_opt/rlzsa_opt.hpp>
 #include <misc/utils.hpp>
 #include <misc/files.hpp>
@@ -117,8 +117,9 @@ template <move_r_support support, typename sym_t, typename pos_t> class move_rb;
  * @tparam support type of locate support
  * @tparam sym_t value type (default: char for strings)
  * @tparam pos_t index integer type (use uint32_t if input size < UINT_MAX, else uint64_t)
+ * @tparam mlf_enc M_LF's interval-position encoding type
  */
-template <move_r_support support = _locate_move, typename sym_t = char, typename pos_t = uint32_t>
+template <move_r_support support = _locate_move, typename sym_t = char, typename pos_t = uint32_t, move_pos_encoding_t mlf_enc = DIFF>
 class move_r {
     template <move_r_support _support, typename _sym_t, typename _pos_t> friend class move_rb;
 
@@ -148,6 +149,13 @@ public:
         constexpr_case<sizeof(sym_t) == 4,    uint32_t>,
      /* constexpr_case<sizeof(sym_t) == 8, */ uint64_t>;
 
+    // ############################# M_LF INTERVAL-POSITION ENCODING #############################
+
+    // p-sample sampling parameter for M_LF in the differential encoding (a p-sample every mlf_delta runs)
+    static constexpr pos_t mlf_delta = 32;
+    // type of M_LF; it interleaves L' (the BWT run heads) as row 0
+    using mlf_t = move_data_structure<pos_t, mlf_enc, i_sym_t>;
+
     static constexpr bool is_bidirectional =
         support == _count_bi ||
         support == _locate_move_bi_fwd ||
@@ -166,13 +174,15 @@ public:
     using map_int_t = std::conditional_t<byte_alphabet, std::vector<uint8_t>, tsl::sparse_map<sym_t, i_sym_t>>; // type of map_int
     using map_ext_t = std::vector<sym_t>; // type of map_ext
     using inp_t = std::conditional_t<str_input, std::string, std::vector<sym_t>>; // input container type
-    using rsl_t = rank_select_support<i_sym_t, pos_t, true, true>; // type of RS_L'
 
-    // maximum distance to scan over L' to find the first and last occurrences of sym in L'[\hat{b},\hat{e}]
-    static constexpr pos_t max_scan_l_ = 128;
+    // reads the i-th run head L'[i]
+    struct L_reader {
+        const move_r* idx = nullptr;
+        inline i_sym_t operator()(pos_t i) const { return idx->L_(i); }
+    };
 
-    // space-time tradeoff parameter for the size of blocks in L' (for L_prev and L_next)
-    static constexpr pos_t _l_blk_size_factor = 4;
+    using ps_l_t = pred_succ_byte<i_sym_t, pos_t, L_reader>;
+    using rs_l_t = rank_select_int<i_sym_t, pos_t, true, true>;
 
     // ############################# INDEX VARIABLES #############################
 
@@ -185,8 +195,6 @@ protected:
     pos_t r___ = 0; // r''', the number of input/output intervals in M_Phi
     uint16_t a = 0; // balancing parameter, restricts size to O(r*(a/(a-1))+z), 2 <= a
     uint16_t p_r = 1; // maximum possible number of threads to use while reverting the index
-    pos_t _l_blk_size = 0; // size of the blocks in L' (for L_prev and L_next)
-    pos_t _num_blks_l_ = 0; // number of blocks (of size _l_blk_size) in L' (for L_prev and L_next)
     uint8_t omega_idx = 0; // word width of SA_Phi^{-1}
 
     /* true <=> the characters of the input have been remapped internally */
@@ -202,21 +210,15 @@ protected:
 
     /* The Move Data Structure for LF. It also stores L', which can be accessed at
     position i with M_LF.L_(i). */
-    move_data_structure_l_<pos_t, i_sym_t> _M_LF;
-    // rank-select data structure for L'
-    rsl_t _RS_L_;
-
-    /* [0..num_blocks_L_() * L_block_size() - 1], stores at position blk * sigma + sym
-    the position of the last occurrence of sym before block blk in L' */
-    interleaved_bit_aligned_vectors<pos_t> _L_prev;
-    /* [0..num_blocks_L_() * L_block_size() - 1], stores at position blk * sigma + sym
-    the position of the first occurrence of sym after or in block blk in L' */
-    interleaved_bit_aligned_vectors<pos_t> _L_next;
+    mlf_t _M_LF;
+    // char predecessor/successor support over L'
+    [[no_unique_address]] std::conditional_t<byte_alphabet, ps_l_t, std::monostate> _PS_L_;
+    [[no_unique_address]] std::conditional_t<int_alphabet, rs_l_t, std::monostate> _RS_L_;
 
     // The Move Data Structure for Phi^{-1}.
-    move_data_structure<pos_t> _M_Phi_m1;
+    move_data_structure<pos_t, POS> _M_Phi_m1;
     // The Move Data Structure for Phi.
-    move_data_structure<pos_t> _M_Phi;
+    move_data_structure<pos_t, POS> _M_Phi;
     // [0..r'-1] stores at position x the index of the output interval of M_Phi^{-1} that starts with SA_s[x] = SA[M_LF.p[x]]
     interleaved_bit_aligned_vectors<pos_t> _SA_Phi_m1;
 
@@ -238,14 +240,33 @@ protected:
 
     // ############################# INTERNAL METHODS #############################
 
+    // member-wise copy/move of all members, then rebind _PS_L_
+    template <typename move_r_t>
+    void assign_from(move_r_t&& other)
+    {
+        n = other.n; sigma = other.sigma; r = other.r; r_ = other.r_; r__ = other.r__; r___ = other.r___;
+        a = other.a; p_r = other.p_r; omega_idx = other.omega_idx;
+        symbols_remapped = other.symbols_remapped; size_map_int = other.size_map_int;
+        _map_int = std::forward<move_r_t>(other)._map_int; _map_ext = std::forward<move_r_t>(other)._map_ext;
+        _M_LF = std::forward<move_r_t>(other)._M_LF;
+        _PS_L_ = std::forward<move_r_t>(other)._PS_L_; _RS_L_ = std::forward<move_r_t>(other)._RS_L_;
+        _M_Phi_m1 = std::forward<move_r_t>(other)._M_Phi_m1; _M_Phi = std::forward<move_r_t>(other)._M_Phi;
+        _SA_Phi_m1 = std::forward<move_r_t>(other)._SA_Phi_m1; _D_e = std::forward<move_r_t>(other)._D_e;
+        _SA_s = std::forward<move_r_t>(other)._SA_s; _SA_e = std::forward<move_r_t>(other)._SA_e;
+        _rlzsa = std::forward<move_r_t>(other)._rlzsa; _seq_data = std::forward<move_r_t>(other)._seq_data;
+        if constexpr (byte_alphabet) _PS_L_.set_read(L_reader { this });
+    }
+
     /**
      * @brief sets SA_Phi^{-1}[x] to idx
      * @param x [0..r-1]
      * @param idx [0..r''-1]
      */
-    inline void set_SA_Phi_m1(pos_t x, pos_t idx)
+    inline void set_SA_Phi_m1(pos_t x, pos_t idx) { _SA_Phi_m1.template set_parallel<0, pos_t>(x, idx); }
+
+    inline uint64_t rs_l_bytes() const
     {
-        _SA_Phi_m1.template set_parallel<0, pos_t>(x, idx);
+        if constexpr (byte_alphabet) return _PS_L_.size_in_bytes(); else return _RS_L_.size_in_bytes();
     }
 
     class construction;
@@ -255,25 +276,18 @@ protected:
 public:
     move_r() = default;
 
-    /**
-     * @brief constructs a move_r index of the input
-     * @param input the input
-     * @param params construction parameters
-     */
-    move_r(inp_t& input, move_r_params params = {})
-    {
-        construction(*this, input, false, params);
-    }
+    move_r(const move_r& other) { assign_from(other); }
+    move_r(move_r&& other) noexcept { assign_from(std::move(other)); }
+    move_r& operator=(const move_r& other) { assign_from(other); return *this; }
+    move_r& operator=(move_r&& other) noexcept { assign_from(std::move(other)); return *this; }
 
     /**
-     * @brief constructs a move_r index of the input
+     * @brief constructs a move_r index of the input (consumed during the construction if passed as an rvalue)
      * @param input the input
      * @param params construction parameters
      */
-    move_r(inp_t&& input, move_r_params params = {})
-    {
-        construction(*this, input, true, params);
-    }
+    move_r(inp_t& input, move_r_params params = {}) { construction(*this, input, false, params); }
+    move_r(inp_t&& input, move_r_params params = {}) { construction(*this, input, true, params); }
 
     /**
      * @brief constructs a move_r index from a suffix array and a bwt
@@ -284,10 +298,7 @@ public:
      */
     template <typename sa_sint_t>
     move_r(std::vector<sa_sint_t>& suffix_array, std::string& bwt, move_r_params params = {})
-        requires(str_input)
-    {
-        construction(*this, suffix_array, bwt, params);
-    }
+        requires(str_input) { construction(*this, suffix_array, bwt, params); }
 
     // ############################# MISC PUBLIC METHODS #############################
 
@@ -304,133 +315,22 @@ public:
         _map_ext = map_ext;
     }
 
-    /**
-     * @brief returns the size of the input
-     * @return size of the input
-     */
-    inline pos_t input_size() const
-    {
-        return n - 1;
-    }
+    inline pos_t input_size() const { return n - 1; }
+    inline uint32_t alphabet_size() const { return sigma - 1; }
+    inline pos_t num_bwt_runs() const { return r; }
+    inline uint16_t balancing_parameter() const { return a; }
+    inline uint8_t width_saphi() const requires(has_locate_move) { return omega_idx; } // bits per SA_Phi^{-1} entry
+    inline uint16_t max_revert_threads() const { return p_r; }
 
-    /**
-     * @brief returns the index's multi-sequence (FASTA/DNA) metadata (start positions, names and separator symbol of
-     *        the sequences); empty (has_sequences() == false) unless the index was built from a multi-sequence input
-     * @return the multi-sequence metadata
-     */
-    inline const fasta_sequence_data<pos_t, sym_t>& seq_data() const
-    {
-        return _seq_data;
-    }
+    // multi-sequence (FASTA/DNA) metadata; empty unless the index was built from a multi-sequence input
+    inline const fasta_sequence_data<pos_t, sym_t>& seq_data() const { return _seq_data; }
+    // attaches multi-sequence metadata (as produced by process_fasta); call after construction
+    inline void set_fasta_sequence_data(fasta_sequence_data<pos_t, sym_t> seq_data) { _seq_data = std::move(seq_data); }
 
-    /**
-     * @brief attaches multi-sequence (FASTA/DNA) metadata to the index (as produced by process_fasta), enabling
-     *        sequence-relative coordinates and names for SAM output; call after construction
-     * @param seq_data the multi-sequence metadata
-     */
-    inline void set_fasta_sequence_data(fasta_sequence_data<pos_t, sym_t> seq_data)
-    {
-        _seq_data = std::move(seq_data);
-    }
-
-    /**
-     * @brief returns the number of distinct characters in the input (alphabet size)
-     * @return alphabet_size
-     */
-    inline uint32_t alphabet_size() const
-    {
-        return sigma - 1;
-    }
-
-    /**
-     * @brief returns the number of runs in the bwt
-     * @return number of runs in the bwt
-     */
-    inline pos_t num_bwt_runs() const
-    {
-        return r;
-    }
-
-    /**
-     * @brief returns the size of the blocks in L' (for L_prev and L_next)
-     * @return the size of the blocks in L'
-     */
-    inline pos_t L_block_size() const
-    {
-        return _l_blk_size;
-    }
-
-    /**
-     * @brief returns the number of blocks in L' (for L_prev and L_next)
-     * @return the number of blocks in L'
-     */
-    inline pos_t num_blocks_L_() const
-    {
-        return _num_blks_l_;
-    }
-
-    /**
-     * @brief returns a reference to the embedded rlzsa
-     * @return the embedded rlzsa
-     */
-    inline const rlzsa_opt<pos_t>& rlzsa() const requires(has_rlzsa)
-    {
-        return _rlzsa;
-    }
-
-    /**
-     * @brief returns the number of phrases in the rlzsa
-     * @return number of phrases in the rlzsa
-     */
-    inline pos_t num_phrases_rlzsa() const requires(has_rlzsa)
-    {
-        return _rlzsa.num_phrases();
-    }
-
-    /**
-     * @brief returns the number of literal phrases in the rlzsa
-     * @return number of literal phrases in the rlzsa
-     */
-    inline pos_t num_literal_phrases_rlzsa() const requires(has_rlzsa)
-    {
-        return _rlzsa.num_literal_phrases();
-    }
-
-    /**
-     * @brief returns the number of copy phrases in the rlzsa
-     * @return number of copy phrases in the rlzsa
-     */
-    inline pos_t num_copy_phrases_rlzsa() const requires(has_rlzsa)
-    {
-        return _rlzsa.num_copy_phrases();
-    }
-
-    /**
-     * @brief returns the balancing parameter the index has been built with
-     * @return balancing parameter
-     */
-    inline uint16_t balancing_parameter() const
-    {
-        return a;
-    }
-
-    /**
-     * @brief returns the number omega_idx of bits used by one entry in SA_Phi^{-1} (word width of SA_Phi^{-1})
-     * @return omega_idx
-     */
-    inline uint8_t width_saphi() const requires(has_locate_move)
-    {
-        return omega_idx;
-    }
-
-    /**
-     * @brief returns the maximum number of threads that can be used to revert the index
-     * @return maximum number of threads that can be used to revert the index
-     */
-    inline uint16_t max_revert_threads() const
-    {
-        return p_r;
-    }
+    inline const rlzsa_opt<pos_t>& rlzsa() const requires(has_rlzsa) { return _rlzsa; }
+    inline pos_t num_phrases_rlzsa() const requires(has_rlzsa) { return _rlzsa.num_phrases(); }
+    inline pos_t num_literal_phrases_rlzsa() const requires(has_rlzsa) { return _rlzsa.num_literal_phrases(); }
+    inline pos_t num_copy_phrases_rlzsa() const requires(has_rlzsa) { return _rlzsa.num_copy_phrases(); }
 
     /**
      * @brief returns the size of the data structure in bytes
@@ -443,7 +343,7 @@ public:
             _M_LF.size_in_bytes() +
             size_map_int +
             sizeof(sym_t) * sigma + // map_ext
-            _RS_L_.size_in_bytes() +
+            rs_l_bytes() +
             _M_Phi.size_in_bytes() +
             _M_Phi_m1.size_in_bytes() +
             _SA_Phi_m1.size_in_bytes() +
@@ -515,16 +415,6 @@ public:
             log.add_row("q:", r_, [&](pos_t i) { return M_LF().q(i); });
             log.add_row("idx:", r_, [&](pos_t i) { return M_LF().idx(i); });
             log.print();
-
-            std::cout << std::endl;
-            std::cout << "L' block size = " << _l_blk_size << std::endl;
-
-            // L'_prev and L'_next are logged in one block so they share a single, contiguous index
-            // header, even though their lengths differ
-            aligned_log log_prev_next;
-            log_prev_next.add_row("L'_prev:", _L_prev.size(), [&](pos_t i) { return _L_prev[i]; });
-            log_prev_next.add_row("L'_next:", _L_next.size(), [&](pos_t i) { return _L_next[i]; });
-            log_prev_next.print();
         }
 
         if constexpr (has_locate_move) {
@@ -574,16 +464,11 @@ public:
     {
         if (print_index_size) std::cout << "index size: " << format_size(size_in_bytes()) << std::endl;
 
-        uint64_t size_l_ = (_M_LF.width_l_() * (r_ + 1)) / 8;
+        uint64_t size_l_ = (_M_LF.template width_row<0>() * (r_ + 1)) / 8;
         std::cout << "M_LF: " << format_size(_M_LF.size_in_bytes() - size_l_) << std::endl;
         std::cout << "L': " << format_size(size_l_) << std::endl;
 
-        if (byte_alphabet) {
-            std::cout << "L'_prev & L'_next: " << format_size(
-                _L_prev.size_in_bytes() + _L_next.size_in_bytes()) << std::endl;
-        } else {
-            std::cout << "RS_L': " << format_size(_RS_L_.size_in_bytes()) << std::endl;
-        }
+        std::cout << (byte_alphabet ? "L'_pred & L'_succ: " : "RS_L': ") << format_size(rs_l_bytes()) << std::endl;
 
         if (int_alphabet && symbols_remapped) {
             std::cout << "map_int: " << format_size(size_map_int) << std::endl;
@@ -610,16 +495,11 @@ public:
         out << " size_index" << suffix << "=" << size_in_bytes();
         out << " a=" << a;
 
-        uint64_t size_l_ = (_M_LF.width_l_() * (r_ + 1)) / 8;
+        uint64_t size_l_ = (_M_LF.template width_row<0>() * (r_ + 1)) / 8;
         out << " size_m_lf" << suffix << "=" << _M_LF.size_in_bytes() - size_l_;
         out << " size_l_" << suffix << "=" << size_l_;
 
-        if constexpr (byte_alphabet) {
-            out << " size_l_prev" << suffix << "=" << _L_prev.size_in_bytes();
-            out << " size_l_next" << suffix << "=" << _L_next.size_in_bytes();
-        } else {
-            out << " size_rs_l_" << suffix << "=" << _RS_L_.size_in_bytes();
-        }
+        out << " size_rs_l_" << suffix << "=" << rs_l_bytes();
 
         if (int_alphabet && symbols_remapped) {
             out << " size_map_int" << suffix << "=" << size_map_int;
@@ -650,99 +530,14 @@ public:
 
     // ############################# PUBLIC ACCESS METHODS #############################
 
-    /**
-     * @brief returns a reference to M_LF
-     * @return M_LF
-     */
-    inline const move_data_structure_l_<pos_t, i_sym_t>& M_LF() const
-    {
-        return _M_LF;
-    }
+    inline const mlf_t& M_LF() const { return _M_LF; }
+    inline const move_data_structure<pos_t, POS>& M_Phi_m1() const requires(has_locate_move) { return _M_Phi_m1; }
+    inline const move_data_structure<pos_t, POS>& M_Phi() const requires(support == _locate_move_bi_fwd) { return _M_Phi; }
+    // char predecessor/successor support over L'
+    inline const ps_l_t& PS_L_() const requires(byte_alphabet) { return _PS_L_; }
+    inline const rs_l_t& RS_L_() const requires(int_alphabet) { return _RS_L_; }
 
-    /**
-     * @brief returns a reference to M_Phi^{-1}
-     * @return M_Phi^{-1}
-     */
-    inline const move_data_structure<pos_t>& M_Phi_m1() const requires(has_locate_move)
-    {
-        return _M_Phi_m1;
-    }
-
-    /**
-     * @brief returns a reference to M_Phi
-     * @return M_Phi
-     */
-    inline const move_data_structure<pos_t>& M_Phi() const requires(support == _locate_move_bi_fwd)
-    {
-        return _M_Phi;
-    }
-
-    /**
-     * @brief returns a reference to RS_L'
-     * @return RS_L'
-     */
-    inline const rsl_t& RS_L_() const
-    {
-        return _RS_L_;
-    }
-
-    /**
-     * @brief returns L_next[x]
-     * @param x [0..num_blocks_L_() * sigma - 1] index in L_next
-     * @return L_next[x]
-     */
-    inline pos_t L_next(pos_t x) const
-        requires(byte_alphabet)
-    {
-        return _L_next[x];
-    }
-
-    /**
-     * @brief returns the position of the first occurrence of i_sym
-     *        after or in the x-th block (of size L_block_size()) in L'
-     * @param blk [0..num_blocks_L_() - 1] block index
-     * @param i_sym [0..alphabet_size() - 1] symbol
-     * @return L_next[blk * sigma + i_sym]
-     */
-    inline pos_t L_next(pos_t blk, pos_t i_sym) const
-        requires(byte_alphabet)
-    {
-        return _L_next[blk * sigma + i_sym];
-    }
-
-    /**
-     * @brief returns L_prev[x]
-     * @param x [0..num_blocks_L_() * sigma - 1] index in L_prev
-     * @return L_prev[x]
-     */
-    inline pos_t L_prev(pos_t x) const
-        requires(byte_alphabet)
-    {
-        return _L_prev[x];
-    }
-
-    /**
-     * @brief returns the position of the last occurrence of i_sym
-     *        before the x-th block (of size L_block_size()) in L'
-     * @param blk [0..num_blocks_L_() - 1] block index
-     * @param i_sym [0..alphabet_size() - 1] symbol
-     * @return L_prev[blk * sigma + i_sym]
-     */
-    inline pos_t L_prev(pos_t blk, pos_t i_sym) const
-        requires(byte_alphabet)
-    {
-        return _L_prev[blk * sigma + i_sym];
-    }
-
-    /**
-     * @brief returns SA_Phi^{-1}[x]
-     * @param x [0..r''-1]
-     * @return SA_Phi^{-1}[x]
-     */
-    inline pos_t SA_Phi_m1(pos_t x) const requires(support == _locate_move)
-    {
-        return _SA_Phi_m1[x];
-    }
+    inline pos_t SA_Phi_m1(pos_t x) const requires(support == _locate_move) { return _SA_Phi_m1[x]; }
 
     /**
      * @brief returns SA_s[x]
@@ -785,29 +580,17 @@ public:
      * @param x [0..r'-1]
      * @return L'[x]
      */
-    inline i_sym_t L_(pos_t x) const
-    {
-        return _M_LF.L_(x);
-    }
+    inline i_sym_t L_(pos_t x) const { return _M_LF.template row<0>(x); }
 
     /**
      * @brief reinterprets a symbol of the input symbol type as a symbol of the internal symbol type
      * @param sym symbol
      * @return sym reinterpreted as i_sym_t
      */
-    i_sym_t symbol_idx(sym_t sym) const
-    {
-        return *reinterpret_cast<i_sym_t*>(&sym);
-    }
+    i_sym_t symbol_idx(sym_t sym) const { return *reinterpret_cast<i_sym_t*>(&sym); }
 
-    /**
-     * @brief returns the map from the input alphabet to the internal effective alphabet
-     * @return the map from the input alphabet to the internal effective alphabet
-     */
-    inline const map_int_t& map_int() const
-    {
-        return _map_int;
-    }
+    // returns the map from the input alphabet to the internal effective alphabet
+    inline const map_int_t& map_int() const { return _map_int; }
 
     /**
      * @brief maps a symbol to its corresponding symbol in the internal effective alphabet
@@ -853,10 +636,7 @@ public:
      * @param i [0..max_revert_threads()-2]
      * @return D_e[i]
      */
-    inline std::pair<pos_t, pos_t> D_e(uint16_t i) const
-    {
-        return _D_e[i];
-    }
+    inline std::pair<pos_t, pos_t> D_e(uint16_t i) const { return _D_e[i]; }
 
     // ############################# QUERY METHODS #############################
 
@@ -890,8 +670,10 @@ public:
 
     protected:
         pos_t l; // length of the currently matched pattern
-        pos_t b, e, b_, e_, hat_b_ap_y, hat_e_ap_z; // variables for backward search
+        pos_t b, e; // position component of the interval endpoints: absolute position (positional M_LF) or offset within run b_/e_ (differential)
+        pos_t b_, e_, hat_b_ap_y, hat_e_ap_z; // run indices of the endpoints, and the backward-search markers \hat{b'}_y, \hat{e'}_z
         int64_t y, z; // variables for backward search
+        bool be_valid; // whether the absolute endpoints b,e are up to date (see ensure_be)
 
         // decoding context for the rlzsa (present iff the index has an rlzsa); dec.pos() is the current
         // position in the suffix array interval and dec.value() the current suffix SA[dec.pos()]
@@ -902,7 +684,7 @@ public:
         [[no_unique_address]] std::conditional_t<has_locate_move,
             phi_move_context_t, std::monostate> phi;
 
-        const move_r<support, sym_t, pos_t>* idx; // index to query
+        const move_r<support, sym_t, pos_t, mlf_enc>* idx; // index to query
 
         /**
          * @brief returns the current position in the suffix array interval
@@ -929,12 +711,26 @@ public:
             }
         }
 
+        // lazily reconstructs the absolute endpoints b,e and seeds the locate cursor after a prepend; a pure
+        // count/backward-search walk never triggers it
+        inline void ensure_be()
+        {
+            if (be_valid) return;
+            // for differential M_LF, turn the offsets b,e within their runs b_,e_ into absolute positions
+            if constexpr (mlf_enc != POS) {
+                b = idx->M_LF().pos(b_, b);
+                e = idx->M_LF().pos(e_, e);
+            }
+            set_pos(b);
+            be_valid = true;
+        }
+
     public:
         /**
          * @brief constructs a new query context for the index idx
          * @param idx an index
          */
-        query_context_t(const move_r<support, sym_t, pos_t>& idx)
+        query_context_t(const move_r<support, sym_t, pos_t, mlf_enc>& idx)
         {
             this->idx = &idx;
             reset();
@@ -945,36 +741,34 @@ public:
          */
         inline void reset()
         {
-            idx->init_backward_search(b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z);
+            idx->init_backward_search(b, b_, e, e_, hat_b_ap_y, y, hat_e_ap_z, z);
             l = 0;
-            set_pos(b);
+            be_valid = false; // b,e reconstructed lazily by ensure_be()
         }
 
-        /**
-         * @brief returns the length of the currently matched pattern
-         * @return length of the currently matched pattern
-         */
-        inline pos_t length() const
-        {
-            return l;
-        }
+        // returns the length of the currently matched pattern
+        inline pos_t length() const { return l; }
 
         /**
          * @brief returns the overall number of occurrences of the currently matched pattern
          * @return overall number of occurrences
          */
-        inline pos_t num_occ() const
+        inline pos_t num_occ()
         {
-            return e >= b ? e - b + 1 : 0;
+            if constexpr (mlf_enc != POS) {
+                if (!be_valid) return idx->M_LF().pos(e_, e) - idx->M_LF().pos(b_, b) + 1;
+            }
+            return e - b + 1;
         }
 
         /**
          * @brief returns the number of remaining (not yet reported) occurrences of the currently matched pattern
          * @return number of remaining occurrences
          */
-        inline pos_t num_occ_rem() const
+        inline pos_t num_occ_rem()
             requires(supports_multiple_locate)
         {
+            ensure_be();
             return e >= pos() ? e - pos() + 1 : 0;
         }
 
@@ -982,8 +776,9 @@ public:
          * @brief returns the suffix array interval of the currently matched pattern
          * @return suffix array interval
          */
-        inline std::pair<pos_t, pos_t> sa_interval() const
+        inline std::pair<pos_t, pos_t> sa_interval()
         {
+            ensure_be();
             return std::make_pair(b, e);
         }
 
@@ -1029,36 +824,34 @@ public:
         }
     };
 
-    /**
-     * @brief returns a query context for the index
-     * @return query_context_t
-     */
-    inline query_context_t query() const
-    {
-        return query_context_t(*this);
-    }
+    // returns a query context for the index
+    inline query_context_t query() const { return query_context_t(*this); }
 
     /**
-     * @brief initializes the variables to start a new backward search
-     * @param b Left interval limit of the suffix array interval.
-     * @param e Right interval limit of the suffix array interval.
-     * @param b_ index of the input interval in M_LF containing b.
-     * @param e_ index of the input interval in M_LF containing e.
+     * @brief initializes the variables to start a new backward search; the suffix array interval [b,e]
+     *        is maintained as (offset,run)-endpoints (b,b_) and (e,e_), so that b = M_LF.p(b_) + b
+     *        and e = M_LF.p(e_) + e. This never touches M_LF.p on the hot path (see backward_search_step)
+     * @param b offset of b within the b_-th input interval (b = M_LF.p(b_) + b), or its absolute position for positional M_LF
+     * @param b_ index of the input interval in M_LF containing b
+     * @param e offset of e within the e_-th input interval (e = M_LF.p(e_) + e), or its absolute position for positional M_LF
+     * @param e_ index of the input interval in M_LF containing e
      * @param hat_b_ap_y \hat{b}'_y
      * @param y y
      * @param hat_e_ap_z \hat{e}'_z
      * @param z z
      */
     inline void init_backward_search(
-        pos_t& b, pos_t& e,
-        pos_t& b_, pos_t& e_,
+        pos_t& b, pos_t& b_,
+        pos_t& e, pos_t& e_,
         pos_t& hat_b_ap_y, int64_t& y,
         pos_t& hat_e_ap_z, int64_t& z) const
     {
-        b = 0;
-        e = n - 1;
+        // the full suffix array interval [0, n-1]
         b_ = 0;
+        b = 0;
         e_ = r_ - 1;
+        if constexpr (mlf_enc == POS) e = M_LF().p(r_) - 1;
+        else e = M_LF().len(r_ - 1) - 1;
         hat_b_ap_y = 0;
         y = -1;
         hat_e_ap_z = r_ - 1;
@@ -1067,12 +860,13 @@ public:
 
     /**
      * @brief prepends sym to the currently matched pattern P, adjusts the variables to store
-     * the query context for the pattern symP and returns whether symP occurs in the input
+     * the query context for the pattern symP and returns whether symP occurs in the input; the suffix
+     * array interval is maintained purely as (run,offset)-endpoints, so no M_LF.p lookup is performed
      * @param sym next symbol to match
-     * @param b Left interval limit of the suffix array interval.
-     * @param e Right interval limit of the suffix array interval.
-     * @param b_ index of the input interval in M_LF containing b.
-     * @param e_ index of the input interval in M_LF containing e.
+     * @param b index of the input interval in M_LF containing b
+     * @param b_ offset of b within the b-th input interval (b = M_LF.p(b) + b_)
+     * @param e index of the input interval in M_LF containing e
+     * @param e_ offset of e within the e-th input interval (e = M_LF.p(e) + e_)
      * @param hat_b_ap_y \hat{b}'_y
      * @param y y
      * @param hat_e_ap_z \hat{e}'_z
@@ -1081,8 +875,8 @@ public:
      */
     bool backward_search_step(
         sym_t sym,
-        pos_t& b, pos_t& e,
-        pos_t& b_, pos_t& e_,
+        pos_t& b, pos_t& b_,
+        pos_t& e, pos_t& e_,
         pos_t& hat_b_ap_y, int64_t& y,
         pos_t& hat_e_ap_z, int64_t& z) const;
 
@@ -1235,7 +1029,7 @@ protected:
      */
     template <typename output_t, bool output_reversed>
     void retrieve_range(
-        void (move_r<support, sym_t, pos_t>::*retrieve_method)(std::function<void(pos_t, output_t)>&&, retrieve_params) const,
+        void (move_r<support, sym_t, pos_t, mlf_enc>::*retrieve_method)(std::function<void(pos_t, output_t)>&&, retrieve_params) const,
         std::string file_name, retrieve_params params) const;
 
 public:
@@ -1275,7 +1069,7 @@ public:
     void BWT_range(std::string file_name, retrieve_params params = {}) const
     {
         adjust_retrieve_params(params, n - 1);
-        retrieve_range<sym_t, false>(&move_r<support, sym_t, pos_t>::BWT, file_name, params);
+        retrieve_range<sym_t, false>(&move_r<support, sym_t, pos_t, mlf_enc>::BWT, file_name, params);
     }
 
     /**
@@ -1313,7 +1107,7 @@ public:
     void revert_range(std::string file_name, retrieve_params params = {}) const
     {
         adjust_retrieve_params(params, n - 2);
-        retrieve_range<sym_t, true>(&move_r<support, sym_t, pos_t>::revert_range, file_name, params);
+        retrieve_range<sym_t, true>(&move_r<support, sym_t, pos_t, mlf_enc>::revert_range, file_name, params);
     }
 
     /**
@@ -1351,7 +1145,7 @@ public:
     void SA_range(std::string file_name, retrieve_params params = {}) const requires(supports_multiple_locate)
     {
         adjust_retrieve_params(params, n - 1);
-        retrieve_range<pos_t, false>(&move_r<support, sym_t, pos_t>::SA, file_name, params);
+        retrieve_range<pos_t, false>(&move_r<support, sym_t, pos_t, mlf_enc>::SA, file_name, params);
     }
 
     // ############################# SERIALIZATION METHODS #############################
@@ -1373,7 +1167,6 @@ public:
         out.write((char*) &r_, sizeof(pos_t));
         out.write((char*) &a, sizeof(uint16_t));
         out.write((char*) &p_r, sizeof(uint16_t));
-        out.write((char*) &_l_blk_size, sizeof(pos_t));
 
         if (p_r > 1) {
             out.write((char*) &_D_e[0], (p_r - 1) * 2 * sizeof(pos_t));
@@ -1392,13 +1185,7 @@ public:
         }
 
         _M_LF.serialize(out);
-        
-        if constexpr (byte_alphabet) {
-            _L_prev.serialize(out);
-            _L_next.serialize(out);
-        } else {
-            _RS_L_.serialize(out);
-        }
+        if constexpr (byte_alphabet) _PS_L_.serialize(out); else _RS_L_.serialize(out);
 
         if constexpr (support == _locate_one) {
             _SA_s.serialize(out);
@@ -1454,7 +1241,6 @@ public:
         in.read((char*) &r_, sizeof(pos_t));
         in.read((char*) &a, sizeof(uint16_t));
         in.read((char*) &p_r, sizeof(uint16_t));
-        in.read((char*) &_l_blk_size, sizeof(pos_t));
 
         if (p_r > 1) {
             _D_e.resize(p_r - 1);
@@ -1483,13 +1269,8 @@ public:
         }
 
         _M_LF.load(in);
-
-        if constexpr (byte_alphabet) {
-            _L_prev.load(in);
-            _L_next.load(in);
-        } else {
-            _RS_L_.load(in);
-        }
+        if constexpr (byte_alphabet) { _PS_L_.load(in); _PS_L_.set_read(L_reader { this }); }
+        else _RS_L_.load(in);
 
         if constexpr (support == _locate_one) {
             _SA_s.load(in);

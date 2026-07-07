@@ -58,15 +58,9 @@ void* cn_load(const char* base, const char* scheme)
     }
 }
 
-void cn_set_scheme(void* handle, const char* scheme)
-{
-    static_cast<columba_native*>(handle)->set_scheme(scheme);
-}
+void cn_set_scheme(void* handle, const char* scheme) { static_cast<columba_native*>(handle)->set_scheme(scheme); }
 
-uint64_t cn_input_size(void* handle)
-{
-    return static_cast<columba_native*>(handle)->input_size();
-}
+uint64_t cn_input_size(void* handle) { return static_cast<columba_native*>(handle)->input_size(); }
 
 void* cn_make_bundles(void* handle, const char* const* patterns, const uint64_t* lengths, uint64_t count)
 {
@@ -156,7 +150,4 @@ const columba_api_t g_api = {
 #define COLUMBA_API_GETTER columba_fm_api
 #endif
 
-extern "C" __attribute__((visibility("default"))) const columba_api_t* COLUMBA_API_GETTER()
-{
-    return &g_api;
-}
+extern "C" __attribute__((visibility("default"))) const columba_api_t* COLUMBA_API_GETTER() { return &g_api; }

@@ -67,12 +67,12 @@
  * @brief banded edit-distance dynamic-programming matrix between a fixed input and a query string,
  *        evaluated one query symbol (row) at a time; every row keeps only the 2k+1-wide diagonal band
  *        of the column, bit-packed into a single word using Myers' bit-parallel recurrence
- * @tparam word_t unsigned word type that bit-encodes one banded matrix row (uint64_t or __uint128_t)
+ * @tparam word_t unsigned word type that bit-encodes one banded matrix row (uint64_t or uint128_t)
  */
 template <typename word_t>
 class edit_distance_matrix
 {
-    static_assert(std::is_same_v<word_t, uint64_t> || std::is_same_v<word_t, __uint128_t>);
+    static_assert(std::is_same_v<word_t, uint64_t> || std::is_same_v<word_t, uint128_t>);
 
   public:
     // a row word stores the 2k+1-bit first column followed by two further k-bit expansions of the
@@ -107,20 +107,14 @@ class edit_distance_matrix
     std::vector<word_t> eq_masks;    // [block][symbol] -> bitmask of input positions equal to that symbol
 
     /** @brief resizes all per-row storage to @p num rows */
-    void resize_rows(uint16_t num)
-    {
-        rows.resize(num);
-    }
+    void resize_rows(uint16_t num) { rows.resize(num); }
 
     /**
      * @brief index of the last column inside the band on row @p i
      * @param i row index
      * @return the band's rightmost column on row i
      */
-    uint16_t last_col_idx(uint16_t i) const
-    {
-        return std::min(n - 1, i + band_height);
-    }
+    uint16_t last_col_idx(uint16_t i) const { return std::min(n - 1, i + band_height); }
 
     /**
      * @brief maps a query symbol to its zero-based index into the eq_masks of a block
@@ -129,10 +123,7 @@ class edit_distance_matrix
      * @return the zero-based symbol rank
      */
     template <typename sym_t>
-    uint8_t map_sym(sym_t sym) const
-    {
-        return (*byte_to_rank)[sym_to_uchar(sym)] - 1;
-    }
+    uint8_t map_sym(sym_t sym) const { return (*byte_to_rank)[sym_to_uchar(sym)] - 1; }
 
   public:
     edit_distance_matrix() {}
@@ -306,10 +297,7 @@ class edit_distance_matrix
      * @param i row index
      * @return whether row i belongs to the final column
      */
-    bool is_in_final_column(const uint16_t i) const
-    {
-        return i >= num_rows() - last_col_size();
-    }
+    bool is_in_final_column(const uint16_t i) const { return i >= num_rows() - last_col_size(); }
 
     /**
      * @brief edit distance stored in cell (@p i, @p j); reconstructed from the diagonal score by
@@ -351,49 +339,22 @@ class edit_distance_matrix
         return (((~rows[i].dh_neg >> lo) << lo) << (bits_per_word - hi)) == word_t(0);
     }
 
-    /**
-     * @brief number of columns of the matrix (input length + 1)
-     * @return the number of columns
-     */
-    uint16_t num_cols() const
-    {
-        return n;
-    }
+    // number of columns of the matrix (input length + 1)
+    uint16_t num_cols() const { return n; }
 
-    /**
-     * @brief number of rows of the matrix
-     * @return the number of rows
-     */
-    uint16_t num_rows() const
-    {
-        return m;
-    }
+    // number of rows of the matrix
+    uint16_t num_rows() const { return m; }
 
-    /**
-     * @brief whether an input has been set (and thus the eq-masks have been precomputed)
-     * @return whether the matrix has an input
-     */
-    bool is_initialized() const
-    {
-        return !eq_masks.empty();
-    }
+    // whether an input has been set (and thus the eq-masks have been precomputed)
+    bool is_initialized() const { return !eq_masks.empty(); }
 
-    /**
-     * @brief number of rows that fall into the final column of the matrix
-     * @return the size of the final column
-     */
-    uint16_t last_col_size() const
-    {
-        return band_height + band_width + 1;
-    }
+    // number of rows that fall into the final column of the matrix
+    uint16_t last_col_size() const { return band_height + band_width + 1; }
 
     /** @brief the number of bytes the matrix' row and eq-mask buffers currently occupy */
-    uint64_t byte_size() const
-    {
-        return rows.capacity() * sizeof(row_state_t) + eq_masks.capacity() * sizeof(word_t);
-    }
+    uint64_t byte_size() const { return rows.capacity() * sizeof(row_state_t) + eq_masks.capacity() * sizeof(word_t); }
 };
 
 static constexpr int64_t bp_k_limit_64 = edit_distance_matrix<uint64_t>::k_limit;
-static constexpr int64_t bp_k_limit_128 = edit_distance_matrix<__uint128_t>::k_limit;
+static constexpr int64_t bp_k_limit_128 = edit_distance_matrix<uint128_t>::k_limit;
 static constexpr int64_t bp_max_ref_len = 60000;

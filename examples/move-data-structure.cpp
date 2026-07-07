@@ -25,7 +25,6 @@
  */
 
 #include <move_data_structure/move_data_structure.hpp>
-#include <move_data_structure/move_data_structure_l_.hpp>
 #include <misc/utils.hpp>
 #include <misc/log.hpp>
 
@@ -33,7 +32,7 @@ int main()
 {
     // Build a move data structure from the disjoint interval
     // sequence I = (0,1),(1,0) with n = 2
-    move_data_structure<> mds({ { 0, 1 }, { 1, 0 } }, 2);
+    move_data_structure<uint32_t, POS> mds({ { 0, 1 }, { 1, 0 } }, 2);
 
     // create a pair to perform move queries with
     std::pair<uint32_t, uint32_t> ix { 0, 0 };
@@ -42,15 +41,14 @@ int main()
     std::cout << to_string<>(ix = mds.move(ix)) << std::endl;
     std::cout << to_string<>(ix = mds.move(ix)) << std::endl;
 
-    // build a move_data_structure_l_ (intended for I_LF);
-    // this move data structure additionally stores a string interleaved
-    // with the arrays needed for performing move queries (intended for
-    // storing the characters of the bwt (sub-)runs);
+    // build a move data structure that additionally interleaves an extra row (here a char column, intended
+    // e.g. for the characters of the bwt (sub-)runs) via the row_ts... template parameter; the extra-row
+    // widths (here { 8 } bits) are passed after the construction parameters
 
     // use at most 4 threads and set a = 2
-    move_data_structure_l_<> mds_str({
+    move_data_structure<uint32_t, POS, char> mds_str({
         { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 }, { 4, 0 } }, 8,
-        { .num_threads = 4, .a = 2 });
+        { .num_threads = 4, .a = 2 }, { 8 });
 
     // this disjoint interval sequence is not 2-balanced, because the output
     // interval [0,3] contains 4 >= 2a = 4 input intervals

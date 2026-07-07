@@ -183,20 +183,14 @@ uint64_t get_positive_header_value(std::string header, std::string key)
  * @param header the header line
  * @return the pattern length (>= 1; exits with an error if the header is malformed)
  */
-uint64_t get_pattern_length(std::string header)
-{
-    return get_positive_header_value(header, "length=");
-}
+uint64_t get_pattern_length(std::string header) { return get_positive_header_value(header, "length="); }
 
 /**
  * @brief reads the number of patterns from a patterns-file header
  * @param header the header line
  * @return the number of patterns (>= 1; exits with an error if the header is malformed)
  */
-uint64_t get_pattern_count(std::string header)
-{
-    return get_positive_header_value(header, "number=");
-}
+uint64_t get_pattern_count(std::string header) { return get_positive_header_value(header, "number="); }
 
 /**
  * @brief checks that path refers to a readable regular file, printing an error and exiting otherwise

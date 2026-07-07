@@ -41,6 +41,8 @@
 #define MOVE_R_USE_MALLOC_COUNT 1
 #endif
 
+using uint128_t = __uint128_t;
+
 /**
  * @brief returns the absolute difference of x and y
  * @tparam int_t signed integer type the operands are cast to before subtracting
@@ -61,20 +63,14 @@ inline static int_t abs_diff(x_t x, y_t y)
  * @param c an unsigned byte
  * @return c reinterpreted as a char
  */
-inline static char uchar_to_char(uint8_t c)
-{
-    return *reinterpret_cast<char*>(&c);
-}
+inline static char uchar_to_char(uint8_t c) { return *reinterpret_cast<char*>(&c); }
 
 /**
  * @brief reinterprets a char as an unsigned byte
  * @param c a char
  * @return c reinterpreted as an unsigned byte
  */
-inline static uint8_t char_to_uchar(char c)
-{
-    return *reinterpret_cast<uint8_t*>(&c);
-}
+inline static uint8_t char_to_uchar(char c) { return *reinterpret_cast<uint8_t*>(&c); }
 
 /**
  * @brief reinterprets a one-byte symbol (char, uint8_t or int8_t) as an unsigned byte
@@ -97,10 +93,7 @@ inline static uint8_t sym_to_uchar(sym_t c)
  * @return whether vec contains val
  */
 template <typename T>
-static bool contains(const std::vector<T>& vec, T val)
-{
-    return std::find(vec.begin(), vec.end(), val) != vec.end();
-}
+static bool contains(const std::vector<T>& vec, T val) { return std::find(vec.begin(), vec.end(), val) != vec.end(); }
 
 /**
  * @brief removes all occurrences of val from vec
@@ -187,10 +180,7 @@ inline void no_init_resize(std::string& str, size_t size)
  * @param size the new size
  */
 template <typename T>
-static void no_init_resize(std::vector<T>& vec, size_t size)
-{
-    (*reinterpret_cast<std::vector<no_init<T>>*>(&vec)).resize(size);
-}
+static void no_init_resize(std::vector<T>& vec, size_t size) { (*reinterpret_cast<std::vector<no_init<T>>*>(&vec)).resize(size); }
 
 /**
  * @brief resizes a vector of pairs to size without initializing newly added elements
@@ -222,10 +212,7 @@ static void no_init_resize(std::vector<std::tuple<T, T, T>>& vec, size_t size)
  * @param path the path
  * @return the file name (path itself if it contains no separator)
  */
-inline std::string basename(const std::string& path)
-{
-    return path.substr(path.find_last_of("/\\") + 1);
-}
+inline std::string basename(const std::string& path) { return path.substr(path.find_last_of("/\\") + 1); }
 
 /** @brief a search/reading direction */
 enum direction_t : uint8_t {
@@ -352,10 +339,7 @@ using constexpr_switch_t = typename constexpr_switch<Head, Tail...>::type;
  * @return ceil(x / y)
  */
 template <typename uint_t>
-inline static uint_t div_ceil(uint_t x, uint_t y)
-{
-    return x == 0 ? 0 : (1 + (x - 1) / y);
-}
+inline static uint_t div_ceil(uint_t x, uint_t y) { return x == 0 ? 0 : (1 + (x - 1) / y); }
 
 /**
  * @brief returns the number of bits needed to store the value val
@@ -364,10 +348,7 @@ inline static uint_t div_ceil(uint_t x, uint_t y)
  * @return the number of bits needed to store val, as a uint8_t (suitable for interleaved-vector width lists)
  */
 template <typename T>
-inline static uint8_t bit_width(T val)
-{
-    return std::bit_width(uint64_t(val));
-}
+inline static uint8_t bit_width(T val) { return std::bit_width(uint64_t(val)); }
 
 /**
  * @brief returns the number of bytes needed to store the value val
@@ -509,7 +490,7 @@ struct function_traits<return_t(class_t::*)(args...) const> {
 
 /**
  * @brief counts the number of set bits in x
- * @tparam word_t word type (uint32_t, uint64_t or __uint128_t)
+ * @tparam word_t word type (uint32_t, uint64_t or uint128_t)
  * @param x a word
  * @return the number of set bits in x
  */
@@ -518,9 +499,9 @@ static int popcount(word_t x)
 {
     static_assert(std::is_same_v<word_t, uint32_t> ||
                   std::is_same_v<word_t, uint64_t> ||
-                  std::is_same_v<word_t, __uint128_t>);
+                  std::is_same_v<word_t, uint128_t>);
     
-    if constexpr (std::is_same_v<word_t, __uint128_t>) {
+    if constexpr (std::is_same_v<word_t, uint128_t>) {
         uint64_t high = x >> 64;
         uint64_t low = x;
         return __builtin_popcountll(high) + __builtin_popcountll(low);

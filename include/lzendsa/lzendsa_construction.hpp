@@ -69,10 +69,7 @@ struct input_val_idx_pair_t { // used for constructing the transformed reverse d
      * @param other another pair
      * @return whether this pair's value is smaller than other's value
      */
-    bool operator<(const input_val_idx_pair_t& other) const
-    {
-        return value < other.value;
-    }
+    bool operator<(const input_val_idx_pair_t& other) const { return value < other.value; }
 };
 
 /**

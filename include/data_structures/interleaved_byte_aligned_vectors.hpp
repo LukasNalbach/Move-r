@@ -56,7 +56,7 @@ class interleaved_byte_aligned_vectors {
     static_assert(num_vectors > 0);
 
 protected:
-    static constexpr uint64_t block_size = sizeof(__uint128_t); // size (in bytes) of the blocks that are copied at once
+    static constexpr uint64_t block_size = sizeof(uint128_t); // size (in bytes) of the blocks that are copied at once
 
     uint64_t size_vectors = 0; // size of each stored vector
     uint64_t capacity_vectors = 0; // capacity of each stored vector
@@ -180,76 +180,29 @@ public:
      * @brief Construct a new interleaved_byte_aligned_vectors
      * @param widths vector containing the widths (in bytes) of the interleaved arrays
      */
-    interleaved_byte_aligned_vectors(std::array<uint8_t, num_vectors> widths)
-    {
-        initialize(widths);
-    }
+    interleaved_byte_aligned_vectors(std::array<uint8_t, num_vectors> widths) { initialize(widths); }
 
-    /**
-     * @brief returns the size of each stored vector
-     * @return the size of each stored vector
-     */
-    inline uint64_t size() const
-    {
-        return size_vectors;
-    }
+    // the size of each stored vector
+    inline uint64_t size() const { return size_vectors; }
 
-    /**
-     * @brief returns whether the interleaved vectors are empty
-     * @return whether the interleaved vectors are empty
-     */
-    inline bool empty() const
-    {
-        return size_vectors == 0;
-    }
+    // whether the interleaved vectors are empty
+    inline bool empty() const { return size_vectors == 0; }
 
-    /**
-     * @brief returns the size of the data structure in bytes
-     * @return size of the data structure in bytes
-     */
-    uint64_t size_in_bytes() const
-    {
-        return sizeof(this) + size_vectors * width_entry;
-    }
+    // the size of the data structure in bytes
+    uint64_t size_in_bytes() const { return sizeof(this) + size_vectors * width_entry; }
 
-    /**
-     * @brief returns total width (number of bytes) per entry, that is the (sum of all widths)
-     * @return number of bytes per entry
-     */
-    inline uint8_t bytes_per_entry() const
-    {
-        return this->width_entry;
-    }
+    // total width in bytes per entry (the sum of all vector widths)
+    inline uint8_t bytes_per_entry() const { return this->width_entry; }
 
-    /**
-     * @brief returns the width in bytes of the vector with index vec_idx
-     * @tparam vec_idx vector index
-     * @return its witdth in bytes
-     */
+    // the width in bytes of the vector with index vec_idx
     template <uint8_t vec_idx>
-    inline uint8_t width() const
-    {
-        return widths[vec_idx];
-    }
+    inline uint8_t width() const { return widths[vec_idx]; }
 
-    /**
-     * @brief returns a pointer to the data of the interleved vectors
-     * @return pointer to the data of the interleved vectors
-     */
-    inline char* data() const
-    {
-        return bases[0];
-    }
+    // a pointer to the data of the interleaved vectors
+    inline char* data() const { return bases[0]; }
 
-    /**
-     * @brief returns the i-th entry of the vector with index 0
-     * @param i entry index (0 <= i < size_vectors)
-     * @return i-th entry of the vector with index 0
-     */
-    inline val_t operator[](pos_t i) const
-    {
-        return get<0, val_t>(i);
-    }
+    // the i-th entry (0 <= i < size) of the vector with index 0
+    inline val_t operator[](pos_t i) const { return get<0, val_t>(i); }
 
     /**
      * @brief reserves capacity entries in all stored vectors; if capacity is smaller than the
@@ -305,20 +258,14 @@ public:
      */
     void resize_no_init(uint64_t size, uint16_t num_threads = 1)
     {
-        if (capacity_vectors < size) {
-            reserve(size, num_threads);
-        }
-
+        if (capacity_vectors < size) reserve(size, num_threads);
         size_vectors = size;
     }
 
     /**
      * @brief resizes all stored vectors to size 0
      */
-    inline void clear()
-    {
-        resize(0);
-    }
+    inline void clear() { resize(0); }
 
     /**
      * @brief shrinks all stored vectors to their size
@@ -333,6 +280,17 @@ public:
         }
     }
 
+protected:
+    /**
+     * @brief returns a pointer to the memory location of the i-th entry in the vector with index vec_idx
+     * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @param i entry index (0 <= i < size_vectors)
+     * @return pointer to the i-th entry's bytes (read/written via memcpy, so it need not be aligned)
+     */
+    template <uint8_t vec_idx>
+    inline char* addr(pos_t i) const { return bases[vec_idx] + i * width_entry; }
+
+public:
     /**
      * @brief sets the i-th entry in the vector with index vec_idx to v (cannot be executed in parallel for multiple
      * different positions in the vectors)
@@ -345,9 +303,10 @@ public:
     inline void set(pos_t i, T v)
     {
         static_assert(vec_idx < num_vectors);
-
-        T* loc = reinterpret_cast<T*>(bases[vec_idx] + i * width_entry);
-        *loc = v | (*loc & masks_set[vec_idx]);
+        T res;
+        std::memcpy(&res, addr<vec_idx>(i), sizeof(T));
+        res = v | (res & masks_set[vec_idx]);
+        std::memcpy(addr<vec_idx>(i), &res, sizeof(T));
     }
 
     /**
@@ -362,7 +321,7 @@ public:
     inline void set_parallel(pos_t i, T v)
     {
         static_assert(vec_idx < num_vectors);
-        char* dst = bases[vec_idx] + i * width_entry;
+        char* dst = addr<vec_idx>(i);
 
         // the memcpy for a width larger than sizeof(T) is never instantiated (it cannot occur, as
         // widths[vec_idx] <= sizeof(T) holds), which both avoids the read past v and keeps each
@@ -392,21 +351,7 @@ public:
     inline void set_unsafe(pos_t i, T v)
     {
         static_assert(vec_idx < num_vectors);
-        *reinterpret_cast<T*>(bases[vec_idx] + i * width_entry) = v;
-    }
-
-    /**
-     * @brief returns the i-th entry in the vector with index vec_idx
-     * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
-     * @tparam T type to return the entry as
-     * @param i entry index (0 <= i < size_vectors)
-     * @return value
-     */
-    template <uint8_t vec_idx, typename T = val_t>
-    inline T get(pos_t i) const
-    {
-        static_assert(vec_idx < num_vectors);
-        return *reinterpret_cast<T*>(bases[vec_idx] + i * width_entry) & masks_get[vec_idx];
+        std::memcpy(addr<vec_idx>(i), &v, sizeof(T));
     }
 
     /**
@@ -421,8 +366,20 @@ public:
     inline T get_unsafe(pos_t i) const
     {
         static_assert(vec_idx < num_vectors);
-        return *reinterpret_cast<T*>(bases[vec_idx] + i * width_entry);
+        T v;
+        std::memcpy(&v, addr<vec_idx>(i), sizeof(T));
+        return v;
     }
+
+    /**
+     * @brief returns the i-th entry in the vector with index vec_idx
+     * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
+     * @tparam T type to return the entry as
+     * @param i entry index (0 <= i < size_vectors)
+     * @return value
+     */
+    template <uint8_t vec_idx, typename T = val_t>
+    inline T get(pos_t i) const { return get_unsafe<vec_idx, T>(i) & masks_get[vec_idx]; }
 
     /**
      * @brief appends val to the end of the interleaved vectors

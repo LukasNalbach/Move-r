@@ -39,8 +39,8 @@ enum rlbwt_build_mode {
     _bwt_file // the BWT is read from files output by Big-BWT
 };
 
-template <move_r_support support, typename sym_t, typename pos_t>
-class move_r<support, sym_t, pos_t>::construction {
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+class move_r<support, sym_t, pos_t, mlf_enc>::construction {
 public:
     construction() = delete;
     construction(construction&&) = delete;
@@ -92,7 +92,7 @@ public:
     /** the vector containing T */
     std::vector<sym_t>& T_vec;
     /** The move-r index to construct */
-    move_r<support, sym_t, pos_t>& idx;
+    move_r<support, sym_t, pos_t, mlf_enc>& idx;
     /** [0..n-1] The suffix array (32-bit) */
     std::vector<int32_t>& SA_32;
     /** [0..n-1] The suffix array (64-bit) */
@@ -191,10 +191,7 @@ public:
      * @param i [0..r-1] run index
      * @param len run length
      */
-    inline void set_run_len(uint16_t i_p, pos_t i, pos_t len)
-    {
-        RLBWT[i_p].set_unsafe<1, uint32_t>(i, len);
-    }
+    inline void set_run_len(uint16_t i_p, pos_t i, pos_t len) { RLBWT[i_p].set_unsafe<1, uint32_t>(i, len); }
 
     /**
      * @brief returns the length of the i-th BWT run in thread i_p's section
@@ -202,10 +199,7 @@ public:
      * @param i [0..r-1] run index
      * @return run length
      */
-    inline pos_t run_len(uint16_t i_p, pos_t i)
-    {
-        return RLBWT[i_p].get_unsafe<1, uint32_t>(i);
-    }
+    inline pos_t run_len(uint16_t i_p, pos_t i) { return RLBWT[i_p].get_unsafe<1, uint32_t>(i); }
 
     /**
      * @brief sets the character of the i-th BWT run in thread i_p's section to c
@@ -305,20 +299,14 @@ public:
      * @brief starts a construction phase: resets the phase timer and prints msg (if logging)
      * @param msg message describing the phase
      */
-    void log_phase_start(const std::string& msg)
-    {
-        ::log_phase_start(log, time, msg);
-    }
+    void log_phase_start(const std::string& msg) { ::log_phase_start(log, time, msg); }
 
     /**
      * @brief ends a construction phase: writes the elapsed time to mf_idx under the key mf_key
      *        (if mf_key is non-empty) and logs the runtime (if logging)
      * @param mf_key measurement-file key for the elapsed time (empty => not written)
      */
-    void log_phase_end(const std::string& mf_key = "")
-    {
-        ::log_phase_end(log, time, mf_idx, mf_key);
-    }
+    void log_phase_end(const std::string& mf_key = "") { ::log_phase_end(log, time, mf_idx, mf_key); }
 
     /**
      * @brief ends a move-data-structure construction phase: closes the mf_mds RESULT line,
@@ -424,7 +412,7 @@ public:
      * @param delete_T controls whether T should be deleted once it is not needed anymore
      * @param params construction parameters
      */
-    construction(move_r<support, sym_t, pos_t>& index, std::string& T, bool delete_T, move_r_params params)
+    construction(move_r<support, sym_t, pos_t, mlf_enc>& index, std::string& T, bool delete_T, move_r_params params)
         requires(str_input)
         : T_str(T)
         , T_vec(T_vec_tmp)
@@ -491,7 +479,7 @@ public:
      * @param delete_T controls whether T should be deleted once it is not needed anymore
      * @param params construction parameters
      */
-    construction(move_r<support, sym_t, pos_t>& index, std::vector<sym_t>& T, bool delete_T, move_r_params params)
+    construction(move_r<support, sym_t, pos_t, mlf_enc>& index, std::vector<sym_t>& T, bool delete_T, move_r_params params)
         requires(int_input)
         : T_str(T_str_tmp)
         , T_vec(T)
@@ -535,7 +523,7 @@ public:
      * @param bwt string containing the bwt of the input
      * @param params construction parameters
      */
-    construction(move_r<support, sym_t, pos_t>& index, std::vector<int32_t>& suffix_array, std::string& bwt, move_r_params params)
+    construction(move_r<support, sym_t, pos_t, mlf_enc>& index, std::vector<int32_t>& suffix_array, std::string& bwt, move_r_params params)
         requires(str_input)
         : T_str(T_str_tmp)
         , T_vec(T_vec_tmp)
@@ -555,7 +543,7 @@ public:
      * @param bwt string containing the bwt of the input
      * @param params construction parameters
      */
-    construction(move_r<support, sym_t, pos_t>& index, std::vector<int64_t>& suffix_array, std::string& bwt, move_r_params params)
+    construction(move_r<support, sym_t, pos_t, mlf_enc>& index, std::vector<int64_t>& suffix_array, std::string& bwt, move_r_params params)
         requires(str_input)
         : T_str(T_str_tmp)
         , T_vec(T_vec_tmp)
@@ -614,7 +602,7 @@ public:
             }
         }
 
-        build_l_prev_next();
+        build_pred_succ_l_();
 
         log_finished();
     }
@@ -664,10 +652,9 @@ public:
             if constexpr (supports_multiple_locate) {
                 if constexpr (has_locate_move) {
                     if (_space) store_sas();
-                    if constexpr (byte_alphabet) build_l_prev_next();
-                    else build_rsl_();
+                    build_pred_succ_l_();
                     if (_space) {
-                        if constexpr (byte_alphabet) store_l_prev_next();
+                        if constexpr (byte_alphabet) store_pred_succ_l_();
                         else store_rsl_();
                     }
                     if (_space) store_mlf();
@@ -687,7 +674,7 @@ public:
                     if (_space) {
                         load_mlf();
                         if constexpr (support == _locate_move_bi_fwd) load_mphi();
-                        if constexpr (byte_alphabet) load_l_prev_next();
+                        if constexpr (byte_alphabet) load_pred_succ_l_();
                         else load_rsl_();
                     }
                 } else if constexpr (has_rlzsa) {
@@ -695,10 +682,9 @@ public:
                         store_sas_idx();
                         if (is_bidirectional) store_sas__idx();
                     }
-                    if constexpr (byte_alphabet) build_l_prev_next();
-                    else build_rsl_();
+                    build_pred_succ_l_();
                     if (_space) {
-                        if constexpr (byte_alphabet) store_l_prev_next();
+                        if constexpr (byte_alphabet) store_pred_succ_l_();
                         else store_rsl_();
                     }
                     if (_space) store_mlf();
@@ -712,24 +698,22 @@ public:
                     }
                     if (_space) load_mlf();
                     if (_space) {
-                        if constexpr (byte_alphabet) load_l_prev_next();
+                        if constexpr (byte_alphabet) load_pred_succ_l_();
                         else load_rsl_();
                     }
                 } else if constexpr (support == _locate_bi_bwd) {
-                    build_l_prev_next();
+                    build_pred_succ_l_();
                 }
 
                 if constexpr (support == _locate_move_bi_fwd || support == _locate_rlzsa_bi_fwd) {
                     *reinterpret_cast<std::vector<sa_sint_t>*>(sa_vector) = std::move(get_sa<sa_sint_t>());
                 }
             } else {
-                if constexpr (byte_alphabet) build_l_prev_next();
-                else build_rsl_();
+                build_pred_succ_l_();
             }
         } else {
             build_l__sas();
-            if constexpr (byte_alphabet) build_l_prev_next();
-            else build_rsl_();
+            build_pred_succ_l_();
         }
 
         if constexpr (int_alphabet) {
@@ -770,9 +754,9 @@ public:
             if constexpr (supports_multiple_locate) {
                 if constexpr (has_locate_move) {
                     store_sas();
-                    build_l_prev_next();
+                    build_pred_succ_l_();
                     store_mlf();
-                    store_l_prev_next();
+                    store_pred_succ_l_();
 
                     if constexpr (support == _locate_move_bi_fwd) {
                         build_iphi();
@@ -790,26 +774,26 @@ public:
                     build_de();
                     load_mlf();
                     if constexpr (support == _locate_move_bi_fwd) load_mphi();
-                    load_l_prev_next();
+                    load_pred_succ_l_();
                 } else if constexpr (has_rlzsa) {
                     store_sas_idx();
                     if (is_bidirectional) store_sas__idx();
-                    build_l_prev_next();
-                    store_l_prev_next();
+                    build_pred_succ_l_();
+                    store_pred_succ_l_();
                     store_mlf();
 
                     sort_iphim1();
                     construct_rlzsa<true, int32_t>();
 
                     load_mlf();
-                    load_l_prev_next();
+                    load_pred_succ_l_();
                     load_sas_idx();
                     if (is_bidirectional) load_sas__idx();
                 } else if constexpr (support == _locate_bi_bwd) {
-                    build_l_prev_next();
+                    build_pred_succ_l_();
                 }
             } else {
-                build_l_prev_next();
+                build_pred_succ_l_();
             }
 
             if (has_rlzsa || p > 1 || is_bidirectional) {
@@ -824,7 +808,7 @@ public:
             }
         } else {
             build_l__sas();
-            build_l_prev_next();
+            build_pred_succ_l_();
         }
     };
 
@@ -917,15 +901,8 @@ public:
      */
     void build_de();
 
-    /**
-     * @brief builds RS_L'
-     */
-    void build_rsl_();
-
-    /**
-     * @brief builds L_prev and L_next
-     */
-    void build_l_prev_next();
+    // builds the character predecessor/successor support _RS_L_ over L'
+    void build_pred_succ_l_();
 
     /**
      * @brief stores the RLBWT to disk
@@ -1005,7 +982,7 @@ public:
     /**
      * @brief stores L_prev and L_next to disk
      */
-    void store_l_prev_next();
+    void store_pred_succ_l_();
 
     /**
      * @brief loads RS_L' from disk
@@ -1015,7 +992,7 @@ public:
     /**
      * @brief loads RS_L' from disk
      */
-    void load_l_prev_next();
+    void load_pred_succ_l_();
     
     /**
      * @brief reads I_Phi^{-1}
