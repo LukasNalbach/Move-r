@@ -29,9 +29,9 @@
 #include <ips4o.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 template <bool bigbwt, typename sa_sint_t>
-void move_r<support, sym_t, pos_t>::construction::build_sas_from_sa()
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_sas_from_sa()
 {
     log_phase_start("building SA_s and SA_e");
 
@@ -61,9 +61,9 @@ void move_r<support, sym_t, pos_t>::construction::build_sas_from_sa()
     log_phase_end("time_build_sa_s_sa_s_");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 template <bool bigbwt, typename sa_sint_t>
-void move_r<support, sym_t, pos_t>::construction::build_iphim1_sas_from_sa()
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_iphim1_sas_from_sa()
 {
     log_phase_start(is_bidirectional ? "building I_Phi^{-1} and SA_s and SA_e" : "building I_Phi^{-1} and SA_s");
 
@@ -154,8 +154,8 @@ void move_r<support, sym_t, pos_t>::construction::build_iphim1_sas_from_sa()
     log_phase_end("time_build_iphi");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::build_iphi()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_iphi()
 {
     log_phase_start("\nbuilding I_Phi");
 
@@ -169,8 +169,8 @@ void move_r<support, sym_t, pos_t>::construction::build_iphi()
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::sort_iphim1()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::sort_iphim1()
 {
     log_phase_start("sorting I_Phi^{-1}");
 
@@ -195,8 +195,8 @@ void move_r<support, sym_t, pos_t>::construction::sort_iphim1()
     log_phase_end("time_sort_iphim1");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::sort_iphi()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::sort_iphi()
 {
     log_phase_start("sorting I_Phi");
 
@@ -221,19 +221,19 @@ void move_r<support, sym_t, pos_t>::construction::sort_iphi()
     log_phase_end("time_sort_iphi");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::build_mphim1()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_mphim1()
 {
     log_phase_start("\nbuilding M_Phi^{-1}");
 
-    idx._M_Phi_m1 = move_data_structure<pos_t>(
+    idx._M_Phi_m1 = move_data_structure<pos_t, POS>(
         std::move(I_Phi_m1), n, {
             .num_threads = p,
             .a = idx.a,
             .log = log,
             .mf = mf_mds,
         },
-        &pi_mphi);
+        {}, &pi_mphi);
 
     r__ = idx._M_Phi_m1.num_intervals();
     idx.r__ = r__;
@@ -241,19 +241,19 @@ void move_r<support, sym_t, pos_t>::construction::build_mphim1()
     log_mds_phase_end("time_build_mphim1", "r__", r__);
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::build_mphi()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_mphi()
 {
     log_phase_start("\nbuilding M_Phi");
 
-    idx._M_Phi = move_data_structure<pos_t>(
+    idx._M_Phi = move_data_structure<pos_t, POS>(
         std::move(I_Phi), n, {
             .num_threads = p,
             .a = idx.a,
             .log = log,
             .mf = mf_mds,
         },
-        &pi_mphi);
+        {}, &pi_mphi);
 
     r___ = idx._M_Phi.num_intervals();
     idx.r___ = r___;
@@ -261,8 +261,8 @@ void move_r<support, sym_t, pos_t>::construction::build_mphi()
     log_mds_phase_end("time_build_mphi", "r___", r___);
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::build_saphim1()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_saphim1()
 {
     log_phase_start("building SA_Phi^{-1}");
 
@@ -417,8 +417,8 @@ void move_r<support, sym_t, pos_t>::construction::build_saphim1()
     log_phase_end("time_build_saphim1");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::build_de()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_de()
 {
     if constexpr (supports_locate && !is_bidirectional) {
         idx.p_r = std::min<pos_t>(256, std::max<pos_t>(1, r / 100));

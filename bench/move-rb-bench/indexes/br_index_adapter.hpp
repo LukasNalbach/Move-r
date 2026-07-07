@@ -348,10 +348,7 @@ struct br_index_adapter::search_context_t {
      * @brief extends the currently matched P with sym in direction dir
      * @return {extended context, whether the extended P occurs in the text}
      */
-    inline extend_res_t extend(sym_t sym, direction_t dir) const
-    {
-        return dir == LEFT ? extend<LEFT>(sym) : extend<RIGHT>(sym);
-    }
+    inline extend_res_t extend(sym_t sym, direction_t dir) const { return dir == LEFT ? extend<LEFT>(sym) : extend<RIGHT>(sym); }
 
     /**
      * @brief extends the currently matched P with sym in direction dir
@@ -506,10 +503,7 @@ struct br_index_adapter::locate_context_t {
     /**
      * @brief constructs a new locate context for a given search context
      */
-    locate_context_t(const search_context_t<LOCATE>& ctx) : idx(ctx.idx), ctx(&ctx)
-    {
-        occ_rem = ctx.num_occ();
-    }
+    locate_context_t(const search_context_t<LOCATE>& ctx) : idx(ctx.idx), ctx(&ctx) { occ_rem = ctx.num_occ(); }
 
     /**
      * @brief returns the number of remaining (not yet reported) occurrences
@@ -579,10 +573,7 @@ br_index_adapter::search_context_t<query_support>::locate_phase() const requires
 
 template <query_support_t query_support>
 inline br_index_adapter::extend_context_t<query_support>
-br_index_adapter::search_context_t<query_support>::extend_phase()
-{
-    return extend_context_t<query_support>(*idx, *this);
-}
+br_index_adapter::search_context_t<query_support>::extend_phase() { return extend_context_t<query_support>(*idx, *this); }
 
 // ############################# out-of-line br_index_adapter methods #############################
 

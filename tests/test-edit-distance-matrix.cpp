@@ -137,7 +137,7 @@ static inp_t random_substring(const inp_t& input, uint64_t max_length, bool muta
  *        pattern (or an unrelated substring) as the query, and verifies that every final-column cell's edit
  *        distance (when within the error budget) matches the unbanded reference; the alphabet map covers all of
  *        input (as an index' map_int does), so every pattern and query symbol has a rank
- * @tparam word_t the matrix word type (uint64_t or __uint128_t)
+ * @tparam word_t the matrix word type (uint64_t or uint128_t)
  * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
  * @tparam gen_t random number generator type
  * @param input the input sequence to draw the pattern and query from
@@ -282,7 +282,7 @@ TEST(test_edit_distance_matrix, matrix)
 {
     run_fuzz("edit-distance-matrix", { { "matrix", [](uint64_t i) { with_edit_distance_input(i, [](auto& input) {
         if (prob_distrib(gen) < 0.5) verify_edit_distance_matrix<uint64_t>(input, gen);
-        else                         verify_edit_distance_matrix<__uint128_t>(input, gen);
+        else                         verify_edit_distance_matrix<uint128_t>(input, gen);
     }); }, true } }, fuzz_iterations(320000));
 }
 

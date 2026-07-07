@@ -257,10 +257,7 @@ void build_index<r_index>(r_index& index, uint16_t num_threads)
 }
 
 template <>
-void destroy_index<r_index>(r_index& index)
-{
-    index = r_index();
-}
+void destroy_index<r_index>(r_index& index) { index = r_index(); }
 
 template <>
 uint32_t count_pattern<uint32_t, r_index>(r_index& index, std::string& pattern)
@@ -291,28 +288,16 @@ void locate_pattern<uint64_t, r_index>(r_index& index, std::string& pattern, std
 // ############################# r-index-rlzsa #############################
 
 template <>
-void build_index<r_index_rlzsa<int32_t>>(r_index_rlzsa<int32_t>& index, uint16_t)
-{
-    index = r_index_rlzsa<int32_t>(input);
-}
+void build_index<r_index_rlzsa<int32_t>>(r_index_rlzsa<int32_t>& index, uint16_t) { index = r_index_rlzsa<int32_t>(input); }
 
 template <>
-void build_index<r_index_rlzsa<int64_t>>(r_index_rlzsa<int64_t>& index, uint16_t)
-{
-    index = r_index_rlzsa<int64_t>(input);
-}
+void build_index<r_index_rlzsa<int64_t>>(r_index_rlzsa<int64_t>& index, uint16_t) { index = r_index_rlzsa<int64_t>(input); }
 
 template <>
-void destroy_index<r_index_rlzsa<int32_t>>(r_index_rlzsa<int32_t>& index)
-{
-    index = r_index_rlzsa<int32_t>();
-}
+void destroy_index<r_index_rlzsa<int32_t>>(r_index_rlzsa<int32_t>& index) { index = r_index_rlzsa<int32_t>(); }
 
 template <>
-void destroy_index<r_index_rlzsa<int64_t>>(r_index_rlzsa<int64_t>& index)
-{
-    index = r_index_rlzsa<int64_t>();
-}
+void destroy_index<r_index_rlzsa<int64_t>>(r_index_rlzsa<int64_t>& index) { index = r_index_rlzsa<int64_t>(); }
 
 template <>
 uint32_t count_pattern<uint32_t, r_index_rlzsa<int32_t>>(r_index_rlzsa<int32_t>& index, std::string& pattern)
@@ -452,22 +437,13 @@ void build_index<r_index_f<>>(r_index_f<>& index, uint16_t)
 }
 
 template <>
-void destroy_index<r_index_f<>>(r_index_f<>& index)
-{
-    index = r_index_f<>();
-}
+void destroy_index<r_index_f<>>(r_index_f<>& index) { index = r_index_f<>(); }
 
 template <>
-uint32_t count_pattern<uint32_t, r_index_f<>>(r_index_f<>& index, std::string& pattern)
-{
-    return index.count(pattern);
-}
+uint32_t count_pattern<uint32_t, r_index_f<>>(r_index_f<>& index, std::string& pattern) { return index.count(pattern); }
 
 template <>
-uint64_t count_pattern<uint64_t, r_index_f<>>(r_index_f<>& index, std::string& pattern)
-{
-    return index.count(pattern);
-}
+uint64_t count_pattern<uint64_t, r_index_f<>>(r_index_f<>& index, std::string& pattern) { return index.count(pattern); }
 
 // ############################# block-rlbwt #############################
 

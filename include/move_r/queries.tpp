@@ -28,8 +28,8 @@
 
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::setup_phi_m1_move_pair(pos_t& x, pos_t& s, pos_t& s_) const
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::setup_phi_m1_move_pair(pos_t& x, pos_t& s, pos_t& s_) const
     requires(has_locate_move)
 {
     if constexpr (support == _locate_move) {
@@ -47,20 +47,20 @@ void move_r<support, sym_t, pos_t>::setup_phi_m1_move_pair(pos_t& x, pos_t& s, p
     }
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-sym_t move_r<support, sym_t, pos_t>::BWT(pos_t i) const
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+sym_t move_r<support, sym_t, pos_t, mlf_enc>::BWT(pos_t i) const
 {
     // find the index of the input interval in M_LF containing i with a binary search.
-    return unmap_symbol(L_(bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x) { return M_LF().p(x); })));
+    return unmap_symbol(L_(M_LF().interval_index(i)));
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+pos_t move_r<support, sym_t, pos_t, mlf_enc>::SA(pos_t i) const
     requires(supports_multiple_locate)
 {
     if constexpr (has_rlzsa) {
         // index of the input interval in M_LF containing i.
-        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
+        pos_t x = M_LF().interval_index(i);
         while (SA_s(x) == n) x--;
 
         // position in the suffix array of the current suffix s
@@ -83,7 +83,7 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
         return dec.value();
     } else if constexpr (has_locate_move) {
         // index of the input interval in M_LF containing i.
-        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
+        pos_t x = M_LF().interval_index(i);
 
         if constexpr (support == _locate_move) {
             /* if i is a bwt run end position (i = M_LF.p(x+1)-1) and SA_Phi^{-1}[x+1] != r'', then
@@ -129,14 +129,22 @@ pos_t move_r<support, sym_t, pos_t>::SA(pos_t i) const
     }
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-bool move_r<support, sym_t, pos_t>::query_context_t::prepend(sym_t sym)
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+bool move_r<support, sym_t, pos_t, mlf_enc>::query_context_t::prepend(sym_t sym)
 {
+    if constexpr (mlf_enc != POS) {
+        if (be_valid) {
+            b -= idx->M_LF().p(b_);
+            e -= idx->M_LF().p(e_);
+            be_valid = false;
+        }
+    }
+
     query_context_t ctx_old = *this;
 
-    if (idx->backward_search_step(sym, b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z)) {
+    if (idx->backward_search_step(sym, b, b_, e, e_, hat_b_ap_y, y, hat_e_ap_z, z)) {
         l++;
-        set_pos(b);
+        be_valid = false; // b,e reconstructed lazily by ensure_be()
         return true;
     } else {
         *this = ctx_old;
@@ -144,10 +152,12 @@ bool move_r<support, sym_t, pos_t>::query_context_t::prepend(sym_t sym)
     }
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-pos_t move_r<support, sym_t, pos_t>::query_context_t::next_occ()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+pos_t move_r<support, sym_t, pos_t, mlf_enc>::query_context_t::next_occ()
     requires(supports_multiple_locate)
 {
+    ensure_be(); // reconstructs b,e and seeds the locate cursor on the first call after a prepend
+
     if constexpr (has_rlzsa) {
         if (dec.pos() == b) [[unlikely]] {
             // compute the suffix array value at b
@@ -173,18 +183,17 @@ pos_t move_r<support, sym_t, pos_t>::query_context_t::next_occ()
     }
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-pos_t move_r<support, sym_t, pos_t>::query_context_t::one_occ() const
-    requires(supports_locate)
-{
-    return idx->SA_s(hat_b_ap_y) - (y + 1);
-}
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+pos_t move_r<support, sym_t, pos_t, mlf_enc>::query_context_t::one_occ() const
+    requires(supports_locate) { return idx->SA_s(hat_b_ap_y) - (y + 1); }
 
-template <move_r_support support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 template <typename report_fnc_t>
-void move_r<support, sym_t, pos_t>::query_context_t::locate(report_fnc_t report)
+void move_r<support, sym_t, pos_t, mlf_enc>::query_context_t::locate(report_fnc_t report)
     requires(supports_multiple_locate)
 {
+    ensure_be(); // reconstructs b,e and seeds the locate cursor on the first call after a prepend
+
     if constexpr (has_rlzsa) {
 
         if (dec.pos() == b) [[unlikely]] {
@@ -218,66 +227,43 @@ void move_r<support, sym_t, pos_t>::query_context_t::locate(report_fnc_t report)
     }
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-bool move_r<support, sym_t, pos_t>::backward_search_step(
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+bool move_r<support, sym_t, pos_t, mlf_enc>::backward_search_step(
     sym_t sym,
-    pos_t& b, pos_t& e,
-    pos_t& b_, pos_t& e_,
+    pos_t& b, pos_t& b_,
+    pos_t& e, pos_t& e_,
     pos_t& hat_b_ap_y, int64_t& y,
     pos_t& hat_e_ap_z, int64_t& z) const
 {
-    // If the characters have been remapped internally, the pattern also has to be remapped.
+    // [b,e] is kept as (position, run) endpoints (b,e absolute for positional M_LF, offset within run b_,e_ for
+    // differential); no M_LF.p is reconstructed here (in the differential encoding that would cost O(delta)).
+
     i_sym_t i_sym = map_symbol(sym);
 
     // If sym does not occur in L', then P[i..m] does not occur in T
     if (i_sym == 0) [[unlikely]] return false;
 
-    // Find the lexicographically smallest suffix in the current suffix array interval that is prefixed by P[i]
+    // first run with character P[i] at/after run b_ (character successor query)
     if (i_sym != L_(b_)) {
-        /* To do so, we can at first find the first (sub-)run with character P[i] after the b_-th (sub-)run, save
-        its index in b_ and set b to its start position M_LF.p(b_). */
-
-        if constexpr (byte_alphabet) {
-            pos_t blk = div_ceil<pos_t>(b_, L_block_size());
-            pos_t max_b_ = std::min<pos_t>(blk * L_block_size(), e_);
-            while (b_ <= max_b_ && i_sym != L_(b_)) b_++;
-
-            if (b_ > max_b_ && i_sym != L_(b_)) [[likely]] {
-                if (b_ > e_) [[unlikely]] return false;
-                b_ = L_next(blk, i_sym);
-            }
-        } else {
-            b_ = RS_L_().rank(i_sym, b_);
-            if (b_ == RS_L_().frequency(i_sym)) [[unlikely]] return false;
-            b_ = RS_L_().select(i_sym, b_ + 1);
-        }
-
+        if constexpr (byte_alphabet) b_ = PS_L_().succ(i_sym, b_, e_);
+        else b_ = RS_L_().succ(i_sym, b_, e_);
         if (b_ > e_) [[unlikely]] return false;
-        b = M_LF().p(b_);
+        // b at the start of run b_ (absolute p(b_) / offset 0)
+        if constexpr (mlf_enc == POS) b = M_LF().p(b_);
+        else b = 0;
         hat_b_ap_y = b_;
         y = 0;
     } else {
         y++;
     }
 
-    // Find the lexicographically largest suffix in the current suffix array interval that is prefixed by P[i]
+    // last run with character P[i] at/before run e_ (character predecessor query)
     if (i_sym != L_(e_)) {
-        /* To do so, we can at first find the (sub-)last run with character P[i] before the e_-th (sub-)run, save
-        its index in e_ and set e to its end position M_LF.p(e_+1)-1. */
-
-        if constexpr (byte_alphabet) {
-            pos_t blk = e_ / L_block_size();
-            pos_t min_e_ = std::max<pos_t>(blk * L_block_size(), b_);
-            while (e_ >= min_e_ && i_sym != L_(e_)) e_--;
-
-            if (e_ < min_e_ && i_sym != L_(e_)) [[likely]] {
-                e_ = L_prev(blk, i_sym);
-            }
-        } else {
-            e_ = RS_L_().select(i_sym, RS_L_().rank(i_sym, e_));
-        }
-
-        e = M_LF().p(e_ + 1) - 1;
+        if constexpr (byte_alphabet) e_ = PS_L_().pred(i_sym, e_, b_);
+        else e_ = RS_L_().pred(i_sym, e_, b_);
+        // e at the end of run e_ (absolute p(e_+1)-1 / offset len(e_)-1)
+        if constexpr (mlf_enc == POS) e = M_LF().p(e_ + 1) - 1;
+        else e = M_LF().len(e_) - 1;
         hat_e_ap_z = e_;
         z = 0;
     } else {
@@ -288,31 +274,28 @@ bool move_r<support, sym_t, pos_t>::backward_search_step(
     // interval [b,e] contains all suffixes of it, before which there is a P[i] in T, all suffixes in the
     // interval SA[LF(b),LF(e)] start with P[i..m]
 
-    /* If the suffix array interval [LF(b),LF(e)] of P[i..m] is empty, then b > e,
-    because LF(i) is monotonic for a fixed L[i], hence it suffices to check, whether
-    b <= e holds. */
+    // empty interval (different runs with b_ > e_, or the same run with b > e): P does not occur
+    if (b_ > e_ || (b_ == e_ && b > e)) [[unlikely]] return false;
 
-    // If the suffix array interval is empty, P does not occur in T, so return false.
-    if (b > e) [[unlikely]] return false;
-
-    /* Else, set b <- LF(b) and e <- LF(e). The following two optimizations increase query throughput slightly
-        if there are only few occurrences */
+    // set b <- LF(b) and e <- LF(e) via one (position,run)-move query per endpoint; the two branches below
+    // just avoid a redundant move when both endpoints lie in the same run
     if (b_ == e_) {
         if (b == e) {
             /* If \hat{b'}_i == \hat{e'}_i and b'_i = e'_i, then computing
             (e_i,\hat{e}_i) <- M_LF.move(e'_i,\hat{e'}_i) is redundant */
             M_LF().move(b, b_);
-            e = b;
-            e_ = b_;
+            e_ = b_; e = b;
         } else {
-            /* If \hat{b'}_i == \hat{e'}_i, but b'_i != e'_i, then e_i = b_i + e'_i - b'_i and therefore
-            \hat{b'}_i < \hat{e'}_i, hence we can compute \hat{e'}_i by setting e_ <- \hat{b'}_i = b_ and
-            incrementing e_ until e < M_LF.p[e_+1] holds; This takes O(a) time because of the a-balancedness property */
+            // same run but b != e: move b, then advance e by the difference (O(a) by a-balancedness)
             pos_t diff_eb = e - b;
             M_LF().move(b, b_);
-            e = b + diff_eb;
-            e_ = b_;
-            while (e >= M_LF().p(e_ + 1)) e_++;
+            e_ = b_; e = b + diff_eb;
+            if constexpr (mlf_enc == POS) {
+                while (e >= M_LF().p(e_ + 1)) e_++;
+            } else {
+                pos_t l;
+                while (e >= (l = M_LF().len(e_))) { e -= l; e_++; }
+            }
         }
     } else {
         M_LF().move(b, b_);
@@ -322,9 +305,9 @@ bool move_r<support, sym_t, pos_t>::backward_search_step(
     return true;
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::init_phi_m1(
-    pos_t& b, pos_t& e,
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::init_phi_m1(
+    pos_t& b_, pos_t& e_,
     pos_t& s, pos_t& s_,
     pos_t& hat_b_ap_y, int64_t& y) const
     requires(has_locate_move)
@@ -335,41 +318,46 @@ void move_r<support, sym_t, pos_t>::init_phi_m1(
     // If there is more than one occurrence and s < M_Phi^{-1}.p[s_], now an input interval of M_Phi^{-1} before
     // the s_-th one contains s, so we have to decrease s_. To find the correct value for s_, we perform
     // an exponential search to the left over the input interval starting positions of M_Phi^{-1} starting at s_.
-    if (b < e && s < M_Phi_m1().p(s_)) {
+    if (b_ < e_ && s < M_Phi_m1().p(s_)) {
         s_ = exp_search_max_leq<pos_t, LEFT>(s, 0, s_, [&](pos_t x) { return M_Phi_m1().p(x); });
     }
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-pos_t move_r<support, sym_t, pos_t>::count(const inp_t& P) const
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+pos_t move_r<support, sym_t, pos_t, mlf_enc>::count(const inp_t& P) const
 {
-    pos_t b, e, b_, e_, hat_b_ap_y, hat_e_ap_z;
+    pos_t b_, b, e_, e, hat_b_ap_y, hat_e_ap_z;
     int64_t y, z;
-    init_backward_search(b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z);
+    init_backward_search(b, b_, e, e_, hat_b_ap_y, y, hat_e_ap_z, z);
 
     for (int64_t i = P.size() - 1; i >= 0; i--) {
-        if (!backward_search_step(P[i], b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z)) {
+        if (!backward_search_step(P[i], b, b_, e, e_, hat_b_ap_y, y, hat_e_ap_z, z)) {
             return 0;
         }
     }
 
-    return e - b + 1;
+    // interval size e - b + 1 (positional: direct subtraction of absolute components; differential: hybrid distance)
+    if constexpr (mlf_enc == POS) return e - b + 1;
+    else return M_LF().distance(b_, b, e_, e) + 1;
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 template <typename report_fnc_t>
-void move_r<support, sym_t, pos_t>::locate(const inp_t& P, report_fnc_t report) const
+void move_r<support, sym_t, pos_t, mlf_enc>::locate(const inp_t& P, report_fnc_t report) const
     requires(supports_multiple_locate)
 {
-    pos_t b, e, b_, e_, hat_b_ap_y, hat_e_ap_z;
+    pos_t b_, b, e_, e, hat_b_ap_y, hat_e_ap_z;
     int64_t y, z;
-    init_backward_search(b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z);
+    init_backward_search(b, b_, e, e_, hat_b_ap_y, y, hat_e_ap_z, z);
 
     for (int64_t i = P.size() - 1; i >= 0; i--) {
-        if (!backward_search_step(P[i], b, e, b_, e_, hat_b_ap_y, y, hat_e_ap_z, z)) {
+        if (!backward_search_step(P[i], b, b_, e, e_, hat_b_ap_y, y, hat_e_ap_z, z)) {
             return;
         }
     }
+
+    // reconstruct the absolute interval [b,e] once (for differential M_LF; positional already has it), then locate
+    if constexpr (mlf_enc != POS) { b = M_LF().pos(b_, b); e = M_LF().pos(e_, e); }
 
     if constexpr (has_rlzsa) {
         pos_t s = SA_s(hat_b_ap_y) - (y + 1);
@@ -398,9 +386,9 @@ void move_r<support, sym_t, pos_t>::locate(const inp_t& P, report_fnc_t report) 
     }
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 template <typename report_fnc_t>
-void move_r<support, sym_t, pos_t>::revert_range(report_fnc_t report, retrieve_params params) const
+void move_r<support, sym_t, pos_t, mlf_enc>::revert_range(report_fnc_t report, retrieve_params params) const
 {
     adjust_retrieve_params(params, n - 2);
 
@@ -430,14 +418,16 @@ void move_r<support, sym_t, pos_t>::revert_range(report_fnc_t report, retrieve_p
 
         // find the section boundary >= e to start the backward walk from (with a known BWT position)
         uint16_t sect = p_r == 1 ? 0 : bin_search_min_geq<pos_t>(e, 0, p_r - 1, [&](pos_t y) { return _D_e[y].second; });
-        // the walk-start position (>= e), the index x of the input interval of M_LF containing i and the BWT position i
+        // walk-start (>= e) and its LF cursor (run x sits at a run start, i.e. offset 0 / absolute p(x))
         pos_t j = sect == p_r - 1 ? n - 2 : _D_e[sect].second;
-        pos_t x = sect == p_r - 1 ? 0 : _D_e[sect].first;
-        pos_t i = sect == p_r - 1 ? 0 : M_LF().p(x);
+        pos_t x = sect == p_r - 1 ? pos_t(0) : _D_e[sect].first;
+        pos_t d; // position component of the LF cursor: absolute p(x) (positional) or offset 0 (differential)
+        if constexpr (mlf_enc == POS) d = M_LF().p(x);
+        else d = 0;
 
-        // skip (without reporting) from the section boundary down to e
+        // skip (without reporting) from the section boundary down to e (one LF step per iteration, move(component, run))
         while (j > e) {
-            M_LF().move(i, x);
+            M_LF().move(d, x);
             j--;
         }
 
@@ -445,16 +435,16 @@ void move_r<support, sym_t, pos_t>::revert_range(report_fnc_t report, retrieve_p
         report(j, unmap_symbol(L_(x)));
 
         while (j > b) {
-            M_LF().move(i, x);
+            M_LF().move(d, x);
             j--;
             report(j, unmap_symbol(L_(x)));
         }
     });
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 template <typename report_fnc_t>
-void move_r<support, sym_t, pos_t>::BWT_range(report_fnc_t report, retrieve_params params) const
+void move_r<support, sym_t, pos_t, mlf_enc>::BWT_range(report_fnc_t report, retrieve_params params) const
 {
     adjust_retrieve_params(params, n - 1);
 
@@ -473,14 +463,15 @@ void move_r<support, sym_t, pos_t>::BWT_range(report_fnc_t report, retrieve_para
         // Current position in the bwt.
         pos_t i = b;
 
-        // index of the input interval in M_LF containing i.
-        pos_t x = bin_search_max_leq<pos_t>(i, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
+        // the input interval of M_LF containing i, as (run,offset); the next run boundary p(x+1) is then
+        // advanced incrementally via the interval lengths (no M_LF.p reconstruction per run)
+        auto [x, d] = M_LF().run_and_offset(i);
 
-        // start position of the next input interval in M_LF
-        pos_t l_xp1;
- 
+        // start position of the next input interval in M_LF, i.e. p(x+1) = i + (len(x) - d)
+        pos_t l_xp1 = i + (M_LF().len(x) - d);
+
         // iterate until x is the input interval containing e
-        while ((l_xp1 = M_LF().p(x + 1)) <= e) {
+        while (l_xp1 <= e) {
 
             // iterate over all positions in the x-th input interval
             while (i < l_xp1) {
@@ -489,6 +480,7 @@ void move_r<support, sym_t, pos_t>::BWT_range(report_fnc_t report, retrieve_para
             }
 
             x++;
+            l_xp1 += M_LF().len(x);
         }
 
         // report the remaining characters
@@ -499,9 +491,9 @@ void move_r<support, sym_t, pos_t>::BWT_range(report_fnc_t report, retrieve_para
     });
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 template <typename report_fnc_t>
-void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_params params) const
+void move_r<support, sym_t, pos_t, mlf_enc>::SA_range(report_fnc_t report, retrieve_params params) const
     requires(supports_multiple_locate)
 {
     adjust_retrieve_params(params, n - 1);
@@ -522,7 +514,7 @@ void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_param
 
         if constexpr (has_locate_move) {
             // the input interval of M_LF containing i
-            pos_t x = bin_search_max_leq<pos_t>(b, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
+            pos_t x = M_LF().interval_index(b);
 
             if constexpr (support == _locate_move) {
                 // decrement x until the starting position of the x-th input interval of M_LF is a starting position of a bwt run
@@ -559,7 +551,7 @@ void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_param
             }
         } else if constexpr (has_rlzsa) {
             // index of the input interval in M_LF containing i.
-            pos_t x = bin_search_max_leq<pos_t>(b, 0, r_ - 1, [&](pos_t x_) { return M_LF().p(x_); });
+            pos_t x = M_LF().interval_index(b);
 
             // position in the suffix array of the current suffix s
             pos_t j = M_LF().p(x);
@@ -586,12 +578,12 @@ void move_r<support, sym_t, pos_t>::SA_range(report_fnc_t report, retrieve_param
     });
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 template <typename output_t, bool output_reversed>
-void move_r<support, sym_t, pos_t>::retrieve_range(
-    void (move_r<support, sym_t, pos_t>::*retrieve_method)(
-        std::function<void(pos_t, output_t)>&&, move_r<support, sym_t, pos_t>::retrieve_params) const,
-    std::string file_name, move_r<support, sym_t, pos_t>::retrieve_params params) const
+void move_r<support, sym_t, pos_t, mlf_enc>::retrieve_range(
+    void (move_r<support, sym_t, pos_t, mlf_enc>::*retrieve_method)(
+        std::function<void(pos_t, output_t)>&&, move_r<support, sym_t, pos_t, mlf_enc>::retrieve_params) const,
+    std::string file_name, move_r<support, sym_t, pos_t, mlf_enc>::retrieve_params params) const
 {
     pos_t l = params.l;
     pos_t r = params.r;

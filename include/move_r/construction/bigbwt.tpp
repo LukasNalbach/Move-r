@@ -32,16 +32,16 @@
 #include <misc/bigbwt.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_t_in_file()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_t_in_file()
 {
     std::ofstream ofile(prefix_tmp_files);
     write_to_file(ofile, T_str.c_str(), n - 1);
     ofile.close();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::bigbwt(bool delete_T)
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::bigbwt(bool delete_T)
 {
     log_phase_start("running Big-BWT\n\n");
 
@@ -90,8 +90,8 @@ void move_r<support, sym_t, pos_t>::construction::bigbwt(bool delete_T)
     }
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::read_iphim1_bigbwt()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::read_iphim1_bigbwt()
 {
     log_phase_start("reading I_Phi^{-1}");
 

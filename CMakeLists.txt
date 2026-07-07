@@ -540,13 +540,6 @@ if(MOVE_R_BUILD_MOVE_RB_BENCH)
     "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
-############################# move-r internal bench #############################
-
-if(MOVE_R_BUILD_INTERNAL_BENCH)
-  move_r_add_tool(bench-int-rank-select bench/bench-int-rank-select.cpp
-    "${CMAKE_BINARY_DIR}/bench/")
-endif()
-
 ############################# move-r tests #############################
 
 if(MOVE_R_BUILD_TESTS)

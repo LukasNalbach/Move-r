@@ -56,10 +56,7 @@ void help(std::string msg)
 /**
  * @brief prints the list of interactive commands
  */
-void print_commands()
-{
-    std::cout << "commands: count <pattern> | locate <pattern> | help | quit" << std::endl;
-}
+void print_commands() { std::cout << "commands: count <pattern> | locate <pattern> | help | quit" << std::endl; }
 
 /**
  * @brief loads the index and runs the interactive query loop

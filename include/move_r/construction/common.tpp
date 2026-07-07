@@ -29,8 +29,8 @@
 #include <misc/files.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::preprocess_t(bool in_memory, bool bigbwt, const std::string& T_file_name)
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::preprocess_t(bool in_memory, bool bigbwt, const std::string& T_file_name)
 {
     log_message(log, "preprocessing T");
 
@@ -192,8 +192,8 @@ void move_r<support, sym_t, pos_t>::construction::preprocess_t(bool in_memory, b
     log_phase_end("time_preprocess_t");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::read_t_from_file(std::string& T_file_name)
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::read_t_from_file(std::string& T_file_name)
 {
     log_phase_start("reading T");
 
@@ -205,8 +205,8 @@ void move_r<support, sym_t, pos_t>::construction::read_t_from_file(std::string& 
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::unmap_t(bool in_memory)
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::unmap_t(bool in_memory)
 {
     if constexpr (str_input) {
         if (in_memory) {

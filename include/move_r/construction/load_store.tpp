@@ -28,8 +28,8 @@
 
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_rlbwt()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_rlbwt()
 {
     log_phase_start("storing RLBWT to disk");
 
@@ -46,8 +46,8 @@ void move_r<support, sym_t, pos_t>::construction::store_rlbwt()
     log_phase_end("time_store_rlbwt");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::load_rlbwt()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::load_rlbwt()
 {
     log_phase_start("loading RLBWT from disk");
 
@@ -64,21 +64,21 @@ void move_r<support, sym_t, pos_t>::construction::load_rlbwt()
     log_phase_end("time_load_rlbwt");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_mlf()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_mlf()
 {
     log_phase_start("storing M_LF and L' to disk");
 
     std::ofstream file_mlf(prefix_tmp_files + ".mlf");
     idx._M_LF.serialize(file_mlf);
-    idx._M_LF = move_data_structure_l_<pos_t, i_sym_t>();
+    idx._M_LF = mlf_t();
     file_mlf.close();
 
     log_phase_end("time_store_mlf");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::load_mlf()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::load_mlf()
 {
     log_phase_start("loading M_LF and L' from disk");
 
@@ -90,8 +90,8 @@ void move_r<support, sym_t, pos_t>::construction::load_mlf()
     log_phase_end("time_load_mlf");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_iphim1()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_iphim1()
 {
     log_phase_start("storing I_Phi^{-1} to disk");
 
@@ -104,8 +104,8 @@ void move_r<support, sym_t, pos_t>::construction::store_iphim1()
     log_phase_end("time_store_iphim1");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::load_iphim1()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::load_iphim1()
 {
     log_phase_start("loading I_Phi^{-1} from disk");
 
@@ -118,21 +118,21 @@ void move_r<support, sym_t, pos_t>::construction::load_iphim1()
     log_phase_end("time_load_iphim1");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_mphi()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_mphi()
 {
     log_phase_start("storing M_Phi to disk");
 
     std::ofstream file_mphi(prefix_tmp_files + ".mphi");
     idx._M_Phi.serialize(file_mphi);
-    idx._M_Phi = move_data_structure<pos_t>();
+    idx._M_Phi = move_data_structure<pos_t, POS>();
     file_mphi.close();
 
     log_phase_end("time_store_mphi");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::load_mphi()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::load_mphi()
 {
     log_phase_start("loading M_Phi from disk");
 
@@ -144,8 +144,8 @@ void move_r<support, sym_t, pos_t>::construction::load_mphi()
     log_phase_end("time_load_mphi");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_sas()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_sas()
 {
     log_phase_start(is_bidirectional ? "storing SA_s and SA_e to disk" : "storing SA_s to disk");
 
@@ -170,8 +170,8 @@ void move_r<support, sym_t, pos_t>::construction::store_sas()
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::load_sas()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::load_sas()
 {
     log_phase_start(is_bidirectional ? "loading SA_s and SA_e from disk" : "loading SA_s from disk");
 
@@ -191,8 +191,8 @@ void move_r<support, sym_t, pos_t>::construction::load_sas()
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_sas_idx()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_sas_idx()
 {
     log_phase_start("storing SA_s to disk");
 
@@ -205,8 +205,8 @@ void move_r<support, sym_t, pos_t>::construction::store_sas_idx()
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::load_sas_idx()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::load_sas_idx()
 {
     log_phase_start("loading SA_s from disk");
 
@@ -218,8 +218,8 @@ void move_r<support, sym_t, pos_t>::construction::load_sas_idx()
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_sas__idx()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_sas__idx()
 {
     log_phase_start("storing SA_e to disk");
 
@@ -232,8 +232,8 @@ void move_r<support, sym_t, pos_t>::construction::store_sas__idx()
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::load_sas__idx()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::load_sas__idx()
 {
     log_phase_start("loading SA_e from disk");
 
@@ -245,63 +245,62 @@ void move_r<support, sym_t, pos_t>::construction::load_sas__idx()
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_rsl_()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_rsl_()
 {
     log_phase_start("storing RS_L' to disk");
 
     std::ofstream file_rsl_(prefix_tmp_files + ".rsl_");
-    idx._RS_L_.serialize(file_rsl_);
+    if constexpr (byte_alphabet) idx._PS_L_.serialize(file_rsl_); else idx._RS_L_.serialize(file_rsl_);
     file_rsl_.close();
-    idx._RS_L_ = rsl_t();
+    if constexpr (byte_alphabet) idx._PS_L_ = ps_l_t(); else idx._RS_L_ = rs_l_t();
 
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::load_rsl_()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::load_rsl_()
 {
     log_phase_start("loading RS_L' from disk");
 
     std::ifstream file_rsl_(prefix_tmp_files + ".rsl_");
-    idx._RS_L_.load(file_rsl_);
+    if constexpr (byte_alphabet) { idx._PS_L_.load(file_rsl_); idx._PS_L_.set_read(L_reader { &idx }); }
+    else idx._RS_L_.load(file_rsl_);
     file_rsl_.close();
     std::filesystem::remove(prefix_tmp_files + ".rsl_");
 
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_l_prev_next()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_pred_succ_l_()
 {
-    log_phase_start("storing L'_prev and L'_next to disk");
+    log_phase_start("storing the character predecessor/successor support to disk");
 
-    std::ofstream file_lprevnext(prefix_tmp_files + ".lprevnext");
-    idx._L_prev.serialize(file_lprevnext);
-    idx._L_next.serialize(file_lprevnext);
-    file_lprevnext.close();
-    idx._L_prev = interleaved_bit_aligned_vectors<pos_t>();
-    idx._L_next = interleaved_bit_aligned_vectors<pos_t>();
+    std::ofstream file_rsl(prefix_tmp_files + ".rsl");
+    if constexpr (byte_alphabet) idx._PS_L_.serialize(file_rsl); else idx._RS_L_.serialize(file_rsl);
+    file_rsl.close();
+    if constexpr (byte_alphabet) idx._PS_L_ = ps_l_t(); else idx._RS_L_ = rs_l_t();
 
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::load_l_prev_next()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::load_pred_succ_l_()
 {
-    log_phase_start("loading L'_prev and L'_next from disk");
+    log_phase_start("loading the character predecessor/successor support from disk");
 
-    std::ifstream file_lprevnext(prefix_tmp_files + ".lprevnext");
-    idx._L_prev.load(file_lprevnext);
-    idx._L_next.load(file_lprevnext);
-    file_lprevnext.close();
-    std::filesystem::remove(prefix_tmp_files + ".lprevnext");
+    std::ifstream file_rsl(prefix_tmp_files + ".rsl");
+    if constexpr (byte_alphabet) { idx._PS_L_.load(file_rsl); idx._PS_L_.set_read(L_reader { &idx }); }
+    else idx._RS_L_.load(file_rsl);
+    file_rsl.close();
+    std::filesystem::remove(prefix_tmp_files + ".rsl");
 
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::store_mapintext()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::store_mapintext()
 {
     log_phase_start("storing map_int and map_ext to disk");
 
@@ -320,8 +319,8 @@ void move_r<support, sym_t, pos_t>::construction::store_mapintext()
     log_phase_end();
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-void move_r<support, sym_t, pos_t>::construction::load_mapintext()
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::load_mapintext()
 {
     log_phase_start("loading map_int and map_ext from disk");
 

@@ -408,10 +408,7 @@ columba_apm_adapter::search_context_t<query_support>::locate_phase() const requi
 
 template <query_support_t query_support>
 inline columba_apm_adapter::extend_context_t<query_support>
-columba_apm_adapter::search_context_t<query_support>::extend_phase()
-{
-    return extend_context_t<query_support>(*idx, *this);
-}
+columba_apm_adapter::search_context_t<query_support>::extend_phase() { return extend_context_t<query_support>(*idx, *this); }
 
 template <query_support_t query_support>
 inline columba_apm_adapter::search_context_t<query_support> columba_apm_adapter::empty_context() const

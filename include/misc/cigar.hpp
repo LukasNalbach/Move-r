@@ -60,7 +60,7 @@ struct cigar_run_t {
             case cigar_op_t::MISMATCH: return 'X';
             case cigar_op_t::INS:      return 'I';
             case cigar_op_t::DEL:      return 'D';
-            default:                   __builtin_unreachable();
+            default:      __builtin_unreachable();
         }
     }
 };
@@ -165,7 +165,7 @@ static std::pair<pos_t, cigar_t> edit_cigar(
 
     if (k <= bp_k_limit_64)
          return run.template operator()<uint64_t>();
-    else return run.template operator()<__uint128_t>();
+    else return run.template operator()<uint128_t>();
 }
 
 /**
@@ -219,7 +219,7 @@ static std::tuple<pos_t, pos_t, cigar_t> edit_cigar_prefix(
 
     if (k <= bp_k_limit_64)
          return run.template operator()<uint64_t>();
-    else return run.template operator()<__uint128_t>();
+    else return run.template operator()<uint128_t>();
 }
 
 /**

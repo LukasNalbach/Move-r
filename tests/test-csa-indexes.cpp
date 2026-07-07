@@ -78,10 +78,7 @@ struct csa_index_adapter {
         return end >= beg ? end - beg + 1 : 0;
     }
 
-    static std::vector<pos_t> locate(index_t& index, std::string& pattern)
-    {
-        return index.template locate<int_t>(pattern);
-    }
+    static std::vector<pos_t> locate(index_t& index, std::string& pattern) { return index.template locate<int_t>(pattern); }
 
     template <typename gen_t>
     static void verify_pattern(index_t& index, std::string& pattern, const std::vector<pos_t>& correct, gen_t&)
@@ -145,10 +142,7 @@ struct sa_r_index_adapter {
         return end >= beg ? end - beg + 1 : 0;
     }
 
-    static std::vector<pos_t> locate(index_t& index, std::string& pattern)
-    {
-        return config_t::do_locate(index, pattern);
-    }
+    static std::vector<pos_t> locate(index_t& index, std::string& pattern) { return config_t::do_locate(index, pattern); }
 
     template <typename gen_t>
     static void verify_pattern(index_t& index, std::string& pattern, const std::vector<pos_t>& correct, gen_t&)

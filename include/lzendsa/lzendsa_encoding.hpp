@@ -102,71 +102,38 @@ public:
         }
     }
 
-    /**
-     * @brief returns the maximum phrase length
-     * @return the maximum phrase length
-     */
-    inline int64_t maximum_phrase_length() const
-    {
-        return h;
-    }
+    // returns the maximum phrase length
+    inline int64_t maximum_phrase_length() const { return h; }
 
     /**
      * @brief returns the source (index of the extended phrase) of the i-th phrase
      * @param i a phrase index
      * @return the source of the i-th phrase
      */
-    inline int64_t source(int64_t i) const
-    {
-        return sources_extensions.get<0>(i);
-    }
+    inline int64_t source(int64_t i) const { return sources_extensions.get<0>(i); }
 
     /**
      * @brief returns the extension (last value) of the i-th phrase
      * @param i a phrase index
      * @return the extension of the i-th phrase
      */
-    inline int64_t extension(int64_t i) const
-    {
-        return min_ext + (int64_t)sources_extensions.get<1>(i);
-    }
+    inline int64_t extension(int64_t i) const { return min_ext + (int64_t)sources_extensions.get<1>(i); }
 
     /**
      * @brief returns the end position of the i-th phrase
      * @param i a phrase index
      * @return the end position of the i-th phrase
      */
-    inline int64_t end_position(int64_t i) const
-    {
-        return end_positions.get<0>(i);
-    }
+    inline int64_t end_position(int64_t i) const { return end_positions.get<0>(i); }
 
-    /**
-     * @brief returns the number of phrases
-     * @return the number of phrases
-     */
-    inline uint64_t num_phrases() const
-    {
-        return z;
-    }
+    // returns the number of phrases
+    inline uint64_t num_phrases() const { return z; }
 
-    /**
-     * @brief returns the number of symbols in the uncompressed text
-     * @return the size of the uncompressed text
-     */
-    inline uint64_t input_size() const
-    {
-        return n;
-    }
+    // returns the number of symbols in the uncompressed text
+    inline uint64_t input_size() const { return n; }
 
-    /**
-     * @brief returns the size of the data structure in bytes
-     * @return the size of the data structure in bytes
-     */
-    uint64_t size_in_bytes() const
-    {
-        return sizeof(this) + sources_extensions.size_in_bytes() + end_positions.size_in_bytes();
-    }
+    // returns the size of the data structure in bytes
+    uint64_t size_in_bytes() const { return sizeof(this) + sources_extensions.size_in_bytes() + end_positions.size_in_bytes(); }
 
     /**
      * @brief returns the index of the phrase that contains the given index

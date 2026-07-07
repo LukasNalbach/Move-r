@@ -447,12 +447,7 @@ void rlzsa_opt<pos_t>::construction<sad_func_t>::build_rlzsa_factorization()
 
                 if (query.num_occ() == 1) {
                     max_query_len = std::min<pos_t>(max_query_len, size_R - occ);
-
-                    while (len < max_query_len &&
-                           R[occ + len] == SAd(i_p, i + len))
-                    {
-                        len++;
-                    }
+                    while (len < max_query_len && R[occ + len] == SAd(i_p, i + len)) len++;
                 }
 
                 if constexpr (space) {

@@ -65,19 +65,10 @@ public:
      *        treated as a single anonymous sequence and no sequence-relative coordinates or names are available
      * @return whether the index was built from a multi-sequence input
      */
-    inline bool has_sequences() const
-    {
-        return !_seq_names.empty();
-    }
+    inline bool has_sequences() const { return !_seq_names.empty(); }
 
-    /**
-     * @brief returns the number of sequences the index was built from (0 unless the index has multi-sequence metadata)
-     * @return the number of sequences
-     */
-    inline pos_t num_sequences() const
-    {
-        return _seq_names.size();
-    }
+    // returns the number of sequences the index was built from (0 unless the index has multi-sequence metadata)
+    inline pos_t num_sequences() const { return _seq_names.size(); }
 
     /**
      * @brief returns the index of the sequence containing the global text position pos
@@ -113,10 +104,7 @@ public:
      * @param i a sequence index in [0, num_sequences())
      * @return the start position of sequence i in the text
      */
-    inline pos_t sequence_start(pos_t i) const
-    {
-        return _seq_starts[i];
-    }
+    inline pos_t sequence_start(pos_t i) const { return _seq_starts[i]; }
 
     /**
      * @brief returns the length of sequence i's body (excluding the separator symbol)
@@ -135,20 +123,14 @@ public:
      * @param i a sequence index in [0, num_sequences())
      * @return the name of sequence i
      */
-    inline const std::string& sequence_name(pos_t i) const
-    {
-        return _seq_names[i];
-    }
+    inline const std::string& sequence_name(pos_t i) const { return _seq_names[i]; }
 
     /**
      * @brief returns the symbol a search must not extend into (the sequence separator), so that no search crosses a
      *        sequence boundary; unspecified (and unused) if the index has no multi-sequence metadata
      * @return the separator symbol
      */
-    inline sym_t separator_sym() const
-    {
-        return _separator_sym;
-    }
+    inline sym_t separator_sym() const { return _separator_sym; }
 
     /**
      * @brief populates this metadata (typically from process_fasta): stores the sequences' names and bit-packs their
@@ -220,12 +202,6 @@ public:
         }
     }
 
-    /**
-     * @brief returns the size of the multi-sequence metadata in bytes
-     * @return size of the multi-sequence metadata in bytes
-     */
-    uint64_t size_in_bytes() const
-    {
-        return _seq_starts.size_in_bytes();
-    }
+    // returns the size of the multi-sequence metadata in bytes
+    uint64_t size_in_bytes() const { return _seq_starts.size_in_bytes(); }
 };

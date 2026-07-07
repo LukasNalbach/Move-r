@@ -33,9 +33,9 @@
 #include <libsais64.h>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, typename sym_t, typename pos_t>
+template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 template <typename sa_sint_t>
-void move_r<support, sym_t, pos_t>::construction::build_sa()
+void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_sa()
 {
     std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
 

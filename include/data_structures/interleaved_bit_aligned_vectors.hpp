@@ -73,7 +73,7 @@ protected:
         constexpr_case<sizeof(val_t) == 1,    uint16_t>,
         constexpr_case<sizeof(val_t) == 2,    uint32_t>,
         constexpr_case<sizeof(val_t) == 4,    uint64_t>,
-     /* constexpr_case<sizeof(val_t) == 8, */ __uint128_t>;
+     /* constexpr_case<sizeof(val_t) == 8, */ uint128_t>;
 
     uint64_t size_vectors = 0; // size of each stored vector
     uint64_t capacity_vectors = 0; // capacity of each stored vector
@@ -127,10 +127,7 @@ protected:
      * @param size number of entries per vector
      * @return the combined size (in bytes) of all vectors
      */
-    uint64_t byte_size(uint64_t size) const
-    {
-        return sizeof(val_t) * div_ceil(size * width_entry, 8 * sizeof(val_t));
-    }
+    uint64_t byte_size(uint64_t size) const { return sizeof(val_t) * div_ceil(size * width_entry, 8 * sizeof(val_t)); }
 
 public:
     interleaved_bit_aligned_vectors() = default;
@@ -139,46 +136,19 @@ public:
      * @brief Construct a new interleaved_bit_aligned_vectors
      * @param widths vector containing the widths (in bits) of the interleaved arrays
      */
-    interleaved_bit_aligned_vectors(std::array<uint8_t, num_vectors> widths)
-    {
-        initialize(widths);
-    }
+    interleaved_bit_aligned_vectors(std::array<uint8_t, num_vectors> widths) { initialize(widths); }
 
-    /**
-     * @brief returns the size of each stored vector
-     * @return the size of each stored vector
-     */
-    inline uint64_t size() const
-    {
-        return size_vectors;
-    }
+    // returns the size of each stored vector
+    inline uint64_t size() const { return size_vectors; }
 
-    /**
-     * @brief returns whether the interleaved vectors are empty
-     * @return whether the interleaved vectors are empty
-     */
-    inline bool empty() const
-    {
-        return size_vectors == 0;
-    }
+    // returns whether the interleaved vectors are empty
+    inline bool empty() const { return size_vectors == 0; }
 
-    /**
-     * @brief returns the size of the data structure in bits
-     * @return size of the data structure in bits
-     */
-    uint64_t size_in_bytes() const
-    {
-        return sizeof(this) + byte_size(size_vectors);
-    }
+    // returns the size of the data structure in bits
+    uint64_t size_in_bytes() const { return sizeof(this) + byte_size(size_vectors); }
 
-    /**
-     * @brief returns total width (number of bits) per entry, that is the (sum of all widths)
-     * @return number of bits per entry
-     */
-    inline uint64_t bits_per_entry() const
-    {
-        return width_entry;
-    }
+    // returns total width (number of bits) per entry, that is the (sum of all widths)
+    inline uint64_t bits_per_entry() const { return width_entry; }
 
     /**
      * @brief returns the width in bits of the vector with index vec_idx
@@ -186,10 +156,7 @@ public:
      * @return its witdth in bits
      */
     template <uint8_t vec_idx>
-    inline uint64_t width() const
-    {
-        return widths[vec_idx];
-    }
+    inline uint64_t width() const { return widths[vec_idx]; }
 
     /**
      * @brief reads the wide_t-sized block of data starting at byte byte_idx
@@ -208,10 +175,7 @@ public:
      * @param byte_idx byte index into the interleaved data
      * @param block the wide_t-sized block of data to write
      */
-    inline void write_block(uint64_t byte_idx, wide_t block)
-    {
-        std::memcpy(&data_vectors[byte_idx], &block, sizeof(wide_t));
-    }
+    inline void write_block(uint64_t byte_idx, wide_t block) { std::memcpy(&data_vectors[byte_idx], &block, sizeof(wide_t)); }
 
     /**
      * @brief returns a pointer of type T to the ith byte in the data of the interleved vectors
@@ -222,6 +186,7 @@ public:
     template <typename T = char>
     inline T* data(uint64_t i = 0)
     {
+        static_assert(sizeof(T) <= 8);
         return reinterpret_cast<T*>(data_vectors.data() + i);
     }
 
@@ -306,10 +271,7 @@ public:
     /**
      * @brief resizes all stored vectors to size 0
      */
-    inline void clear()
-    {
-        resize(0);
-    }
+    inline void clear() { resize(0); }
 
     /**
      * @brief shrinks all stored vectors to their size
@@ -364,20 +326,6 @@ public:
     }
 
     /**
-     * @brief alias for set(); provided for API-compatibility with interleaved_byte_aligned_vectors
-     *        (bit-packed entries are always written safely, so there is no separate unsafe path)
-     * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
-     * @tparam T type of the value to store
-     * @param i entry index (0 <= i < size_vectors)
-     * @param v value to store
-     */
-    template <uint8_t vec_idx, typename T = val_t>
-    inline void set_unsafe(uint64_t i, T v)
-    {
-        set<vec_idx, T>(i, v);
-    }
-
-    /**
      * @brief sets the i-th entry in the vector with index vec_idx to v; unlike set(), this may be
      *        called concurrently for distinct entries (or distinct vectors of the same entry), even
      *        when their bit-fields share a byte. Concurrent writes to the same (i, vec_idx) field are 
@@ -424,19 +372,6 @@ public:
     {
         auto [byte_idx, bit_offs] = block_info<vec_idx>(i);
         return T((read_block(byte_idx) >> bit_offs) & masks[vec_idx]);
-    }
-
-    /**
-     * @brief alias for get(); provided for API-compatibility with interleaved_byte_aligned_vectors
-     * @tparam vec_idx vector index (0 <= vec_idx < num_vectors)
-     * @tparam T type to return the entry as
-     * @param i entry index (0 <= i < size_vectors)
-     * @return the i-th entry in the vector with index vec_idx
-     */
-    template <uint8_t vec_idx, typename T = val_t>
-    inline T get_unsafe(uint64_t i) const
-    {
-        return get<vec_idx, T>(i);
     }
 
     /**

@@ -76,16 +76,10 @@ class directional_substring {
      * @param i index into the substring
      * @return the position of the i-th symbol in the underlying sequence
      */
-    inline pos_t pos(pos_t i) const
-    {
-        return dir == LEFT ? end - i : start + i;
-    }
+    inline pos_t pos(pos_t i) const { return dir == LEFT ? end - i : start + i; }
 
     /** @brief the underlying sequence this is a substring of */
-    inline const inp_t& underlying() const
-    {
-        return string;
-    }
+    inline const inp_t& underlying() const { return string; }
 
     /**
      * @brief returns the length of the substring
@@ -97,30 +91,15 @@ class directional_substring {
         return end - start + 1;
     }
 
-    /**
-     * @brief returns whether the substring is empty
-     * @return whether the substring is empty
-     */
-    inline bool empty() const
-    {
-        return end < start;
-    }
+    // returns whether the substring is empty
+    inline bool empty() const { return end < start; }
 
     /**
      * @brief sets the direction in which the substring is read
      * @param dir the new reading direction
      */
-    void set_direction(direction_t dir)
-    {
-        this->dir = dir;
-    }
+    void set_direction(direction_t dir) { this->dir = dir; }
 
-    /**
-     * @brief returns the direction in which the substring is read
-     * @return the current reading direction
-     */
-    inline direction_t direction() const
-    {
-        return dir;
-    }
+    // returns the direction in which the substring is read
+    inline direction_t direction() const { return dir; }
 };

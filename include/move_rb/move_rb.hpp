@@ -54,15 +54,17 @@ class move_rb {
     template <typename, cigar_mode_t> friend class apm_edit;
     static_assert(support != _locate_one);
 
+    // move_rb keeps its interval endpoints as absolute positions, so its inner move_r indexes use the
+    // positional (D_p) M_LF encoding (a standalone move_r uses the differential encoding by default)
     using move_r_fwd_t = constexpr_switch_t< // forward move_r index type
-        constexpr_case<support == _locate_move,    move_r<_locate_move_bi_fwd,    sym_t, pos_t>>,
-        constexpr_case<support == _locate_rlzsa,   move_r<_locate_rlzsa_bi_fwd,   sym_t, pos_t>>,
-     /* constexpr_case<support == _count, */       move_r<_count_bi,              sym_t, pos_t>>;
+        constexpr_case<support == _locate_move,    move_r<_locate_move_bi_fwd,    sym_t, pos_t, POS>>,
+        constexpr_case<support == _locate_rlzsa,   move_r<_locate_rlzsa_bi_fwd,   sym_t, pos_t, POS>>,
+     /* constexpr_case<support == _count, */       move_r<_count_bi,              sym_t, pos_t, POS>>;
 
     using move_r_bwd_t = constexpr_switch_t< // backward move_r index type
-        constexpr_case<support == _locate_move,    move_r<_locate_bi_bwd, sym_t, pos_t>>,
-        constexpr_case<support == _locate_rlzsa,   move_r<_locate_bi_bwd, sym_t, pos_t>>,
-     /* constexpr_case<support == _count, */       move_r<_count_bi,      sym_t, pos_t>>;
+        constexpr_case<support == _locate_move,    move_r<_locate_bi_bwd, sym_t, pos_t, POS>>,
+        constexpr_case<support == _locate_rlzsa,   move_r<_locate_bi_bwd, sym_t, pos_t, POS>>,
+     /* constexpr_case<support == _count, */       move_r<_count_bi,      sym_t, pos_t, POS>>;
 
     static constexpr bool supports_locate = move_r_fwd_t::supports_locate; // true <=> the index supports locate
     static constexpr bool supports_multiple_locate = move_r_fwd_t::supports_multiple_locate; // true <=> the index supports locating multiple occurrences
@@ -72,7 +74,6 @@ class move_rb {
     static constexpr bool int_input = move_r_fwd_t::int_input; // true <=> the input is an iteger vector
     static constexpr bool byte_alphabet = move_r_fwd_t::byte_alphabet; // true <=> the input uses a byte alphabet
     static constexpr bool int_alphabet = move_r_fwd_t::int_alphabet; // true <=> the input uses an integer alphabet
-    static constexpr pos_t max_scan_l_ = move_r_fwd_t::max_scan_l_; // maximum distance to scan over L' to find the first and last occurrences of sym in L'[\hat{b},\hat{e}]
     static constexpr pos_t sample_rate_input_intervals = 4; // sample rate of the sd-arrays storing input interval starting positions
 
     static_assert(byte_alphabet);
@@ -234,46 +235,24 @@ public:
 
     // ############################# MISC PUBLIC METHODS #############################
 
-    /**
-     * @brief maps a symbol to its corresponding symbol in the internal effective alphabet
-     * @param sym symbol
-     * @return its corresponding symbol in the internal effective alphabet
-     */
-    inline i_sym_t map_symbol(sym_t sym) const
-    {
-        return idx_fwd.map_symbol(sym);
-    }
+    // maps a symbol to its corresponding symbol in the internal effective alphabet
+    inline i_sym_t map_symbol(sym_t sym) const { return idx_fwd.map_symbol(sym); }
 
-    /**
-     * @brief maps a symbol that occurs in the internal effective alphabet to its corresponding
-     *        symbol in the input
-     * @param sym a symbol that occurs in the internal effective alphabet
-     * @return its corresponding symbol in the input
-     */
-    inline sym_t unmap_symbol(i_sym_t sym) const
-    {
-        return idx_fwd.unmap_symbol(sym);
-    }
+    // maps a symbol in the internal effective alphabet to its corresponding symbol in the input
+    inline sym_t unmap_symbol(i_sym_t sym) const { return idx_fwd.unmap_symbol(sym); }
 
     /**
      * @brief returns the index's multi-sequence (FASTA/DNA) metadata (start positions, names and separator symbol of
      *        the sequences); empty (has_sequences() == false) unless the index was built from a multi-sequence input
-     * @return the multi-sequence metadata
      */
-    inline const fasta_sequence_data<pos_t, sym_t>& seq_data() const
-    {
-        return _seq_data;
-    }
+    inline const fasta_sequence_data<pos_t, sym_t>& seq_data() const { return _seq_data; }
 
     /**
      * @brief attaches multi-sequence (FASTA/DNA) metadata to the index (as produced by process_fasta), enabling
      *        sequence-relative coordinates and names for SAM output; call after construction
      * @param seq_data the multi-sequence metadata
      */
-    inline void set_fasta_sequence_data(fasta_sequence_data<pos_t, sym_t> seq_data)
-    {
-        _seq_data = std::move(seq_data);
-    }
+    inline void set_fasta_sequence_data(fasta_sequence_data<pos_t, sym_t> seq_data) { _seq_data = std::move(seq_data); }
 
     /**
      * @brief returns the size of the data structure in bytes
@@ -391,23 +370,11 @@ public:
 
     // ############################# PUBLIC ACCESS METHODS #############################
 
-    /**
-     * @brief returns a reference to the move_r index of the forward input
-     * @return index the forward input
-     */
-    inline const move_r_fwd_t& forward_index() const
-    {
-        return idx_fwd;
-    }
+    // a reference to the move_r index of the forward input
+    inline const move_r_fwd_t& forward_index() const { return idx_fwd; }
 
-    /**
-     * @brief returns a reference to the move_r index of the backward input
-     * @return index the backward input
-     */
-    inline const move_r_bwd_t& backward_index() const
-    {
-        return idx_bwd;
-    }
+    // a reference to the move_r index of the backward input
+    inline const move_r_bwd_t& backward_index() const { return idx_bwd; }
 
     // ############################# QUERY METHODS #############################
 
@@ -481,20 +448,13 @@ public:
          * @brief constructs a new search context with last-added symbol sym
          * @param sym the last-added symbol
          */
-        search_context_t(sym_t sym)
-        {
-            sym_lst = sym;
-        }
+        search_context_t(sym_t sym) { sym_lst = sym; }
         
         /**
          * @brief constructs a new query context for the index idx
          * @param idx an index
          */
-        search_context_t(const move_rb<support, sym_t, pos_t>& idx)
-            : idx(&idx)
-        {
-            reset();
-        }
+        search_context_t(const move_rb<support, sym_t, pos_t>& idx) : idx(&idx) { reset(); }
 
         /**
          * @brief equality operator on search contexts
@@ -541,41 +501,17 @@ public:
             }
         };
 
-        /**
-         * @brief returns the last-added symbol
-         * @return the last-added symbol
-         */
-        inline sym_t last_added_symbol() const
-        {
-            return sym_lst;
-        }
+        // the last-added symbol
+        inline sym_t last_added_symbol() const { return sym_lst; }
 
-        /**
-         * @brief returns the direction of the last performed pattern extension
-         * @return the last extension direction
-         */
-        inline direction_t last_direction() const
-        {
-            return dir_lst;
-        }
+        // the direction of the last performed pattern extension
+        inline direction_t last_direction() const { return dir_lst; }
 
-        /**
-         * @brief returns a locate context for this search context
-         * @return a locate context for this search context
-         */
-        locate_context_t locate_phase() const requires(query_support == LOCATE)
-        {
-            return locate_context_t(*this);
-        }
+        // a locate context for this search context
+        locate_context_t locate_phase() const requires(query_support == LOCATE) { return locate_context_t(*this); }
 
-        /**
-         * @brief returns an extend context for this search context, ready to be prepared for extending
-         * @return an extend context for this search context
-         */
-        extend_context_t<query_support> extend_phase()
-        {
-            return extend_context_t<query_support>(*idx, *this);
-        }
+        // an extend context for this search context, ready to be prepared for extending
+        extend_context_t<query_support> extend_phase() { return extend_context_t<query_support>(*idx, *this); }
 
         /**
          * @brief resets the query context to an empty P
@@ -607,41 +543,20 @@ public:
             }
         }
 
-        /**
-         * @brief returns the length of the currently matched P
-         * @return length of the currently matched P
-         */
-        inline pos_t length() const
-        {
-            return m;
-        }
+        // the length of the currently matched P
+        inline pos_t length() const { return m; }
 
-        /**
-         * @brief returns the overall number of occurrences of the currently matched P
-         * @return overall number of occurrences
-         */
-        inline pos_t num_occ() const
-        {
-            return e - b + 1;
-        }
+        // the overall number of occurrences of the currently matched P
+        inline pos_t num_occ() const { return e - b + 1; }
         
-        /**
-         * @brief returns the number of errors (only used for approximate pattern matching)
-         * @return number of errors
-         */
-        inline pos_t errors() const
-        {
-            return err;
-        }
+        // returns the number of errors (only used for approximate pattern matching)
+        inline pos_t errors() const { return err; }
         
         /**
          * @brief sets the number of errors to err (only used for approximate pattern matching)
          * @param err number of errors
          */
-        inline void set_errors(pos_t err)
-        {
-            this->err = err;
-        }
+        inline void set_errors(pos_t err) { this->err = err; }
 
         /**
          * @brief returns the SA-interval in T/T^R of the currently matched P/P^R
@@ -755,9 +670,7 @@ public:
             rlzsa_ctx_t, std::monostate> rlz_r; // rlzsa context for decoding to the right
 
     public:
-        /**
-         * @brief constructs an empty locate context
-         */
+        // constructs an empty locate context
         locate_context_t() {}
 
         /**
@@ -771,14 +684,8 @@ public:
             dir = NO_DIR;
         }
 
-        /**
-         * @brief returns the number of remaining (not yet reported) occurrences of the currently matched P
-         * @return number of remaining occurrences
-         */
-        inline pos_t num_occ_rem() const
-        {
-            return occ_rem;
-        }
+        // returns the number of remaining (not yet reported) occurrences of the currently matched P
+        inline pos_t num_occ_rem() const { return occ_rem; }
 
         /**
          * @brief computes the center position of the suffix array interval, from which locating starts
@@ -842,9 +749,7 @@ public:
         pos_t b_R_nxt; // current left interval limit of the suffix array interval of P(!dir) extended with sym_nxt in T(!dir)
 
         public:
-        /**
-         * @brief constructs an empty extend context
-         */
+        // constructs an empty extend context
         extend_context_t() {}
 
         /**
@@ -916,10 +821,7 @@ public:
      * @return search_context_t
      */
     template <query_support_t query_support>
-    inline search_context_t<query_support> empty_context() const
-    {
-        return search_context_t<query_support>(*this);
-    }
+    inline search_context_t<query_support> empty_context() const { return search_context_t<query_support>(*this); }
 
     // ############################# APPROXIMATE PATTERN MATCHING #############################
 

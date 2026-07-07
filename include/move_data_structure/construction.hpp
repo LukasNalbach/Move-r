@@ -37,8 +37,8 @@
  * @brief constructs a move data structure out of a disjoint interval sequence
  * @tparam pos_t unsigned integer type of the interval starting positions
  */
-template <typename pos_t>
-class move_data_structure<pos_t>::construction {
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+class move_data_structure<pos_t, enc, row_ts...>::construction {
     static_assert(std::is_same_v<pos_t, uint32_t> || std::is_same_v<pos_t, uint64_t>);
 
 public:
@@ -55,20 +55,14 @@ public:
      * @brief comparator that orders the pairs (p_i,q_i) by their input interval starting position p_i
      */
     struct in_cmp {
-        bool operator()(const pair_t& p1, const pair_t& p2) const
-        {
-            return p1.first < p2.first;
-        }
+        bool operator()(const pair_t& p1, const pair_t& p2) const { return p1.first < p2.first; }
     };
 
     /**
      * @brief comparator that orders the pairs (p_i,q_i) by their output interval starting position q_i
      */
     struct out_cmp {
-        bool operator()(const pair_t& p1, const pair_t& p2) const
-        {
-            return p1.second < p2.second;
-        }
+        bool operator()(const pair_t& p1, const pair_t& p2) const { return p1.second < p2.second; }
     };
 
     using tin_t = gtl::btree_set<pair_t, in_cmp>;
@@ -84,7 +78,7 @@ public:
     /* 1 + epsilon is the maximum factor, by which the number of intervals can increase in the
      * process of splitting too long intervals*/
     static constexpr double epsilon = 0.125;
-    move_data_structure<pos_t>& mds; // the move data structure to construct
+    move_data_structure<pos_t, enc, row_ts...>& mds; // the move data structure to construct
     pair_arr_t& I; // the disjoint interval sequence to construct the move data structure out of
     pos_t n; // maximum value, n = p_{k-1} + d_{k-1}, k <= n
     pos_t k; // number of intervals in the (possibly a-heavy) inteval sequence I, 0 < k
@@ -100,8 +94,11 @@ public:
     std::chrono::steady_clock::time_point time; // time point of the start of the last construction phase
     std::chrono::steady_clock::time_point time_start; // time point of the start of the entire construction
     interleaved_byte_aligned_vectors<pos_t, pos_t> D_q; // [0..k'-1] output interval starting positions (ordered by the input interval starting positions)
+    // [0..k'] transient input interval starting positions p; used only in the differential encoding, where D_p
+    // is not stored in mds (mds keeps D_len + p-samples). In the positional encoding p is written straight into mds.
+    interleaved_byte_aligned_vectors<pos_t, pos_t> D_p;
     std::vector<pos_t> pi; // [0..k'-1] permutation storing the order of the output interval starting postions
-    uint8_t width_l_; // width of L_
+    row_widths_t row_widths; // widths (bits) of the extra interleaved rows
 
     /**
      * @brief [0..p-1] section start positions in the range [0..n], 0 = s[0] < s[1] < ... < s[p-1] = n.
@@ -154,16 +151,16 @@ public:
      * @param I disjoint interval sequence
      * @param n n = p_{k-1} + d_{k-1}, k <= n
      * @param delete_i controls whether I should be deleted when not needed anymore
-     * @param width_l_ bit width of the L_ values stored in the move data structure
+     * @param row_widths bit widths of the extra interleaved rows
      * @param params construction parameters
      * @param pi_mphi vector to move pi into after the construction
      */
     construction(
-        move_data_structure<pos_t>& mds,
+        move_data_structure<pos_t, enc, row_ts...>& mds,
         pair_arr_t& I,
         pos_t n,
         bool delete_i,
-        uint8_t width_l_,
+        row_widths_t row_widths,
         mds_params params,
         std::vector<pos_t>* pi_mphi = nullptr)
         : mds(mds)
@@ -176,7 +173,7 @@ public:
         this->delete_i = delete_i;
         this->log = params.log;
         this->mf = params.mf;
-        this->width_l_ = width_l_;
+        this->row_widths = row_widths;
 
         if (log) {
             time = now();
@@ -241,7 +238,26 @@ public:
 
         // build D_offs and D_idx
         build_didx_doffs();
+
+        // in the differential encoding, turn the buffered p into D_len + p-samples in mds
+        if constexpr (enc == DIFF) finalize_differential();
     }
+
+    // p is kept in mds directly (positional) or in the transient D_p buffer (differential); both are O(1)
+    inline void set_p_(pos_t x, pos_t val)
+    {
+        if constexpr (enc == POS) mds.set_p(x, val);
+        else D_p.template set_parallel<0, pos_t>(x, val);
+    }
+
+    inline pos_t get_p_(pos_t x) const
+    {
+        if constexpr (enc == POS) return mds.p(x);
+        else return D_p[x];
+    }
+
+    // (differential encoding) writes D_len[x] = p[x+1]-p[x] and the p-samples S[j] = p[j*delta] into mds
+    void finalize_differential() requires(enc == DIFF);
 
     // ############################# COMMON METHODS #############################
 
@@ -277,10 +293,7 @@ public:
      * @param insert_result the result of an emplace/insert into a b-tree in T_in
      * @return an iterator pointing to the inserted (or already present) pair
      */
-    tin_it_t node(std::pair<tin_it_t, bool> insert_result)
-    {
-        return insert_result.first;
-    }
+    tin_it_t node(std::pair<tin_it_t, bool> insert_result) { return insert_result.first; }
 
     /**
      * @brief builds T_in[0..p-1] and T_out[0..p-1] out of the disjoint interval sequence I

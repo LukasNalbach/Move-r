@@ -215,7 +215,9 @@ static int64_t edit_dist_bounded(const inp_t& T, const inp_t& P, int64_t k)
         return std::min<int64_t>(mat(nQ, nR), k + 1);
     };
 
-    return k <= bp_k_limit_64 ? run.template operator()<uint64_t>() : run.template operator()<__uint128_t>();
+    return k <= bp_k_limit_64 ?
+        run.template operator()<uint64_t>() :
+        run.template operator()<uint128_t>();
 }
 
 /**
@@ -311,7 +313,7 @@ static std::vector<aprx_occ_t<pos_t>> locate_edit_dist(const inp_t& T, const inp
 
     return int64_t(k) <= bp_k_limit_64 ?
         run.template operator()<uint64_t>() :
-        run.template operator()<__uint128_t>();
+        run.template operator()<uint128_t>();
 }
 
 /**

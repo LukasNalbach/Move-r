@@ -92,10 +92,7 @@ public:
      * @param i a position
      * @return the bit at position i
      */
-    bool at(uint64_t i) const
-    {
-        return operator[](i);
-    }
+    bool at(uint64_t i) const { return operator[](i); }
 
     /*
      * argument: position i in the bitvector
@@ -143,10 +140,7 @@ public:
      * bitvector space. If i does not have a predecessor,
      * return rank of the last bit set in the bitvector
      */
-    uint64_t predecessor_rank_circular(uint64_t i) const
-    {
-        return rank(i) == 0 ? number_of_1() - 1 : rank(i) - 1;
-    }
+    uint64_t predecessor_rank_circular(uint64_t i) const { return rank(i) == 0 ? number_of_1() - 1 : rank(i) - 1; }
 
     /*
      * retrieve length of the i-th gap (i>=0). gap length includes the leading 1
@@ -183,14 +177,8 @@ public:
      */
     uint64_t number_of_1() const { return rank1(size()); }
 
-    /**
-     * @brief returns the size of the structure in bytes
-     * @return the size of the structure in bytes
-     */
-    uint64_t size_in_bytes() const
-    {
-        return sdsl::size_in_bytes(sdv);
-    }
+    // returns the size of the structure in bytes
+    uint64_t size_in_bytes() const { return sdsl::size_in_bytes(sdv); }
 
     /* serialize the structure to the ostream
      * \param out	 the ostream

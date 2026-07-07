@@ -25,21 +25,24 @@
  */
 
 #include <gtest/gtest.h>
+#include <sstream>
 #include <misc/strings.hpp>
 #include "test-progress.hpp"
 #include <move_data_structure/move_data_structure.hpp>
-#include <move_data_structure/move_data_structure_l_.hpp>
 
 static std::mt19937 gen(std::random_device{}());
 static uint16_t max_num_threads = omp_get_max_threads();
 
-// a random disjoint interval sequence together with the move data structure built from it
+// a random disjoint interval sequence together with the move data structure built from it, in both the plain
+// (D_p) and the differential (D_len + checkpoints) encoding
 struct random_mds {
-    move_data_structure<uint32_t> mds;
+    move_data_structure<uint32_t, POS> mds;
+    move_data_structure<uint32_t, DIFF> mds_diff;
     std::vector<std::pair<uint32_t, uint32_t>> interval_sequence;
     uint32_t input_size;
     uint32_t num_intervals;
     uint16_t a; // the balancing parameter used for the construction
+    uint32_t delta; // checkpoint sampling parameter of the differential encoding
 };
 
 // generates a random disjoint interval sequence (a random permutation of random-length input intervals into
@@ -84,8 +87,13 @@ static random_mds build_random_mds()
     interval_sequence.pop_back();
 
     uint16_t a = std::min<uint16_t>(2 + a_distrib(gen), 32767);
-    move_data_structure<uint32_t> mds(interval_sequence, input_size, { .num_threads = max_num_threads, .a = a });
-    return random_mds { std::move(mds), std::move(interval_sequence), input_size, num_intervals, a };
+    move_data_structure<uint32_t, POS> mds(interval_sequence, input_size, { .num_threads = max_num_threads, .a = a });
+
+    // build the differential encoding directly from the same interval sequence, with a random p-sampling
+    uint32_t delta = std::uniform_int_distribution<uint32_t>(1, 64)(gen);
+    move_data_structure<uint32_t, DIFF> mds_diff(interval_sequence, input_size, { .num_threads = max_num_threads, .a = a, .d = delta });
+
+    return random_mds { std::move(mds), std::move(mds_diff), std::move(interval_sequence), input_size, num_intervals, a, delta };
 }
 
 // the invariants of the resulting interval sequence that move_data_structure::construction used to check itself
@@ -93,7 +101,19 @@ static random_mds build_random_mds()
 static void verify_mds_structure(uint64_t)
 {
     random_mds r = build_random_mds();
-    move_data_structure<uint32_t>& mds = r.mds;
+    move_data_structure<uint32_t, POS>& mds = r.mds;
+    move_data_structure<uint32_t, DIFF>& mds_diff = r.mds_diff;
+
+    // the differential encoding must reproduce p/q/idx/offs/len of the plain encoding exactly
+    #pragma omp parallel for num_threads(max_num_threads)
+    for (uint32_t i = 0; i < mds.num_intervals(); i++) {
+        EXPECT_EQ(mds_diff.p(i), mds.p(i)) << "differential p mismatch (i = " << i << ")";
+        EXPECT_EQ(mds_diff.q(i), mds.q(i)) << "differential q mismatch (i = " << i << ")";
+        EXPECT_EQ(mds_diff.idx(i), mds.idx(i)) << "differential idx mismatch (i = " << i << ")";
+        EXPECT_EQ(mds_diff.offs(i), mds.offs(i)) << "differential offs mismatch (i = " << i << ")";
+        EXPECT_EQ(mds_diff.len(i), mds.len(i)) << "differential len mismatch (i = " << i << ")";
+    }
+    EXPECT_EQ(mds_diff.p(mds.num_intervals()), mds.p(mds.num_intervals())) << "differential p(k') mismatch";
 
     #pragma omp parallel for num_threads(max_num_threads)
     for (uint32_t i = 0; i < mds.num_intervals(); i++) {
@@ -122,7 +142,8 @@ static void verify_mds_structure(uint64_t)
 static void verify_mds_move(uint64_t)
 {
     random_mds r = build_random_mds();
-    move_data_structure<uint32_t>& mds = r.mds;
+    move_data_structure<uint32_t, POS>& mds = r.mds;
+    move_data_structure<uint32_t, DIFF>& mds_diff = r.mds_diff;
     uint32_t input_size = r.input_size;
     std::vector<std::pair<uint32_t, uint32_t>>& interval_sequence = r.interval_sequence;
 
@@ -144,8 +165,61 @@ static void verify_mds_move(uint64_t)
 
         // the index of the input interval containing the output value must be correct
         EXPECT_TRUE(mds.p(ix_mds.second) <= ix_mds.first && ix_mds.first < mds.p(ix_mds.second + 1));
+
+        // the differential move(offset, run) must produce the same output position and input interval
+        auto ro = mds_diff.run_and_offset(i); // (run, offset)
+        uint32_t x = ro.first, o = ro.second;
+        mds_diff.move(o, x); // updates (o, x) to the moved (offset, run)
+        uint32_t out_pos = mds_diff.pos(x, o);
+        EXPECT_EQ(out_pos, ix_is.first);
+        EXPECT_TRUE(mds_diff.p(x) <= out_pos && out_pos < mds_diff.p(x + 1));
     }
 }
 
-TEST(test_move_data_structure, structure) { run_fuzz("move-data-structure", { { "structure", verify_mds_structure } }, fuzz_iterations(1200)); }
-TEST(test_move_data_structure, move)      { run_fuzz("move-data-structure", { { "move",      verify_mds_move } }, fuzz_iterations(1200)); }
+// the move data structure can interleave several typed rows (fields 3, 4, ...); here two rows of different
+// types (char + uint16_t) are filled, read back, and round-tripped through serialize/load, in both encodings
+template <move_pos_encoding_t enc>
+static void verify_mds_extra_rows_enc(std::vector<std::pair<uint32_t, uint32_t>>& is, uint32_t n, uint16_t a, uint32_t delta)
+{
+    using mds2_t = move_data_structure<uint32_t, enc, char, uint16_t>;
+
+    auto fill_and_check = [](mds2_t& mds) {
+        uint32_t k_ = mds.num_intervals();
+        for (uint32_t x = 0; x < k_; x++) {
+            mds.template set_row<0>(x, (char) (x & 0x7F));
+            mds.template set_row<1>(x, (uint16_t) (x * 7 + 1));
+        }
+        for (uint32_t x = 0; x < k_; x++) {
+            EXPECT_EQ(mds.template row<0>(x), (char) (x & 0x7F)) << "extra row 0 (x = " << x << ")";
+            EXPECT_EQ(mds.template row<1>(x), (uint16_t) (x * 7 + 1)) << "extra row 1 (x = " << x << ")";
+        }
+    };
+
+    mds_params params { .num_threads = max_num_threads, .a = a };
+    if constexpr (enc == DIFF) params.d = delta;
+    mds2_t mds(is, n, params, { 8, 16 });
+    fill_and_check(mds);
+
+    // serialize + load must preserve both rows and the move queries
+    std::stringstream stream;
+    mds.serialize(stream);
+    mds2_t mds2;
+    mds2.load(stream);
+    ASSERT_EQ(mds2.num_intervals(), mds.num_intervals());
+    for (uint32_t x = 0; x < mds.num_intervals(); x++) {
+        EXPECT_EQ(mds2.template row<0>(x), (char) (x & 0x7F));
+        EXPECT_EQ(mds2.template row<1>(x), (uint16_t) (x * 7 + 1));
+        EXPECT_EQ(mds2.p(x), mds.p(x));
+    }
+}
+
+static void verify_mds_extra_rows(uint64_t)
+{
+    random_mds r = build_random_mds();
+    verify_mds_extra_rows_enc<POS>(r.interval_sequence, r.input_size, r.a, r.delta);
+    verify_mds_extra_rows_enc<DIFF>(r.interval_sequence, r.input_size, r.a, r.delta);
+}
+
+TEST(test_move_data_structure, structure)  { run_fuzz("move-data-structure", { { "structure",  verify_mds_structure } }, fuzz_iterations(1200)); }
+TEST(test_move_data_structure, move)       { run_fuzz("move-data-structure", { { "move",       verify_mds_move } }, fuzz_iterations(1200)); }
+TEST(test_move_data_structure, extra_rows) { run_fuzz("move-data-structure", { { "extra_rows", verify_mds_extra_rows } }, fuzz_iterations(200)); }

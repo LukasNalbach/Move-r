@@ -31,8 +31,8 @@
 
 // ############################# COMMON METHODS #############################
 
-template <typename pos_t>
-void move_data_structure<pos_t>::construction::build_pi_for_I()
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+void move_data_structure<pos_t, enc, row_ts...>::construction::build_pi_for_I()
 {
     no_init_resize(pi, k);
 
@@ -51,8 +51,8 @@ void move_data_structure<pos_t>::construction::build_pi_for_I()
     }
 }
 
-template <typename pos_t>
-void move_data_structure<pos_t>::construction::build_pi_for_dq()
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+void move_data_structure<pos_t, enc, row_ts...>::construction::build_pi_for_dq()
 {
     no_init_resize(pi, k_ + 1);
 
@@ -71,8 +71,8 @@ void move_data_structure<pos_t>::construction::build_pi_for_dq()
     }
 }
 
-template <typename pos_t>
-void move_data_structure<pos_t>::construction::calculate_seperation_positions_for_I()
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+void move_data_structure<pos_t, enc, row_ts...>::construction::calculate_seperation_positions_for_I()
 {
     s.resize(p + 1);
     s[0] = 0;
@@ -135,8 +135,8 @@ void move_data_structure<pos_t>::construction::calculate_seperation_positions_fo
     }
 }
 
-template <typename pos_t>
-void move_data_structure<pos_t>::construction::calculate_seperation_positions_for_dq_and_mds()
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+void move_data_structure<pos_t, enc, row_ts...>::construction::calculate_seperation_positions_for_dq_and_mds()
 {
     x.resize(p + 1);
     x[0] = 0;
@@ -169,7 +169,7 @@ void move_data_structure<pos_t>::construction::calculate_seperation_positions_fo
             pos_t m_s = l_s + (r_s - l_s) / 2;
 
             // Find the minimum x' in [0,r''-1], s.t. D_p[x'] >= m_s.
-            l_x = bin_search_min_geq<pos_t>(m_s, 0, k_ - 1, [&](pos_t y) { return mds.p(y); });
+            l_x = bin_search_min_geq<pos_t>(m_s, 0, k_ - 1, [&](pos_t y) { return get_p_(y); });
 
             // Find the minimum u' in [0,r'-1], s.t. D_q[pi'[u']] >= m_s.
             l_u = bin_search_min_geq<pos_t>(m_s, 0, k_ - 1, [&](pos_t y) { return D_q[pi[y]]; });
@@ -197,8 +197,8 @@ void move_data_structure<pos_t>::construction::calculate_seperation_positions_fo
 /**
  * @brief builds D_offs and D_idx
  */
-template <typename pos_t>
-void move_data_structure<pos_t>::construction::build_didx_doffs()
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+void move_data_structure<pos_t, enc, row_ts...>::construction::build_didx_doffs()
 {
     log_message(log, "building D_offs and D_idx");
 
@@ -221,12 +221,12 @@ void move_data_structure<pos_t>::construction::build_didx_doffs()
             pos_t j_ = u[i_p + 1];
 
             // Check if the first value D_q[pi[j]] lies before the x[i_p]-th input interval.
-            while (D_q[pi[j]] < mds.p(i)) {
+            while (D_q[pi[j]] < get_p_(i)) {
                 i--;
             }
 
             // Check if the first value D_q[pi[j]] lies after the x[i_p]-th input interval.
-            while (mds.p(i + 1) <= D_q[pi[j]]) {
+            while (get_p_(i + 1) <= D_q[pi[j]]) {
                 i++;
             }
 
@@ -234,12 +234,12 @@ void move_data_structure<pos_t>::construction::build_didx_doffs()
             while (j < j_) {
 
                 // Iterate over the values in D_q that lie in the current i-th input interval.
-                while (j < j_ && D_q[pi[j]] < mds.p(i + 1)) {
+                while (j < j_ && D_q[pi[j]] < get_p_(i + 1)) {
 
                     /* Because each of those j-th largest values in D_q lie in the i-th
                     input interval, we can set D_idx[pi[j]] = i for each of them. */
                     mds.set_idx(pi[j], i);
-                    mds.set_offs(pi[j], D_q[pi[j]] - mds.p(i));
+                    mds.set_offs(pi[j], D_q[pi[j]] - get_p_(i));
 
                     j++;
                 }
@@ -259,8 +259,8 @@ void move_data_structure<pos_t>::construction::build_didx_doffs()
 }
 // ############################# INTERVAL SEQUENCE CONSTRUCTION #############################
 
-template <typename pos_t>
-void move_data_structure<pos_t>::construction::build_tin_tout()
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+void move_data_structure<pos_t, enc, row_ts...>::construction::build_tin_tout()
 {
     log_message(log, "building pi");
 
@@ -392,8 +392,8 @@ void move_data_structure<pos_t>::construction::build_tin_tout()
     log_phase_end(log, time, mf, "time_split_too_long_input_intervals");
 }
 
-template <typename pos_t>
-void move_data_structure<pos_t>::construction::build_dp_dq()
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+void move_data_structure<pos_t, enc, row_ts...>::construction::build_dp_dq()
 {
     // recalculate the indices x of the seperation positions in the interval sequence
     x.resize(p + 1);
@@ -406,8 +406,14 @@ void move_data_structure<pos_t>::construction::build_dp_dq()
 
     k_ = x[p];
 
-    // resize the interleaved vectors in the move data structure
-    mds.resize(n, k_, width_l_);
+    // resize the interleaved vectors in the move data structure; in the differential encoding, p is buffered
+    // in the byte-aligned D_p (mds stores D_len instead) and turned into D_len + p-samples in finalize_differential
+    mds.resize(n, k_, row_widths);
+    if constexpr (enc == DIFF) {
+        D_p = interleaved_byte_aligned_vectors<pos_t, pos_t>({ byte_width(n) });
+        D_p.resize_no_init(k_ + 1);
+        D_p.template set_parallel<0, pos_t>(k_, n);
+    }
 
     if (log) {
         float k__k = std::round(100.0 * k_ / k) / 100.0;
@@ -436,7 +442,7 @@ void move_data_structure<pos_t>::construction::build_dp_dq()
         tin_it_t tin_it = T_in[i_p].begin();
 
         for (pos_t i = b; i < e; i++) {
-            mds.set_p(i, (*tin_it).first);
+            set_p_(i, (*tin_it).first);
             D_q.template set_parallel<0, pos_t>(i, (*tin_it).second);
             tin_it++;
         }
@@ -450,10 +456,35 @@ void move_data_structure<pos_t>::construction::build_dp_dq()
 
     log_phase_end(log, time, mf, "time_build_dp_dq");
 }
+
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+void move_data_structure<pos_t, enc, row_ts...>::construction::finalize_differential() requires(enc == DIFF)
+{
+    log_message(log, "building D_len and the p-samples");
+
+    // D_len[x] = p[x+1] - p[x] (the sentinel D_len[k_] = 0 is set by resize_differential)
+    #pragma omp parallel for num_threads(p)
+    for (pos_t x = 0; x < k_; x++) {
+        mds.set_len(x, D_p[x + 1] - D_p[x]);
+    }
+
+    // p-samples S[j] = p[j*d]
+    pos_t num_smpl = k_ / mds.d + 1;
+    #pragma omp parallel for num_threads(p)
+    for (pos_t j = 0; j < num_smpl; j++) {
+        mds.p_smpl.template set_parallel<0, pos_t>(j, D_p[j * mds.d]);
+    }
+
+    D_p.clear();
+    D_p.shrink_to_fit();
+
+    log_phase_end(log, time, mf, "time_build_dlen");
+}
+
 // ############################# BALANCING #############################
 
-template <typename pos_t>
-inline pos_t move_data_structure<pos_t>::construction::is_a_heavy(tin_it_t& tn_I, pos_t q_J_)
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+inline pos_t move_data_structure<pos_t, enc, row_ts...>::construction::is_a_heavy(tin_it_t& tn_I, pos_t q_J_)
 {
     // current number of input interval starting in [q_j, q_j + d_j)
     uint16_t e = 1;
@@ -488,8 +519,8 @@ inline pos_t move_data_structure<pos_t>::construction::is_a_heavy(tin_it_t& tn_I
     }
 }
 
-template <typename pos_t>
-inline typename move_data_structure<pos_t>::construction::tout_it_t move_data_structure<pos_t>::construction::balance_upto(tout_it_t& tn_J_, pos_t qj_pd, pos_t q_u)
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+inline typename move_data_structure<pos_t, enc, row_ts...>::construction::tout_it_t move_data_structure<pos_t, enc, row_ts...>::construction::balance_upto(tout_it_t& tn_J_, pos_t qj_pd, pos_t q_u)
 {
     // Index in [0..p-1] of the current thread.
     uint16_t i_p = omp_get_thread_num();
@@ -554,8 +585,8 @@ inline typename move_data_structure<pos_t>::construction::tout_it_t move_data_st
     return tout_n_new;
 }
 
-template <typename pos_t>
-void move_data_structure<pos_t>::construction::balance()
+template <typename pos_t, move_pos_encoding_t enc, typename... row_ts>
+void move_data_structure<pos_t, enc, row_ts...>::construction::balance()
 {
     log_message(log, p > 1 ? "balancing (phase 1)" : "balancing");
 

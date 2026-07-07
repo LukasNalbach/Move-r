@@ -419,23 +419,11 @@ public:
         }
     }
     
-    /**
-     * @brief returns the number of phrases in the rlzsa
-     * @return the number of phrases
-     */
-    uint64_t num_phrases() const
-    {
-        return z;
-    }
+    // returns the number of phrases in the rlzsa
+    uint64_t num_phrases() const { return z; }
 
-    /**
-     * @brief returns the size of the input
-     * @return the size of the input
-     */
-    uint64_t input_size() const
-    {
-        return n;
-    }
+    // returns the size of the input
+    uint64_t input_size() const { return n; }
 
     /**
      * @brief extracts the suffix array values in the range [l, r], reporting each value

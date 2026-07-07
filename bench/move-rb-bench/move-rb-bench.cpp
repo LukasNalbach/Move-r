@@ -104,10 +104,7 @@ struct bench_config_t {
     std::vector<uint64_t> m_filter;
 
     // whether the index named @p name should be measured (all indexes when --only was not given)
-    bool selected(const std::string& name) const
-    {
-        return only.empty() || std::find(only.begin(), only.end(), name) != only.end();
-    }
+    bool selected(const std::string& name) const { return only.empty() || std::find(only.begin(), only.end(), name) != only.end(); }
 };
 
 /**

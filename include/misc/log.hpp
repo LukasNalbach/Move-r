@@ -50,14 +50,8 @@ inline static std::string to_string(std::pair<pos_t, pos_t> pair)
     return str;
 }
 
-/**
- * @brief returns the current time point of the steady clock
- * @return the current time point
- */
-static std::chrono::steady_clock::time_point now()
-{
-    return std::chrono::steady_clock::now();
-}
+// returns the current time point of the steady clock
+static std::chrono::steady_clock::time_point now() { return std::chrono::steady_clock::now(); }
 
 /**
  * @brief formats a duration in nanoseconds with an appropriate unit (ns, us, ms or s)
@@ -192,20 +186,14 @@ static uint64_t time_diff_ns(std::chrono::steady_clock::time_point t1, std::chro
  * @param t the earlier time point
  * @return the time difference now - t in minutes
  */
-inline uint64_t time_diff_min(std::chrono::steady_clock::time_point t)
-{
-    return time_diff_min(t, std::chrono::steady_clock::now());
-}
+inline uint64_t time_diff_min(std::chrono::steady_clock::time_point t) { return time_diff_min(t, std::chrono::steady_clock::now()); }
 
 /**
  * @brief returns the time difference (in nanoseconds) between a time point and now
  * @param t the earlier time point
  * @return the time difference now - t in nanoseconds
  */
-inline uint64_t time_diff_ns(std::chrono::steady_clock::time_point t)
-{
-    return time_diff_ns(t, std::chrono::steady_clock::now());
-}
+inline uint64_t time_diff_ns(std::chrono::steady_clock::time_point t) { return time_diff_ns(t, std::chrono::steady_clock::now()); }
 
 /**
  * @brief logs the runtime between two time points and returns the current time point
@@ -264,10 +252,7 @@ inline void log_phase_end(bool log, std::chrono::steady_clock::time_point& time,
  * @brief prints a message to std::cout
  * @param message the message to print
  */
-inline void log_message(std::string message)
-{
-    std::cout << message << std::flush;
-}
+inline void log_message(std::string message) { std::cout << message << std::flush; }
 
 /**
  * @brief prints message (without resetting any phase timer), if logging is enabled;
@@ -275,7 +260,4 @@ inline void log_message(std::string message)
  * @param log whether logging is enabled
  * @param message message to print (include a trailing "\n" for a header line)
  */
-inline void log_message(bool log, const std::string& message)
-{
-    if (log) std::cout << message << std::flush;
-}
+inline void log_message(bool log, const std::string& message) { if (log) std::cout << message << std::flush; }

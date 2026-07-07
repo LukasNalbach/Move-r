@@ -158,75 +158,36 @@ public:
      * @brief stores a pointer to the input text (needed for count/locate queries)
      * @param str the input text
      */
-    void set_input(const std::string& str)
-    {
-        input = &str;
-    }
+    void set_input(const std::string& str) { input = &str; }
 
-    /**
-     * @brief returns a reference to the LZ-End encoding
-     * @return the LZ-End encoding
-     */
-    const lzendsa_encoding& sa_encoding() const
-    {
-        return lzendsa_enc;
-    }
+    // returns a reference to the LZ-End encoding
+    const lzendsa_encoding& sa_encoding() const { return lzendsa_enc; }
 
-    /**
-     * @brief returns the number of suffix array samples (including the last-SA sample)
-     * @return the number of suffix array samples
-     */
-    uint64_t num_samples() const
-    {
-        return sa_samples.size() + 1;
-    }
+    // returns the number of suffix array samples (including the last-SA sample)
+    uint64_t num_samples() const { return sa_samples.size() + 1; }
 
     /**
      * @brief returns the index-th suffix array sample
      * @param index a sample index
      * @return the index-th suffix array sample
      */
-    int_t sample(uint64_t index) const
-    {
-        return index == sa_samples.size() ? last_sa : sa_samples[index];
-    }
+    int_t sample(uint64_t index) const { return index == sa_samples.size() ? last_sa : sa_samples[index]; }
 
     /**
      * @brief returns the position in the suffix array of the index-th sample
      * @param index a sample index
      * @return the position in SA of the index-th sample
      */
-    int_t sample_pos(uint64_t index) const
-    {
-        return index == sa_samples.size() ? input_size() - 1 : (index * d);
-    }
+    int_t sample_pos(uint64_t index) const { return index == sa_samples.size() ? input_size() - 1 : (index * d); }
 
-    /**
-     * @brief returns the size of the input text
-     * @return the size of the input text
-     */
-    uint64_t input_size() const
-    {
-        return lzendsa_enc.input_size();
-    }
+    // returns the size of the input text
+    uint64_t input_size() const { return lzendsa_enc.input_size(); }
 
-    /**
-     * @brief returns the number of phrases in the LZ-End encoding
-     * @return the number of phrases
-     */
-    uint64_t num_phrases() const
-    {
-        return lzendsa_enc.num_phrases();
-    }
+    // returns the number of phrases in the LZ-End encoding
+    uint64_t num_phrases() const { return lzendsa_enc.num_phrases(); }
 
-    /**
-     * @brief returns the SA-sampling parameter
-     * @return the SA-sampling parameter
-     */
-    int_t delta() const
-    {
-        return d;
-    }
+    // returns the SA-sampling parameter
+    int_t delta() const { return d; }
 
     /**
      * @brief counts the occurrences of pattern in the input
@@ -354,14 +315,8 @@ public:
         return rng;
     }
 
-    /**
-     * @brief returns the size of the whole data structure in bytes
-     * @return the size of the data structure in bytes
-     */
-    uint64_t size_in_bytes() const
-    {
-        return sizeof(this) + lzendsa_enc.size_in_bytes() + sa_samples.size_in_bytes();
-    }
+    // returns the size of the whole data structure in bytes
+    uint64_t size_in_bytes() const { return sizeof(this) + lzendsa_enc.size_in_bytes() + sa_samples.size_in_bytes(); }
 
     /**
      * @brief loads the index from an input stream
