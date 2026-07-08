@@ -70,6 +70,12 @@ struct columba_api_t {
     // algorithm move_rb uses, but on columba's index instead of move_rb's.
     uint64_t (*locate_apm)(void* handle, const char* pat, uint64_t m, int metric_edit, int k, uint64_t* occ_bytes);
 
+    // counts pattern @p pat (length m) with <=k HAMMING errors by driving move_r's OWN apm count algorithm on the
+    // columba index (via columba_apm_adapter). columba has no cheap deduplicated count of its own, so this measures
+    // the same count algorithm move_rb uses (SA-interval-width sum, no locate), but on columba's index. Returns the
+    // (deduplicated) occurrence count. Hamming distance only (edit-distance count is unsupported).
+    uint64_t (*count_apm)(void* handle, const char* pat, uint64_t m, int k);
+
     // ############################# bidirectional-extension benchmark (move-rb-bench-ext) #############################
 
     // builds a reusable bidirectional-extension adapter (columba_apm_adapter) over the loaded index; kept out of

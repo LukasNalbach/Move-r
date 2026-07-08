@@ -125,6 +125,15 @@ uint64_t cn_locate_apm(void* handle, const char* pat, uint64_t m, int metric_edi
     return occ.size();
 }
 
+uint64_t cn_count_apm(void* handle, const char* pat, uint64_t m, int k)
+{
+    columba_native* native = static_cast<columba_native*>(handle);
+    columba_apm_adapter adapter(native->get_index());
+    std::string P(pat, pat + m);
+    const search_scheme_t scheme = min_u_scheme((uint8_t) k);
+    return static_cast<uint64_t>(adapter.count_hamming_dist(P, scheme));
+}
+
 // builds a columba_apm_adapter over the loaded index once, so the (per-query-timed) ext_run calls do not pay the
 // adapter's construction cost. The adapter holds a reference to the index, which outlives it (freed via ext_free)
 void* cn_ext_make(void* handle)
@@ -167,7 +176,7 @@ const columba_api_t g_api = {
     MAX_K,      // hamming
     MAX_K_EDIT, // edit
     cn_load, cn_set_scheme, cn_input_size,
-    cn_make_bundles, cn_locate, cn_match_only_edit, cn_locate_apm,
+    cn_make_bundles, cn_locate, cn_match_only_edit, cn_locate_apm, cn_count_apm,
     cn_ext_make, cn_ext_run, cn_ext_free,
     cn_free_bundles, cn_destroy
 };
