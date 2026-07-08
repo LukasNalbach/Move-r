@@ -70,6 +70,19 @@ struct columba_api_t {
     // algorithm move_rb uses, but on columba's index instead of move_rb's.
     uint64_t (*locate_apm)(void* handle, const char* pat, uint64_t m, int metric_edit, int k, uint64_t* occ_bytes);
 
+    // ############################# bidirectional-extension benchmark (move-rb-bench-ext) #############################
+
+    // builds a reusable bidirectional-extension adapter (columba_apm_adapter) over the loaded index; kept out of
+    // the per-query timing. Returns an opaque handle to be passed to ext_run and freed with ext_free
+    void* (*ext_make)(void* handle);
+    // exact bidirectional search of pat[0..m) starting at position @p start and extending in the order given by
+    // @p order (m-1 entries, 0 = prepend the next character on the left, 1 = append it on the right). want_locate:
+    // 0 = count only (returns the occurrence count), 1 = also locate all occurrences (returns the count and writes
+    // the occurrence-vector footprint to *occ_bytes)
+    uint64_t (*ext_run)(void* ext, const char* pat, uint64_t m, uint64_t start, const uint8_t* order,
+                        int want_locate, uint64_t* occ_bytes);
+    void (*ext_free)(void* ext);
+
     void (*free_bundles)(void* bundles);
     void (*destroy)(void* handle);
 };
