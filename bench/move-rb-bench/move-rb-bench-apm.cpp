@@ -512,9 +512,31 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
     const bool do_edit = cfg.metric == "all" || cfg.metric == "edit";
 
     for (const bench_job_t& job : cfg.jobs) {
-        if (job.op != OP_LOCATE) continue; // columba: locate only (no count)
         if (job.metric == HAMMING_DISTANCE && !do_ham) continue;
         if (job.metric == EDIT_DISTANCE && !do_edit) continue;
+
+        if (job.op == OP_COUNT) {
+            if (job.metric != HAMMING_DISTANCE) continue; // edit-distance count is unsupported
+            if (job.k > api.max_k_hamming) {
+                std::cerr << "warning: k=" << job.k << " > " << api.max_k_hamming << " unsupported by columba; skipping "
+                          << job.path << std::endl;
+                continue;
+            }
+            std::vector<std::string> patterns; uint64_t m;
+            std::cerr << "measuring " << flavor << " (native apm count) on " << job.path << " ..." << std::endl;
+            if (!read_patterns(job, patterns, m)) continue;
+            const uint64_t num_patterns = patterns.size();
+            replay(cfg, job, num_patterns, m, n, "count_" + flavor + "_apm", "hamming",
+                cfg.scheme, "time_count", [&](uint64_t i, uint64_t& time) {
+                    auto t1 = now();
+                    uint64_t c = api.count_apm(handle, patterns[i].data(), m, (int) job.k);
+                    time += time_diff_ns(t1);
+                    return c;
+                });
+            continue;
+        }
+
+        if (job.op != OP_LOCATE) continue; // (any other op is not measured for columba)
         const bool is_edit = job.metric == EDIT_DISTANCE;
         const int k_limit = is_edit ? api.max_k_edit : api.max_k_hamming;
         if (job.k > k_limit) {
