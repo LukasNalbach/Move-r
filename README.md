@@ -159,7 +159,7 @@ The build can be tailored via the following options (all `ON` by default):
 | `MOVE_R_BUILD_LZENDSA_CLI` | Build the LZEndSA command-line tools |
 | `MOVE_R_BUILD_RLZSA_CLI` | Build the RLZSA command-line tools |
 | `MOVE_R_BUILD_MOVE_R_BENCH` | Build `move-r-bench` (pulls in the comparison indexes) |
-| `MOVE_R_BUILD_MOVE_RB_BENCH` | Build `move-rb-bench` & `move-rb-gen-queries` (pulls in the comparison indexes) |
+| `MOVE_R_BUILD_MOVE_RB_BENCH` | Build `move-rb-bench-apm`/`-ext` & `move-rb-gen-apm-queries`/`-ext-queries` (pulls in the comparison indexes) |
 | `MOVE_R_BUILD_EXAMPLES` | Build the example programs |
 | `MOVE_R_BUILD_TESTS` | Build the unit tests |
 | `MOVE_R_BUILD_INTERNAL_BENCH` | Build the internal data-structure benchmarks |
@@ -173,7 +173,7 @@ Two additional non-boolean cache variables are available:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `MOVE_R_COLUMBA_BITS` | `both` | columba index widths to build for `move-rb-bench`: `both`, `32` or `64` (only used when `MOVE_R_BUILD_MOVE_RB_BENCH` is `ON`) |
+| `MOVE_R_COLUMBA_BITS` | `both` | columba index widths to build for the `move-rb-bench-*` tools: `both`, `32` or `64` (only used when `MOVE_R_BUILD_MOVE_RB_BENCH` is `ON`) |
 | `MOVE_R_WINDOWS_TBB_ROOT` | *(empty)* | Root of an extracted oneAPI TBB (Windows) release; see [oneTBB on Windows](#onetbb-on-windows) |
 
 ## Usage in C++
@@ -469,7 +469,7 @@ Building either index with `-f` reads the input as (multi-sequence) FASTA — he
 
 ### Competitor index builders
 
-Index construction tools for the competitor indexes measured by `move-rb-bench` (built into `build/cli/`):
+Index construction tools for the competitor indexes measured by the `move-rb-bench-*` tools (built into `build/cli/`):
 
 - **bri-build** — builds the [br-index](https://github.com/U-Ar/br-index) (`.bri`) for an input file.
 - **columba-build** — builds the columba FM-index. It automatically selects columba's 32- or 64-bit index-position type based on the total input size (a 32-bit index supports inputs up to ~4 GiB and is smaller/faster; larger inputs use the 64-bit build). Multiple FASTA files may be given with repeated `-f`. `-t` sets the number of OpenMP threads for suffix-array construction (libsais).
@@ -478,8 +478,10 @@ Index construction tools for the competitor indexes measured by `move-rb-bench` 
 ### Benchmark tools
 
 - **move-r-bench** — benchmarks construction-, revert- and query performance of move-r against block-rlbwt (`-2`/`-v`/`-r`), r-index, r-index-f, rcomp-glfig and online-rlbwt; with `-a` it instead measures count/locate performance of move-r for a range of balancing parameters. Has to be run from the base folder.
-- **move-rb-bench** — benchmarks approximate count/locate of move_rb (move & rlzsa) against both columba flavors (`columba_rlc`/`columba`) and br-index in one run, reading the pre-built indexes from `<index_dir>` and the pattern sets from `move-rb-gen-queries`. Options select the metric (`--metric`), pattern subsets (`--k`/`--m`), which indexes (`--only`), replay time (`--time`), scheme (`-s`) and whether to also measure CIGAR-producing locate (`--cigar`); each `RESULT` line reports occurrence counts, timings and per-run memory columns (via `malloc_count`).
-- **move-rb-gen-queries** — generates the auto-calibrated pattern sets used by `move-rb-bench`: for every (k, m) pair it writes pizza&chili-format files for count-hamming, locate-hamming and locate-edit by sampling text substrings and injecting up to k errors, with each file's pattern count calibrated (against a move_rb index) so its operation runs for about `--time` seconds. Options set the error counts/lengths (`-k`/`-m`), operations (`--only`), timing (`--time`/`--timeout`), minimum patterns (`--min`), forbidden characters (`-x`), scheme, seed and output dir.
+- **move-rb-bench-apm** — benchmarks approximate count/locate of move_rb (move & rlzsa) against both columba flavors (`columba_rlc`/`columba`) and br-index, each passed by its own flag and measured only if given. Options select the metric (`--metric`), operation (`--only` count/locate/both), pattern subsets (`--k`/`--m`), scheme (`-s`), replay time (`--time`) and CIGAR-producing locate (`--cigar`); pattern sets come from `move-rb-gen-apm-queries`.
+- **move-rb-gen-apm-queries** — generates the auto-calibrated pattern sets used by `move-rb-bench-apm`: for every (k, m) pair it writes pizza&chili-format files for count-hamming, locate-hamming and locate-edit by sampling text substrings and injecting up to k errors, with each file's pattern count calibrated (against a move_rb index) so its operation runs for about `--time` seconds. Options set the error counts/lengths (`-k`/`-m`), operations (`--only`), timing (`--time`/`--timeout`), minimum patterns (`--min`), forbidden characters (`-x`), scheme, seed and output dir.
+- **move-rb-bench-ext** — benchmarks exact bidirectional extension (count) and locate on the same indexes, each query extending a random-start pattern left/right in random order. Count and locate use separate pattern files from `move-rb-gen-ext-queries`; options select the operation (`--only` count/locate/both), pattern lengths (`--m`) and replay time (`--time`). `RESULT` lines use the `move-rb-bench-apm` schema (`dist_metr=exact`).
+- **move-rb-gen-ext-queries** — generates the pattern sets for `move-rb-bench-ext`: for every length m a `count` and a `locate` file of sampled text substrings, each auto-calibrated (against a move_rb index) to run for about `--time` seconds. Options set the lengths (`-m`), operations (`--only`), timing (`--time`/`--timeout`), minimum patterns (`--min`), forbidden characters (`-x`), seed and output dir.
 - **bench-int-rank-select** — benchmarks the internal integer rank/select data structures (built into `build/bench/`).
 
 ## Search Schemes

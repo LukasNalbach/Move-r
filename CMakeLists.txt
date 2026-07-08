@@ -29,7 +29,7 @@ option(MOVE_R_BUILD_MOVE_RB_CLI "Build the move-rb cli tools " ON)
 option(MOVE_R_BUILD_LZENDSA_CLI "Build LZend-SA binaries" ON)
 option(MOVE_R_BUILD_RLZSA_CLI "Build RLZ-SA binaries" ON)
 option(MOVE_R_BUILD_MOVE_R_BENCH  "Build move-r-bench" ON)
-option(MOVE_R_BUILD_MOVE_RB_BENCH "Build move-rb-bench & move-rb-gen-queries" ON)
+option(MOVE_R_BUILD_MOVE_RB_BENCH "Build move-rb-bench-apm/-ext & move-rb-gen-apm-/-ext-queries" ON)
 option(MOVE_R_BUILD_EXAMPLES "Build the example programs" ON)
 option(MOVE_R_BUILD_TESTS "Build tests" ON)
 option(MOVE_R_BUILD_INTERNAL_BENCH "Build programs for benchmarking Move-r's internal data structures" ON)
@@ -374,7 +374,7 @@ endif()
 
 if(MOVE_R_BUILD_MOVE_RB_BENCH)
   set(columba_src "${CMAKE_SOURCE_DIR}/external/columba/src")
-  set(MOVE_R_COLUMBA_BITS "both" CACHE STRING "columba index widths to build for move-rb-bench: both, 32 or 64")
+  set(MOVE_R_COLUMBA_BITS "both" CACHE STRING "columba index widths to build for the move-rb-bench-* tools: both, 32 or 64")
   set_property(CACHE MOVE_R_COLUMBA_BITS PROPERTY STRINGS both 32 64)
   if(NOT MOVE_R_COLUMBA_BITS MATCHES "^(both|32|64)$")
     message(FATAL_ERROR "MOVE_R_COLUMBA_BITS must be one of: both, 32, 64 (got '${MOVE_R_COLUMBA_BITS}')")
@@ -525,9 +525,6 @@ if(MOVE_R_BUILD_MOVE_RB_BENCH)
   move_r_add_columba_build_wrapper(columba-build     "${columba_fm_build_32}"  "${columba_fm_build_64}")
   move_r_add_columba_build_wrapper(columba-rlc-build "${columba_rlc_build_32}" "${columba_rlc_build_64}")
 
-  move_r_add_tool(move-rb-bench bench/move-rb-bench/move-rb-bench.cpp
-    "${CMAKE_BINARY_DIR}/bench/" br_index ${CMAKE_DL_LIBS})
-  target_link_options(move-rb-bench PRIVATE -rdynamic)
   set(columba_plugins "")
   if(columba_bits_32)
     list(APPEND columba_plugins columba_rlc_plugin_32 columba_fm_plugin_32)
@@ -535,8 +532,19 @@ if(MOVE_R_BUILD_MOVE_RB_BENCH)
   if(columba_bits_64)
     list(APPEND columba_plugins columba_rlc_plugin_64 columba_fm_plugin_64)
   endif()
-  add_dependencies(move-rb-bench ${columba_plugins})
-  move_r_add_tool(move-rb-gen-queries bench/move-rb-bench/move-rb-gen-queries.cpp
+
+  move_r_add_tool(move-rb-bench-apm bench/move-rb-bench/move-rb-bench-apm.cpp
+    "${CMAKE_BINARY_DIR}/bench/" br_index ${CMAKE_DL_LIBS})
+  target_link_options(move-rb-bench-apm PRIVATE -rdynamic)
+  add_dependencies(move-rb-bench-apm ${columba_plugins})
+  move_r_add_tool(move-rb-gen-apm-queries bench/move-rb-bench/move-rb-gen-apm-queries.cpp
+    "${CMAKE_BINARY_DIR}/bench/")
+
+  move_r_add_tool(move-rb-bench-ext bench/move-rb-bench/move-rb-bench-ext.cpp
+    "${CMAKE_BINARY_DIR}/bench/" br_index ${CMAKE_DL_LIBS})
+  target_link_options(move-rb-bench-ext PRIVATE -rdynamic)
+  add_dependencies(move-rb-bench-ext ${columba_plugins})
+  move_r_add_tool(move-rb-gen-ext-queries bench/move-rb-bench/move-rb-gen-ext-queries.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
