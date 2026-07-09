@@ -55,6 +55,12 @@ enum bench_op_t : uint8_t {
     OP_LOCATE = 1 // approximate locate
 };
 
+// which algorithm(s) to run for each index
+enum algo_sel_t : uint8_t { ALGO_NATIVE = 0, ALGO_NON_NATIVE = 1, ALGO_BOTH = 2 };
+
+// which CIGAR variant of locate to measure
+enum cigar_sel_t : uint8_t { CIGAR_OFF = 0, CIGAR_BOTH = 1, CIGAR_ONLY = 2 };
+
 // a single pattern file to be measured; the (op, metric) pair is one of the four
 // benchmark operations (count/locate x hamming/edit) encoded in the file name
 struct bench_job_t {
@@ -95,9 +101,15 @@ struct bench_config_t {
     // measured for it (>= one full pass), so short-running sets still accumulate a stable timing
     double min_time_seconds = 10.0;
 
-    bool cigar = false; // additionally measure CIGAR-producing locate: for every locate job the indexes whose
-                        // locate can emit a per-occurrence CIGAR alignment (move_rb and columba) are measured a
-                        // second time in CIGAR mode, so the alignment cost shows next to the plain locate
+    algo_sel_t algo = ALGO_BOTH; // --algo: which algorithm(s) to run (native / non-native / both)
+    cigar_sel_t cigar_mode = CIGAR_OFF; // --cigar: which CIGAR variant of locate to measure (off / both / only)
+
+    // whether the native / non-native algorithms are to be run (from --algo)
+    bool run_native() const { return algo == ALGO_NATIVE || algo == ALGO_BOTH; }
+    bool run_non_native() const { return algo == ALGO_NON_NATIVE || algo == ALGO_BOTH; }
+    // whether the plain / CIGAR-producing locate is to be measured (from --cigar)
+    bool locate_plain() const { return cigar_mode == CIGAR_OFF || cigar_mode == CIGAR_BOTH; }
+    bool locate_cigar() const { return cigar_mode == CIGAR_BOTH || cigar_mode == CIGAR_ONLY; }
 
     // if non-empty, only pattern files with these error counts k (--k) resp. lengths m (--m) are measured
     std::vector<int64_t> k_filter;
@@ -403,11 +415,11 @@ void measure_all_jobs(idx_t& index, uint64_t n, const bench_config_t& cfg, const
         if (job.op == OP_COUNT) {
             run_count<idx_t>(index, n, cfg, job, scheme, index_name);
         } else if (job.metric == HAMMING_DISTANCE) {
-            run_locate<idx_t, HAMMING_DISTANCE>(index, n, cfg, job, scheme, index_name);
-            if (cfg.cigar) run_locate_cigar<idx_t, HAMMING_DISTANCE>(index, n, cfg, job, scheme, index_name);
+            if (cfg.locate_plain()) run_locate<idx_t, HAMMING_DISTANCE>(index, n, cfg, job, scheme, index_name);
+            if (cfg.locate_cigar()) run_locate_cigar<idx_t, HAMMING_DISTANCE>(index, n, cfg, job, scheme, index_name);
         } else {
-            run_locate<idx_t, EDIT_DISTANCE>(index, n, cfg, job, scheme, index_name);
-            if (cfg.cigar) run_locate_cigar<idx_t, EDIT_DISTANCE>(index, n, cfg, job, scheme, index_name);
+            if (cfg.locate_plain()) run_locate<idx_t, EDIT_DISTANCE>(index, n, cfg, job, scheme, index_name);
+            if (cfg.locate_cigar()) run_locate_cigar<idx_t, EDIT_DISTANCE>(index, n, cfg, job, scheme, index_name);
         }
     }
 }
@@ -516,6 +528,7 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
         if (job.metric == EDIT_DISTANCE && !do_edit) continue;
 
         if (job.op == OP_COUNT) {
+            if (!cfg.run_non_native()) continue; // columba's only count here is move-rb's (non-native) apm count
             if (job.metric != HAMMING_DISTANCE) continue; // edit-distance count is unsupported
             if (job.k > api.max_k_hamming) {
                 std::cerr << "warning: k=" << job.k << " > " << api.max_k_hamming << " unsupported by columba; skipping "
@@ -523,7 +536,7 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
                 continue;
             }
             std::vector<std::string> patterns; uint64_t m;
-            std::cerr << "measuring " << flavor << " (native apm count) on " << job.path << " ..." << std::endl;
+            std::cerr << "measuring " << flavor << " (apm count) on " << job.path << " ..." << std::endl;
             if (!read_patterns(job, patterns, m)) continue;
             const uint64_t num_patterns = patterns.size();
             replay(cfg, job, num_patterns, m, n, "count_" + flavor + "_apm", "hamming",
@@ -544,63 +557,76 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
                       << job.path << std::endl;
             continue;
         }
-        // the minU search scheme is only defined for k <= 7; use the columba scheme for higher k
-        const std::string job_scheme = job.k <= 7 ? scheme_str : "columba";
-        api.set_scheme(handle, job_scheme.c_str());
+
+        const bool want_native = cfg.run_native() && (cfg.locate_plain() || cfg.locate_cigar());
+        const bool want_apm    = cfg.run_non_native() && cfg.locate_plain();
+        if (!want_native && !want_apm) continue;
+
         std::vector<std::string> patterns; uint64_t m;
-        std::cerr << "measuring " << flavor << " (native, " << job_scheme << ") on " << job.path << " ..." << std::endl;
         if (!read_patterns(job, patterns, m)) continue;
         const uint64_t num_patterns = patterns.size();
-
-        // precompute the read bundles inside the plugin (kept out of the per-pattern locate time)
-        std::vector<const char*> ptrs(num_patterns);
-        std::vector<uint64_t> lens(num_patterns);
-        for (uint64_t i = 0; i < num_patterns; i++) { ptrs[i] = patterns[i].data(); lens[i] = patterns[i].size(); }
-        void* bundles = api.make_bundles(handle, ptrs.data(), lens.data(), num_patterns);
         const int metric_edit = is_edit ? 1 : 0;
         const std::string dist_str = is_edit ? "edit" : "hamming";
 
-        // plain locate (no CIGAR); occ_mem = peak single-pattern occurrence-vector footprint (reported by the plugin)
-        uint64_t occ_mem = 0;
-        replay(cfg, job, num_patterns, m, n, "locate_" + flavor, dist_str,
-            job_scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
-                uint64_t ob = 0, cb = 0;
-                auto t1 = now();
-                uint64_t c = api.locate(handle, bundles, i, metric_edit, (int) job.k, /* cigar */ 0, &ob, &cb);
-                time += time_diff_ns(t1);
-                occ_mem = std::max(occ_mem, ob);
-                return c;
-            }, /* cigar */ false, &occ_mem);
+        const std::string job_scheme = job.k <= 7 ? scheme_str : "columba";
+        void* bundles = nullptr;
+        if (want_native) {
+            api.set_scheme(handle, job_scheme.c_str());
+            std::cerr << "measuring " << flavor << " (native, " << job_scheme << ") on " << job.path << " ..." << std::endl;
 
-        // additionally, CIGAR-producing locate (cigar=1) -- columba computes a real alignment per occurrence
-        if (cfg.cigar) {
-            uint64_t occ_mem_c = 0, cigar_mem = 0;
-            replay(cfg, job, num_patterns, m, n, "locate_" + flavor, dist_str,
-                job_scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
-                    uint64_t ob = 0, cb = 0;
-                    auto t1 = now();
-                    uint64_t c = api.locate(handle, bundles, i, metric_edit, (int) job.k, /* cigar */ 1, &ob, &cb);
-                    time += time_diff_ns(t1);
-                    occ_mem_c = std::max(occ_mem_c, ob);
-                    cigar_mem = std::max(cigar_mem, cb);
-                    return c;
-                }, /* cigar */ true, &occ_mem_c, &cigar_mem);
+            // precompute the read bundles inside the plugin (kept out of the per-pattern locate time)
+            std::vector<const char*> ptrs(num_patterns);
+            std::vector<uint64_t> lens(num_patterns);
+            for (uint64_t i = 0; i < num_patterns; i++) { ptrs[i] = patterns[i].data(); lens[i] = patterns[i].size(); }
+            bundles = api.make_bundles(handle, ptrs.data(), lens.data(), num_patterns);
+
+            // plain locate (no CIGAR); occ_mem = peak single-pattern occurrence-vector footprint (reported by the plugin)
+            if (cfg.locate_plain()) {
+                uint64_t occ_mem = 0;
+                replay(cfg, job, num_patterns, m, n, "locate_" + flavor, dist_str,
+                    job_scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
+                        uint64_t ob = 0, cb = 0;
+                        auto t1 = now();
+                        uint64_t c = api.locate(handle, bundles, i, metric_edit, (int) job.k, /* cigar */ 0, &ob, &cb);
+                        time += time_diff_ns(t1);
+                        occ_mem = std::max(occ_mem, ob);
+                        return c;
+                    }, /* cigar */ false, &occ_mem);
+            }
+
+            // additionally, CIGAR-producing locate (cigar=1) -- columba computes a real alignment per occurrence
+            if (cfg.locate_cigar()) {
+                uint64_t occ_mem_c = 0, cigar_mem = 0;
+                replay(cfg, job, num_patterns, m, n, "locate_" + flavor, dist_str,
+                    job_scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
+                        uint64_t ob = 0, cb = 0;
+                        auto t1 = now();
+                        uint64_t c = api.locate(handle, bundles, i, metric_edit, (int) job.k, /* cigar */ 1, &ob, &cb);
+                        time += time_diff_ns(t1);
+                        occ_mem_c = std::max(occ_mem_c, ob);
+                        cigar_mem = std::max(cigar_mem, cb);
+                        return c;
+                    }, /* cigar */ true, &occ_mem_c, &cigar_mem);
+            }
         }
 
-        // additionally: measure move-rb's OWN apm algorithm run on the columba index (same algorithm, different
-        // index), reported as locate_<flavor>_apm and deduplicated like move-rb
-        uint64_t occ_mem_apm = 0;
-        replay(cfg, job, num_patterns, m, n, "locate_" + flavor + "_apm", dist_str,
-            cfg.scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
-                uint64_t ob = 0;
-                auto t1 = now();
-                uint64_t c = api.locate_apm(handle, patterns[i].data(), m, metric_edit, (int) job.k, &ob);
-                time += time_diff_ns(t1);
-                occ_mem_apm = std::max(occ_mem_apm, ob);
-                return c;
-            }, false, &occ_mem_apm);
+        // move-rb's OWN apm algorithm run on the columba index (same algorithm, different index), reported as
+        // locate_<flavor>_apm and deduplicated like move-rb. It has no CIGAR variant (hence skipped under --cigar only)
+        if (want_apm) {
+            std::cerr << "measuring " << flavor << " (apm) on " << job.path << " ..." << std::endl;
+            uint64_t occ_mem_apm = 0;
+            replay(cfg, job, num_patterns, m, n, "locate_" + flavor + "_apm", dist_str,
+                cfg.scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
+                    uint64_t ob = 0;
+                    auto t1 = now();
+                    uint64_t c = api.locate_apm(handle, patterns[i].data(), m, metric_edit, (int) job.k, &ob);
+                    time += time_diff_ns(t1);
+                    occ_mem_apm = std::max(occ_mem_apm, ob);
+                    return c;
+                }, false, &occ_mem_apm);
+        }
 
-        api.free_bundles(bundles);
+        if (bundles) api.free_bundles(bundles);
     }
     api.destroy(handle);
 }
@@ -695,7 +721,7 @@ void measure_br_index_native(const bench_config_t& cfg)
                 [&](uint64_t i, uint64_t& time) {
                     auto t1 = now(); uint64_t c = index.count_hamming_dist(patterns[i], job.k); time += time_diff_ns(t1); return c;
                 });
-        else
+        else if (cfg.locate_plain())
             replay(cfg, job, num_patterns, m, n, "locate_br_index_native", "hamming", "none", "time_locate",
                 [&](uint64_t i, uint64_t& time) {
                     auto t1 = now(); uint64_t c = index.locate_hamming_dist(patterns[i], job.k); time += time_diff_ns(t1); return c;
@@ -792,13 +818,20 @@ void help(const std::string& msg)
     std::cout << "                        For the built-in schemes the number of errors k is taken from each pattern" << std::endl;
     std::cout << "                        file name; a scheme file fixes k itself." << std::endl;
     std::cout << "   --metric <metric>    (optional) run only one distance metric: all|hamming|edit (default: all)" << std::endl;
+    std::cout << "   --algo <selection>   (optional) which algorithm(s) to run: native|non-native|both (default: both)." << std::endl;
+    std::cout << "                        native     = each index's own algorithm: move_rb (move/rlzsa) and the" << std::endl;
+    std::cout << "                                     columba / b-move / br-index native locate." << std::endl;
+    std::cout << "                        non-native = move-rb's apm algorithm on a foreign structure: the columba" << std::endl;
+    std::cout << "                                     *_apm and br-index-adapter measurements." << std::endl;
     std::cout << "   --only <op>          (optional) measure only count or locate files: count, locate or both (default: both)" << std::endl;
     std::cout << "   --k <list>           (optional) measure only pattern files with these error counts k (comma-separated)" << std::endl;
     std::cout << "   --m <list>           (optional) measure only pattern files with these pattern lengths m (comma-separated)" << std::endl;
-    std::cout << "   --cigar              (optional) additionally measure CIGAR-producing locate: each locate job is" << std::endl;
-    std::cout << "                        measured a second time (RESULT field cigar=1) for the indexes that emit a" << std::endl;
-    std::cout << "                        per-occurrence CIGAR alignment (move_rb and columba), so the alignment cost" << std::endl;
-    std::cout << "                        shows next to the plain locate" << std::endl;
+    std::cout << "   --cigar [mode]       (optional) which CIGAR variant of locate to measure: off|both|only" << std::endl;
+    std::cout << "                        (bare --cigar = both; default: off). off = only the plain locate; both = the" << std::endl;
+    std::cout << "                        plain locate and additionally a CIGAR-producing locate (RESULT field cigar=1);" << std::endl;
+    std::cout << "                        only = just the CIGAR locate. Applies to locate only (count has no CIGAR) and" << std::endl;
+    std::cout << "                        to the indexes that emit a CIGAR (move_rb and columba-native); the others are" << std::endl;
+    std::cout << "                        skipped for locate under 'only'." << std::endl;
     std::cout << "   --time <s>           (optional) replay each pattern file's query set until at least <s> seconds" << std::endl;
     std::cout << "                        have been measured for it (>= one pass); the reported time_* is then the" << std::endl;
     std::cout << "                        average time for one pass over the set (num_patterns and num_occurrences stay" << std::endl;
@@ -916,8 +949,23 @@ int main(int argc, char** argv)
             if (arg_idx >= argc) help("error: missing seconds after --time");
             cfg.min_time_seconds = std::stod(argv[arg_idx++]);
             if (cfg.min_time_seconds < 0) help("error: --time must be >= 0");
+        } else if (opt == "--algo") {
+            if (arg_idx >= argc) help("error: missing selection after --algo");
+            std::string a = argv[arg_idx++];
+            if      (a == "native")     cfg.algo = ALGO_NATIVE;
+            else if (a == "non-native") cfg.algo = ALGO_NON_NATIVE;
+            else if (a == "both")       cfg.algo = ALGO_BOTH;
+            else help("error: --algo must be native, non-native or both");
         } else if (opt == "--cigar") {
-            cfg.cigar = true;
+            if (arg_idx < argc) {
+                std::string mode = argv[arg_idx];
+                if      (mode == "off")  { cfg.cigar_mode = CIGAR_OFF;  arg_idx++; }
+                else if (mode == "both") { cfg.cigar_mode = CIGAR_BOTH; arg_idx++; }
+                else if (mode == "only") { cfg.cigar_mode = CIGAR_ONLY; arg_idx++; }
+                else cfg.cigar_mode = CIGAR_BOTH;
+            } else {
+                cfg.cigar_mode = CIGAR_BOTH;
+            }
         } else if (opt == "--k") {
             if (arg_idx >= argc) help("error: missing k list after --k");
             for (const std::string& s : split_csv(argv[arg_idx++])) cfg.k_filter.push_back(std::stoll(s));
@@ -1000,12 +1048,16 @@ int main(int argc, char** argv)
     // measure every index whose path was given; a failure to load one is reported and skipped (guarded). columba
     // (both flavors) is handled per-flavor inside measure_columba_native. --bri drives both the br-index adapter
     // and its native algorithm; columba is gated on either flavor's path
-    if (!cfg.br_index_path.empty())     guarded("br-index", measure_br_index, cfg);
-    if (!cfg.columba_rlc_path.empty() ||
-        !cfg.columba_path.empty())      guarded("columba (native)", measure_columba_native, cfg);
-    if (!cfg.br_index_path.empty())     guarded("br-index (native)", measure_br_index_native, cfg);
-    if (!cfg.move_rb_move_path.empty()) guarded("move_rb (move)", measure_move_rb_move, cfg);
-    if (!cfg.move_rb_rlzsa_path.empty()) guarded("move_rb (rlzsa)", measure_move_rb_rlzsa, cfg);
+    if (!cfg.br_index_path.empty() && cfg.run_non_native())
+        guarded("br-index (apm)", measure_br_index, cfg);
+    if (!cfg.columba_rlc_path.empty() || !cfg.columba_path.empty())
+        guarded("columba", measure_columba_native, cfg);
+    if (!cfg.br_index_path.empty() && cfg.run_native())
+        guarded("br-index (native)", measure_br_index_native, cfg);
+    if (!cfg.move_rb_move_path.empty() && cfg.run_native())
+        guarded("move_rb (move)", measure_move_rb_move, cfg);
+    if (!cfg.move_rb_rlzsa_path.empty() && cfg.run_native())
+        guarded("move_rb (rlzsa)", measure_move_rb_rlzsa, cfg);
 
     return 0;
 }
