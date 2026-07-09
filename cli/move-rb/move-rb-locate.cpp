@@ -387,7 +387,7 @@ void measure_locate()
             auto locate_strand = [&](const std::string& read, sam_list_t& out) {
                 out.clear();
                 if (k > 0 && read.size() <= search_scheme.p) return;
-                auto collect = [&](auto occ){ out.emplace_back(std::move(occ)); };
+                auto collect = [&](aprx_occ_t<pos_t, cm> occ){ out.emplace_back(std::move(occ)); };
 
                 if (dist_metr == HAMMING_DISTANCE)
                     index.template locate<HAMMING_DISTANCE, cm>(read, search_scheme, collect);
@@ -425,9 +425,9 @@ void measure_locate()
         t2 = now();
 
         if (dist_metr == HAMMING_DISTANCE) {
-            index.template locate<HAMMING_DISTANCE>(pattern, search_scheme, [&](auto occ){occurrences.emplace_back(occ);});
+            index.template locate<HAMMING_DISTANCE>(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){occurrences.emplace_back(occ);});
         } else {
-            index.template locate<EDIT_DISTANCE>(pattern, search_scheme, [&](auto occ){occurrences.emplace_back(occ);});
+            index.template locate<EDIT_DISTANCE>(pattern, search_scheme, [&](aprx_occ_t<pos_t> occ){occurrences.emplace_back(occ);});
             ips2ra::sort(occurrences.begin(), occurrences.end(), [](const auto& o){ return o.pos; });
             filter_edit_distance_occurrences<pos_t>(occurrences, k);
         }
