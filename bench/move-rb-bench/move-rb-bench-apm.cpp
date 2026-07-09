@@ -318,7 +318,7 @@ void run_locate(idx_t& index, uint64_t n, const bench_config_t& cfg, const bench
             // for edit distance the same occurrence may be reported by several search contexts;
             // deduplicate (as the move-rb-locate tool does) before counting
             if constexpr (dist_metr == EDIT_DISTANCE) {
-                ips2ra::sort(occurrences.begin(), occurrences.end(), [](const aprx_occ_t<pos_t, mode>& o){ return o.pos; });
+                ips2ra::sort(occurrences.begin(), occurrences.end(), [](const auto& o){ return o.pos; });
                 filter_edit_distance_occurrences<pos_t, mode>(occurrences, (pos_t) scheme.k);
             }
 

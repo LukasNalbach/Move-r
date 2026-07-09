@@ -131,7 +131,7 @@ struct move_r_adapter {
             occurrences.emplace_back(query.next_occ());
         }
 
-        ips4o::sort(occurrences.begin(), occurrences.end());
+        ips2ra::sort(occurrences.begin(), occurrences.end());
         EXPECT_EQ(occurrences, correct_occurrences);
     }
 

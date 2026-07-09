@@ -293,7 +293,7 @@ void generate()
                     auto report = [&](aprx_occ_t<pos_t> o) { occ.emplace_back(o); };
                     if (type.is_edit) {
                         index->template locate<EDIT_DISTANCE>(pat, scheme, report);
-                        ips2ra::sort(occ.begin(), occ.end(), [](const aprx_occ_t<pos_t>& o){ return o.pos; });
+                        ips2ra::sort(occ.begin(), occ.end(), [](const auto& o){ return o.pos; });
                         filter_edit_distance_occurrences<pos_t>(occ, (pos_t) scheme.k);
                     } else {
                         index->template locate<HAMMING_DISTANCE>(pat, scheme, report);
