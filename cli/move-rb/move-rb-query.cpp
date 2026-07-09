@@ -240,7 +240,7 @@ void run()
                     index.template locate<EDIT_DISTANCE>(pattern, scheme, [&](aprx_occ_t<pos_t> o){ occ.emplace_back(o); });
                     filter_edit_distance_occurrences<pos_t>(occ, (pos_t) k);
                 }
-                ips2ra::sort(occ.begin(), occ.end(), [](const aprx_occ_t<pos_t>& o){ return o.pos; });
+                ips2ra::sort(occ.begin(), occ.end(), [](const auto& o){ return o.pos; });
                 uint64_t to_print = print_limit == 0 ? occ.size() : std::min<uint64_t>(occ.size(), print_limit);
                 std::cout << occ.size() << " occurrence(s) (" << format_time(time_diff_ns(t, now())) << ")";
                 if (!occ.empty()) std::cout << ":";

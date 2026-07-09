@@ -29,6 +29,8 @@
 // exported symbol is the flavor's api getter (everything else, including all of columba, is hidden), so both
 // can be linked into one benchmark executable. See columba_capi.hpp.
 
+#include <ips2ra.hpp>
+
 #include "columba_adapter.hpp"
 #include "columba_apm_adapter.hpp"     // drive move_r's apm on the columba index
 #include "columba_capi.hpp"
@@ -116,7 +118,7 @@ uint64_t cn_locate_apm(void* handle, const char* pat, uint64_t m, int metric_edi
     if (metric_edit) {
         adapter.locate<EDIT_DISTANCE>(P, scheme, collect);
         // deduplicate exactly like move-rb (sort by position, then the coverage-preserving filter)
-        std::sort(occ.begin(), occ.end(), [](const aprx_occ_t<uint64_t>& a, const aprx_occ_t<uint64_t>& b) { return a.pos < b.pos; });
+        ips2ra::sort(occ.begin(), occ.end(), [](const auto& occ) { return occ.pos; });
         filter_edit_distance_occurrences<uint64_t>(occ, (uint64_t) k);
     } else {
         adapter.locate<HAMMING_DISTANCE>(P, scheme, collect);
