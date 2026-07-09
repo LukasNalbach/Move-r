@@ -24,6 +24,7 @@
  * SOFTWARE.
  */
 
+#include <ips2ra.hpp>
 #include <gtest/gtest.h>
 #include <move_r/move_r.hpp>
 #include "test-index-common.hpp"
