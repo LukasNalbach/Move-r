@@ -163,7 +163,7 @@ inline bool read_patterns(const bench_job_t& job, std::vector<std::string>& patt
     return true;
 }
 
-// builds the extension plan of each pattern in a set (from the plan RNG reset to ext_plan_seed)
+// builds the extension plan of each pattern in a set
 inline std::vector<ext_plan_t> build_plans(uint64_t m, uint64_t num_patterns)
 {
     std::vector<ext_plan_t> plans(num_patterns);
