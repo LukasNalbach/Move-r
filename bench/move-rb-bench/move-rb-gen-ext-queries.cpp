@@ -26,8 +26,9 @@
 
 // move-rb-gen-ext-queries: generates the pattern sets for move-rb-bench-ext. For every length m it writes a count
 // and a locate file (<text_name>.patterns-{count,locate}-m<m>) of sampled text substrings, each with its pattern
-// count calibrated against a move_rb index to run for ~<time> seconds. The extension plans are not stored: both
-// the position and plan RNGs are reset to a fixed seed per pattern set (see ext_query.hpp).
+// count calibrated against a move_rb index to run for ~<time> seconds. The extension plans are not stored; they
+// come from a plan RNG reset to a fixed seed per pattern set (see ext_query.hpp), so move-rb-bench-ext replays the
+// exact same queries.
 
 #include <algorithm>
 #include <cerrno>
@@ -65,7 +66,6 @@ bool gen_count = true;               // generate the count-pattern files
 bool gen_locate = true;              // generate the locate-pattern files
 std::string forbidden;               // characters a generated pattern must not contain (e.g. a FASTA separator)
 uint64_t min_patterns = 1;           // at least this many patterns per file
-uint64_t seed = 0;                   // position-sampling RNG seed (0 => random); reset per pattern set, not recorded
 double   timeout_seconds = 10.0;     // per-pattern query timeout (0 => disabled)
 uint64_t max_consecutive_skips = 10; // give up on a set after this many timeouts in a row
 
@@ -95,8 +95,6 @@ void help(std::string msg)
     std::cout << "   --time <s>        target query duration per pattern file, in seconds (default: 1s)" << std::endl;
     std::cout << "   --only <op>       restrict to count or locate files: count, locate or both (default: both)" << std::endl;
     std::cout << "   --min <N>         minimum number of patterns per file (default: 1)" << std::endl;
-    std::cout << "   --seed <s>        seed for the random pattern positions (default: random); reset per pattern set so" << std::endl;
-    std::cout << "                     generation is reproducible. The extension plans use a fixed seed and are not recorded." << std::endl;
     std::cout << "   --timeout <s>     per-pattern query timeout in seconds; a query runs in a forked worker that is" << std::endl;
     std::cout << "                     killed if it exceeds the timeout, then the pattern is discarded (0 = off, default: 10)" << std::endl;
     std::cout << "   --max-skips <N>   give up on a set after this many consecutive timeouts (default: 10)" << std::endl;
@@ -276,7 +274,9 @@ void generate()
     if (gen_count)  ops.push_back({"count",  false});
     if (gen_locate) ops.push_back({"locate", true });
 
-    std::cout << "calibrating to ~" << target_seconds << "s per file (position seed " << seed << ")\n" << std::endl;
+    std::cout << "calibrating to ~" << target_seconds << "s per file\n" << std::endl;
+
+    std::mt19937_64 pos_rng(std::random_device{}());
 
     for (const ext_op_t& op : ops) {
         for (uint64_t m : ms) {
@@ -291,9 +291,8 @@ void generate()
             std::string buffer; // the concatenated patterns to write
             std::uniform_int_distribution<uint64_t> pos_distrib(0, text_size - m - 1);
 
-            // both RNGs are reset per pattern set: the position RNG (--seed) so generation is reproducible, the
-            // plan RNG (ext_plan_seed) so move-rb-bench-ext replays the same plans with nothing stored in the file
-            std::mt19937_64 pos_rng(seed);
+            // the plan RNG is reset to the fixed ext_plan_seed per pattern set, so move-rb-bench-ext replays the
+            // same plans (nothing is stored in the file)
             std::mt19937_64 plan_rng(ext_plan_seed);
 
             uint64_t n = 0, total_ns = 0, total_occ = 0, skipped = 0, consecutive_skips = 0;
@@ -394,7 +393,6 @@ int main(int argc, char** argv)
         else if (o == "-n") text_name = need("-n");
         else if (o == "-x") forbidden = need("-x");
         else if (o == "--min")  min_patterns = std::stoull(need("--min"));
-        else if (o == "--seed") seed = std::stoull(need("--seed"));
         else if (o == "--time")      target_seconds = std::stod(need("--time"));
         else if (o == "--timeout")   timeout_seconds = std::stod(need("--timeout"));
         else if (o == "--max-skips") max_consecutive_skips = std::stoull(need("--max-skips"));
@@ -421,9 +419,6 @@ int main(int argc, char** argv)
     if (!std::filesystem::exists(path_input_file)) help("error: <input_file> does not exist");
     if (text_name.empty()) text_name = std::filesystem::path(path_input_file).filename().string();
     if (!std::filesystem::is_directory(out_dir)) help("error: output directory '" + out_dir + "' does not exist");
-
-    // resolve a concrete position seed (reset per pattern set); the plans use the fixed ext_plan_seed instead
-    if (seed == 0) seed = std::random_device{}();
 
     index_file.open(path_index_file, std::ios::binary);
     if (!index_file.good()) help("error: cannot open <move_rb_index>");

@@ -28,8 +28,8 @@
 
 // Shared query model for move-rb-bench-ext and move-rb-gen-ext-queries: a bidirectional exact search that starts
 // at a fixed position inside the pattern and extends it left/right in a given order. As every pattern is a
-// substring of the text, every extension succeeds. Both tools draw the extension plan from a plan RNG seeded with
-// ext_plan_seed and reset per pattern set, so every index replays the same searches without a seed in the file.
+// substring of the text, every extension succeeds. Both tools derive the extension plan from a plan RNG reset to
+// the fixed ext_plan_seed at the start of each pattern set, so the benchmark replays the generator's exact queries
 
 #include <cstdint>
 #include <random>
@@ -38,7 +38,7 @@
 
 #include <misc/apm.hpp> // direction_t (LEFT/RIGHT), query_support_t (COUNT/LOCATE)
 
-// the seed the plan RNG is reset to at the start of each pattern set
+// the fixed seed the plan RNG is reset to at the start of each pattern set (shared by the generator and benchmark)
 inline constexpr uint64_t ext_plan_seed = 0x9E3779B97F4A7C15ull;
 
 // the order in which a pattern is assembled during a bidirectional-extension query
