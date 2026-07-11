@@ -219,6 +219,7 @@ void run()
             }
             if (k < 0) { std::cout << "error: <k> must be >= 0" << std::endl; continue; }
             if (command == "edit-locate" && k > 20) { std::cout << "error: k > 20 is not supported for edit distance" << std::endl; continue; }
+            if (k >= 256) { std::cout << "error: k must be < 256" << std::endl; continue; }
 
             search_scheme_t scheme = min_u_scheme(k);
             if (pattern.size() < scheme.p) {

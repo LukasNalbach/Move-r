@@ -854,14 +854,16 @@ public:
      * @param P the pattern to search
      * @param scheme the search scheme to use (provides k)
      * @param report function called with every occurrence (an aprx_occ_t<pos_t, mode>) of P in T with at most k
-     *        errors (w.r.t. dist_metr). If mode == CIGAR the occurrence additionally carries a CIGAR alignment of P
-     *        against its matched string (occ.cigar), and its error is the exact distance of P to that string.
+     *        errors (w.r.t. dist_metr). If mode == CIGAR the occurrence carries a uint32 index (occ.cig_idx) into the
+     *        returned CIGAR vector, and its error is the exact distance of P to that alignment's matched string.
+     * @return in CIGAR mode, the CIGARs of P against its matched strings, one per SA-interval (occ.cig_idx indexes
+     *         into this vector); empty in NO_CIGAR mode
      */
     template <distance_metric_t dist_metr, cigar_mode_t mode = NO_CIGAR, typename report_fnc_t>
-    void locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const requires(supports_locate)
+    std::vector<cigar_t<sym_t>> locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const requires(supports_locate)
     {
-        if constexpr (dist_metr == HAMMING_DISTANCE) apm_hamming<move_rb, mode>{*this}.locate(P, scheme, report);
-        if constexpr (dist_metr == EDIT_DISTANCE) apm_edit<move_rb, mode>{*this}.locate(P, scheme, report);
+        if constexpr (dist_metr == HAMMING_DISTANCE) return apm_hamming<move_rb, mode>{*this}.locate(P, scheme, report);
+        else return apm_edit<move_rb, mode>{*this}.locate(P, scheme, report);
     }
 
     /**

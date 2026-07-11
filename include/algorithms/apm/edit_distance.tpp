@@ -443,14 +443,14 @@ protected:
         }
     }
 
-    using sorted_ctx_t = std::conditional_t<mode == CIGAR, std::pair<const node_t*, pos_t>, const node_t*>;
+    using sorted_ctx_t = std::conditional_t<mode == CIGAR, std::pair<const node_t*, uint32_t>, const node_t*>;
     static const node_t& ctx_of(const sorted_ctx_t& e) { if constexpr (mode == CIGAR) return *e.first; else return *e; }
-    static pos_t cig_of(const sorted_ctx_t& e) { if constexpr (mode == CIGAR) return e.second; else return no_match; }
+    static uint32_t cig_of(const sorted_ctx_t& e) { if constexpr (mode == CIGAR) return e.second; else return uint32_t(-1); }
 
     // recomputes each context's exact error and best-prefix length by aligning its matched string against P
     template <typename word_t>
     void recompute_errors(node_set_t& ctxts, const inp_t& P, pos_t m, pos_t k,
-        std::vector<sorted_ctx_t>& ctxts_sorted, std::vector<cigar_t>& cigars) const
+        std::vector<sorted_ctx_t>& ctxts_sorted, std::vector<cigar_t<sym_t>>& cigars) const
     {
         static thread_local edit_distance_matrix<word_t> mat;
         if constexpr (mode == NO_CIGAR) {
@@ -477,7 +477,7 @@ protected:
             node_t& mut = const_cast<node_t&>(node);
             mut.ctx.set_errors(err);
             mut.set_match_len(len);
-            if constexpr (mode == CIGAR) ctxts_sorted.emplace_back(&node, cigars.size() - 1);
+            if constexpr (mode == CIGAR) ctxts_sorted.emplace_back(&node, uint32_t(cigars.size() - 1));
             else                         ctxts_sorted.emplace_back(&node);
         }
     }
@@ -495,7 +495,7 @@ protected:
     // an effective interval: every SA-position in [beg, end] is reported as the same occurrence (len, err). In
     // CIGAR mode, str is the winning context's matched-string head (shared by all positions in the interval).
     // idx is the CIGAR index (in the cigars array) of the winning context, in CIGAR mode (unused otherwise)
-    struct interval_t {pos_t beg; pos_t end; pos_t err; pos_t len; pos_t idx = no_match;};
+    struct interval_t {pos_t beg; pos_t end; pos_t err; pos_t len; uint32_t cig_idx = uint32_t(-1);};
 
     // collects the cells of one part's final matrix column. Each cell is a final-column search context.
     class cluster_t {
@@ -639,14 +639,14 @@ protected:
     // stops there and never covers a pattern edge running off it. Those boundary-clipped occurrences can only touch the
     // first / last (m + k) characters. Both windows are decoded once and P matched directly
     template <typename report_fnc_t>
-    void locate_boundary(const inp_t& P, pos_t m, pos_t k, report_fnc_t report) const
+    void locate_boundary(const inp_t& P, pos_t m, pos_t k, report_fnc_t report, std::vector<cigar_t<sym_t>>& cigars) const
     {
-        if (k <= edit_distance_matrix<uint64_t>::k_limit) locate_boundary_impl<uint64_t>(P, m, k, report);
-        else                                              locate_boundary_impl<uint128_t>(P, m, k, report);
+        if (k <= edit_distance_matrix<uint64_t>::k_limit) locate_boundary_impl<uint64_t>(P, m, k, report, cigars);
+        else                                              locate_boundary_impl<uint128_t>(P, m, k, report, cigars);
     }
 
     template <typename word_t, typename report_fnc_t>
-    void locate_boundary_impl(const inp_t& P, pos_t m, pos_t k, report_fnc_t& report) const
+    void locate_boundary_impl(const inp_t& P, pos_t m, pos_t k, report_fnc_t& report, std::vector<cigar_t<sym_t>>& cigars) const
     {
         pos_t n = index.n - 1;
         if (m == 0 || n == 0) return;
@@ -667,7 +667,8 @@ protected:
                 auto [err, len, cig] = edit_cigar_prefix<pos_t>(Q, m, W, W.size(), k);
                 if (err > k) return;
                 if (rev_cig) std::reverse(cig.begin(), cig.end());
-                report({pos_of(len), len, err, std::move(cig)});
+                cigars.push_back(std::move(cig));
+                report({pos_of(len), len, err, uint32_t(cigars.size() - 1)});
             } else {
                 directional_substring<pos_t, inp_t> Q_col(Q, 0, m - 1, RIGHT);
                 mat.set_input(Q_col, index.sigma, index.forward_index().map_int());
@@ -686,31 +687,38 @@ public:
     /**
      * @brief locates a pattern with at most k errors (edit distance). Guarantees the relaxed contract: every
      *        reported (pos, len, err) has some p' in [pos-2k-1, pos+2k+1] and some length L with ed(P, T[p',p'+L)) <= k.
-     * @tparam report_fnc_t type of the function report (called with {pos, len, err})
-     * @param P the pattern to search
+     *
+     * The pattern length must be < 2^16 (the width of the packed occurrence length field), as every
+     * reported occurrence length lies in [m-k, m+k]; this is asserted here (the only place it is checked).
+     * @tparam report_fnc_t type of the function report (called with {pos, len, err} or, in CIGAR mode,
+     *         {pos, len, err, cigar_index})
+     * @param P the pattern to search (P.size() must be < 2^16)
      * @param scheme the search scheme to use (provides k)
      * @param report the occurrence callback
+     * @return in CIGAR mode, the CIGARs (one per SA-interval); an occurrence's occ.cig_idx is a uint32 index into
+     *         this vector. Empty in NO_CIGAR mode.
      */
     template <typename report_fnc_t>
-    void locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const requires(idx_t::supports_locate)
+    std::vector<cigar_t<sym_t>> locate(const inp_t& P, const search_scheme_t& scheme, report_fnc_t report) const requires(idx_t::supports_locate)
     {
         pos_t m = P.size();
+        assert(m < (uint64_t(1) << aprx_occ_len_bits)); // occurrence lengths (in [m-k, m+k]) must fit the len field
         active_pool = this; // owner of the str_ref handles created during this query
+        std::vector<cigar_t<sym_t>> cigars;
 
         if (scheme.k == 0) {
             if constexpr (mode == CIGAR) {
-                cigar_t cig = m > 0 ? cigar_t{MATCH(m)} : cigar_t{};
-                index.forward_index().locate(P, [&](pos_t occ){report({occ, m, 0, cig});});
+                cigars.push_back(m > 0 ? cigar_t<sym_t>{MATCH<sym_t>(m)} : cigar_t<sym_t>{});
+                index.forward_index().locate(P, [&](pos_t occ){report({occ, m, 0, uint32_t(0)});});
             } else {
                 index.forward_index().locate(P, [&](pos_t occ){report({occ, m, 0});});
             }
-            return;
+            return cigars;
         }
 
         auto ctxts = search(P, scheme);
         std::vector<sorted_ctx_t> ctxts_sorted;
         ctxts_sorted.reserve(ctxts.size());
-        std::vector<cigar_t> cigars; // one CIGAR per surviving context; empty and untouched in NO_CIGAR mode
         if constexpr (mode == CIGAR) cigars.reserve(ctxts.size());
         if (scheme.k <= edit_distance_matrix<uint64_t>::k_limit)
              recompute_errors<uint64_t>(ctxts, P, m, scheme.k, ctxts_sorted, cigars);
@@ -741,7 +749,7 @@ public:
                     if (ivs[iv_idx].end < pos && iv_idx < iv_idx_max) [[unlikely]] iv_idx++;
                 }
 
-                if constexpr (mode == CIGAR) report({occ, ivs[iv_idx].len, ivs[iv_idx].err, cigars[ivs[iv_idx].idx]});
+                if constexpr (mode == CIGAR) report({occ, ivs[iv_idx].len, ivs[iv_idx].err, ivs[iv_idx].cig_idx});
                 else                         report({occ, ivs[iv_idx].len, ivs[iv_idx].err});
             });
 
@@ -751,7 +759,8 @@ public:
 
         // the search above omits occurrences clipped at a text end; recover them from the boundary windows (only for
         // indexes that can decode both text ends -- move_rb; diagnostic adapters without bidirectional revert skip this)
-        if constexpr (can_decode_boundary) locate_boundary(P, m, scheme.k, report);
+        if constexpr (can_decode_boundary) locate_boundary(P, m, scheme.k, report, cigars);
+        return cigars;
     }
 
     /**
@@ -786,8 +795,8 @@ public:
         // SA-intervals are laminar (nested or disjoint), so a left-to-right sweep keeps the currently open
         // intervals on a stack (LIFO by their end). At each event position the segment since the last event is
         // closed off into one effective interval -- the minimum-error (longest on ties) of the open contexts.
-        // end_excl = one past the last SA-position; idx = the winner's CIGAR index (CIGAR mode)
-        struct open_t {pos_t end_excl; pos_t len; pos_t err; pos_t idx;}; 
+        // end_excl = one past the last SA-position; cig_idx = the winner's CIGAR index (CIGAR mode)
+        struct open_t {pos_t end_excl; pos_t len; pos_t err; uint32_t cig_idx;};
         std::vector<open_t> open;
         open.reserve(16);
         pos_t seg_beg = 0;
@@ -802,7 +811,7 @@ public:
                 const open_t* best = &open.front();
                 for (const open_t& o : open)
                     if (o.err < best->err || (o.err == best->err && o.len > best->len)) best = &o;
-                ivs.emplace_back(interval_t{seg_beg, pos - 1, best->err, best->len, best->idx});
+                ivs.emplace_back(interval_t{seg_beg, pos - 1, best->err, best->len, best->cig_idx});
             }
 
             while (!open.empty() && open.back().end_excl == pos) open.pop_back();

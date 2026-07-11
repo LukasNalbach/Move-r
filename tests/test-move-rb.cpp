@@ -121,7 +121,8 @@ static void verify_locate_edit_cigar(const move_rb<support, sym_t, pos_t>& index
     auto correct = locate<pos_t, EDIT_DISTANCE>(input_span, pattern_span, k);
 
     std::vector<aprx_occ_t<pos_t, CIGAR>> cigar_results;
-    index.template locate<EDIT_DISTANCE, CIGAR>(pattern, scheme, [&](aprx_occ_t<pos_t, CIGAR> o){
+    // in CIGAR mode locate returns the CIGARs (one per SA-interval); each occurrence's o.cig_idx indexes into them
+    std::vector<cigar_t<sym_t>> cigars = index.template locate<EDIT_DISTANCE, CIGAR>(pattern, scheme, [&](aprx_occ_t<pos_t, CIGAR> o){
         cigar_results.emplace_back(std::move(o));
     });
 
@@ -131,7 +132,7 @@ static void verify_locate_edit_cigar(const move_rb<support, sym_t, pos_t>& index
         cigar_occurrences.push_back({o.pos, o.len, o.err});
         if (o.pos + o.len > input_size) { ADD_FAILURE(); continue; }
         std::span<const sym_t> match = input_span.subspan(o.pos, o.len);
-        EXPECT_EQ(num_cigar_edits(pattern_span.data(), pattern_span.size(), match.data(), match.size(), o.cigar), o.err);
+        EXPECT_EQ(num_cigar_edits(pattern_span.data(), pattern_span.size(), match.data(), match.size(), cigars[o.cig_idx]), o.err);
         auto [it, inserted] = dist_cache.try_emplace(match, 0);
         if (inserted) it->second = edit_dist_bounded<pos_t>(pattern_span, match, k);
         EXPECT_TRUE(it->second == o.err && o.err <= k);
