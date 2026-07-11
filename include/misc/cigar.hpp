@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ostream>
+#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -43,12 +44,14 @@ enum class cigar_op_t : uint8_t { MATCH, MISMATCH, INS, DEL };
 /** @brief one run of a CIGAR. A MATCH run spans len (>= 1) positions. A MISMATCH/INS/DEL run always spans one
  *         position (len == 1) and additionally carries the involved symbol in @ref sym: the reference symbol for a
  *         MISMATCH or DEL, the pattern symbol for an INS. Together with the pattern this lets the reference be
- *         reconstructed and the SAM MD tag be derived. The struct is packed (6 bytes) to keep CIGARs compact. */
+ *         reconstructed and the SAM MD tag be derived. The struct is packed to keep CIGARs compact.
+ * @tparam sym_t the symbol type of the aligned sequences */
 #pragma pack(push, 1)
+template <typename sym_t>
 struct cigar_run_t {
     cigar_op_t op;  // the operation
     uint32_t len;   // number of positions the run spans (always 1 for MISMATCH/INS/DEL)
-    char sym;       // MISMATCH/DEL: the reference symbol; INS: the pattern symbol; unused (0) for MATCH
+    sym_t sym;      // MISMATCH/DEL: the reference symbol; INS: the pattern symbol; unused ({}) for MATCH
 
     bool operator==(const cigar_run_t&) const = default;
 
@@ -66,16 +69,18 @@ struct cigar_run_t {
 };
 #pragma pack(pop)
 
-/** @brief a CIGAR alignment as a sequence of runs (MISMATCH/INS/DEL runs are one position each and carry a symbol) */
-using cigar_t = std::vector<cigar_run_t>;
+/** @brief a CIGAR alignment as a sequence of runs (MISMATCH/INS/DEL runs are one position each and carry a symbol)
+ * @tparam sym_t the symbol type of the aligned sequences */
+template <typename sym_t>
+using cigar_t = std::vector<cigar_run_t<sym_t>>;
 
-/** @name CIGAR run factories: a MATCH takes a run length; a MISMATCH/INS/DEL takes its single symbol (its length is
- *        1), e.g. MATCH(3), MISMATCH('A'), DEL('C').
+/** @name CIGAR run factories: a MATCH takes a run length (and the symbol type); a MISMATCH/INS/DEL takes its single
+ *        symbol (its length is 1), e.g. MATCH<char>(3), MISMATCH('A'), DEL('C').
  *  @{ */
-inline cigar_run_t MATCH(uint32_t len = 1) { return {cigar_op_t::MATCH, len, 0}; }
-inline cigar_run_t MISMATCH(char sym)      { return {cigar_op_t::MISMATCH, 1, sym}; }
-inline cigar_run_t INS(char sym)           { return {cigar_op_t::INS, 1, sym}; }
-inline cigar_run_t DEL(char sym)           { return {cigar_op_t::DEL, 1, sym}; }
+template <typename sym_t> inline cigar_run_t<sym_t> MATCH(uint32_t len = 1) { return {cigar_op_t::MATCH, len, sym_t{}}; }
+template <typename sym_t> inline cigar_run_t<sym_t> MISMATCH(sym_t sym)     { return {cigar_op_t::MISMATCH, 1, sym}; }
+template <typename sym_t> inline cigar_run_t<sym_t> INS(sym_t sym)          { return {cigar_op_t::INS, 1, sym}; }
+template <typename sym_t> inline cigar_run_t<sym_t> DEL(sym_t sym)          { return {cigar_op_t::DEL, 1, sym}; }
 /** @} */
 
 /** @brief whether an approximate-pattern-matching locate also computes a CIGAR alignment per occurrence */
@@ -83,7 +88,8 @@ enum cigar_mode_t : uint8_t { NO_CIGAR = 0, CIGAR = 1 };
 
 /** @brief appends a CIGAR run, extending the last run only for MATCH (MISMATCH/INS/DEL runs stay one position each,
  *         since each carries its own symbol) */
-inline void cigar_push(cigar_t& cigar, cigar_run_t run)
+template <typename sym_t>
+inline void cigar_push(cigar_t<sym_t>& cigar, cigar_run_t<sym_t> run)
 {
     if (run.op == cigar_op_t::MATCH && !cigar.empty() && cigar.back().op == cigar_op_t::MATCH)
         cigar.back().len += run.len;
@@ -110,29 +116,30 @@ inline void cigar_push(cigar_t& cigar, cigar_run_t run)
 // (reference = M in the columns, query = P in the rows). Only cells within the band |i - j| <= k are meaningful; the
 // optimal (<= k) path stays inside it, so band-out neighbours are skipped. Reads cells via the matrix' O(1) accessor.
 template <typename word_t, typename seq1_t, typename seq2_t>
-static cigar_t cigar_traceback(const edit_distance_matrix<word_t>& mat, const seq1_t& P, const seq2_t& M,
-                               int64_t i, int64_t j, int64_t k)
+static cigar_t<std::ranges::range_value_t<seq2_t>> cigar_traceback(
+    const edit_distance_matrix<word_t>& mat, const seq1_t& P, const seq2_t& M, int64_t i, int64_t j, int64_t k)
 {
+    using sym_t = std::ranges::range_value_t<seq2_t>;
     auto in_band = [&](int64_t a, int64_t b) { return a >= 0 && b >= 0 && std::abs(a - b) <= k; };
-    cigar_t cigar;
+    cigar_t<sym_t> cigar;
 
     while (i > 0 || j > 0) {
         int64_t cur = mat(i, j);
 
         if (i > 0 && j > 0 && in_band(i - 1, j - 1) && mat(i - 1, j - 1) + (P[i - 1] != M[j - 1] ? 1 : 0) == cur) {
-            cigar_push(cigar, P[i - 1] == M[j - 1] ? MATCH() : MISMATCH((char) M[j - 1])); // reference symbol
+            cigar_push(cigar, P[i - 1] == M[j - 1] ? MATCH<sym_t>() : MISMATCH(sym_t(M[j - 1]))); // reference symbol
             i--; j--;
         } else if (i > 0 && in_band(i - 1, j) && mat(i - 1, j) + 1 == cur) {
-            cigar_push(cigar, INS((char) P[i - 1])); // a P-symbol absent from M
+            cigar_push(cigar, INS(sym_t(P[i - 1]))); // a P-symbol absent from M
             i--;
         } else if (j > 0 && in_band(i, j - 1) && mat(i, j - 1) + 1 == cur) {
-            cigar_push(cigar, DEL((char) M[j - 1])); // an M-symbol absent from P
+            cigar_push(cigar, DEL(sym_t(M[j - 1]))); // an M-symbol absent from P
             j--;
         } else if (i > 0) {
-            cigar_push(cigar, INS((char) P[i - 1])); // j == 0: only insertions of P remain
+            cigar_push(cigar, INS(sym_t(P[i - 1]))); // j == 0: only insertions of P remain
             i--;
         } else {
-            cigar_push(cigar, DEL((char) M[j - 1])); // i == 0: only deletions of M remain
+            cigar_push(cigar, DEL(sym_t(M[j - 1]))); // i == 0: only deletions of M remain
             j--;
         }
     }
@@ -142,22 +149,23 @@ static cigar_t cigar_traceback(const edit_distance_matrix<word_t>& mat, const se
 }
 
 template <typename pos_t, typename seq1_t, typename seq2_t>
-static std::pair<pos_t, cigar_t> edit_cigar(
+static std::pair<pos_t, cigar_t<std::ranges::range_value_t<seq2_t>>> edit_cigar(
     const seq1_t& P, int64_t n1, const seq2_t& M, int64_t n2, int64_t k)
 {
+    using sym_t = std::ranges::range_value_t<seq2_t>;
     assert(k <= bp_k_limit_128);
     assert(n2 <= bp_max_ref_len);
 
     // an empty side aligns trivially: only insertions of P (M empty) or deletions of M (P empty) remain
     if (n1 == 0 || n2 == 0) {
-        cigar_t cigar;
-        for (int64_t i = 0; i < n1; i++) cigar.emplace_back(INS((char) P[i])); // M empty: all of P is inserted
-        for (int64_t j = 0; j < n2; j++) cigar.emplace_back(DEL((char) M[j])); // P empty: all of M is deleted
+        cigar_t<sym_t> cigar;
+        for (int64_t i = 0; i < n1; i++) cigar.emplace_back(INS(sym_t(P[i]))); // M empty: all of P is inserted
+        for (int64_t j = 0; j < n2; j++) cigar.emplace_back(DEL(sym_t(M[j]))); // P empty: all of M is deleted
         return {pos_t(n1 + n2), std::move(cigar)};
     }
 
     // builds the banded Myers matrix with reference = M (columns), query = P (rows), then traces back from cell (n1, n2)
-    auto run = [&]<typename word_t>() -> std::pair<pos_t, cigar_t> {
+    auto run = [&]<typename word_t>() -> std::pair<pos_t, cigar_t<sym_t>> {
         edit_distance_matrix<word_t> mat;
         setup_edit_matrix<word_t>(mat, M, n2, P, n1, k); // reference = M, query = P
         return {mat(n1, n2), cigar_traceback(mat, P, M, n1, n2, k)};
@@ -187,9 +195,10 @@ static std::pair<pos_t, cigar_t> edit_cigar(
  *         exceeds k (the caller drops such a context)
  */
 template <typename pos_t, typename seq1_t, typename seq2_t>
-static std::tuple<pos_t, pos_t, cigar_t> edit_cigar_prefix(
+static std::tuple<pos_t, pos_t, cigar_t<std::ranges::range_value_t<seq2_t>>> edit_cigar_prefix(
     const seq1_t& P, int64_t n1, const seq2_t& M, int64_t n2, int64_t k)
 {
+    using sym_t = std::ranges::range_value_t<seq2_t>;
     assert(k <= bp_k_limit_128);
 
     // only a prefix of length in [n1 - k, n1 + k] can be within edit distance k of P (a length difference of d costs
@@ -198,9 +207,9 @@ static std::tuple<pos_t, pos_t, cigar_t> edit_cigar_prefix(
     const int64_t j_max = std::min<int64_t>(n2, n1 + k);
     assert(j_max <= bp_max_ref_len);
 
-    if (n1 == 0) return {pos_t(0), pos_t(0), cigar_t{}}; // empty pattern: empty prefix, no edits
+    if (n1 == 0) return {pos_t(0), pos_t(0), cigar_t<sym_t>{}}; // empty pattern: empty prefix, no edits
 
-    auto run = [&]<typename word_t>() -> std::tuple<pos_t, pos_t, cigar_t> {
+    auto run = [&]<typename word_t>() -> std::tuple<pos_t, pos_t, cigar_t<sym_t>> {
         edit_distance_matrix<word_t> mat;
         setup_edit_matrix<word_t>(mat, M, j_max, P, n1, k); // reference = M[0..j_max), query = P
 
@@ -213,7 +222,7 @@ static std::tuple<pos_t, pos_t, cigar_t> edit_cigar_prefix(
             if (e < best_err) { best_err = e; best_len = j; }
         }
 
-        if (best_err > pos_t(k)) return {best_err, pos_t(best_len), cigar_t{}}; // > k window: caller drops it
+        if (best_err > pos_t(k)) return {best_err, pos_t(best_len), cigar_t<sym_t>{}}; // > k window: caller drops it
         return {best_err, pos_t(best_len), cigar_traceback(mat, P, M, n1, best_len, k)};
     };
 
@@ -226,8 +235,7 @@ static std::tuple<pos_t, pos_t, cigar_t> edit_cigar_prefix(
  * @brief counts the edits of a CIGAR while checking it is a valid alignment of S1 against S2: every MATCH must sit
  *        on equal symbols, every MISMATCH on differing symbols, and the operations together must consume exactly
  *        all of S1 and all of S2
- * @tparam sym_t symbol type of the pattern
- * @tparam sym2_t symbol type of the matched string
+ * @tparam sym_t symbol type of the aligned sequences (pattern and matched string)
  * @param S1 pointer to the pattern symbols
  * @param n1 the length of S1
  * @param S2 pointer to the matched-string symbols
@@ -235,19 +243,19 @@ static std::tuple<pos_t, pos_t, cigar_t> edit_cigar_prefix(
  * @param cigar the CIGAR to validate
  * @return the number of edits (mismatches + insertions + deletions) if the CIGAR validly aligns S1 against S2, else -1
  */
-template <typename sym_t, typename sym2_t>
-static int64_t num_cigar_edits(const sym_t* S1, uint64_t n1, const sym2_t* S2, uint64_t n2, const cigar_t& cigar)
+template <typename sym_t>
+static int64_t num_cigar_edits(const sym_t* S1, uint64_t n1, const sym_t* S2, uint64_t n2, const cigar_t<sym_t>& cigar)
 {
     uint64_t p1 = 0, p2 = 0;
     int64_t edits = 0;
 
-    for (const cigar_run_t& run : cigar) {
+    for (const cigar_run_t<sym_t>& run : cigar) {
         for (uint32_t r = 0; r < run.len; r++) {
             switch (run.op) {
                 case cigar_op_t::MATCH:    if (p1 >= n1 || p2 >= n2 || S1[p1] != S2[p2]) return -1; p1++; p2++; break;
-                case cigar_op_t::MISMATCH: if (p1 >= n1 || p2 >= n2 || S1[p1] == S2[p2] || (char) S2[p2] != run.sym) return -1; p1++; p2++; edits++; break;
-                case cigar_op_t::INS:      if (p1 >= n1 || (char) S1[p1] != run.sym) return -1; p1++; edits++; break;
-                case cigar_op_t::DEL:      if (p2 >= n2 || (char) S2[p2] != run.sym) return -1; p2++; edits++; break;
+                case cigar_op_t::MISMATCH: if (p1 >= n1 || p2 >= n2 || S1[p1] == S2[p2] || S2[p2] != run.sym) return -1; p1++; p2++; edits++; break;
+                case cigar_op_t::INS:      if (p1 >= n1 || S1[p1] != run.sym) return -1; p1++; edits++; break;
+                case cigar_op_t::DEL:      if (p2 >= n2 || S2[p2] != run.sym) return -1; p2++; edits++; break;
                 default:                   __builtin_unreachable();
             }
         }
@@ -264,7 +272,8 @@ static int64_t num_cigar_edits(const sym_t* S1, uint64_t n1, const sym2_t* S2, u
  * @param out the stream the CIGAR is written to
  * @param cigar the CIGAR alignment
  */
-inline void append_cigar(std::ostream& out, const cigar_t& cigar)
+template <typename sym_t>
+inline void append_cigar(std::ostream& out, const cigar_t<sym_t>& cigar)
 {
     for (size_t i = 0; i < cigar.size();) {
         cigar_op_t op = cigar[i].op;
@@ -285,12 +294,13 @@ inline void append_cigar(std::ostream& out, const cigar_t& cigar)
  * @param out the stream the MD-tag value is written to
  * @param cigar the CIGAR alignment
  */
-inline void append_md(std::ostream& out, const cigar_t& cigar)
+template <typename sym_t>
+inline void append_md(std::ostream& out, const cigar_t<sym_t>& cigar)
 {
     uint64_t matches = 0; // current run of matching (or, via '=', reference-equal) bases
     bool in_del = false;  // whether the previous emitted op was a deletion (to group a '^'-run)
 
-    for (const cigar_run_t& run : cigar) {
+    for (const cigar_run_t<sym_t>& run : cigar) {
         switch (run.op) {
             case cigar_op_t::MATCH:    matches += run.len; in_del = false; break;
             case cigar_op_t::MISMATCH: out << matches << run.sym; matches = 0; in_del = false; break;

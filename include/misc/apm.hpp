@@ -54,18 +54,27 @@ enum query_support_t : uint8_t {
     LOCATE = 1
 };
 
+/** @brief bit-field widths of a packed aprx_occ_t: position, length and error count (must sum to <= 64) */
+static constexpr unsigned aprx_occ_pos_bits = 40; // positions up to 2^40 - 1 (a 1 TiB text)
+static constexpr unsigned aprx_occ_len_bits = 16; // occurrence lengths up to 2^16 - 1 (i.e. m + k)
+static constexpr unsigned aprx_occ_err_bits = 8;  // error counts up to 2^8 - 1 (i.e. k)
+
 /**
- * @brief an approximate occurrence: its starting position, length and error count. When mode == CIGAR it also
- *        owns the occurrence's CIGAR alignment.
+ * @brief an approximate occurrence: its starting position, length and error count, packed into a single 64-bit
+ *        word via bit-fields (occ.pos, occ.len, occ.err are accessed like plain members). The widths cap the
+ *        position at 2^40 (a 1 TiB text), the length at 2^16 (m + k) and the error count at 2^8 (k).
+ *
+ *        In CIGAR mode the occurrence carries a uint32 index cig_idx into the vector of CIGARs returned by locate()
+ *        (one CIGAR per SA-interval), so all occurrences of an SA-interval share one CIGAR.
  * @tparam pos_t unsigned integer position type
  * @tparam mode whether the occurrence also carries a CIGAR alignment
  */
 template <typename pos_t, cigar_mode_t mode = NO_CIGAR>
 struct aprx_occ_t {
-    pos_t pos;
-    pos_t len;
-    pos_t err;
-    [[no_unique_address]] std::conditional_t<mode == CIGAR, cigar_t, std::monostate> cigar = {};
+    uint64_t pos : aprx_occ_pos_bits;
+    uint64_t len : aprx_occ_len_bits;
+    uint64_t err : aprx_occ_err_bits;
+    [[no_unique_address]] std::conditional_t<mode == CIGAR, uint32_t, std::monostate> cig_idx = {};
 
     /** @brief orders occurrences by position, then by error count, then by length (the CIGAR is ignored) */
     bool operator<(const aprx_occ_t& other) const

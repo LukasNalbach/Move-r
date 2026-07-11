@@ -324,7 +324,8 @@ void run_locate(idx_t& index, uint64_t n, const bench_config_t& cfg, const bench
             auto collect = [&](aprx_occ_t<pos_t, mode> occ) { occurrences.emplace_back(std::move(occ)); };
             // the CIGAR overload takes an explicit mode template argument; the plain path keeps the single-argument
             // form so the adapters (whose locate has no mode parameter) still compile
-            if constexpr (mode == CIGAR) index.template locate<dist_metr, CIGAR>(patterns[i], scheme, collect);
+            std::vector<cigar_t<char>> cigars;
+            if constexpr (mode == CIGAR) cigars = index.template locate<dist_metr, CIGAR>(patterns[i], scheme, collect);
             else                         index.template locate<dist_metr>(patterns[i], scheme, collect);
 
             // for edit distance the same occurrence may be reported by several search contexts;
@@ -340,8 +341,9 @@ void run_locate(idx_t& index, uint64_t n, const bench_config_t& cfg, const bench
             // memory bookkeeping (outside the timed region): track the largest single-pattern result
             peak_occ = std::max<uint64_t>(peak_occ, occurrences.size());
             if constexpr (mode == CIGAR) {
+                // CIGARs are shared per SA-interval; the footprint is the returned CIGAR vector
                 uint64_t cig = 0;
-                for (const auto& o : occurrences) cig += (uint64_t) o.cigar.size() * sizeof(cigar_run_t);
+                for (const auto& c : cigars) cig += (uint64_t) c.size() * sizeof(cigar_run_t<char>);
                 peak_cigar = std::max(peak_cigar, cig);
             }
         }

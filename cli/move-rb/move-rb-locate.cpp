@@ -77,8 +77,8 @@ void help(std::string msg)
     std::cout << "                              (input_file must be the file the index was built for)" << std::endl;
     std::cout << "   <metric>                   distance metric to use (hamming or edit)" << std::endl;
     std::cout << "   <scheme>                   search scheme to use (pigeon_hole, suffix_filter, min_u, 01 or path to a file)" << std::endl;
-    std::cout << "   <mismatches>               maximum number of allowed mismatches; applies only to" << std::endl;
-    std::cout << "                              pigeon_hole, suffix_filter, min_u and 01 search schemes" << std::endl;
+    std::cout << "   <mismatches>               maximum number of allowed mismatches (must be < 256); applies only" << std::endl;
+    std::cout << "                              to pigeon_hole, suffix_filter, min_u and 01 search schemes" << std::endl;
     std::cout << "   -o <output_file>           write pattern occurrences to this file (in ASCII format; one line per pattern)" << std::endl;
     std::cout << "   -sam <sam_file>            write occurrences in SAM format to <sam_file> (requires an index built" << std::endl;
     std::cout << "                              with move-rb-build -f; uses the per-occurrence CIGAR)" << std::endl;
@@ -188,7 +188,6 @@ static bool read_fastq(std::istream& in, std::string& name, std::string& seq, st
     return true;
 }
 
-
 /**
  * @brief loads the index and benchmarks locating the input patterns
  * @tparam pos_t index integer type
@@ -231,9 +230,11 @@ void measure_locate()
     std::string pattern;
     no_init_resize(pattern, pattern_length);
     std::vector<aprx_occ_t<pos_t>> occurrences;
-    using sam_list_t = std::vector<aprx_occ_t<pos_t, cm>>; // occurrences (each carrying its CIGAR unless -nocigar)
+    using sam_list_t = std::vector<aprx_occ_t<pos_t, cm>>; // occurrences (each holding a CIGAR index unless -nocigar)
     sam_list_t fwd_results; // forward-strand occurrences of the current read
     sam_list_t rc_results;  // reverse-strand occurrences (of the read's reverse complement)
+    // one CIGAR per SA-interval per strand; an occurrence's occ.cig_idx indexes into its strand's vector (CIGAR mode)
+    std::vector<cigar_t<char>> fwd_cigars, rc_cigars;
     uint64_t checksum = 0;
     uint64_t baseline_alloc = malloc_count_current();
     malloc_count_reset_peak();
@@ -245,7 +246,7 @@ void measure_locate()
     // writes one SAM alignment record of the current read. seq/qual are the read's forward-strand sequence and
     // qualities; for a reverse-strand record (reverse) the caller passes the reverse-complemented sequence and this
     // reverses the qualities to match. SEQ/QUAL are only written for the primary record and only when -seq is set.
-    auto emit_record = [&](const std::string& qname, const aprx_occ_t<pos_t, cm>& o,
+    auto emit_record = [&](const std::string& qname, const aprx_occ_t<pos_t, cm>& o, const std::vector<cigar_t<char>>& cigars,
         bool reverse, bool primary, uint16_t mapq, const std::string& seq, const std::string& qual)
     {
         pos_t seq_i = seqs.sequence_index(o.pos, seq_cursor);
@@ -254,7 +255,7 @@ void measure_locate()
 
         sam_file << qname << '\t' << flag << '\t' << seqs.sequence_name(seq_i)
                  << '\t' << (local + 1) << '\t' << mapq << '\t';
-        if constexpr (cm == CIGAR) append_cigar(sam_file, o.cigar);
+        if constexpr (cm == CIGAR) append_cigar(sam_file, cigars[o.cig_idx]);
         else sam_file << '*'; // -nocigar: CIGAR omitted (not computed)
         sam_file << "\t*\t0\t0\t";
 
@@ -270,7 +271,7 @@ void measure_locate()
         }
 
         sam_file << "\tNM:i:" << o.err; // NM = edit distance of this alignment
-        if constexpr (cm == CIGAR) { sam_file << "\tMD:Z:"; append_md(sam_file, o.cigar); } // reference-mismatch string
+        if constexpr (cm == CIGAR) { sam_file << "\tMD:Z:"; append_md(sam_file, cigars[o.cig_idx]); } // reference-mismatch string
         sam_file << '\n';
     };
 
@@ -278,7 +279,8 @@ void measure_locate()
     // secondary (the search itself never crosses a separator, so every occurrence lies within one sequence), or a
     // single unmapped record
     auto emit_sam = [&](const std::string& qname, const std::string& fwd_seq, const std::string& rc_seq,
-        const std::string& qual, sam_list_t& fwd, sam_list_t& rc)
+        const std::string& qual, sam_list_t& fwd, sam_list_t& rc,
+        const std::vector<cigar_t<char>>& fwd_cig, const std::vector<cigar_t<char>>& rc_cig)
     {
         if (fwd.empty() && rc.empty()) { // unmapped read
             sam_file << qname << "\t4\t*\t0\t0\t*\t*\t0\t0\t"
@@ -299,25 +301,25 @@ void measure_locate()
         if (sam_best_only) {
             // report only one best alignment: the first minimum-error occurrence (forward strand preferred)
             for (const auto& o : fwd)
-                if (o.err == min_err) { emit_record(qname, o, false, true, primary_mapq, fwd_seq, qual); return; }
+                if (o.err == min_err) { emit_record(qname, o, fwd_cig, false, true, primary_mapq, fwd_seq, qual); return; }
             for (const auto& o : rc)
-                if (o.err == min_err) { emit_record(qname, o, true, true, primary_mapq, rc_seq, qual); return; }
+                if (o.err == min_err) { emit_record(qname, o, rc_cig, true, true, primary_mapq, rc_seq, qual); return; }
             return;
         }
 
         bool primary_assigned = false;
 
-        auto emit_list = [&](sam_list_t& occs, bool reverse, const std::string& seq) {
+        auto emit_list = [&](sam_list_t& occs, const std::vector<cigar_t<char>>& cigars, bool reverse, const std::string& seq) {
             for (const auto& o : occs) {
                 bool primary = !primary_assigned && o.err == min_err;
                 uint16_t mapq = primary ? primary_mapq : 0;
                 primary_assigned |= primary;
-                emit_record(qname, o, reverse, primary, mapq, seq, qual);
+                emit_record(qname, o, cigars, reverse, primary, mapq, seq, qual);
             }
         };
 
-        emit_list(fwd, false, fwd_seq);
-        emit_list(rc, true, rc_seq);
+        emit_list(fwd, fwd_cig, false, fwd_seq);
+        emit_list(rc, rc_cig, true, rc_seq);
     };
 
     if (sam_output) {
@@ -346,7 +348,8 @@ void measure_locate()
     // writes one PAF line per occurrence: query name/length, query span (the whole read), strand, target
     // name/length, target span, number of matching bases, alignment block length, mapping quality, then the NM
     // (edit distance) and (in CIGAR mode) cg tags
-    auto emit_paf = [&](const std::string& qname, uint64_t read_len, sam_list_t& occs, bool reverse) {
+    auto emit_paf = [&](const std::string& qname, uint64_t read_len, sam_list_t& occs,
+        const std::vector<cigar_t<char>>& cigars, bool reverse) {
         for (const auto& o : occs) {
             pos_t seq_i = seqs.sequence_index(o.pos, paf_cursor);
             pos_t local = o.pos - seqs.sequence_start(seq_i);
@@ -354,7 +357,7 @@ void measure_locate()
 
             if constexpr (cm == CIGAR) {
                 matches = 0; aln = 0;
-                for (const cigar_run_t& run : o.cigar) { aln += run.len; if (run.op == cigar_op_t::MATCH) matches += run.len; }
+                for (const cigar_run_t<char>& run : cigars[o.cig_idx]) { aln += run.len; if (run.op == cigar_op_t::MATCH) matches += run.len; }
             } else { // no CIGAR: approximate from the occurrence's length and error
                 aln = o.len; matches = o.len > o.err ? pos_t(o.len - o.err) : 0;
             }
@@ -362,7 +365,7 @@ void measure_locate()
             paf_file << qname << '\t' << read_len << "\t0\t" << read_len << '\t' << (reverse ? '-' : '+') << '\t'
                      << seqs.sequence_name(seq_i) << '\t' << seqs.sequence_length(seq_i) << '\t'
                      << local << '\t' << (local + o.len) << '\t' << matches << '\t' << aln << "\t255\tNM:i:" << o.err;
-            if constexpr (cm == CIGAR) { paf_file << "\tcg:Z:"; append_cigar(paf_file, o.cigar); }
+            if constexpr (cm == CIGAR) { paf_file << "\tcg:Z:"; append_cigar(paf_file, cigars[o.cig_idx]); }
             paf_file << '\n';
         }
     };
@@ -384,28 +387,30 @@ void measure_locate()
 
             // locate one strand's occurrences (with CIGAR), then sort by position and remove redundancy. A read too
             // short for the scheme (fewer characters than parts) cannot be searched, so it yields no occurrences.
-            auto locate_strand = [&](const std::string& read, sam_list_t& out) {
+            auto locate_strand = [&](const std::string& read, sam_list_t& out, std::vector<cigar_t<char>>& cigars_out) {
                 out.clear();
+                cigars_out.clear();
                 if (k > 0 && read.size() <= search_scheme.p) return;
                 auto collect = [&](aprx_occ_t<pos_t, cm> occ){ out.emplace_back(std::move(occ)); };
 
                 if (dist_metr == HAMMING_DISTANCE)
-                    index.template locate<HAMMING_DISTANCE, cm>(read, search_scheme, collect);
+                    cigars_out = index.template locate<HAMMING_DISTANCE, cm>(read, search_scheme, collect);
                 else
-                    index.template locate<EDIT_DISTANCE, cm>(read, search_scheme, collect);
+                    cigars_out = index.template locate<EDIT_DISTANCE, cm>(read, search_scheme, collect);
 
                 ips2ra::sort(out.begin(), out.end(), [](const auto& o){ return o.pos; });
                 filter_edit_distance_occurrences<pos_t, cm>(out, pos_t(k));
             };
 
-            locate_strand(pattern, fwd_results);
+            locate_strand(pattern, fwd_results, fwd_cigars);
             std::string rc_seq;
 
             if (sam_rc) {
                 rc_seq = reverse_complement(pattern);
-                locate_strand(rc_seq, rc_results);
+                locate_strand(rc_seq, rc_results, rc_cigars);
             } else {
                 rc_results.clear();
+                rc_cigars.clear();
             }
 
             t3 = now();
@@ -413,10 +418,10 @@ void measure_locate()
 
             num_occurrences += fwd_results.size() + rc_results.size();
             checksum += fwd_results.size() + rc_results.size();
-            if (sam_output) emit_sam(qname, pattern, rc_seq, qual, fwd_results, rc_results);
+            if (sam_output) emit_sam(qname, pattern, rc_seq, qual, fwd_results, rc_results, fwd_cigars, rc_cigars);
             if (paf_output) {
-                emit_paf(qname, pattern.size(), fwd_results, false);
-                emit_paf(qname, pattern.size(), rc_results, true);
+                emit_paf(qname, pattern.size(), fwd_results, fwd_cigars, false);
+                emit_paf(qname, pattern.size(), rc_results, rc_cigars, true);
             }
             meter.step();
             continue;
@@ -610,6 +615,7 @@ int main(int argc, char** argv)
         int32_t k_arg = atoi(next_arg(argc, argv, "<mismatches>"));
         k = k_arg;
         if (k_arg < 0) help("error: invalid k value");
+        if (k_arg >= 256) help("error: k must be < 256");
         if      (scheme_str == "pigeon_hole")   search_scheme = pigeon_hole_scheme(k);
         else if (scheme_str == "suffix_filter") search_scheme = suffix_filter_scheme(k);
         else if (scheme_str == "min_u")         search_scheme = min_u_scheme(k);
