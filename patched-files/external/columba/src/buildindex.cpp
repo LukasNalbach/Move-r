@@ -39,9 +39,12 @@
 #include <string>     // for string
 #include <vector>     // for vector
 
-#include "libsais.h"   // for libsais / libsais_omp (32-bit suffix arrays)
-#include "libsais64.h" // for libsais64 / libsais64_omp (64-bit suffix arrays)
-#include <omp.h>       // for omp_get_max_threads
+#ifdef THIRTY_TWO
+#include "libsais.h" // for libsais
+#include "libsais64.h"
+#else
+#include "divsufsort64.h"
+#endif
 
 #ifdef HAVE_ZLIB
 #include "seqfile.h"
@@ -550,57 +553,81 @@ void createAlphabet(const string& T, const vector<length_t>& charCounts,
     sigma = Alphabet<ALPHABET>(charCounts);
 }
 
-/**
- * @brief Create the suffix array using the (multi-threaded) libsais library.
- * @param T The text.
- * @param SA The suffix array. (output)
- * @param nThreads Number of OpenMP threads to use (0 = all available, honouring omp_set_num_threads).
- */
-void createSuffixArray(const string& T, vector<length_t>& SA, int nThreads = 0) {
-    logger.logInfo("Generating the suffix array using libsais (" +
-                   to_string(nThreads == 0 ? omp_get_max_threads() : nThreads) +
-                   " thread(s))...");
+#ifdef THIRTY_TWO
+void createSuffixArrayLibsais(const string& T, vector<uint32_t>& SA) {
+    logger.logInfo("Generating the suffix array using libsais...");
+
+    // Convert std::string to const uint8_t*
     const uint8_t* tPtr = reinterpret_cast<const uint8_t*>(T.c_str());
 
-    try {
-        if (sizeof(length_t) == 4 && T.size() <= INT32_MAX) {
-            // 32-bit suffix array (input fits in a signed 32-bit index): libsais
-            SA.resize(T.size());
-            logger.logDeveloper("Calling libsais_omp");
-            int32_t result =
-                libsais_omp(tPtr, reinterpret_cast<int32_t*>(SA.data()),
-                            static_cast<int32_t>(T.size()), 0, nullptr, nThreads);
-            if (result != 0) {
-                throw runtime_error("libsais failed with error code " +
-                                    to_string(result));
-            }
-        } else if (sizeof(length_t) == 8) {
-            // 64-bit suffix array: libsais64 directly into SA
-            SA.resize(T.size());
-            logger.logDeveloper("Calling libsais64_omp");
-            int64_t result =
-                libsais64_omp(tPtr, reinterpret_cast<int64_t*>(SA.data()),
-                              static_cast<int64_t>(T.size()), 0, nullptr, nThreads);
-            if (result != 0) {
-                throw runtime_error("libsais64 failed with error code " +
-                                    to_string(result));
-            }
-        } else {
-            // 32-bit suffix array but input > 2 GB: build a 64-bit SA, then narrow
-            vector<int64_t> SA64(T.size());
-            logger.logDeveloper("Calling libsais64_omp");
-            int64_t result =
-                libsais64_omp(tPtr, SA64.data(),
-                              static_cast<int64_t>(T.size()), 0, nullptr, nThreads);
-            if (result != 0) {
-                throw runtime_error("libsais64 failed with error code " +
-                                    to_string(result));
-            }
-            SA.resize(T.size());
-            for (size_t i = 0; i < T.size(); i++) {
-                SA[i] = static_cast<length_t>(SA64[i]);
-            }
+    if (T.size() > INT32_MAX) {
+        // We need libsais64 to handle this
+        // create a temporary vector to store the 64-bit suffix array
+        SA.clear();
+        vector<int64_t> SA64(T.size());
+        logger.logDeveloper("Calling libsais64");
+        int64_t result = libsais64(tPtr, SA64.data(),
+                                   static_cast<int64_t>(T.size()), 0, nullptr);
+        if (result != 0) {
+            throw runtime_error("libsais64 failed with error code " +
+                                to_string(result));
         }
+        SA.reserve(T.size());
+        // convert the 64-bit suffix array to 32-bit
+        for (size_t i = 0; i < T.size(); i++) {
+            SA.emplace_back(static_cast<uint32_t>(SA64[i]));
+        }
+    } else {
+        // Resize SA to the size of the input string to hold the suffix array
+        SA.resize(T.size());
+        logger.logDeveloper("Calling libsais");
+        int32_t result = libsais(tPtr, reinterpret_cast<int32_t*>(SA.data()),
+                                 static_cast<int32_t>(T.size()), 0, nullptr);
+
+        if (result != 0) {
+            throw runtime_error("libsais failed with error code " +
+                                to_string(result));
+        }
+    }
+
+    logger.logDeveloper("Libsais successful");
+}
+#else
+void createSuffixArrayDivsufsort64(const string& T, vector<uint64_t>& SA) {
+    logger.logInfo("Generating the suffix array using divsufsort...");
+
+    // Resize SA to the size of the input string to hold the suffix array
+    SA.resize(T.size());
+
+    // Convert std::string to const uint8_t*
+    const sauchar_t* tPtr = reinterpret_cast<const sauchar_t*>(T.c_str());
+
+    logger.logDeveloper("Calling divsufsort64");
+    saint_t result = divsufsort64(tPtr, reinterpret_cast<int64_t*>(SA.data()),
+                                  static_cast<int64_t>(T.size()));
+
+    if (result != 0) {
+        throw std::runtime_error("divsufsort failed with error code " +
+                                 std::to_string(result));
+    }
+
+    logger.logDeveloper("Divsufsort successful");
+}
+#endif
+
+/**
+ * @brief Create the suffix array using the libsais library.
+ * @param T The text.
+ * @param SA The suffix array. (output)
+ */
+void createSuffixArray(const string& T, vector<length_t>& SA) {
+    try {
+#ifdef THIRTY_TWO
+        createSuffixArrayLibsais(T, SA);
+#else
+        createSuffixArrayDivsufsort64(T, SA);
+
+#endif
 
         logger.logInfo("Suffix array generated successfully!");
     }
@@ -2094,12 +2121,6 @@ int main(int argc, char* argv[]) {
     }
 
     logger.logInfo("Alphabet size is " + std::to_string(ALPHABET - 1) + " + 1");
-
-    // set the OpenMP thread count used by libsais during suffix-array construction (0 = leave the default, i.e. all
-    // available threads); createSuffixArray passes 0 to libsais_omp, which then honours this
-    if (params.nThreads > 0) {
-        omp_set_num_threads(params.nThreads);
-    }
 
 #if defined(RUN_LENGTH_COMPRESSION) && defined(BIG_BWT_USABLE)
     if (params.preprocessOnly) {
