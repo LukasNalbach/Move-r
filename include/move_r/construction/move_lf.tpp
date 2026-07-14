@@ -97,7 +97,8 @@ void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_mlf()
 template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
 void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_l__sas()
 {
-    bool build_sas = p == 1 && (support == _locate_move || support == _locate_rlzsa);
+    bool build_sas = (support == _locate_move || support == _locate_rlzsa)
+        && (p == 1 || (mode == _bigbwt && !bigbwt_full_sa));
 
     log_phase_start(build_sas ? "building L' and SA_s" : "building L'");
 

@@ -45,11 +45,9 @@ void move_r<support, sym_t, pos_t, mlf_enc>::construction::bigbwt(bool delete_T)
 {
     log_phase_start("running Big-BWT\n\n");
 
-    bool build_sa = is_bidirectional || has_rlzsa || p > 1;
-
     ensure_bigbwt_on_path();
     system(("taskset -c 0-$(($(nproc)-1)) bigbwt " +
-        (std::string)(supports_locate ? (build_sa ? "-S " : "-s -e ") : "") +
+        (std::string)(supports_locate ? (bigbwt_full_sa ? "-S " : "-s -e ") : "") +
         (std::string)(p > 1 ? ("-t " + std::to_string(p) + " ") : "") +
         prefix_tmp_files + (std::string)(log ? "" : " >log_1 >log_2")).c_str());
 
