@@ -35,7 +35,8 @@ uint64_t n;
 uint16_t a = 8;
 uint16_t p = omp_get_max_threads();
 std::string path_prefix_index_file;
-move_r_construction_mode mode = _suffix_array_space;
+move_r_construction_mode mode = _bigbwt;
+bool mode_chosen = false;
 move_r_support support = _locate_move;
 std::ofstream mf_idx;
 std::ofstream mf_mds;
@@ -55,7 +56,7 @@ void help(std::string msg)
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-build: builds move-r." << std::endl << std::endl;
     std::cout << "usage: move-r-build [...] <input_file> [<input_file> ...]" << std::endl;
-    std::cout << "   -c <mode>           construction mode: sa, sa_space or bigbwt (default: sa_space). sa builds" << std::endl;
+    std::cout << "   -c <mode>           construction mode: sa, sa_space or bigbwt (default: bigbwt). sa builds" << std::endl;
     std::cout << "                       everything in-memory; sa_space additionally offloads idle data structures to" << std::endl;
     std::cout << "                       disk to lower peak memory; bigbwt builds the BWT with Big-BWT" << std::endl;
     std::cout << "   -o <base_name>      names the index file base_name.move-r(-rlzsa) (default: input_file)" << std::endl;
@@ -100,6 +101,7 @@ void parse_args(char** argv, int argc)
         else if (construction_mode_str == "sa_space") mode = _suffix_array_space;
         else if (construction_mode_str == "bigbwt") mode = _bigbwt;
         else help("error: invalid option for -c");
+        mode_chosen = true;
     } else if (s == "-s") {
         if (arg_idx >= argc) help("error: missing parameter after -s option");
         std::string support_str = argv[arg_idx++];
@@ -163,16 +165,29 @@ void build()
         path_build_file = path_fasta_text;
     }
 
-    move_r<support, char, pos_t> index(path_build_file, {
-        .file_input = true,
-        .mode = mode,
-        .num_threads = p,
-        .a = a,
-        .log = true,
-        .mf_idx = mf_idx.is_open() ? &mf_idx : nullptr,
-        .mf_mds = mf_mds.is_open() ? &mf_mds : nullptr,
-        .name_text_file = name_text_file
-    });
+    auto build_index = [&](move_r_construction_mode construction_mode) {
+        return move_r<support, char, pos_t>(path_build_file, {
+            .file_input = true,
+            .mode = construction_mode,
+            .num_threads = p,
+            .a = a,
+            .log = true,
+            .mf_idx = mf_idx.is_open() ? &mf_idx : nullptr,
+            .mf_mds = mf_mds.is_open() ? &mf_mds : nullptr,
+            .name_text_file = name_text_file
+        });
+    };
+
+    move_r<support, char, pos_t> index = [&]() {
+        try {
+            return build_index(mode);
+        } catch (const std::runtime_error& e) {
+            if (mode != _bigbwt || mode_chosen) throw;
+            std::cout << std::endl << e.what() << std::endl
+                      << "falling back to the construction mode sa_space" << std::endl;
+            return build_index(_suffix_array_space);
+        }
+    }();
 
     if (fasta_mode) {
         // attach the per-sequence names/boundaries for sequence-relative SAM coordinates, then drop the temp file
