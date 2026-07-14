@@ -58,6 +58,10 @@ public:
     std::vector<int64_t> SA_64_tmp;
     uint16_t p = 1; // the number of threads to use
     move_r_construction_mode mode = _suffix_array;
+    /* true <=> Big-BWT has to compute the full suffix array (option -S); if false, it only computes the run-sampled
+     * suffix array (options -s -e), from which I_Phi^{-1} and SA_s are built (this is cheaper, but the bidirectional
+     * index and the rlzsa need the full suffix array for other data structures) */
+    static constexpr bool bigbwt_full_sa = is_bidirectional || has_rlzsa;
     /* the number of threads to use during the construction of the L,C and I_LF,I_Phi^{-1},L' and SA_s; when building move-r for an
      * integer alphabet, this needs (p+1)*sigma = O(p*n) words of space, so we limit the number of threads to p' to 1 to ensure
      * that we use O(sigma) = O(n) words of space; */
@@ -739,7 +743,7 @@ public:
         load_rlbwt();
 
         if constexpr (supports_locate) {
-            if (is_bidirectional || has_rlzsa || p > 1) {
+            if constexpr (bigbwt_full_sa) {
                 if (support == _locate_bi_bwd) {
                     build_sas_from_sa<true, int32_t>();
                 } else {
