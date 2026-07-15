@@ -66,7 +66,7 @@ struct move_r_adapter {
         };
 
         if constexpr (std::is_same_v<inp_t, std::string>) {
-            std::uniform_int_distribution<int> use_bigbwt(0, 1);
+            std::uniform_int_distribution<int32_t> use_bigbwt(0, 1);
             if (input.size() >= min_bigbwt_input_size && use_bigbwt(gen) == 0) {
                 inp_t input_backup = input;
                 try {

@@ -49,7 +49,7 @@ std::string path_input_file;
 std::string path_patterns_file_1;
 std::string path_patterns_file_2;
 std::string name_text_file;
-int arg_idx = 1;
+int32_t arg_idx = 1;
 
 template <typename sa_sint_t>
 constexpr std::vector<sa_sint_t>& get_sa()

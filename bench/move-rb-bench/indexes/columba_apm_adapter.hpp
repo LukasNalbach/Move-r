@@ -100,8 +100,8 @@ class columba_apm_adapter {
         sigma = _index.alphabetSize();
 
         _map_int.assign(256, 0);
-        for (int c = 0; c < 256; c++) {
-            int i = _index.charToIdx((char) c);
+        for (int32_t c = 0; c < 256; c++) {
+            int32_t i = _index.charToIdx((char) c);
             _map_int[c] = i >= 1 ? (uint8_t) i : 0;
         }
     }
@@ -109,7 +109,7 @@ class columba_apm_adapter {
     inline columba_index_t& index() const { return _index; }
 
     inline i_sym_t map_symbol(sym_t sym) const { return _map_int[(uint8_t) sym]; }
-    inline sym_t unmap_symbol(i_sym_t sym) const { return (sym_t) _index.idxToChar((int) sym); }
+    inline sym_t unmap_symbol(i_sym_t sym) const { return (sym_t) _index.idxToChar((int32_t) sym); }
     inline const std::vector<uint8_t>& map_int() const { return _map_int; }
     inline const columba_apm_adapter& forward_index() const { return *this; }
     inline pos_t input_size() const { return n - 1; }
@@ -240,7 +240,7 @@ struct columba_apm_adapter::search_context_t {
 
     inline extend_res_t extend(sym_t sym, direction_t dir) const
     {
-        int alph = idx->index().charToIdx(sym);
+        int32_t alph = idx->index().charToIdx(sym);
         if (alph < 1) [[unlikely]] return {search_context_t {}, false}; // sentinel (0) or absent (-1)
 
         SARangePair child;
@@ -273,8 +273,8 @@ struct columba_apm_adapter::extend_context_t {
     search_context_t<query_support>* ctx = nullptr;
     direction_t dir = NO_DIR;
 
-    int count = 0;
-    int cursor = 0;
+    int32_t count = 0;
+    int32_t cursor = 0;
     std::array<SARangePair, 256> children;
     std::array<sym_t, 256> chars;
 
@@ -296,7 +296,7 @@ struct columba_apm_adapter::extend_context_t {
             SARangePair child;
             if (idx->index().extendRange(a, cd, ctx->ranges, child)) {
                 children[count] = child;
-                chars[count] = idx->index().idxToChar((int) a);
+                chars[count] = idx->index().idxToChar((int32_t) a);
                 count++;
             }
         }
@@ -305,7 +305,7 @@ struct columba_apm_adapter::extend_context_t {
 
     search_context_t<query_support> extend_next()
     {
-        int j = cursor++;
+        int32_t j = cursor++;
         search_context_t<query_support> nxt = *ctx;
         nxt.ranges = children[j];
         nxt.m = ctx->m + 1;

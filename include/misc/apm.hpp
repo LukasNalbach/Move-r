@@ -55,9 +55,9 @@ enum query_support_t : uint8_t {
 };
 
 /** @brief bit-field widths of a packed aprx_occ_t: position, length and error count (must sum to <= 64) */
-static constexpr unsigned aprx_occ_pos_bits = 40; // positions up to 2^40 - 1 (a 1 TiB text)
-static constexpr unsigned aprx_occ_len_bits = 16; // occurrence lengths up to 2^16 - 1 (i.e. m + k)
-static constexpr unsigned aprx_occ_err_bits = 8;  // error counts up to 2^8 - 1 (i.e. k)
+static constexpr uint32_t aprx_occ_pos_bits = 40; // positions up to 2^40 - 1 (a 1 TiB text)
+static constexpr uint32_t aprx_occ_len_bits = 16; // occurrence lengths up to 2^16 - 1 (i.e. m + k)
+static constexpr uint32_t aprx_occ_err_bits = 8;  // error counts up to 2^8 - 1 (i.e. k)
 
 /**
  * @brief an approximate occurrence: its starting position, length and error count, packed into a single 64-bit
@@ -346,7 +346,7 @@ static void filter_edit_distance_occurrences(std::vector<aprx_occ_t<pos_t, mode>
             const auto& left = Occ[write_idx - 1];
             const auto& right = Occ[write_idx - 2];
 
-            if (occ.pos - right.pos <= 4 * k + 3 &&
+            if (occ.pos - right.pos <= 2 * k + 3 &&
                 right.err <= left.err &&
                 occ.err <= left.err
             ) {

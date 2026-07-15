@@ -47,7 +47,7 @@
 // ############################# CONFIGURATION #############################
 
 // the maximum number of errors the edit-distance algorithm supports
-static constexpr int EDIT_K_LIMIT = 20;
+static constexpr int32_t EDIT_K_LIMIT = 20;
 
 // the operation a pattern file is to be measured with
 enum bench_op_t : uint8_t {
@@ -544,7 +544,7 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
             replay(cfg, job, num_patterns, m, n, "count_" + flavor + "_apm", "hamming",
                 cfg.scheme, "time_count", [&](uint64_t i, uint64_t& time) {
                     auto t1 = now();
-                    uint64_t c = api.count_apm(handle, patterns[i].data(), m, (int) job.k);
+                    uint64_t c = api.count_apm(handle, patterns[i].data(), m, (int32_t) job.k);
                     time += time_diff_ns(t1);
                     return c;
                 });
@@ -553,7 +553,7 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
 
         if (job.op != OP_LOCATE) continue; // (any other op is not measured for columba)
         const bool is_edit = job.metric == EDIT_DISTANCE;
-        const int k_limit = is_edit ? api.max_k_edit : api.max_k_hamming;
+        const int32_t k_limit = is_edit ? api.max_k_edit : api.max_k_hamming;
         if (job.k > k_limit) {
             std::cerr << "warning: k=" << job.k << " > " << k_limit << " unsupported by columba; skipping "
                       << job.path << std::endl;
@@ -567,7 +567,7 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
         std::vector<std::string> patterns; uint64_t m;
         if (!read_patterns(job, patterns, m)) continue;
         const uint64_t num_patterns = patterns.size();
-        const int metric_edit = is_edit ? 1 : 0;
+        const int32_t metric_edit = is_edit ? 1 : 0;
         const std::string dist_str = is_edit ? "edit" : "hamming";
 
         const std::string job_scheme = job.k <= 7 ? scheme_str : "columba";
@@ -589,7 +589,7 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
                     job_scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
                         uint64_t ob = 0, cb = 0;
                         auto t1 = now();
-                        uint64_t c = api.locate(handle, bundles, i, metric_edit, (int) job.k, /* cigar */ 0, &ob, &cb);
+                        uint64_t c = api.locate(handle, bundles, i, metric_edit, (int32_t) job.k, /* cigar */ 0, &ob, &cb);
                         time += time_diff_ns(t1);
                         occ_mem = std::max(occ_mem, ob);
                         return c;
@@ -603,7 +603,7 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
                     job_scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
                         uint64_t ob = 0, cb = 0;
                         auto t1 = now();
-                        uint64_t c = api.locate(handle, bundles, i, metric_edit, (int) job.k, /* cigar */ 1, &ob, &cb);
+                        uint64_t c = api.locate(handle, bundles, i, metric_edit, (int32_t) job.k, /* cigar */ 1, &ob, &cb);
                         time += time_diff_ns(t1);
                         occ_mem_c = std::max(occ_mem_c, ob);
                         cigar_mem = std::max(cigar_mem, cb);
@@ -621,7 +621,7 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
                 cfg.scheme, "time_locate", [&](uint64_t i, uint64_t& time) {
                     uint64_t ob = 0;
                     auto t1 = now();
-                    uint64_t c = api.locate_apm(handle, patterns[i].data(), m, metric_edit, (int) job.k, &ob);
+                    uint64_t c = api.locate_apm(handle, patterns[i].data(), m, metric_edit, (int32_t) job.k, &ob);
                     time += time_diff_ns(t1);
                     occ_mem_apm = std::max(occ_mem_apm, ob);
                     return c;
@@ -637,11 +637,11 @@ void measure_columba_api(const columba_api_t& api, const bench_config_t& cfg, co
 inline std::string executable_dir()
 {
     char buf[4096];
-    ssize_t len = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    int64_t len = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
     if (len <= 0) return ".";
     buf[len] = '\0';
     std::string path(buf);
-    size_t slash = path.find_last_of('/');
+    uint64_t slash = path.find_last_of('/');
     return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
 }
 
@@ -670,11 +670,11 @@ void measure_columba_plugin(const std::string& so_name, const std::string& api_s
 // reads the index-position width (sizeof(length_t), in bytes: 4 for 32-bit, 8 for 64-bit) that the columba index at
 // base name @p base was built with, from the second line of its <base>.meta (line 1 = build tag, line 3 = flavor).
 // Returns 0 if the meta file is missing or unreadable.
-int columba_meta_width_bytes(const std::string& base)
+int32_t columba_meta_width_bytes(const std::string& base)
 {
     std::ifstream ifs(base + ".meta");
-    long tag = 0, width_bytes = 0;
-    if (ifs && (ifs >> tag >> width_bytes)) return (int) width_bytes;
+    int64_t tag = 0, width_bytes = 0;
+    if (ifs && (ifs >> tag >> width_bytes)) return (int32_t) width_bytes;
     return 0;
 }
 
@@ -685,7 +685,7 @@ int columba_meta_width_bytes(const std::string& base)
 void measure_columba_flavor(const bench_config_t& cfg, const std::string& base,
                             const std::string& plugin_base, const char* api_symbol)
 {
-    const int width = columba_meta_width_bytes(base);
+    const int32_t width = columba_meta_width_bytes(base);
     if (width == 0)
         std::cerr << "warning: cannot read " << base << ".meta; defaulting to the 64-bit plugin" << std::endl;
     const std::string so = "lib" + plugin_base + (width == 4 ? "_32" : "_64") + ".so";
@@ -797,8 +797,8 @@ void measure_move_rb_rlzsa(const bench_config_t& cfg)
 inline std::vector<std::string> split_csv(const std::string& list)
 {
     std::vector<std::string> parts;
-    for (size_t start = 0; start <= list.size();) {
-        size_t comma = list.find(',', start);
+    for (uint64_t start = 0; start <= list.size();) {
+        uint64_t comma = list.find(',', start);
         std::string part = list.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
         if (!part.empty()) parts.push_back(part);
         if (comma == std::string::npos) break;
@@ -909,15 +909,15 @@ bool parse_pattern_file_name(const std::string& name, const std::string& text_na
 
     // rest must now be "k<value>-m<value>"
     if (rest.empty() || rest[0] != 'k') return false;
-    size_t dash = rest.find("-m");
+    uint64_t dash = rest.find("-m");
     if (dash == std::string::npos) return false;
 
     std::string k_str = rest.substr(1, dash - 1);
     std::string m_str = rest.substr(dash + 2);
 
     if (k_str.empty() || m_str.empty()) return false;
-    for (char c : k_str) if (!std::isdigit((unsigned char) c)) return false;
-    for (char c : m_str) if (!std::isdigit((unsigned char) c)) return false;
+    for (char c : k_str) if (!std::isdigit((uint8_t) c)) return false;
+    for (char c : m_str) if (!std::isdigit((uint8_t) c)) return false;
 
     job.k = std::stoll(k_str);
     job.m = std::stoull(m_str);
@@ -929,7 +929,7 @@ int main(int argc, char** argv)
 {
     std::setlocale(LC_ALL, "C");
     bench_config_t cfg;
-    int arg_idx = 1;
+    int32_t arg_idx = 1;
 
     // optional flags
     while (arg_idx < argc && argv[arg_idx][0] == '-') {

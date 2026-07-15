@@ -30,7 +30,7 @@
 #include <misc/fasta.hpp>
 #include <move_r/move_r.hpp>
 
-int arg_idx = 1;
+int32_t arg_idx = 1;
 uint64_t n;
 uint16_t a = 8;
 uint16_t p = omp_get_max_threads();
@@ -275,6 +275,9 @@ int main(int argc, char** argv)
             build<uint64_t, _locate_rlzsa>();
         }
     }
+
+    // terminate the measurement record started above and extended by the construction
+    if (mf_idx.is_open()) mf_idx << std::endl;
 
     return 0;
 }

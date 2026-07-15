@@ -78,7 +78,7 @@ CommandLineArguments parse_args(
     int argc, char** argv,
     std::set<std::string>& allowed_value_options,
     std::set<std::string>& allowed_literal_options,
-    int fixed_parameter_count
+    int32_t fixed_parameter_count
 ) {
     if (argc < fixed_parameter_count + 1) {
         return FAILURE;
@@ -88,7 +88,7 @@ CommandLineArguments parse_args(
     std::vector<Option> value_options;
     std::set<std::string> literal_options;
     std::set<std::string> found;
-    int i = 1;
+    int32_t i = 1;
 
     while (i < argc - fixed_parameter_count) { // construct_lzend_of_reverse options
         std::string option = argv[i++];
@@ -219,7 +219,7 @@ void require_file(const std::string& path)
 int64_t parse_int_arg(const std::string& value, const std::string& option_name)
 {
     try {
-        size_t consumed = 0;
+        uint64_t consumed = 0;
         int64_t parsed = std::stoll(value, &consumed);
         if (consumed != value.size()) throw std::invalid_argument("trailing characters");
         return parsed;

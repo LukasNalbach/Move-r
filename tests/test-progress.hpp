@@ -28,6 +28,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cinttypes>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -88,31 +89,31 @@ inline void run_fuzz(
     const char* reset = tty ? "\033[m" : "";
 
     const uint64_t total_iterations = std::max<uint64_t>(1, iterations);
-    const size_t num_functionalities = std::max<size_t>(1, functionalities.size());
+    const uint64_t num_functionalities = std::max<uint64_t>(1, functionalities.size());
 
     auto seconds_since = [](clock::time_point t) {
         return std::chrono::duration<double>(clock::now() - t).count();
     };
 
-    int last_pct = -1;
+    int32_t last_pct = -1;
     auto draw = [&](const std::string& label, uint64_t done, double elapsed) {
-        constexpr int width = 10; // 10 columns inside the brackets, like googletest
+        constexpr int32_t width = 10; // 10 columns inside the brackets, like googletest
         const double fraction = (double) done / total_iterations;
-        int filled = (int) (fraction * width + 0.5);
+        int32_t filled = (int32_t) (fraction * width + 0.5);
         if (filled > width) filled = width;
         std::string bar(filled, '=');
         bar.resize(width, ' ');
         // show the total iterations completed so far out of all iterations (rather than a percentage)
         // on a terminal redraw the same line (\r); otherwise emit a new line per milestone
-        std::fprintf(stderr, "%s%s[%s]%s %-28s %7llu/%-7llu %5.1fs   ",
+        std::fprintf(stderr, "%s%s[%s]%s %-28s %7" PRIu64 "/%-7" PRIu64 " %5.1fs   ",
             tty ? "\r" : "\n", green, bar.c_str(), reset, (structure + "/" + label).c_str(),
-            (unsigned long long) done, (unsigned long long) total_iterations, elapsed);
+            (uint64_t) done, (uint64_t) total_iterations, elapsed);
         std::fflush(stderr);
     };
 
     // split the total iteration count evenly over the functionalities (the first few absorb the remainder)
     uint64_t completed = 0; // iterations of already-finished functionalities
-    for (size_t f = 0; f < functionalities.size(); f++) {
+    for (uint64_t f = 0; f < functionalities.size(); f++) {
         const fuzz_functionality& functionality = functionalities[f];
         const uint64_t slice_iterations = total_iterations / num_functionalities
             + (f < total_iterations % num_functionalities ? 1 : 0);
@@ -128,7 +129,7 @@ inline void run_fuzz(
                 functionality.run((uint64_t) iteration);
                 const uint64_t done = completed + finished.fetch_add(1) + 1;
                 if (omp_get_thread_num() == 0) {
-                    const int pct = (int) (100.0 * done / total_iterations + 0.5);
+                    const int32_t pct = (int32_t) (100.0 * done / total_iterations + 0.5);
                     if (pct != last_pct && (tty || pct % 10 == 0)) {
                         last_pct = pct;
                         draw(functionality.name, done, seconds_since(slice_start));
@@ -139,7 +140,7 @@ inline void run_fuzz(
             for (uint64_t iteration = 0; iteration < slice_iterations; iteration++) {
                 functionality.run(iteration);
                 const uint64_t done = completed + iteration + 1;
-                const int pct = (int) (100.0 * done / total_iterations + 0.5);
+                const int32_t pct = (int32_t) (100.0 * done / total_iterations + 0.5);
                 if (pct != last_pct && (tty || pct % 10 == 0)) {
                     last_pct = pct;
                     draw(functionality.name, done, seconds_since(slice_start));

@@ -29,7 +29,7 @@
 #include <move_r/move_r.hpp>
 #include <misc/progress.hpp>
 
-int arg_idx = 1;
+int32_t arg_idx = 1;
 std::ofstream mf;
 std::string path_index_file;
 std::string path_patterns_file;

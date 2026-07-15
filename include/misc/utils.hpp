@@ -168,7 +168,7 @@ public:
  * @param str the string to resize
  * @param size the new size
  */
-inline void no_init_resize(std::string& str, size_t size)
+inline void no_init_resize(std::string& str, uint64_t size)
 {
     (*reinterpret_cast<std::basic_string<char, std::char_traits<char>, default_init_allocator<char>>*>(&str)).resize(size);
 }
@@ -180,7 +180,7 @@ inline void no_init_resize(std::string& str, size_t size)
  * @param size the new size
  */
 template <typename T>
-static void no_init_resize(std::vector<T>& vec, size_t size) { (*reinterpret_cast<std::vector<no_init<T>>*>(&vec)).resize(size); }
+static void no_init_resize(std::vector<T>& vec, uint64_t size) { (*reinterpret_cast<std::vector<no_init<T>>*>(&vec)).resize(size); }
 
 /**
  * @brief resizes a vector of pairs to size without initializing newly added elements
@@ -190,7 +190,7 @@ static void no_init_resize(std::vector<T>& vec, size_t size) { (*reinterpret_cas
  * @param size the new size
  */
 template <typename T1, typename T2>
-static void no_init_resize(std::vector<std::pair<T1, T2>>& vec, size_t size)
+static void no_init_resize(std::vector<std::pair<T1, T2>>& vec, uint64_t size)
 {
     (*reinterpret_cast<std::vector<std::pair<no_init<T1>, no_init<T2>>>*>(&vec)).resize(size);
 }
@@ -202,7 +202,7 @@ static void no_init_resize(std::vector<std::pair<T1, T2>>& vec, size_t size)
  * @param size the new size
  */
 template <typename T>
-static void no_init_resize(std::vector<std::tuple<T, T, T>>& vec, size_t size)
+static void no_init_resize(std::vector<std::tuple<T, T, T>>& vec, uint64_t size)
 {
     (*reinterpret_cast<std::vector<std::tuple<no_init<T>, no_init<T>, no_init<T>>>*>(&vec)).resize(size);
 }
@@ -482,9 +482,9 @@ struct function_traits : public function_traits<decltype(&T::operator())> {};
 
 template <typename class_t, typename return_t, typename... args>
 struct function_traits<return_t(class_t::*)(args...) const> {
-    static constexpr size_t arity = sizeof...(args);
+    static constexpr uint64_t arity = sizeof...(args);
 
-    template <size_t N>
+    template <uint64_t N>
     using argument_type = std::tuple_element_t<N, std::tuple<args...>>;
 };
 
@@ -495,7 +495,7 @@ struct function_traits<return_t(class_t::*)(args...) const> {
  * @return the number of set bits in x
  */
 template <typename word_t>
-static int popcount(word_t x)
+static int32_t popcount(word_t x)
 {
     static_assert(std::is_same_v<word_t, uint32_t> ||
                   std::is_same_v<word_t, uint64_t> ||

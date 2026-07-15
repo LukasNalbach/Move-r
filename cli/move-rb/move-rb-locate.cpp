@@ -31,8 +31,8 @@
 #include <misc/fasta.hpp>
 #include <misc/progress.hpp>
 
-static constexpr int min_args = 6;
-int arg_idx = 1;
+static constexpr int32_t min_args = 6;
+int32_t arg_idx = 1;
 uint64_t k = -1;
 std::string scheme_str;
 distance_metric_t dist_metr = NO_METRIC;
@@ -183,7 +183,7 @@ static bool read_fastq(std::istream& in, std::string& name, std::string& seq, st
     strip_cr(h); strip_cr(seq); strip_cr(qual);
     if (h.empty() || h[0] != '@') return false;
 
-    size_t sp = h.find_first_of(" \t", 1);
+    uint64_t sp = h.find_first_of(" \t", 1);
     name = sp == std::string::npos ? h.substr(1) : h.substr(1, sp - 1);
     return true;
 }
@@ -579,7 +579,7 @@ int main(int argc, char** argv)
 {
     if (argc - 1 < min_args) help("");
 
-    for (int i = 0; i < argc; i++) command_line += (i == 0 ? "" : " ") + std::string(argv[i]); // for the SAM @PG header
+    for (int32_t i = 0; i < argc; i++) command_line += (i == 0 ? "" : " ") + std::string(argv[i]); // for the SAM @PG header
 
     while (parse_args(argv, argc));
 

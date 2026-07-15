@@ -262,7 +262,7 @@ public:
     uint64_t num_samples() const { return sa_samples.size() + 1; }
 
     // returns the size of the whole data structure in bytes
-    size_t size_in_bytes() const { return sizeof(this) + rlzsa_enc.size_in_bytes() + sa_samples.size_in_bytes(); }
+    uint64_t size_in_bytes() const { return sizeof(this) + rlzsa_enc.size_in_bytes() + sa_samples.size_in_bytes(); }
 
     /**
      * @brief loads the index from an input stream

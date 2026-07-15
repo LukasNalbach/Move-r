@@ -29,8 +29,8 @@
 #include <move_rb/move_rb.hpp>
 #include <misc/progress.hpp>
 
-static constexpr int min_args = 4;
-int arg_idx = 1;
+static constexpr int32_t min_args = 4;
+int32_t arg_idx = 1;
 int64_t k = -1;
 std::string scheme_str;
 search_scheme_t search_scheme;

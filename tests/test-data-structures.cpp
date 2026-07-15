@@ -24,6 +24,7 @@
  * SOFTWARE.
  */
 
+#include <cstdint>
 #include <map>
 #include <random>
 #include <sstream>
@@ -147,7 +148,7 @@ static void verify_interleaved_bit_aligned_vectors(gen_t& gen, uint64_t max_size
         masks[v] = (uint64_t{1} << widths[v]) - 1;
 
     uint64_t n = random_log_uniform_size(1, max_size, gen);
-    std::uniform_int_distribution<uint64_t> val_distrib(0, ULONG_MAX);
+    std::uniform_int_distribution<uint64_t> val_distrib(0, UINT64_MAX);
 
     std::array<std::vector<uint64_t>, num_vectors> reference;
 
@@ -236,7 +237,7 @@ static void verify_interleaved_byte_aligned_vectors(gen_t& gen, uint64_t max_siz
         masks[v] = (uint64_t{1} << (8 * widths[v])) - 1;
 
     uint64_t n = random_log_uniform_size(1, max_size, gen);
-    std::uniform_int_distribution<uint64_t> val_distrib(0, ULONG_MAX);
+    std::uniform_int_distribution<uint64_t> val_distrib(0, UINT64_MAX);
 
     std::array<std::vector<uint64_t>, num_vectors> reference;
 
@@ -334,10 +335,10 @@ static void verify_rank_select_queries(const input_t& input, rank_select_t& inde
 template <typename gen_t>
 static void verify_rank_select_byte(gen_t& gen, uint64_t max_size)
 {
-    std::uniform_int_distribution<int> sigma_distrib(1, 60);
+    std::uniform_int_distribution<int32_t> sigma_distrib(1, 60);
     uint64_t n = random_log_uniform_size(1, max_size, gen);
-    int sigma = sigma_distrib(gen);
-    std::uniform_int_distribution<int> sym_distrib(1, sigma);
+    int32_t sigma = sigma_distrib(gen);
+    std::uniform_int_distribution<int32_t> sym_distrib(1, sigma);
 
     std::string input;
     no_init_resize(input, n);
@@ -392,10 +393,10 @@ static void verify_rank_select_int(gen_t& gen, uint64_t max_size)
 template <typename gen_t>
 static void verify_pred_succ_byte(gen_t& gen, uint64_t max_size)
 {
-    std::uniform_int_distribution<int> sigma_distrib(1, 60);
+    std::uniform_int_distribution<int32_t> sigma_distrib(1, 60);
     uint64_t n = random_log_uniform_size(1, max_size, gen);
     pos_t sigma = sigma_distrib(gen);
-    std::uniform_int_distribution<int> sym_distrib(0, sigma - 1);
+    std::uniform_int_distribution<int32_t> sym_distrib(0, sigma - 1);
 
     std::vector<uint8_t> input;
     no_init_resize(input, n);
@@ -416,15 +417,15 @@ static void verify_pred_succ_byte(gen_t& gen, uint64_t max_size)
             pos_t ref_succ = max + 1;
             for (pos_t j = x; j <= max; j++) if (input[j] == sym) { ref_succ = j; break; }
             pos_t got_succ = idx.succ(sym, x, max);
-            if (ref_succ <= max) EXPECT_EQ(got_succ, ref_succ) << name << " succ(" << (int) sym << "," << x << "," << max << ")";
-            else EXPECT_GT(got_succ, max) << name << " succ(" << (int) sym << "," << x << "," << max << ") should report none";
+            if (ref_succ <= max) EXPECT_EQ(got_succ, ref_succ) << name << " succ(" << (int32_t) sym << "," << x << "," << max << ")";
+            else EXPECT_GT(got_succ, max) << name << " succ(" << (int32_t) sym << "," << x << "," << max << ") should report none";
 
             // pred(sym, x, min): largest j in [min, x] with input[j] == sym (sym is guaranteed to occur there)
             pos_t min = pos_distrib(gen) % (x + 1);
             uint8_t sym2 = input[min + pos_distrib(gen) % (x - min + 1)];
             pos_t ref_pred = x;
             for (pos_t j = x; ; j--) { if (input[j] == sym2) { ref_pred = j; break; } if (j == min) break; }
-            EXPECT_EQ(idx.pred(sym2, x, min), ref_pred) << name << " pred(" << (int) sym2 << "," << x << "," << min << ")";
+            EXPECT_EQ(idx.pred(sym2, x, min), ref_pred) << name << " pred(" << (int32_t) sym2 << "," << x << "," << min << ")";
         }
     };
 

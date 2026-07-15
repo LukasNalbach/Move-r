@@ -42,11 +42,11 @@ This repository contains a collection of uni- and bi-directional compressed text
 
 ## Included Indexes & Data Structures
 
-- **Move-r** — an optimized and parallelized implementation of the modified r-index OptBWTR described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)) (see [benchmarks](benchmarks/move-r.md)). It supports `count`, `locate` and `revert` queries as well as random access to the suffix array (SA) and the Burrows-Wheeler-Transform (BWT). The locate support can be backed either by a move data structure (`locate_move`) or by an optimized RLZSA (`locate_rlzsa`); there are also `count`-only and `locate_one` (one occurrence per pattern) modes. Move-r works over byte alphabets as well as over arbitrary integer alphabets.
+- **Move-r** — an optimized and parallelized implementation of the modified r-index OptBWTR described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)) (see [benchmarks](benchmarks/move-r.md)). It supports `count`, `locate` and `revert` queries as well as random access to the suffix array (SA) and the Burrows-Wheeler-Transform (BWT). Its locate support uses either a move data structure (`locate_move`) or an optimized RLZSA (`locate_rlzsa`); there are also `count`-only and `locate_one` (one occurrence per pattern) modes. Move-r works over byte alphabets as well as over arbitrary integer alphabets.
 - **Move-rb and Move-rb-rlzsa (bi-directional)** — the bi-directional variants of Move-r and Move-r-rlzsa. In addition to `count`, `locate` and `revert`, `move_rb` can extend the currently matched pattern to **both** the left and the right, and it supports **approximate pattern matching** under the hamming distance (`count`/`locate`) and the edit distance (`locate`) via configurable [search schemes](#search-schemes).
 - **Move data structure** — an implementation of the move data structure [1] with the balancing algorithm described in [2]. A separate variant (`move_data_structure_l_`) additionally stores a string interleaved with the arrays needed for move queries (intended for storing the characters of the BWT (sub-)runs).
 - **Optimized RLZSA** — an optimized RLZSA implementation [4] that can be constructed in O(r) additional space from an r-index and is smaller and faster than the original implementation from [3]. **This is the RLZSA used by the `locate_rlzsa` mode of Move-r and Move-rb** (i.e. the `.move-rb-rlzsa` indexes and the `move_rb_rlzsa` results in the benchmarks use this optimized RLZSA).
-- **RLZSA and LZEndSA indexes** — an r-index combined with an LZEndSA [4] (`r-index-lzendsa`) and a faithful reimplementation of the RLZSA-based index described in [3] (`r-index-rlzsa`). Additionally, a plain RLZSA index and a plain LZEndSA index are included, in which pattern search is implemented using binary search over the compressed SA. **These standalone `rlzsa` / `r-index-rlzsa` indexes are the original, *unoptimized* RLZSA of [3]** — distinct from the optimized RLZSA above that backs Move-r/Move-rb's `locate_rlzsa`.
+- **RLZSA and LZEndSA indexes** — an r-index combined with an LZEndSA [4] (`r-index-lzendsa`) and a faithful reimplementation of the RLZSA-based index described in [3] (`r-index-rlzsa`). Additionally, a plain RLZSA index and a plain LZEndSA index are included, in which pattern search is implemented using binary search over the compressed SA. **These standalone `rlzsa` / `r-index-rlzsa` indexes are the original, *unoptimized* RLZSA of [3]** — distinct from the optimized RLZSA above that Move-r/Move-rb's `locate_rlzsa` uses.
 - **Internal data structures** — the indexes are built from a set of reusable, header-only data structures in [include/data_structures/](include/data_structures/): plain and hybrid bit vectors, byte- and bit-aligned interleaved vectors, an sd-array and a combined rank/select support. These are tested and benchmarked separately (see [Tests](#tests) and [Benchmarks](#benchmarks)).
 
 ## Dependencies
@@ -78,7 +78,7 @@ Used only by the benchmark tools:
 
 - [rcomp](https://github.com/kampersanda/rcomp), [r-index](https://github.com/alshai/r-index), [r-index-f](https://github.com/drnatebrown/r-index-f), [OnlineRlbwt](https://github.com/itomomoti/OnlineRlbwt), [block_RLBWT](https://github.com/saskeli/block_RLBWT) — uni-directional competitor r-indexes
 - [columba](https://github.com/biointec/columba) — bi-directional competitor index, built in two flavors: the FM-index (*columba*) and run-length-compressed (*columba-rlc*).
-- [br-index](https://github.com/U-Ar/br-index) — original bi-directional r-index
+- [br-index](https://github.com/U-Ar/br-index) — original bi-directional r-index [10]
 
 ## CLI Build Instructions
 This implementation has been tested on Ubuntu 24.04 with GCC 13.3.0, `libtbb-dev`, `libomp-dev`, `python3-psutil` and `libz-dev` installed. 
@@ -91,7 +91,7 @@ cmake ..
 cp -rf ../patched-files/* ..
 make
 ```
-The `cp -rf ../patched-files/*` step applies the patches in [patched-files/](patched-files/) to some of the submodules
+The `cp -rf ../patched-files/*` step copies the files in [patched-files/](patched-files/) over the corresponding submodule sources. These patches fix compilation errors in some dependencies (e.g. compatibility fixes needed under recent compilers) and apply the code patches required by the competitor indexes.
 
 This creates the command-line tools (`move-r-build`, `move-r-count`, `move-r-locate`, ...) in the `build/cli/` folder, the example programs in `build/examples/`, and the test and benchmark binaries in `build/tests/` and `build/bench/`. The tools are described in the [CLI Tools](#cli-tools) section below.
 
@@ -536,7 +536,10 @@ iScience, 24(7):102687, 2021. ([paper](https://www.cell.com/iscience/fulltext/S2
 [9] Lore Depuydt, Luca Renders, Simon Van de Vyver, Lennart Veys, Travis Gagie and Jan Fostier. b-move: faster bidirectional character extensions in a run-length compressed index.
 In 24th International Workshop on Algorithms in Bioinformatics (WABI), LIPIcs vol. 312, pages 10:1–10:18, 2024. ([paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.WABI.2024.10))
 
+[10] Yuma Arakawa, Gonzalo Navarro and Kunihiko Sadakane. Bi-directional r-indexes.
+In 33rd Annual Symposium on Combinatorial Pattern Matching (CPM), LIPIcs vol. 223, 2022. ([paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.CPM.2022.11))
+
 ## License
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
-The approximate-pattern-matching module ([include/algorithms/apm/](include/algorithms/apm/)) implements published techniques: Myers' bit-parallel edit-distance recurrence [5] with Hyyrö's refinements [6], the bidirectional search-scheme paradigm [7], and the banded search-scheme alignment strategy of Columba [8] (also used by its run-length-compressed *b-move* flavor [9]). The competitor indexes bundled as submodules under [external/](external/) sources retain their own licenses — see each submodule.
+The competitor indexes bundled as submodules under [external/](external/) retain their own licenses — see each submodule.

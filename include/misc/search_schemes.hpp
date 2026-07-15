@@ -215,9 +215,9 @@ inline search_scheme_t parse_search_scheme(const std::string& str)
         if (line.find('{') == std::string::npos) continue; // skip blank lines
 
         std::vector<std::vector<uint8_t>> arrays; // the parsed pi, L and U arrays
-        for (size_t pos = 0; arrays.size() < 3;) {
-            size_t open = line.find('{', pos);
-            size_t close = open == std::string::npos ? std::string::npos : line.find('}', open);
+        for (uint64_t pos = 0; arrays.size() < 3;) {
+            uint64_t open = line.find('{', pos);
+            uint64_t close = open == std::string::npos ? std::string::npos : line.find('}', open);
             if (close == std::string::npos) print_search_scheme_error();
             arrays.emplace_back(parse_bracket(line.substr(open + 1, close - open - 1), p));
             if ((int64_t) arrays.back().size() != p) print_search_scheme_error();

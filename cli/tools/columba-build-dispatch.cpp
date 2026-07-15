@@ -53,7 +53,7 @@ int main(int argc, char** argv)
     // sum the sizes of the input FASTA file(s); the width choice only depends on the total text length, and the file
     // size (headers + newlines included) is an upper bound on it, so deciding on it is safe
     uint64_t total = 0;
-    for (int i = 1; i + 1 < argc; i++) {
+    for (int32_t i = 1; i + 1 < argc; i++) {
         if (std::strcmp(argv[i], "-f") == 0 || std::strcmp(argv[i], "--fasta-files") == 0) {
             total += file_size(argv[i + 1]);
         }
@@ -65,7 +65,7 @@ int main(int argc, char** argv)
 
     // resolve the variant next to this wrapper (both live under build/cli/)
     char self[PATH_MAX];
-    ssize_t len = ::readlink("/proc/self/exe", self, sizeof(self) - 1);
+    int64_t len = ::readlink("/proc/self/exe", self, sizeof(self) - 1);
     self[len > 0 ? len : 0] = '\0';
     const std::string dir = len > 0 ? std::string(::dirname(self)) : std::string(".");
     const std::string exe = dir + "/" + variant;

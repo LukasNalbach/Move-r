@@ -28,7 +28,7 @@
 #include <iostream>
 #include <move_r/move_r.hpp>
 
-int arg_idx = 1;
+int32_t arg_idx = 1;
 uint16_t p = omp_get_max_threads();
 bool revert_in_memory = false;
 std::string path_index_file;

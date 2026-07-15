@@ -104,10 +104,10 @@ inline static void hash_combine(pos_t& hash, pos_t x)
  */
 struct span_hash {
     template <typename sym_t>
-    size_t operator()(std::span<const sym_t> s) const
+    uint64_t operator()(std::span<const sym_t> s) const
     {
-        size_t h = 1469598103934665603ULL; // FNV-1a offset basis
-        for (sym_t c : s) h = (h ^ (size_t) (std::make_unsigned_t<sym_t>) c) * 1099511628211ULL; // FNV-1a prime
+        uint64_t h = 1469598103934665603ULL; // FNV-1a offset basis
+        for (sym_t c : s) h = (h ^ (uint64_t) (std::make_unsigned_t<sym_t>) c) * 1099511628211ULL; // FNV-1a prime
         return h;
     }
 };

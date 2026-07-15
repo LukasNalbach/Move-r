@@ -30,7 +30,7 @@
 #include <ips2ra.hpp>
 #include <move_rb/move_rb.hpp>
 
-int arg_idx = 1;
+int32_t arg_idx = 1;
 std::string path_index_file;
 std::ifstream index_file;
 
@@ -81,12 +81,12 @@ void print_commands()
  * @param pattern output string receiving the remainder of the line
  * @return whether num_tokens tokens and a non-empty pattern could be extracted
  */
-bool split_query(const std::string& line, int num_tokens, std::vector<std::string>& tokens, std::string& pattern)
+bool split_query(const std::string& line, int32_t num_tokens, std::vector<std::string>& tokens, std::string& pattern)
 {
     uint64_t i = 0;
     tokens.clear();
 
-    for (int t = 0; t < num_tokens; t++) {
+    for (int32_t t = 0; t < num_tokens; t++) {
         while (i < line.size() && line[i] == ' ') i++;
         uint64_t start = i;
         while (i < line.size() && line[i] != ' ') i++;
@@ -224,7 +224,7 @@ void run()
             search_scheme_t scheme = min_u_scheme(k);
             if (pattern.size() < scheme.p) {
                 std::cout << "error: pattern length (" << pattern.size() << ") < number of parts in the search scheme ("
-                    << (int) scheme.p << ")" << std::endl;
+                    << (int32_t) scheme.p << ")" << std::endl;
                 continue;
             }
 
