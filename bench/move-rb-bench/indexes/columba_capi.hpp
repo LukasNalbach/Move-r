@@ -42,8 +42,8 @@ struct columba_api_t {
     const char* flavor;      // RESULT algo suffix: "columba_rlc" (RLC / b-move) or "columba" (FM-index)
     const char* base_suffix; // appended to <index_dir>/<text_name> to form this flavor's index base name, so the
                              // two flavors' (flavor-specific) index files do not collide: "" for RLC, ".fm" for FM
-    int max_k_hamming;       // maximum k the search scheme supports for hamming distance
-    int max_k_edit;          // maximum k for edit distance
+    int32_t max_k_hamming;   // maximum k the search scheme supports for hamming distance
+    int32_t max_k_edit;      // maximum k for edit distance
 
     // loads the index with base name @p base and search scheme @p scheme (k-mer table disabled); returns an
     // opaque handle, or nullptr if the index could not be loaded (missing files)
@@ -59,22 +59,22 @@ struct columba_api_t {
     // locates pattern @p i of the bundle set with at most @p k errors; metric_edit: 1 = edit, 0 = hamming;
     // want_cigar != 0 additionally builds each occurrence's CIGAR. Returns the occurrence count and writes the
     // occurrence-vector footprint to *occ_bytes and the CIGAR-data footprint to *cigar_bytes (both in bytes)
-    uint64_t (*locate)(void* handle, void* bundles, uint64_t i, int metric_edit, int k, int want_cigar,
+    uint64_t (*locate)(void* handle, void* bundles, uint64_t i, int32_t metric_edit, int32_t k, int32_t want_cigar,
                        uint64_t* occ_bytes, uint64_t* cigar_bytes);
     // in-index match phase only (no locate) for edit distance; returns the undeduplicated FM-occurrence count
-    uint64_t (*match_only_edit)(void* handle, void* bundles, uint64_t i, int k);
+    uint64_t (*match_only_edit)(void* handle, void* bundles, uint64_t i, int32_t k);
 
     // locates pattern @p pat (length m) with <=k errors by driving move_r's OWN apm algorithm on the columba
     // index (via columba_apm_adapter), then deduplicates exactly like move-rb. metric_edit: 1 = edit, 0 = hamming.
     // Returns the occurrence count and writes the occurrence-vector footprint to *occ_bytes. This measures the same
     // algorithm move_rb uses, but on columba's index instead of move_rb's.
-    uint64_t (*locate_apm)(void* handle, const char* pat, uint64_t m, int metric_edit, int k, uint64_t* occ_bytes);
+    uint64_t (*locate_apm)(void* handle, const char* pat, uint64_t m, int32_t metric_edit, int32_t k, uint64_t* occ_bytes);
 
     // counts pattern @p pat (length m) with <=k HAMMING errors by driving move_r's OWN apm count algorithm on the
     // columba index (via columba_apm_adapter). columba has no cheap deduplicated count of its own, so this measures
     // the same count algorithm move_rb uses (SA-interval-width sum, no locate), but on columba's index. Returns the
     // (deduplicated) occurrence count. Hamming distance only (edit-distance count is unsupported).
-    uint64_t (*count_apm)(void* handle, const char* pat, uint64_t m, int k);
+    uint64_t (*count_apm)(void* handle, const char* pat, uint64_t m, int32_t k);
 
     // ############################# bidirectional-extension benchmark (move-rb-bench-ext) #############################
 
@@ -86,7 +86,7 @@ struct columba_api_t {
     // 0 = count only (returns the occurrence count), 1 = also locate all occurrences (returns the count and writes
     // the occurrence-vector footprint to *occ_bytes)
     uint64_t (*ext_run)(void* ext, const char* pat, uint64_t m, uint64_t start, const uint8_t* order,
-                        int want_locate, uint64_t* occ_bytes);
+                        int32_t want_locate, uint64_t* occ_bytes);
     void (*ext_free)(void* ext);
 
     void (*free_bundles)(void* bundles);

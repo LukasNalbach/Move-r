@@ -169,7 +169,7 @@ void test_move_rb(mrb_func func)
 
     auto build_index = [&]() {
         if constexpr (std::is_same_v<inp_t, std::string>) {
-            std::uniform_int_distribution<int> use_bigbwt(0, 15);
+            std::uniform_int_distribution<int32_t> use_bigbwt(0, 15);
             if (input.size() >= min_bigbwt_input_size && use_bigbwt(gen) == 0) {
                 inp_t input_backup = input;
                 try {

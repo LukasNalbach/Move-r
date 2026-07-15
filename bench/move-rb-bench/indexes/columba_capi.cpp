@@ -77,7 +77,7 @@ void* cn_make_bundles(void* handle, const char* const* patterns, const uint64_t*
     return bs;
 }
 
-uint64_t cn_locate(void* handle, void* bundles, uint64_t i, int metric_edit, int k, int want_cigar,
+uint64_t cn_locate(void* handle, void* bundles, uint64_t i, int32_t metric_edit, int32_t k, int32_t want_cigar,
                    uint64_t* occ_bytes, uint64_t* cigar_bytes)
 {
     columba_native* index = static_cast<columba_native*>(handle);
@@ -99,14 +99,14 @@ uint64_t cn_locate(void* handle, void* bundles, uint64_t i, int metric_edit, int
     }
 }
 
-uint64_t cn_match_only_edit(void* handle, void* bundles, uint64_t i, int k)
+uint64_t cn_match_only_edit(void* handle, void* bundles, uint64_t i, int32_t k)
 {
     columba_native* index = static_cast<columba_native*>(handle);
     ReadBundle& bundle = static_cast<bundle_set_t*>(bundles)->bundles[i];
     return static_cast<uint64_t>(index->match_only(EDIT, bundle, (uint64_t) k));
 }
 
-uint64_t cn_locate_apm(void* handle, const char* pat, uint64_t m, int metric_edit, int k, uint64_t* occ_bytes)
+uint64_t cn_locate_apm(void* handle, const char* pat, uint64_t m, int32_t metric_edit, int32_t k, uint64_t* occ_bytes)
 {
     columba_native* native = static_cast<columba_native*>(handle);
     columba_apm_adapter adapter(native->get_index());
@@ -127,7 +127,7 @@ uint64_t cn_locate_apm(void* handle, const char* pat, uint64_t m, int metric_edi
     return occ.size();
 }
 
-uint64_t cn_count_apm(void* handle, const char* pat, uint64_t m, int k)
+uint64_t cn_count_apm(void* handle, const char* pat, uint64_t m, int32_t k)
 {
     columba_native* native = static_cast<columba_native*>(handle);
     columba_apm_adapter adapter(native->get_index());
@@ -145,7 +145,7 @@ void* cn_ext_make(void* handle)
 }
 
 uint64_t cn_ext_run(void* ext, const char* pat, uint64_t m, uint64_t start, const uint8_t* order,
-                    int want_locate, uint64_t* occ_bytes)
+                    int32_t want_locate, uint64_t* occ_bytes)
 {
     columba_apm_adapter* adapter = static_cast<columba_apm_adapter*>(ext);
     std::string P(pat, pat + m);

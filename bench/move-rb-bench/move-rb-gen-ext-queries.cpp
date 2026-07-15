@@ -116,12 +116,12 @@ std::vector<std::string> split_csv(const std::string& s)
 struct timed_result_t { uint64_t count; uint64_t elapsed_ns; };
 
 // reads exactly n bytes from fd into buf; false on EOF or error (e.g. the peer closed its pipe end)
-static bool read_full(int fd, void* buf, size_t n)
+static bool read_full(int32_t fd, void* buf, uint64_t n)
 {
     char* p = static_cast<char*>(buf);
     while (n > 0) {
-        ssize_t r = read(fd, p, n);
-        if (r > 0) { p += r; n -= (size_t) r; }
+        int64_t r = read(fd, p, n);
+        if (r > 0) { p += r; n -= (uint64_t) r; }
         else if (r == 0) return false;     // EOF: the peer is gone
         else if (errno == EINTR) continue; // interrupted: retry
         else return false;                 // error
@@ -130,12 +130,12 @@ static bool read_full(int fd, void* buf, size_t n)
 }
 
 // writes exactly n bytes from buf to fd; false if the peer is gone (EPIPE) or on error
-static bool write_full(int fd, const void* buf, size_t n)
+static bool write_full(int32_t fd, const void* buf, uint64_t n)
 {
     const char* p = static_cast<const char*>(buf);
     while (n > 0) {
-        ssize_t w = write(fd, p, n);
-        if (w > 0) { p += w; n -= (size_t) w; }
+        int64_t w = write(fd, p, n);
+        if (w > 0) { p += w; n -= (uint64_t) w; }
         else if (w < 0 && errno == EINTR) continue;
         else return false;
     }
@@ -143,11 +143,11 @@ static bool write_full(int fd, const void* buf, size_t n)
 }
 
 // waits up to timeout_ns for fd to become readable; false on timeout or error
-static bool wait_readable(int fd, uint64_t timeout_ns)
+static bool wait_readable(int32_t fd, uint64_t timeout_ns)
 {
     struct pollfd pfd { fd, POLLIN, 0 };
-    struct timespec ts { (time_t) (timeout_ns / 1000000000ull), (long) (timeout_ns % 1000000000ull) };
-    int r;
+    struct timespec ts { (time_t) (timeout_ns / 1000000000ull), (int64_t) (timeout_ns % 1000000000ull) };
+    int32_t r;
     do { r = ppoll(&pfd, 1, &ts, nullptr); } while (r < 0 && errno == EINTR);
     return r > 0 && (pfd.revents & POLLIN);
 }
@@ -164,8 +164,8 @@ class timeout_runner {
     uint64_t m;                 // pattern length
     uint64_t req_size;          // bytes per request (m + 8 + (m-1))
     pid_t child = -1;
-    int to_child = -1;   // parent -> child: the next request
-    int from_child = -1; // child -> parent: the timed_result_t
+    int32_t to_child = -1;   // parent -> child: the next request
+    int32_t from_child = -1; // child -> parent: the timed_result_t
 
     // decodes a request blob into (pattern, plan)
     static void decode(const std::vector<char>& req, uint64_t m, std::string& pat, ext_plan_t& plan)
@@ -178,7 +178,7 @@ class timeout_runner {
 
     void spawn()
     {
-        int down[2], up[2]; // down: parent->child, up: child->parent
+        int32_t down[2], up[2]; // down: parent->child, up: child->parent
         if (pipe(down) != 0 || pipe(up) != 0) { perror("pipe"); std::exit(1); }
         pid_t pid = fork();
         if (pid < 0) { perror("fork"); std::exit(1); }
@@ -209,7 +209,7 @@ class timeout_runner {
     {
         if (child <= 0) return;
         kill(child, SIGKILL);
-        int st;
+        int32_t st;
         while (waitpid(child, &st, 0) < 0 && errno == EINTR) {}
         close(to_child); close(from_child);
         child = -1; to_child = from_child = -1;
@@ -385,7 +385,7 @@ int main(int argc, char** argv)
     std::setlocale(LC_ALL, "C");
     std::signal(SIGPIPE, SIG_IGN);
 
-    int i = 1;
+    int32_t i = 1;
     while (i < argc && argv[i][0] == '-') {
         std::string o = argv[i++];
         auto need = [&](const char* opt) { if (i >= argc) help(std::string("error: missing argument after ") + opt); return std::string(argv[i++]); };

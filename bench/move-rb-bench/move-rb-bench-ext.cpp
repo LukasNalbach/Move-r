@@ -325,11 +325,11 @@ void measure_move_rb_rlzsa(const bench_config_t& cfg)
 inline std::string executable_dir()
 {
     char buf[4096];
-    ssize_t len = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    int64_t len = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
     if (len <= 0) return ".";
     buf[len] = '\0';
     std::string path(buf);
-    size_t slash = path.find_last_of('/');
+    uint64_t slash = path.find_last_of('/');
     return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
 }
 
@@ -363,11 +363,11 @@ void measure_columba_ext_api(const columba_api_t& api, const bench_config_t& cfg
         std::vector<std::vector<uint8_t>> orders(num_patterns);
         for (uint64_t i = 0; i < num_patterns; i++) {
             orders[i].resize(plans[i].order.size());
-            for (size_t j = 0; j < plans[i].order.size(); j++) orders[i][j] = plans[i].order[j] == LEFT ? 0 : 1;
+            for (uint64_t j = 0; j < plans[i].order.size(); j++) orders[i][j] = plans[i].order[j] == LEFT ? 0 : 1;
         }
 
         const uint64_t min_time_ns = (uint64_t) (cfg.min_time_seconds * 1e9);
-        const int want_locate = job.op == OP_LOCATE ? 1 : 0;
+        const int32_t want_locate = job.op == OP_LOCATE ? 1 : 0;
 
         uint64_t num_occurrences = 0, time = 0, passes = 0, occ_mem = 0;
         const uint64_t mem_baseline = malloc_count_current();
@@ -426,11 +426,11 @@ void measure_columba_plugin(const std::string& so_name, const std::string& api_s
 
 // reads the index-position width (sizeof(length_t) in bytes: 4 for 32-bit, 8 for 64-bit) that the columba index
 // at base name @p base was built with, from the second line of its <base>.meta. Returns 0 if the meta is missing.
-int columba_meta_width_bytes(const std::string& base)
+int32_t columba_meta_width_bytes(const std::string& base)
 {
     std::ifstream ifs(base + ".meta");
-    long tag = 0, width_bytes = 0;
-    if (ifs && (ifs >> tag >> width_bytes)) return (int) width_bytes;
+    int64_t tag = 0, width_bytes = 0;
+    if (ifs && (ifs >> tag >> width_bytes)) return (int32_t) width_bytes;
     return 0;
 }
 
@@ -438,7 +438,7 @@ int columba_meta_width_bytes(const std::string& base)
 void measure_columba_flavor(const bench_config_t& cfg, const std::string& base,
                             const std::string& plugin_base, const char* api_symbol)
 {
-    const int width = columba_meta_width_bytes(base);
+    const int32_t width = columba_meta_width_bytes(base);
     if (width == 0)
         std::cerr << "warning: cannot read " << base << ".meta; defaulting to the 64-bit plugin" << std::endl;
     const std::string so = "lib" + plugin_base + (width == 4 ? "_32" : "_64") + ".so";
@@ -461,8 +461,8 @@ void measure_columba_native(const bench_config_t& cfg)
 inline std::vector<std::string> split_csv(const std::string& list)
 {
     std::vector<std::string> parts;
-    for (size_t start = 0; start <= list.size();) {
-        size_t comma = list.find(',', start);
+    for (uint64_t start = 0; start <= list.size();) {
+        uint64_t comma = list.find(',', start);
         std::string part = list.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
         if (!part.empty()) parts.push_back(part);
         if (comma == std::string::npos) break;
@@ -520,7 +520,7 @@ bool parse_pattern_file_name(const std::string& name, const std::string& text_na
     }
 
     if (rest.empty()) return false;
-    for (char c : rest) if (!std::isdigit((unsigned char) c)) return false;
+    for (char c : rest) if (!std::isdigit((uint8_t) c)) return false;
     job.m = std::stoull(rest);
     job.path = path;
     return true;
@@ -530,7 +530,7 @@ int main(int argc, char** argv)
 {
     std::setlocale(LC_ALL, "C");
     bench_config_t cfg;
-    int arg_idx = 1;
+    int32_t arg_idx = 1;
 
     // optional flags
     while (arg_idx < argc && argv[arg_idx][0] == '-') {

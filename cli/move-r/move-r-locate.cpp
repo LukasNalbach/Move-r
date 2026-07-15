@@ -31,7 +31,7 @@
 #include <misc/fasta.hpp>
 #include <misc/progress.hpp>
 
-int arg_idx = 1;
+int32_t arg_idx = 1;
 bool output_occurrences = false;
 bool check_correctness = false;
 bool sam_output = false; // whether to write occurrences in SAM format (requires a FASTA-built index)
@@ -278,7 +278,7 @@ void measure_locate()
 int main(int argc, char** argv)
 {
     if (argc < 3) help("");
-    for (int i = 0; i < argc; i++) command_line += (i == 0 ? "" : " ") + std::string(argv[i]); // for the SAM @PG header
+    for (int32_t i = 0; i < argc; i++) command_line += (i == 0 ? "" : " ") + std::string(argv[i]); // for the SAM @PG header
     while (arg_idx < argc - 2) parse_args(argv, argc);
     if (arg_idx + 2 > argc) help("error: missing <index_file> and/or <patterns_file>");
 

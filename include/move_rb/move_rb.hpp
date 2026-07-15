@@ -922,8 +922,8 @@ public:
         in.read((char*) &is_64_bit, 1);
         
         if (is_64_bit != std::is_same_v<pos_t, uint64_t>) {
-            std::cout << "error: cannot load a" << (is_64_bit ? "64" : "32") << "-bit"
-                      << " index into a " << (is_64_bit ? "32" : "64") << "-bit index-object" << std::flush;
+            std::cerr << "error: cannot load a" << (is_64_bit ? "64" : "32") << "-bit"
+                      << " index into a " << (is_64_bit ? "32" : "64") << "-bit index-object" << std::endl;
             return;
         }
 

@@ -53,7 +53,7 @@ inline std::string reverse_complement(const std::string& s)
 {
     std::string r(s.size(), 'N');
 
-    for (size_t i = 0; i < s.size(); i++) {
+    for (uint64_t i = 0; i < s.size(); i++) {
         char c = s[s.size() - 1 - i];
 
         switch (c) {
@@ -101,17 +101,17 @@ inline fasta_sequence_data<pos_t, char> process_fasta(const std::vector<std::str
 {
     // the separator must be the largest byte in the produced text: it then maps to the largest internal symbol, which
     // the search treats as the forbidden sequence boundary. So it must lie above the mask and every allowed byte.
-    for (unsigned char c : allowed)
-        if ((unsigned char) separator <= c)
+    for (uint8_t c : allowed)
+        if ((uint8_t) separator <= c)
             throw std::runtime_error("FASTA separator must be greater than every allowed byte");
-    if ((unsigned char) separator <= (unsigned char) mask)
+    if ((uint8_t) separator <= (uint8_t) mask)
         throw std::runtime_error("FASTA separator must be greater than the mask byte");
 
     // the output text is accessed through int_vector_buffer as a plain (header-less) byte file, written sequentially
     sdsl::int_vector_buffer<8> out(out_path, std::ios::out, buffer_size, 8, true);
 
     std::array<uint8_t, 256> keep{};
-    for (unsigned char c : allowed) keep[c] = 1;
+    for (uint8_t c : allowed) keep[c] = 1;
 
     std::vector<pos_t> seq_starts;      // seq_starts[i] = start position of sequence i's body in the text
     std::vector<std::string> seq_names; // seq_names[i] = name of sequence i (header up to first whitespace)
@@ -169,7 +169,7 @@ inline fasta_sequence_data<pos_t, char> process_fasta(const std::vector<std::str
             if (!in_sequence) continue; // sequence data before any header: skip
 
             char u = (to_upper && c >= 'a' && c <= 'z') ? char(c - 'a' + 'A') : c;
-            out.push_back((uint8_t)(keep[(unsigned char) u] ? u : mask));
+            out.push_back((uint8_t)(keep[(uint8_t) u] ? u : mask));
             text_size++;
         }
 

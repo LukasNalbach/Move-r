@@ -275,10 +275,10 @@ static int64_t num_cigar_edits(const sym_t* S1, uint64_t n1, const sym_t* S2, ui
 template <typename sym_t>
 inline void append_cigar(std::ostream& out, const cigar_t<sym_t>& cigar)
 {
-    for (size_t i = 0; i < cigar.size();) {
+    for (uint64_t i = 0; i < cigar.size();) {
         cigar_op_t op = cigar[i].op;
         uint64_t len = 0;
-        size_t j = i;
+        uint64_t j = i;
         while (j < cigar.size() && cigar[j].op == op) len += cigar[j++].len;
         out << len << cigar[i].code();
         i = j;

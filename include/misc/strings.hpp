@@ -129,7 +129,7 @@ static inp_t random_repetitive_input(
     std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
     using sym_t = typename inp_t::value_type;
     using sym_dist_t = std::conditional_t<sizeof(sym_t) == 1,
-        std::conditional_t<std::is_signed_v<sym_t>, int, unsigned int>, sym_t>;
+        std::conditional_t<std::is_signed_v<sym_t>, int32_t, uint32_t>, sym_t>;
     std::uniform_int_distribution<sym_dist_t> sym_distrib(min_sym, max_sym);
 
     uint64_t target_input_size = random_log_uniform_size(min_size, max_size, mt);

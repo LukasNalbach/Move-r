@@ -315,8 +315,8 @@ class edit_distance_matrix
         uint16_t lo = (i > j) ? diag - (i - j) + 1 : diag + 1;
         uint16_t hi = (i > j) ? diag + 1 : diag + (j - i) + 1;
         word_t window = ((word_t(1) << (hi - lo)) - word_t(1)) << lo;
-        int neg = ::popcount(rows[i].dh_neg & window);
-        int pos = ::popcount(rows[i].dh_pos & window);
+        int32_t neg = ::popcount(rows[i].dh_neg & window);
+        int32_t pos = ::popcount(rows[i].dh_pos & window);
         uint16_t s = rows[i].score;
         s += (i > j) ? (neg - pos) : (pos - neg);
         return s;

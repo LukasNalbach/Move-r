@@ -30,7 +30,7 @@
 #include <ips2ra.hpp>
 #include <move_r/move_r.hpp>
 
-int arg_idx = 1;
+int32_t arg_idx = 1;
 std::string path_index_file;
 std::ifstream index_file;
 
@@ -123,7 +123,7 @@ void run()
  * @param argc the number of command-line arguments
  * @param argv the command-line arguments
  */
-void parse_args(char** argv, int /*argc*/)
+void parse_args(char** argv, int32_t /*argc*/)
 {
     std::string s = argv[arg_idx++];
     help("error: unrecognized '" + s + "' option");

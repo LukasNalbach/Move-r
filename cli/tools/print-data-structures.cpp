@@ -108,9 +108,9 @@ std::vector<std::pair<pos_t, pos_t>> parse_intervals(const std::string& str)
     uint64_t i = 0;
 
     while (i < str.size()) {
-        if (std::isdigit((unsigned char) str[i])) {
+        if (std::isdigit((uint8_t) str[i])) {
             uint64_t value = 0;
-            while (i < str.size() && std::isdigit((unsigned char) str[i])) {
+            while (i < str.size() && std::isdigit((uint8_t) str[i])) {
                 value = value * 10 + (str[i] - '0');
                 i++;
             }
@@ -273,7 +273,7 @@ int main(int argc, char** argv)
     structure = argv[1];
     if (structure == "-h" || structure == "--help") help("");
 
-    int i = 2;
+    int32_t i = 2;
     while (i < argc) {
         std::string s = argv[i++];
         auto value = [&](const std::string& opt) -> std::string {

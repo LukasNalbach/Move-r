@@ -104,7 +104,7 @@ class br_index_adapter {
         // internal symbol down by one; absent characters and the terminator map to 0.
         _map_int.assign(256, 0);
 
-        for (int c = 0; c < 256; c++) {
+        for (int32_t c = 0; c < 256; c++) {
             bri::uchar i = _index.char_to_internal((bri::uchar) c);
             _map_int[c] = (i < 2) ? 0 : (uint8_t) (i - 1);
         }
@@ -399,8 +399,8 @@ struct br_index_adapter::extend_context_t {
     search_context_t<query_support>* ctx = nullptr; // the search context being extended
     direction_t dir = NO_DIR; // direction the context is being extended in
 
-    int count = 0; // number of applicable extensions
-    int cursor = 0; // index of the next extension to apply
+    int32_t count = 0; // number of applicable extensions
+    int32_t cursor = 0; // index of the next extension to apply
     std::array<bri::br_sample, 256> children; // the toehold sample of each applicable extension
     std::array<sym_t, 256> chars; // the symbol of each applicable extension
 
@@ -449,7 +449,7 @@ struct br_index_adapter::extend_context_t {
      */
     search_context_t<query_support> extend_next()
     {
-        int j = cursor++;
+        int32_t j = cursor++;
 
         search_context_t<query_support> nxt = *ctx;
         nxt.sample = children[j];

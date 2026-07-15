@@ -454,19 +454,19 @@ void move_rb<support, sym_t, pos_t>::reverse(seq_t& T, uint16_t p, bool in_memor
             std::swap(T[i], T[(n - i) - 2]);
         }
     } else if constexpr (std::is_same_v<seq_t, std::string>) {
-        int fd = open(T.c_str(), O_RDWR);
+        int32_t fd = open(T.c_str(), O_RDWR);
         if (fd < 0) { perror("reverse: open"); exit(1); }
 
         auto pread_full = [&](uint8_t* buf, uint64_t cnt, uint64_t off) {
             for (uint64_t done = 0; done < cnt;) {
-                ssize_t r = pread(fd, buf + done, cnt - done, off + done);
+                int64_t r = pread(fd, buf + done, cnt - done, off + done);
                 if (r <= 0) { perror("reverse: pread"); exit(1); }
                 done += r;
             }
         };
         auto pwrite_full = [&](const uint8_t* buf, uint64_t cnt, uint64_t off) {
             for (uint64_t done = 0; done < cnt;) {
-                ssize_t w = pwrite(fd, buf + done, cnt - done, off + done);
+                int64_t w = pwrite(fd, buf + done, cnt - done, off + done);
                 if (w <= 0) { perror("reverse: pwrite"); exit(1); }
                 done += w;
             }

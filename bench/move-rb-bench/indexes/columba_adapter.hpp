@@ -224,7 +224,7 @@ class columba_native {
      *        TIMING the match phase; the count is undeduplicated (do not use as
      *        a count). Forward strand only.
      */
-    inline size_t match_only(DistanceMetric metric, ReadBundle& bundle, uint64_t k)
+    inline uint64_t match_only(DistanceMetric metric, ReadBundle& bundle, uint64_t k)
     {
         Counters counters;
         return strategy(metric).matchApproxMatchOnly(bundle, (length_t) k, counters);
