@@ -113,7 +113,7 @@ int main(int argc, char** argv)
     }
 
     int64_t n = use_bigbwt ? std::filesystem::file_size(input) : input.length();
-    std::cout << "File " << parsed_args.last_param.at(0) <<
+    std::cerr << "File " << parsed_args.last_param.at(0) <<
         " successfully loaded (" << format_size(n) << ")" << std::endl;
 
     auto t1 = now();
@@ -121,10 +121,10 @@ int main(int argc, char** argv)
     r_index_rlzsa<int64_t> index_64;
 
     if (n <= INT32_MAX && !use64) {
-        std::cout << "Using 32-bit-integers" << std::endl;
+        std::cerr << "Using 32-bit-integers" << std::endl;
         index_32 = r_index_rlzsa<int32_t>(input, use_bigbwt, use_r_index_samples, true);
     } else {
-        std::cout << "Using 64-bit-integers" << std::endl;
+        std::cerr << "Using 64-bit-integers" << std::endl;
         index_64 = r_index_rlzsa<int64_t>(input, use_bigbwt, use_r_index_samples, true);
     }
 
@@ -148,8 +148,8 @@ int main(int argc, char** argv)
     }
 
     out.close();
-    std::cout << "construction throughput: " << format_construction_throughput(n, time_diff_ns(t1, t2)) << std::endl;
-    std::cout << "Wrote " << format_size(size_index) << " bytes to disk." << std::endl;
+    std::cerr << "construction throughput: " << format_construction_throughput(n, time_diff_ns(t1, t2)) << std::endl;
+    std::cerr << "Wrote " << format_size(size_index) << " bytes to disk." << std::endl;
     uint64_t memory_peak = malloc_count_peak();
     uint64_t time_ns = time_diff_ns(t1, t2);
 

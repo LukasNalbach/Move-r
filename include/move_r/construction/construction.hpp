@@ -71,6 +71,7 @@ public:
     bool log = false; // controls, whether to print log messages
     std::ostream* mf_idx = nullptr; // file to write measurement data of the index construction to
     std::ostream* mf_mds = nullptr; // file to write measurement data of the move data structure construction to
+    std::string mf_suffix = ""; // suffix appended to every mf_idx measurement key (e.g. "_fwd"/"_bwd" for the two move_rb sub-indexes)
     std::string name_text_file = ""; // name of the text file (only for measurement output)
     std::string prefix_tmp_files = ""; // prefix of temporary files
     std::chrono::steady_clock::time_point time; // time of the start of the last build phase
@@ -310,7 +311,7 @@ public:
      *        (if mf_key is non-empty) and logs the runtime (if logging)
      * @param mf_key measurement-file key for the elapsed time (empty => not written)
      */
-    void log_phase_end(const std::string& mf_key = "") { ::log_phase_end(log, time, mf_idx, mf_key); }
+    void log_phase_end(const std::string& mf_key = "") { ::log_phase_end(log, time, mf_idx, mf_key.empty() ? mf_key : mf_key + mf_suffix); }
 
     /**
      * @brief ends a move-data-structure construction phase: closes the mf_mds RESULT line,
@@ -325,7 +326,7 @@ public:
         if (log) {
             if (mf_mds != nullptr) *mf_mds << std::endl;
             if (mf_idx != nullptr)
-                *mf_idx << " " << time_key << "=" << time_diff_ns(time, now()) << " " << count_key << "=" << count;
+                *mf_idx << " " << time_key << mf_suffix << "=" << time_diff_ns(time, now()) << " " << count_key << mf_suffix << "=" << count;
             std::cout << std::endl;
         }
     }
@@ -371,10 +372,10 @@ public:
         }
 
         if (mf_idx != nullptr) {
-            *mf_idx << " time_construction=" << time_construction;
-            *mf_idx << " construction_throughput_mb_per_s=" << construction_throughput_mb_per_s(n, time_construction);
-            *mf_idx << " peak_mem_usage=" << peak_mem_usage;
-            idx.log_data_structure_sizes(*mf_idx);
+            *mf_idx << " time_construction" << mf_suffix << "=" << time_construction;
+            *mf_idx << " construction_throughput_mb_per_s" << mf_suffix << "=" << construction_throughput_mb_per_s(n, time_construction);
+            *mf_idx << " peak_mem_usage" << mf_suffix << "=" << peak_mem_usage;
+            idx.log_data_structure_sizes(*mf_idx, mf_suffix);
         }
     }
 
@@ -386,9 +387,9 @@ public:
         if (!log) return;
         double n_r = std::round(100.0 * (n / (double)r)) / 100.0;
         if (mf_idx != nullptr) {
-            *mf_idx << " n=" << n;
-            *mf_idx << " sigma=" << std::to_string(idx.sigma);
-            *mf_idx << " r=" << r;
+            *mf_idx << " n" << mf_suffix << "=" << n;
+            *mf_idx << " sigma" << mf_suffix << "=" << std::to_string(idx.sigma);
+            *mf_idx << " r" << mf_suffix << "=" << r;
         }
         std::cout << "n = " << n << ", sigma = " << std::to_string(idx.sigma) << ", r = " << r << ", n/r = " << n_r << std::endl;
     }
@@ -404,6 +405,7 @@ public:
         this->log = params.log;
         this->mf_idx = params.mf_idx;
         this->mf_mds = params.mf_mds;
+        this->mf_suffix = params.mf_idx_suffix;
         this->name_text_file = params.name_text_file;
         this->sa_vector = params.sa_vector;
         this->sa_file_name = params.sa_file_name;
@@ -461,8 +463,16 @@ public:
             if (params.file_input) prefix_tmp_files = T;
             if (idx.sigma == 0) preprocess_t(!params.file_input, true, T);
             if (!params.file_input) store_t_in_file();
-            construct_from_bigbwt(!params.file_input);
-            if (!is_bidirectional && params.file_input) unmap_t(false);
+            try {
+                construct_from_bigbwt(!params.file_input);
+            } catch (...) {
+                if (!is_bidirectional && !params.file_input && !delete_T) unmap_t(true);
+                throw;
+            }
+            if (!is_bidirectional) {
+                if (params.file_input) unmap_t(false);
+                else if (!delete_T) unmap_t(true);
+            }
         }
 
         log_finished();
@@ -576,6 +586,22 @@ public:
 
         prepare_phase_1();
         prepare_phase_2();
+
+        if constexpr (byte_alphabet) {
+            if (idx.sigma == 0) {
+                uint8_t max_sym = 0;
+                for (pos_t i = 0; i < n; i++) max_sym = std::max(max_sym, char_to_uchar(L[i]));
+                idx.sigma = (pos_t) max_sym + 1;
+            }
+
+            idx._map_int.resize(256, 0);
+            idx._map_ext.resize(256, 0);
+            for (uint16_t c = 0; c < 256; c++) {
+                idx._map_int[c] = c;
+                idx._map_ext[c] = c;
+            }
+        }
+
         build_rlbwt_c<_bwt, sa_sint_t>();
         log_statistics();
 

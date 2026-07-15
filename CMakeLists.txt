@@ -446,7 +446,7 @@ if(MOVE_R_BUILD_MOVE_RB_BENCH)
 
   # br-index's own index builder
   add_executable(bri-build "${CMAKE_SOURCE_DIR}/external/br-index/src/bri-build.cpp")
-  target_link_libraries(bri-build PRIVATE br_index)
+  target_link_libraries(bri-build PRIVATE br_index malloc_count)
   set_target_properties(bri-build PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
 
   set(columba_build_sources

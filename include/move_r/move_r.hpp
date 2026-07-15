@@ -102,6 +102,7 @@ struct move_r_params {
     bool log = false; // controls, whether to print log messages
     std::ostream* mf_idx = nullptr; // measurement file for the index construciton
     std::ostream* mf_mds = nullptr; // measurement file for the move data structure construction
+    std::string mf_idx_suffix = ""; // suffix appended to every mf_idx measurement key (e.g. "_fwd"/"_bwd" for the two move_rb sub-indexes)
     std::string name_text_file = ""; // name of the input file (used only for measurement output)
     
     // ############################# INTERNAL (DON'T USE) #############################
@@ -493,7 +494,7 @@ public:
     void log_data_structure_sizes(std::ostream& out, std::string suffix = "") const
     {
         out << " size_index" << suffix << "=" << size_in_bytes();
-        out << " a=" << a;
+        out << " a" << suffix << "=" << a;
 
         uint64_t size_l_ = (_M_LF.template width_row<0>() * (r_ + 1)) / 8;
         out << " size_m_lf" << suffix << "=" << _M_LF.size_in_bytes() - size_l_;

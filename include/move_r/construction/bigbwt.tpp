@@ -81,7 +81,7 @@ void move_r<support, sym_t, pos_t, mlf_enc>::construction::bigbwt(bool delete_T)
 
     if (log) {
         if (mf_idx != nullptr)
-            *mf_idx << " time_pfp=" << time_diff_ns(time, now());
+            *mf_idx << " time_pfp" << mf_suffix << "=" << time_diff_ns(time, now());
         std::cout << std::endl;
         time = log_runtime(time);
         log_peak_mem_usage();

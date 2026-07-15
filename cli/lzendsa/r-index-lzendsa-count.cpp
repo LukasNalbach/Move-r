@@ -48,10 +48,10 @@ void help()
 template <typename int_t>
 void count(std::ifstream& index_file, std::ifstream& patterns_file, std::string file_name)
 {
-    std::cout << "Loading r-index-lzendsa index" << std::flush;
+    std::cerr << "Loading r-index-lzendsa index" << std::flush;
     r_index_lzendsa<int_t> index;
     index.load(index_file);
-    std::cout << " done" << std::endl;
+    std::cerr << " done" << std::endl;
 
     query_stats stats = benchmark_count(patterns_file,
         [&](std::string& p) { return index.count(p); });

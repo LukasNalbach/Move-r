@@ -172,10 +172,9 @@ void test_move_rb(mrb_func func)
             std::uniform_int_distribution<int32_t> use_bigbwt(0, 15);
             if (input.size() >= min_bigbwt_input_size && use_bigbwt(gen) == 0) {
                 inp_t input_backup = input;
+                
                 try {
-                    auto index = make(_bigbwt);
-                    input = input_backup;
-                    return index;
+                    return make(_bigbwt);
                 } catch (const std::exception&) {
                     input = input_backup;
                 }

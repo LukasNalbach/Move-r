@@ -49,19 +49,19 @@ void help()
 template <typename int_t>
 void locate(std::ifstream& index_file, std::ifstream& patterns_file, std::string file_name, std::string input_file)
 {
-    std::cout << "Loading r-index-lzendsa index" << std::flush;
+    std::cerr << "Loading r-index-lzendsa index" << std::flush;
     r_index_lzendsa<int_t> index;
     index.load(index_file);
-    std::cout << " done" << std::endl;
+    std::cerr << " done" << std::endl;
     std::string input;
 
     if (!input_file.empty()) {
-        std::cout << "Loading <input_file>" << std::flush;
+        std::cerr << "Loading <input_file>" << std::flush;
         uint64_t input_size = std::filesystem::file_size(input_file);
         std::ifstream input_ifile(input_file);
         no_init_resize(input, input_size);
         read_from_file(input_ifile, input.data(), input_size);
-        std::cout << " done" << std::endl;
+        std::cerr << " done" << std::endl;
     }
 
     query_stats stats = benchmark_locate(patterns_file,

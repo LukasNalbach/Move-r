@@ -59,12 +59,12 @@ void help()
 template <typename int_t>
 void random_access(std::ifstream& index_file, std::string file_name, uint64_t len, uint64_t num_queries, uint64_t seed)
 {
-    std::cout << "Loading lzendsa" << std::flush;
+    std::cerr << "Loading lzendsa" << std::flush;
     lzendsa<int_t> index;
     index.load(index_file);
-    std::cout << ", done" << std::endl;
+    std::cerr << ", done" << std::endl;
 
-    std::cout << "Start random access" << std::flush;
+    std::cerr << "Start random access" << std::flush;
     std::mt19937 gen(seed);
     std::uniform_int_distribution<uint64_t> index_distrib(0, index.input_size() - len);
     uint64_t time_ns = 0;
@@ -82,8 +82,8 @@ void random_access(std::ifstream& index_file, std::string file_name, uint64_t le
         time_ns += time_diff_ns(t1, t2);
     }
 
-    std::cout << ", done (checksum: " << checksum << ")" << std::endl;
-    std::cout << "Measured time random access: " << format_time(time_ns) <<
+    std::cerr << ", done (checksum: " << checksum << ")" << std::endl;
+    std::cerr << "Measured time random access: " << format_time(time_ns) <<
         " (with " << num_queries << " queries)" << std::endl;
 
     std::cout << "RESULT"

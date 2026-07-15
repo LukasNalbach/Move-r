@@ -115,10 +115,10 @@ int main(int argc, char** argv)
     rlzsa<int64_t> rlzsa_64;
 
     if (n <= INT32_MAX && !use64) {
-        std::cout << "Constructing using 32-bit integers" << std::endl;
+        std::cerr << "Constructing using 32-bit integers" << std::endl;
         rlzsa_32 = rlzsa<int32_t>(input, d, use_bigbwt, true);
     } else {
-        std::cout << "Constructing using 64-bit integers" << std::endl;
+        std::cerr << "Constructing using 64-bit integers" << std::endl;
         rlzsa_64 = rlzsa<int64_t>(input, d, use_bigbwt, true);
     }
 
@@ -133,7 +133,7 @@ int main(int argc, char** argv)
         rlzsa_64.size_in_bytes();
     }
 
-    std::cout << "rlzsa index successfully constructed (z=" << z << ")" << std::endl;
+    std::cerr << "rlzsa index successfully constructed (z=" << z << ")" << std::endl;
     uint64_t size_index = sizeof(uint8_t);
     std::ofstream out(o);
 
@@ -150,8 +150,8 @@ int main(int argc, char** argv)
     }
 
     out.close();
-    std::cout << "construction throughput: " << format_construction_throughput(n, time_diff_ns(t1, t2)) << std::endl;
-    std::cout << "Wrote " << format_size(size_index) << " bytes to disk." << std::endl;
+    std::cerr << "construction throughput: " << format_construction_throughput(n, time_diff_ns(t1, t2)) << std::endl;
+    std::cerr << "Wrote " << format_size(size_index) << " bytes to disk." << std::endl;
     uint64_t memory_peak = malloc_count_peak();
     uint64_t time_ns = time_diff_ns(t1, t2);
 
