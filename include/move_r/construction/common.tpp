@@ -210,9 +210,10 @@ void move_r<support, sym_t, pos_t, mlf_enc>::construction::unmap_t(bool in_memor
 {
     if constexpr (str_input) {
         if (in_memory) {
+            const uint8_t offset = min_valid_char - 1;
             #pragma omp parallel for num_threads(p)
             for (uint64_t i = 0; i < n - 1; i++) {
-                T<i_sym_t>(i) = idx._map_ext[T<i_sym_t>(i)];
+                T<i_sym_t>(i) = idx._map_ext[T<i_sym_t>(i) - offset];
             }
         } else {
             std::vector<uint64_t> map_ext_adj(256, 0);

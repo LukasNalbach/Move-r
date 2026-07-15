@@ -51,11 +51,11 @@ void help()
 template <typename int_t>
 void count(std::string& input, std::ifstream& index_file, std::ifstream& patterns_file, std::string /*output_filename*/, std::string file_name)
 {
-    std::cout << "Loading rlzsa" << std::flush;
+    std::cerr << "Loading rlzsa" << std::flush;
     rlzsa<int_t> index;
     index.load(index_file);
     index.set_input(input);
-    std::cout << " done" << std::endl;
+    std::cerr << " done" << std::endl;
 
     query_stats stats = benchmark_count(patterns_file,
         [&](std::string& p) { return index.count(p); });
@@ -114,12 +114,12 @@ int main(int argc, char** argv)
     std::ifstream text_in(text_file);
     std::ifstream patterns_file(pattern_file);
 
-    std::cout << "Loading text file" << std::flush;
+    std::cerr << "Loading text file" << std::flush;
     std::string input;
     uint64_t input_size = std::filesystem::file_size(text_file);
     no_init_resize(input, input_size);
     read_from_file(text_in, input.data(), input_size);
-    std::cout << " (" << format_size(input_size) << ")" << std::endl;
+    std::cerr << " (" << format_size(input_size) << ")" << std::endl;
 
     bool is_64_bit;
     in.read((char*) &is_64_bit, sizeof(is_64_bit));

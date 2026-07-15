@@ -52,13 +52,13 @@ void help()
 template <typename int_t>
 void convert()
 {
-    std::cout << "Loading r-index-rlzsa index" << std::flush;
+    std::cerr << "Loading r-index-rlzsa index" << std::flush;
     r_index_rlzsa<int_t> input_index;
     input_index.load(input_file);
     input_file.close();
-    std::cout << " done" << std::endl;
+    std::cerr << " done" << std::endl;
     
-    std::cout << "extracting SA" << std::flush;
+    std::cerr << "extracting SA" << std::flush;
     uint64_t n = input_index.input_size();
     uint16_t p = omp_get_max_threads();
     std::vector<int_t> sa;
@@ -75,7 +75,7 @@ void convert()
             [&](uint64_t pos, uint64_t val){sa[pos] = val;});
     }
     
-    std::cout << " done" << std::endl;
+    std::cerr << " done" << std::endl;
     rlzsa<int_t> output_index(input_index.sa_encoding(), sa, d, true);
     output_index.serialize(output_file);
 }

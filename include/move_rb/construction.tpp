@@ -166,6 +166,7 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
         move_r_params new_params = params;
         new_params.file_input = true;
         new_params.sa_file_name = &sa_fwd_file_name;
+        new_params.mf_idx_suffix = "_fwd";
 
         try {
         idx_fwd = move_r_fwd_t(input_file_name, new_params);
@@ -189,6 +190,7 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
 
         log_message(log, "building backward index:\n");
 
+        new_params.mf_idx_suffix = "_bwd";
         idx_bwd = move_r_bwd_t(input_file_name, new_params);
         idx_bwd.set_alphabet_maps(map_int, map_ext);
 
@@ -207,6 +209,7 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
         new_params.sa_vector = reinterpret_cast<void*>(&SA_fwd);
         new_params.file_input = false;
         new_params.mode = _suffix_array;
+        new_params.mf_idx_suffix = "_fwd";
 
         try {
         idx_fwd = move_r_fwd_t(input, new_params);
@@ -241,6 +244,7 @@ void move_rb<support, sym_t, pos_t>::build(inp_t& input, move_r_params params)
 
         reverse(input, p, true, log);
 
+        new_params.mf_idx_suffix = "_bwd";
         idx_bwd = move_r_bwd_t(input, new_params);
         idx_bwd.set_alphabet_maps(map_int, map_ext);
 
