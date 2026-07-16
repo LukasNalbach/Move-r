@@ -531,7 +531,7 @@ Technical Report A-2001-10, University of Tampere, 2001. ([report](https://resea
 Theoretical Computer Science, 638:145–158, 2016. ([paper](https://arxiv.org/abs/1310.1440))
 
 [8] Luca Renders, Kathleen Marchal and Jan Fostier. Dynamic partitioning of search patterns for approximate pattern matching using search schemes (Columba).
-iScience, 24(7):102687, 2021. ([paper](https://www.cell.com/iscience/fulltext/S2589-0042(21)00697-1))
+iScience, 24(7):102687, 2021. ([paper](https://www.cell.com/iscience/fulltext/S2589-0042%2821%2900697-1))
 
 [9] Lore Depuydt, Luca Renders, Simon Van de Vyver, Lennart Veys, Travis Gagie and Jan Fostier. b-move: faster bidirectional character extensions in a run-length compressed index.
 In 24th International Workshop on Algorithms in Bioinformatics (WABI), LIPIcs vol. 312, pages 10:1–10:18, 2024. ([paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.WABI.2024.10))
