@@ -41,13 +41,12 @@ use a small text; full-scale reproduction needs a large machine and free disk sp
 
 Place each input text in [`texts/`](texts/) under the name the scripts expect:
 
-| Text     | File name           | Notes                                        |
-| -------- | ------------------- | -------------------------------------------- |
-| SARS-CoV-2 | `sars2.ACGT.50Gi` | DNA, reduced to the `A`,`C`,`G`,`T` alphabet |
-| chr19      | `chr19.ACGT.50Gi` | DNA, reduced to `A`,`C`,`G`,`T`              |
-| dewiki     | `dewiki.50Gi`     | byte alphabet (German Wikipedia)             |
+| Text       | File name         | Download | Notes                                        |
+| ---------- | ----------------- | -------- | -------------------------------------------- |
+| SARS-CoV-2 | `sars2.ACGT.50Gi` | [Google Drive](https://drive.google.com/file/d/1PYwoLMdOjneMyVv4-B2rB0hRF9FiEAZU/view?usp=sharing) | DNA, reduced to the `A`,`C`,`G`,`T` alphabet |
+| chr19      | `chr19.ACGT.50Gi` | [Google Drive](https://drive.google.com/file/d/1GzKUzfoh3i89M-1CuUiEvjwCWBKjHd6M/view?usp=sharing) | DNA, reduced to `A`,`C`,`G`,`T`              |
+| dewiki     | `dewiki.50Gi`     | [Google Drive](https://drive.google.com/file/d/1y1ajO7JI3QVQAg_ud1rXkgRgihy0laQl/view?usp=sharing) | byte alphabet (German Wikipedia)             |
 
-Links to the exact texts are in the top-level `README.md` / the paper's repository.
 To reproduce with your own inputs, drop them into `texts/` and call `measure-text.sh`
 directly (see below).
 
