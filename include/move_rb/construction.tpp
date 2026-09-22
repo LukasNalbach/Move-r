@@ -485,11 +485,12 @@ void move_rb<support, sym_t, pos_t>::reverse(seq_t& T, uint16_t p, bool in_memor
         };
 
         static constexpr uint64_t bufsize = 128 * 1024;
-        uint64_t chunk = div_ceil<uint64_t>(n_2, uint64_t(p));
 
         #pragma omp parallel num_threads(p)
         {
+            uint16_t p_ = omp_get_num_threads();
             uint16_t i_p = omp_get_thread_num();
+            uint64_t chunk = div_ceil<uint64_t>(n_2, uint64_t(p_));
             uint64_t b = std::min<uint64_t>(n_2, uint64_t(i_p) * chunk);
             uint64_t e = std::min<uint64_t>(n_2, b + chunk);
             std::vector<uint8_t> lb(bufsize);

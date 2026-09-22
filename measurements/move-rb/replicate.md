@@ -279,12 +279,6 @@ them as `sigma`, `r` and `r_rev`, and `make-results-build.sh` copies them into
 `results-build.txt`. `sigma` counts the sentinel character as well, so the table prints
 `sigma - 1`.
 
-The values in `results-paper/results-build.txt` were read out of the index files that the
-measurements of the paper were made with. For sars2 and chr19 the resulting n/r and n/r_rev are
-0.03% higher than the values printed in Table 3.1 of the paper: 1000.93 instead of 1000.64, and
-1119.46 instead of 1119.13. For dewiki the values are the same. The reason for this difference
-is not known. The tables in this repository show the values from the index files.
-
 ## 7. Notes
 
 - **Machine-dependent calibration.** `N` is calibrated to a target wall time on *your*
