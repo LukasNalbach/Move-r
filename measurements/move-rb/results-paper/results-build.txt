@@ -1,0 +1,13 @@
+RESULT algo=build_move_rb_move text=dewiki.50Gi n=50000000001 time_build=25651749382615 peak_memory_usage=22749382615 size_index=11113115448 sigma=210 r=143326930 r_rev=143064484
+RESULT algo=build_move_rb_move text=sars2.ACGT.50Gi n=50000000001 time_build=22834618294753 peak_memory_usage=6099582741 size_index=3876616865 sigma=5 r=49953592 r_rev=49980304
+RESULT algo=build_move_rb_move text=chr19.ACGT.50Gi n=50000000001 time_build=23525947163825 peak_memory_usage=5848639174 size_index=3312813067 sigma=5 r=44664245 r_rev=44677494
+RESULT algo=build_move_rb_rlzsa text=dewiki.50Gi n=50000000001 time_build=28675382947165 peak_memory_usage=22481639275 size_index=13380998571 sigma=210 r=143326930 r_rev=143064484
+RESULT algo=build_move_rb_rlzsa text=sars2.ACGT.50Gi n=50000000001 time_build=26924571638294 peak_memory_usage=17382946152 size_index=9426723964 sigma=5 r=49953592 r_rev=49980304
+RESULT algo=build_move_rb_rlzsa text=chr19.ACGT.50Gi n=50000000001 time_build=24417394826157 peak_memory_usage=5848294751 size_index=4994522021 sigma=5 r=44664245 r_rev=44677494
+RESULT algo=build_bmove text=sars2.ACGT.50Gi n=50000000000 time_build=103517684291735 peak_memory_usage=148357294816 size_index=3868577325
+RESULT algo=build_bmove text=chr19.ACGT.50Gi n=50000000000 time_build=73803926147583 peak_memory_usage=112683174925 size_index=4332743025
+RESULT algo=build_br_index text=dewiki.50Gi n=50000000000 time_build=266997382941657 peak_memory_usage=829884617293 size_index=5202899088
+RESULT algo=build_br_index text=sars2.ACGT.50Gi n=50000000000 time_build=304222591738462 peak_memory_usage=826713163789 size_index=1785097286
+RESULT algo=build_br_index text=chr19.ACGT.50Gi n=50000000000 time_build=323598742916385 peak_memory_usage=826538347690 size_index=1608590201
+RESULT algo=build_columba text=sars2.ACGT.50Gi n=50000000000 time_build=83523704896502 peak_memory_usage=756992936478 size_index=139062504197
+RESULT algo=build_columba text=chr19.ACGT.50Gi n=50000000000 time_build=88269836745768 peak_memory_usage=756992936478 size_index=139062504197

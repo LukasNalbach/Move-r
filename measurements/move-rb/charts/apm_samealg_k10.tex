@@ -1,0 +1,322 @@
+% IMPORT-DATA results_apm results/results-apm.txt
+% SQL CREATE TEMP VIEW apm AS SELECT a.text, a.dist_metr, a.algo, a.max_mismatches, a.pattern_length, (a.num_patterns * a.pattern_length) / (a.time_count / 1000.0) AS count_thr, (a.num_patterns * a.pattern_length + (SELECT r.num_occurrences FROM results_apm r WHERE r.text = a.text AND r.dist_metr = a.dist_metr AND r.max_mismatches = a.max_mismatches AND r.pattern_length = a.pattern_length AND r.cigar = 0 AND r.algo = 'locate_move_rb_move')) / (a.time_locate / 1000.0) AS locate_thr FROM results_apm a WHERE a.cigar = 0
+
+\begin{subfigure}[b]{.31\textwidth}
+\hspace*{-0.7cm}
+\begin{tikzpicture}[marks]
+\begin{axis}[ymin=1e-7,ymax=1e-2,
+    querystyle_kfig,
+    title={sars2},
+    ylabel={count thr.\\ (ham.) [1/$\mu$s]},
+    y label style={at={(0.0,0.5)},align=center},
+    xmin=20,
+    xmax=1280,
+    xticklabels={},
+    xmode=log,
+    ymode=log,
+    xlabel={\vphantom{pattern length}}
+]
+
+%% MULTIPLOT(algo)
+%% SELECT pattern_length AS x, exp(avg(ln(count_thr))) AS y, algo
+%% FROM apm
+%% WHERE text = 'sars2.ACGT.50Gi' AND dist_metr = 'hamming' AND algo IN ('count_br_index', 'count_columba_apm', 'count_columba_rlc_apm', 'count_move_rb_move') AND max_mismatches = 10
+%% GROUP BY algo, pattern_length
+%% ORDER BY algo, pattern_length
+\addplot[brindex] coordinates { (20,9.9483e-08) (40,1.6174e-05) (80,6.70777e-05) (160,5.06174e-05) (320,2.69385e-05) (640,1.03923e-05) (1280,6.67469e-06) };
+\addlegendentry{algo=count\_br\_index};
+\addplot[columba] coordinates { (20,2.03067e-06) (40,0.000320529) (80,0.00180386) (160,0.00133948) (320,0.000647162) (640,0.000217861) (1280,0.000120362) };
+\addlegendentry{algo=count\_columba\_apm};
+\addplot[bmove] coordinates { (20,7.58393e-07) (40,0.000123059) (80,0.00046372) (160,0.000330789) (320,0.00016189) (640,5.71921e-05) (1280,3.54769e-05) };
+\addlegendentry{algo=count\_columba\_rlc\_apm};
+\addplot[moverb] coordinates { (20,3.34099e-06) (40,0.000580258) (80,0.00355255) (160,0.00288859) (320,0.00159914) (640,0.000625298) (1280,0.000388159) };
+\addlegendentry{algo=count\_move\_rb\_move};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+\begin{subfigure}[b]{.31\textwidth}
+\begin{tikzpicture}[marks]
+\begin{axis}[ymin=1e-5,ymax=1e0,querystyle_kfig,
+    title={chr19},
+    ylabel={\phantom{p}},
+    xmin=40,
+    xmax=1280,
+    xticklabels={},
+    xmode=log,
+    ymode=log,
+    xlabel={\vphantom{pattern length}}
+]
+
+%% MULTIPLOT(algo)
+%% SELECT pattern_length AS x, exp(avg(ln(count_thr))) AS y, algo
+%% FROM apm
+%% WHERE text = 'chr19.ACGT.50Gi' AND dist_metr = 'hamming' AND algo IN ('count_br_index', 'count_columba_apm', 'count_columba_rlc_apm', 'count_move_rb_move') AND max_mismatches = 10
+%% GROUP BY algo, pattern_length
+%% ORDER BY algo, pattern_length
+\addplot[brindex] coordinates { (40,1.10155e-05) (80,0.000131549) (160,0.00315493) (320,0.0095613) (640,0.00674542) (1280,0.00420212) };
+\addlegendentry{algo=count\_br\_index};
+\addplot[columba] coordinates { (40,5.70374e-05) (80,0.00100866) (160,0.0246884) (320,0.110593) (640,0.0937687) (1280,0.0675041) };
+\addlegendentry{algo=count\_columba\_apm};
+\addplot[bmove] coordinates { (40,5.57754e-05) (80,0.000634504) (160,0.0154726) (320,0.0484307) (640,0.0347518) (1280,0.0217818) };
+\addlegendentry{algo=count\_columba\_rlc\_apm};
+\addplot[moverb] coordinates { (40,0.000279537) (80,0.00441657) (160,0.0901944) (320,0.395952) (640,0.338796) (1280,0.226748) };
+\addlegendentry{algo=count\_move\_rb\_move};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+\begin{subfigure}[b]{.31\textwidth}
+\begin{tikzpicture}[marks]
+\begin{axis}[ymin=1e-8,ymax=1e0,querystyle_kfig,
+    title={dewiki},
+    ylabel={\phantom{p}},
+    xmin=20,
+    xmax=1280,
+    xticklabels={},
+    xmode=log,
+    ymode=log,
+    xlabel={\vphantom{pattern length}}
+]
+
+%% MULTIPLOT(algo)
+%% SELECT pattern_length AS x, exp(avg(ln(count_thr))) AS y, algo
+%% FROM apm
+%% WHERE text = 'dewiki.50Gi' AND dist_metr = 'hamming' AND algo IN ('count_br_index', 'count_columba_apm', 'count_columba_rlc_apm', 'count_move_rb_move') AND max_mismatches = 10
+%% GROUP BY algo, pattern_length
+%% ORDER BY algo, pattern_length
+\addplot[brindex] coordinates { (20,2.85401e-08) (40,7.86745e-06) (80,3.42924e-06) (160,2.44642e-05) (320,0.000345703) (640,0.000505459) (1280,0.000518304) };
+\addlegendentry{algo=count\_br\_index};
+\addplot[moverb] coordinates { (20,1.49871e-05) (40,0.00339733) (80,0.00166026) (160,0.0165442) (320,0.179842) (640,0.318118) (1280,0.353568) };
+\addlegendentry{algo=count\_move\_rb\_move};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+
+\vspace{-1.35cm}
+\begin{subfigure}[b]{.31\textwidth}
+\hspace*{-0.7cm}
+\begin{tikzpicture}[marks]
+\begin{axis}[ymin=1e-2,ymax=1e2,
+    querystyle_kfig,
+    ylabel={locate thr.\\ (ham.) [1/$\mu$s]},
+    y label style={at={(0.0,0.5)},align=center},
+    xmin=20,
+    xmax=1280,
+    xticklabels={},
+    xmode=log,
+    ymode=log,
+    title={\vphantom{Ig}},
+    xlabel={\vphantom{pattern length}}
+]
+
+%% MULTIPLOT(algo)
+%% SELECT pattern_length AS x, exp(avg(ln(locate_thr))) AS y, algo
+%% FROM apm
+%% WHERE text = 'sars2.ACGT.50Gi' AND dist_metr = 'hamming' AND algo IN ('locate_br_index', 'locate_columba_apm', 'locate_columba_rlc_apm', 'locate_move_rb_move', 'locate_move_rb_rlzsa') AND max_mismatches = 10
+%% GROUP BY algo, pattern_length
+%% ORDER BY algo, pattern_length
+\addplot[brindex] coordinates { (40,0.380937) (80,0.551744) (160,0.314484) (320,0.128699) (640,0.0354769) (1280,0.00637524) };
+\addlegendentry{algo=locate\_br\_index};
+\addplot[columba] coordinates { (40,8.21619) (80,11.553) (160,7.48121) (320,3.33287) (640,0.87946) (1280,0.141737) };
+\addlegendentry{algo=locate\_columba\_apm};
+\addplot[bmove] coordinates { (40,1.49552) (80,1.75836) (160,1.26633) (320,0.637499) (640,0.18798) (1280,0.0328809) };
+\addlegendentry{algo=locate\_columba\_rlc\_apm};
+\addplot[moverb] coordinates { (40,5.23257) (80,6.26768) (160,5.30052) (320,3.54306) (640,1.45614) (1280,0.291598) };
+\addlegendentry{algo=locate\_move\_rb\_move};
+\addplot[moverbrlzsa] coordinates { (40,18.1147) (80,40.1152) (160,19.311) (320,6.97607) (640,1.84622) (1280,0.305525) };
+\addlegendentry{algo=locate\_move\_rb\_rlzsa};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+\begin{subfigure}[b]{.31\textwidth}
+\begin{tikzpicture}[marks]
+\begin{axis}[ymin=1e-3,ymax=1e1,querystyle_kfig,
+    ylabel={\phantom{p}},
+    xmin=40,
+    xmax=1280,
+    xticklabels={},
+    xmode=log,
+    ymode=log,
+    title={\vphantom{Ig}},
+    xlabel={\vphantom{pattern length}}
+]
+
+%% MULTIPLOT(algo)
+%% SELECT pattern_length AS x, exp(avg(ln(locate_thr))) AS y, algo
+%% FROM apm
+%% WHERE text = 'chr19.ACGT.50Gi' AND dist_metr = 'hamming' AND algo IN ('locate_br_index', 'locate_columba_apm', 'locate_columba_rlc_apm', 'locate_move_rb_move', 'locate_move_rb_rlzsa') AND max_mismatches = 10
+%% GROUP BY algo, pattern_length
+%% ORDER BY algo, pattern_length
+\addplot[brindex] coordinates { (40,0.336719) (80,0.23286) (160,0.0303882) (320,0.0354136) (640,0.0150025) (1280,0.00660024) };
+\addlegendentry{algo=locate\_br\_index};
+\addplot[columba] coordinates { (40,2.55694) (80,2.68229) (160,0.291815) (320,0.525361) (640,0.25252) (1280,0.125039) };
+\addlegendentry{algo=locate\_columba\_apm};
+\addplot[bmove] coordinates { (40,1.17357) (80,0.872413) (160,0.145414) (320,0.175578) (640,0.077629) (1280,0.0348147) };
+\addlegendentry{algo=locate\_columba\_rlc\_apm};
+\addplot[moverb] coordinates { (40,4.27792) (80,3.81889) (160,0.73656) (320,1.15449) (640,0.634654) (1280,0.306543) };
+\addlegendentry{algo=locate\_move\_rb\_move};
+\addplot[moverbrlzsa] coordinates { (40,12.0898) (80,9.12527) (160,0.854152) (320,1.37334) (640,0.678502) (1280,0.316464) };
+\addlegendentry{algo=locate\_move\_rb\_rlzsa};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+\begin{subfigure}[b]{.31\textwidth}
+\begin{tikzpicture}[marks]
+\begin{axis}[ymin=1e-4,ymax=1e0,querystyle_kfig,
+    ylabel={\phantom{p}},
+    xmin=20,
+    xmax=1280,
+    xticklabels={},
+    xmode=log,
+    ymode=log,
+    title={\vphantom{Ig}},
+    xlabel={\vphantom{pattern length}}
+]
+
+%% MULTIPLOT(algo)
+%% SELECT pattern_length AS x, exp(avg(ln(locate_thr))) AS y, algo
+%% FROM apm
+%% WHERE text = 'dewiki.50Gi' AND dist_metr = 'hamming' AND algo IN ('locate_br_index', 'locate_columba_apm', 'locate_columba_rlc_apm', 'locate_move_rb_move', 'locate_move_rb_rlzsa') AND max_mismatches = 10
+%% GROUP BY algo, pattern_length
+%% ORDER BY algo, pattern_length
+\addplot[brindex] coordinates { (20,0.000570766) (40,0.000726599) (80,0.00704263) (160,0.000835473) (320,0.000794947) (640,0.000813976) (1280,0.000574181) };
+\addlegendentry{algo=locate\_br\_index};
+\addplot[moverb] coordinates { (20,0.248619) (40,0.298718) (80,1.0412) (160,0.344034) (320,0.399221) (640,0.474182) (1280,0.382171) };
+\addlegendentry{algo=locate\_move\_rb\_move};
+\addplot[moverbrlzsa] coordinates { (20,0.256416) (40,0.302126) (80,1.30111) (160,0.354304) (320,0.409233) (640,0.478483) (1280,0.376131) };
+\addlegendentry{algo=locate\_move\_rb\_rlzsa};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+
+\vspace{-1.35cm}
+\begin{subfigure}[b]{.31\textwidth}
+\hspace*{-0.7cm}
+\begin{tikzpicture}[marks]
+\begin{axis}[ymin=1e-2,ymax=1e1,
+    querystyle_kfig,
+    ylabel={locate thr.\\ (edit) [1/$\mu$s]},
+    y label style={at={(0.0,0.5)},align=center},
+    xmin=20,
+    xmax=1280,
+    xlabel={pattern length},
+    xmode=log,
+    ymode=log,
+    title={\vphantom{Ig}}
+]
+
+%% MULTIPLOT(algo)
+%% SELECT pattern_length AS x, exp(avg(ln(locate_thr))) AS y, algo
+%% FROM apm
+%% WHERE text = 'sars2.ACGT.50Gi' AND dist_metr = 'edit' AND algo IN ('locate_br_index', 'locate_columba_apm', 'locate_columba_rlc_apm', 'locate_move_rb_move', 'locate_move_rb_rlzsa') AND max_mismatches = 10
+%% GROUP BY algo, pattern_length
+%% ORDER BY algo, pattern_length
+\addplot[brindex] coordinates { (40,0.197047) (80,0.510521) (160,0.247769) (320,0.282426) (640,0.0902195) (1280,0.0121548) };
+\addlegendentry{algo=locate\_br\_index};
+\addplot[columba] coordinates { (40,2.65453) (80,4.82214) (160,3.31011) (320,3.62739) (640,1.52483) (1280,0.222078) };
+\addlegendentry{algo=locate\_columba\_apm};
+\addplot[bmove] coordinates { (40,0.762288) (80,1.22862) (160,0.919059) (320,1.00174) (640,0.397189) (1280,0.0591351) };
+\addlegendentry{algo=locate\_columba\_rlc\_apm};
+\addplot[moverb] coordinates { (40,2.95917) (80,4.5783) (160,3.48106) (320,3.77155) (640,2.06697) (1280,0.409647) };
+\addlegendentry{algo=locate\_move\_rb\_move};
+\addplot[moverbrlzsa] coordinates { (40,5.20788) (80,14.0342) (160,7.06898) (320,8.56592) (640,2.92883) (1280,0.430563) };
+\addlegendentry{algo=locate\_move\_rb\_rlzsa};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+\begin{subfigure}[b]{.31\textwidth}
+\begin{tikzpicture}[marks]
+\begin{axis}[ymin=1e-3,ymax=1e1,querystyle_kfig,
+    ylabel={\phantom{p}},
+    xmin=40,
+    xmax=1280,
+    xlabel={pattern length},
+    xmode=log,
+    ymode=log,
+    title={\vphantom{Ig}}
+]
+
+%% MULTIPLOT(algo)
+%% SELECT pattern_length AS x, exp(avg(ln(locate_thr))) AS y, algo
+%% FROM apm
+%% WHERE text = 'chr19.ACGT.50Gi' AND dist_metr = 'edit' AND algo IN ('locate_br_index', 'locate_columba_apm', 'locate_columba_rlc_apm', 'locate_move_rb_move', 'locate_move_rb_rlzsa') AND max_mismatches = 10
+%% GROUP BY algo, pattern_length
+%% ORDER BY algo, pattern_length
+\addplot[brindex] coordinates { (40,0.0267055) (80,0.157456) (160,0.0305525) (320,0.0334429) (640,0.0153368) (1280,0.00633869) };
+\addlegendentry{algo=locate\_br\_index};
+\addplot[columba] coordinates { (40,0.18313) (80,1.39354) (160,0.303403) (320,0.437286) (640,0.243945) (1280,0.104228) };
+\addlegendentry{algo=locate\_columba\_apm};
+\addplot[bmove] coordinates { (40,0.0969364) (80,0.5149) (160,0.124106) (320,0.147452) (640,0.0720224) (1280,0.0307721) };
+\addlegendentry{algo=locate\_columba\_rlc\_apm};
+\addplot[moverb] coordinates { (40,0.443023) (80,2.02159) (160,0.634703) (320,0.854874) (640,0.494984) (1280,0.231697) };
+\addlegendentry{algo=locate\_move\_rb\_move};
+\addplot[moverbrlzsa] coordinates { (40,0.449861) (80,3.15647) (160,0.704847) (320,0.962266) (640,0.524716) (1280,0.236339) };
+\addlegendentry{algo=locate\_move\_rb\_rlzsa};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+\begin{subfigure}[b]{.31\textwidth}
+\begin{tikzpicture}[marks]
+\begin{axis}[ymin=1e-5,ymax=1e0,querystyle_kfig,
+    ylabel={\phantom{p}},
+    xmin=20,
+    xmax=1280,
+    xlabel={pattern length},
+    xmode=log,
+    ymode=log,
+    title={\vphantom{Ig}}
+]
+
+%% MULTIPLOT(algo)
+%% SELECT pattern_length AS x, exp(avg(ln(locate_thr))) AS y, algo
+%% FROM apm
+%% WHERE text = 'dewiki.50Gi' AND dist_metr = 'edit' AND algo IN ('locate_br_index', 'locate_columba_apm', 'locate_columba_rlc_apm', 'locate_move_rb_move', 'locate_move_rb_rlzsa') AND max_mismatches = 10
+%% GROUP BY algo, pattern_length
+%% ORDER BY algo, pattern_length
+\addplot[brindex] coordinates { (40,3.79736e-05) (80,0.00174675) (160,0.000695632) (320,0.000184674) (640,0.000625333) (1280,0.000492997) };
+\addlegendentry{algo=locate\_br\_index};
+\addplot[moverb] coordinates { (40,0.0199655) (80,0.702952) (160,0.268216) (320,0.124233) (640,0.3645) (1280,0.306207) };
+\addlegendentry{algo=locate\_move\_rb\_move};
+\addplot[moverbrlzsa] coordinates { (40,0.0200625) (80,0.742497) (160,0.273206) (320,0.125299) (640,0.367614) (1280,0.302963) };
+\addlegendentry{algo=locate\_move\_rb\_rlzsa};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+
+
+\vspace*{-0.35cm}
+
+\centering
+\begin{tikzpicture}[legendmarks]
+\begin{axis}[legend,legend columns=5]
+\addplot[brindex] coordinates { (0,0) };
+\addlegendentry{\texttt{br-index}};
+\addplot[bmove] coordinates { (0,0) };
+\addlegendentry{\texttt{b-move}};
+\addplot[columba] coordinates { (0,0) };
+\addlegendentry{\texttt{columba}};
+\addplot[moverb] coordinates { (0,0) };
+\addlegendentry{\texttt{move-rb}};
+\addplot[moverbrlzsa] coordinates { (0,0) };
+\addlegendentry{\texttt{move-rb-rlzsa}};
+\end{axis}
+\end{tikzpicture}
+
+\vspace*{-0.1cm}

@@ -6,10 +6,10 @@ find_package(Git REQUIRED)
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/external/libsais/LICENSE")
   message(STATUS "Downloading the git submodules")
   execute_process(COMMAND git submodule update --init --recursive WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-
-  message(STATUS "Applying the patched files to the submodules")
-  file(COPY "${CMAKE_SOURCE_DIR}/patched-files/external" DESTINATION "${CMAKE_SOURCE_DIR}")
 endif()
+
+message(STATUS "Applying the patched files to the submodules")
+file(COPY "${CMAKE_SOURCE_DIR}/patched-files/external" DESTINATION "${CMAKE_SOURCE_DIR}")
 
 project (move-r LANGUAGES C CXX)
 

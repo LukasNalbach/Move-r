@@ -1,0 +1,113 @@
+% IMPORT-DATA results_build results/results-build.txt
+
+\begin{subfigure}[h]{.31\textwidth}
+\hspace*{-0.4cm}
+\begin{tikzpicture}[marks]
+\begin{axis}[
+    xmode=log,
+    constructionstyle,
+    title={sars2},
+    ylabel={construction thr.\ [MB/s]},
+    xlabel={peak memory usage [bytes/$n$]},
+    y label style={at={(0.05,0.5)}},
+]
+
+%% MULTIPLOT(algo)
+%% SELECT (peak_memory_usage / (1.0 * n)) AS x, ((n * 1000.0) / time_build) AS y, algo, text
+%% FROM results_build
+%% WHERE text='sars2.ACGT.50Gi'
+%% GROUP BY algo
+%% ORDER BY algo
+\addplot[bmove] coordinates { (2.966,0.483012) };
+\addlegendentry{algo=build\_bmove};
+\addplot[brindex] coordinates { (16.53426,0.164354) };
+\addlegendentry{algo=build\_br\_index};
+\addplot[columba] coordinates { (15.0,0.598659) };
+\addlegendentry{algo=build\_columba};
+\addplot[moverb] coordinates { (0.12198,2.18972) };
+\addlegendentry{algo=build\_move\_rb\_move};
+\addplot[moverbrlzsa] coordinates { (0.2,1.85708) };
+\addlegendentry{algo=build\_move\_rb\_rlzsa};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+\begin{subfigure}[h]{.31\textwidth}
+\begin{tikzpicture}[marks]
+\begin{axis}[
+    xmode=log,
+    constructionstyle,
+    title={chr19},
+    xlabel={peak memory usage [bytes/$n$]},
+    ylabel={\phantom{p}},
+]
+
+%% MULTIPLOT(algo)
+%% SELECT (peak_memory_usage / (1.0 * n)) AS x, ((n * 1000.0) / time_build) AS y, algo, text
+%% FROM results_build
+%% WHERE text='chr19.ACGT.50Gi'
+%% GROUP BY algo
+%% ORDER BY algo
+\addplot[bmove] coordinates { (2.252,0.677479) };
+\addlegendentry{algo=build\_bmove};
+\addplot[brindex] coordinates { (16.53076,0.154513) };
+\addlegendentry{algo=build\_br\_index};
+\addplot[columba] coordinates { (15.0,0.566893) };
+\addlegendentry{algo=build\_columba};
+\addplot[moverb] coordinates { (0.11696,2.1254) };
+\addlegendentry{algo=build\_move\_rb\_move};
+\addplot[moverbrlzsa] coordinates { (0.11696,2.04834) };
+\addlegendentry{algo=build\_move\_rb\_rlzsa};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+\begin{subfigure}[h]{.31\textwidth}
+\begin{tikzpicture}[marks]
+\begin{axis}[
+    xmode=log,
+    constructionstyle,
+    title={dewiki},
+    xlabel={peak memory usage [bytes/$n$]},
+    ylabel={\phantom{p}},
+]
+
+%% MULTIPLOT(algo)
+%% SELECT (peak_memory_usage / (1.0 * n)) AS x, ((n * 1000.0) / time_build) AS y, algo, text
+%% FROM results_build
+%% WHERE text='dewiki.50Gi'
+%% GROUP BY algo
+%% ORDER BY algo
+\addplot[brindex] coordinates { (16.59768,0.187273) };
+\addlegendentry{algo=build\_br\_index};
+\addplot[moverb] coordinates { (0.44,1.94924) };
+\addlegendentry{algo=build\_move\_rb\_move};
+\addplot[moverbrlzsa] coordinates { (0.44,1.74368) };
+\addlegendentry{algo=build\_move\_rb\_rlzsa};
+
+\legend{};
+\end{axis}
+\end{tikzpicture}
+\end{subfigure}
+
+\vspace*{-0.35cm}
+
+\centering
+\begin{tikzpicture}[legendmarks]
+\begin{axis}[legend,legend columns=5]
+\addplot[brindex] coordinates { (0,0) };
+\addlegendentry{\texttt{br-index}};
+\addplot[bmove] coordinates { (0,0) };
+\addlegendentry{\texttt{b-move}};
+\addplot[columba] coordinates { (0,0) };
+\addlegendentry{\texttt{columba}};
+\addplot[moverb] coordinates { (0,0) };
+\addlegendentry{\texttt{move-rb}};
+\addplot[moverbrlzsa] coordinates { (0,0) };
+\addlegendentry{\texttt{move-rb-rlzsa}};
+\end{axis}
+\end{tikzpicture}
+
+\vspace*{-0.1cm}

@@ -1,0 +1,32 @@
+% IMPORT-DATA results_ext results/results-ext.txt
+% IMPORT-DATA results_apm results/results-apm.txt
+% IMPORT-DATA results_build results/results-build.txt
+
+\begin{tabular}{l|r|r|r|r|r|r|r|r|r}
+\hline
+text & size & $\sigma$ & $n/r$ & $n/\bwd{r}$ & br-index & b-move & columba & Move-rb & Move-rb-rlzsa \\
+\hline
+%% TABULAR SELECT
+%%   substr(h.text, 1, instr(h.text, '.') - 1),
+%%   printf('\num{%.0f} GB', MAX(h.n) / 1e9),
+%%   CASE WHEN (SELECT b.sigma FROM results_build b WHERE b.algo = 'build_move_rb_move' AND substr(b.text,1,instr(b.text||'.','.')-1) = substr(h.text,1,instr(h.text||'.','.')-1)) IS NULL THEN '' ELSE printf('\num{%d}', (SELECT b.sigma FROM results_build b WHERE b.algo = 'build_move_rb_move' AND substr(b.text,1,instr(b.text||'.','.')-1) = substr(h.text,1,instr(h.text||'.','.')-1)) - 1) END,
+%%   CASE WHEN (SELECT b.r FROM results_build b WHERE b.algo = 'build_move_rb_move' AND substr(b.text,1,instr(b.text||'.','.')-1) = substr(h.text,1,instr(h.text||'.','.')-1)) IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * (SELECT b.n FROM results_build b WHERE b.algo = 'build_move_rb_move' AND substr(b.text,1,instr(b.text||'.','.')-1) = substr(h.text,1,instr(h.text||'.','.')-1)) / (SELECT b.r FROM results_build b WHERE b.algo = 'build_move_rb_move' AND substr(b.text,1,instr(b.text||'.','.')-1) = substr(h.text,1,instr(h.text||'.','.')-1))) END,
+%%   CASE WHEN (SELECT b.r_rev FROM results_build b WHERE b.algo = 'build_move_rb_move' AND substr(b.text,1,instr(b.text||'.','.')-1) = substr(h.text,1,instr(h.text||'.','.')-1)) IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * (SELECT b.n FROM results_build b WHERE b.algo = 'build_move_rb_move' AND substr(b.text,1,instr(b.text||'.','.')-1) = substr(h.text,1,instr(h.text||'.','.')-1)) / (SELECT b.r_rev FROM results_build b WHERE b.algo = 'build_move_rb_move' AND substr(b.text,1,instr(b.text||'.','.')-1) = substr(h.text,1,instr(h.text||'.','.')-1))) END,
+%%   CASE WHEN MIN(CASE WHEN a.algo='locate_br_index' THEN a.index_mem END) IS NULL THEN '' ELSE printf('\num{%.0f} MB', MIN(CASE WHEN a.algo='locate_br_index' THEN a.index_mem END) / 1e6) END,
+%%   CASE WHEN MIN(CASE WHEN a.algo='locate_columba_rlc' THEN a.index_mem END) IS NULL THEN '' ELSE printf('\num{%.0f} MB', MIN(CASE WHEN a.algo='locate_columba_rlc' THEN a.index_mem END) / 1e6) END,
+%%   CASE WHEN MIN(CASE WHEN a.algo='locate_columba' THEN a.index_mem END) IS NULL THEN '' ELSE printf('\num{%.0f} GB', MIN(CASE WHEN a.algo='locate_columba' THEN a.index_mem END) / 1e9) END,
+%%   CASE WHEN MIN(CASE WHEN a.algo='locate_move_rb_move' THEN a.index_mem END) IS NULL THEN '' ELSE printf('\num{%.0f} MB', MIN(CASE WHEN a.algo='locate_move_rb_move' THEN a.index_mem END) / 1e6) END,
+%%   CASE WHEN MIN(CASE WHEN a.algo='locate_move_rb_rlzsa' THEN a.index_mem END) IS NULL THEN '' ELSE printf('\num{%.0f} MB', MIN(CASE WHEN a.algo='locate_move_rb_rlzsa' THEN a.index_mem END) / 1e6) END
+%% FROM results_ext h
+%% LEFT JOIN results_apm a ON (
+%%   substr(h.text,1,instr(h.text||'.','.')-1) =
+%%   substr(a.text,1,instr(a.text||'.','.')-1))
+%% WHERE h.algo = 'count_move_rb_move' AND h.dist_metr = 'exact'
+%% GROUP BY h.text
+%% ORDER BY CASE substr(h.text,1,instr(h.text,'.')-1) WHEN 'sars2' THEN 3 WHEN 'chr19' THEN 2 WHEN 'dewiki' THEN 1 END DESC
+ sars2 & \num{50} GB &   \num{4} & \num{1000.93} & \num{1000.39} & \num{1801} MB & \num{3875} MB & \num{139} GB &  \num{3879} MB &  \num{9268} MB \\
+ chr19 & \num{50} GB &   \num{4} & \num{1119.46} & \num{1119.13} & \num{1624} MB & \num{4342} MB & \num{139} GB &  \num{3315} MB &  \num{4975} MB \\
+dewiki & \num{50} GB & \num{209} &  \num{348.85} &  \num{349.49} & \num{5273} MB &               &              & \num{11120} MB & \num{13403} MB \\
+% END TABULAR SELECT   substr(h.text, 1, instr(h.text, '.') - 1),   printf('...)
+\hline
+\end{tabular}
