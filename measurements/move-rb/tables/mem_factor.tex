@@ -1,0 +1,95 @@
+% IMPORT-DATA results_apm results/results-apm.txt
+
+\begin{table*}[t!]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{2.1pt}
+\renewcommand{\arraystretch}{1.0}
+\begin{tabular}{|rr|rrr|rr|rrr|rr|rrr||rr|r|rr|r|r|}
+\hline
+\multicolumn{2}{|c|}{} & \multicolumn{13}{c||}{hamming distance} & \multicolumn{7}{c|}{edit distance} \\
+\cline{3-15}\cline{16-22}
+\multicolumn{2}{|c|}{} & \multicolumn{5}{c|}{sars2} & \multicolumn{5}{c|}{chr19} & \multicolumn{3}{c||}{dewiki} & \multicolumn{3}{c|}{sars2} & \multicolumn{3}{c|}{chr19} & \multicolumn{1}{c|}{dewiki} \\
+\hline
+$k$ & $m$ & $\frac{\pk{\iM}}{\isz{\iM}}$ & $\frac{\pk{\iB}}{\isz{\iB}}$ & $\frac{\pks{\iR}}{\isz{\iR}}$ & $\frac{\pk{\iB}}{\pk{\iM}}$ & $\frac{\pks{\iR}}{\pks{\iM}}$ & $\frac{\pk{\iM}}{\isz{\iM}}$ & $\frac{\pk{\iB}}{\isz{\iB}}$ & $\frac{\pks{\iR}}{\isz{\iR}}$ & $\frac{\pk{\iB}}{\pk{\iM}}$ & $\frac{\pks{\iR}}{\pks{\iM}}$ & $\frac{\pk{\iM}}{\isz{\iM}}$ & $\frac{\pks{\iR}}{\isz{\iR}}$ & $\frac{\pks{\iR}}{\pks{\iM}}$ & $\frac{\pk{\iM}}{\isz{\iM}}$ & $\frac{\pk{\iB}}{\isz{\iB}}$ & $\frac{\pk{\iB}}{\pk{\iM}}$ & $\frac{\pk{\iM}}{\isz{\iM}}$ & $\frac{\pk{\iB}}{\isz{\iB}}$ & $\frac{\pk{\iB}}{\pk{\iM}}$ & $\frac{\pk{\iM}}{\isz{\iM}}$ \\
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT max_mismatches AS k, pattern_length AS m FROM results_apm WHERE algo = 'locate_move_rb_move' AND dist_metr IN ('hamming','edit') AND cigar = 1),
+%% hsm1 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_move' AND dist_metr = 'hamming' AND cigar = 1),
+%% hsb1 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_columba_rlc' AND dist_metr = 'hamming' AND cigar = 1),
+%% hsr0 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'hamming' AND cigar = 0),
+%% hsm0 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_move' AND dist_metr = 'hamming' AND cigar = 0),
+%% hcm1 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_move' AND dist_metr = 'hamming' AND cigar = 1),
+%% hcb1 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_columba_rlc' AND dist_metr = 'hamming' AND cigar = 1),
+%% hcr0 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'hamming' AND cigar = 0),
+%% hcm0 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_move' AND dist_metr = 'hamming' AND cigar = 0),
+%% hdm1 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_move_rb_move' AND dist_metr = 'hamming' AND cigar = 1),
+%% hdr0 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'hamming' AND cigar = 0),
+%% hdm0 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_move_rb_move' AND dist_metr = 'hamming' AND cigar = 0),
+%% esm1 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_move' AND dist_metr = 'edit' AND cigar = 1),
+%% esb1 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_columba_rlc' AND dist_metr = 'edit' AND cigar = 1),
+%% ecm1 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_move' AND dist_metr = 'edit' AND cigar = 1),
+%% ecb1 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_columba_rlc' AND dist_metr = 'edit' AND cigar = 1),
+%% edm1 AS (SELECT max_mismatches AS k, pattern_length AS m, index_mem AS ix, index_mem + peak_mem AS pk FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_move_rb_move' AND dist_metr = 'edit' AND cigar = 1)
+%% SELECT printf('\num{%d}', ms.k), printf('\num{%d}', ms.m),
+%%   CASE WHEN hsm1.pk IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * hsm1.pk / hsm1.ix) END,
+%%   CASE WHEN hsb1.pk IS NULL THEN '' WHEN 1.0 * hsb1.pk / hsb1.ix >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * hsb1.pk / hsb1.ix) ELSE printf('\num{%.2f}', 1.0 * hsb1.pk / hsb1.ix) END,
+%%   CASE WHEN hsr0.pk IS NULL THEN '' WHEN 1.0 * hsr0.pk / hsr0.ix >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * hsr0.pk / hsr0.ix) ELSE printf('\num{%.2f}', 1.0 * hsr0.pk / hsr0.ix) END,
+%%   CASE WHEN hsb1.pk IS NULL OR hsm1.pk IS NULL THEN '' WHEN 1.0 * hsb1.pk / hsm1.pk >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * hsb1.pk / hsm1.pk) ELSE printf('\num{%.2f}', 1.0 * hsb1.pk / hsm1.pk) END,
+%%   CASE WHEN hsr0.pk IS NULL OR hsm0.pk IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * hsr0.pk / hsm0.pk) END,
+%%   CASE WHEN hcm1.pk IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * hcm1.pk / hcm1.ix) END,
+%%   CASE WHEN hcb1.pk IS NULL THEN '' WHEN 1.0 * hcb1.pk / hcb1.ix >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * hcb1.pk / hcb1.ix) ELSE printf('\num{%.2f}', 1.0 * hcb1.pk / hcb1.ix) END,
+%%   CASE WHEN hcr0.pk IS NULL THEN '' WHEN 1.0 * hcr0.pk / hcr0.ix >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * hcr0.pk / hcr0.ix) ELSE printf('\num{%.2f}', 1.0 * hcr0.pk / hcr0.ix) END,
+%%   CASE WHEN hcb1.pk IS NULL OR hcm1.pk IS NULL THEN '' WHEN 1.0 * hcb1.pk / hcm1.pk >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * hcb1.pk / hcm1.pk) ELSE printf('\num{%.2f}', 1.0 * hcb1.pk / hcm1.pk) END,
+%%   CASE WHEN hcr0.pk IS NULL OR hcm0.pk IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * hcr0.pk / hcm0.pk) END,
+%%   CASE WHEN hdm1.pk IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * hdm1.pk / hdm1.ix) END,
+%%   CASE WHEN hdr0.pk IS NULL THEN '' WHEN 1.0 * hdr0.pk / hdr0.ix >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * hdr0.pk / hdr0.ix) ELSE printf('\num{%.2f}', 1.0 * hdr0.pk / hdr0.ix) END,
+%%   CASE WHEN hdr0.pk IS NULL OR hdm0.pk IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * hdr0.pk / hdm0.pk) END,
+%%   CASE WHEN esm1.pk IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * esm1.pk / esm1.ix) END,
+%%   CASE WHEN esb1.pk IS NULL THEN '' WHEN 1.0 * esb1.pk / esb1.ix >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * esb1.pk / esb1.ix) ELSE printf('\num{%.2f}', 1.0 * esb1.pk / esb1.ix) END,
+%%   CASE WHEN esb1.pk IS NULL OR esm1.pk IS NULL THEN '' WHEN 1.0 * esb1.pk / esm1.pk >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * esb1.pk / esm1.pk) ELSE printf('\num{%.2f}', 1.0 * esb1.pk / esm1.pk) END,
+%%   CASE WHEN ecm1.pk IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * ecm1.pk / ecm1.ix) END,
+%%   CASE WHEN ecb1.pk IS NULL THEN '' WHEN 1.0 * ecb1.pk / ecb1.ix >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * ecb1.pk / ecb1.ix) ELSE printf('\num{%.2f}', 1.0 * ecb1.pk / ecb1.ix) END,
+%%   CASE WHEN ecb1.pk IS NULL OR ecm1.pk IS NULL THEN '' WHEN 1.0 * ecb1.pk / ecm1.pk >= 1.2 THEN printf('\textbf{%.2f}', 1.0 * ecb1.pk / ecm1.pk) ELSE printf('\num{%.2f}', 1.0 * ecb1.pk / ecm1.pk) END,
+%%   CASE WHEN edm1.pk IS NULL THEN '' ELSE printf('\num{%.2f}', 1.0 * edm1.pk / edm1.ix) END
+%% FROM ms LEFT JOIN hsm1 ON hsm1.k = ms.k AND hsm1.m = ms.m LEFT JOIN hsb1 ON hsb1.k = ms.k AND hsb1.m = ms.m LEFT JOIN hsr0 ON hsr0.k = ms.k AND hsr0.m = ms.m LEFT JOIN hsm0 ON hsm0.k = ms.k AND hsm0.m = ms.m LEFT JOIN hcm1 ON hcm1.k = ms.k AND hcm1.m = ms.m LEFT JOIN hcb1 ON hcb1.k = ms.k AND hcb1.m = ms.m LEFT JOIN hcr0 ON hcr0.k = ms.k AND hcr0.m = ms.m LEFT JOIN hcm0 ON hcm0.k = ms.k AND hcm0.m = ms.m LEFT JOIN hdm1 ON hdm1.k = ms.k AND hdm1.m = ms.m LEFT JOIN hdr0 ON hdr0.k = ms.k AND hdr0.m = ms.m LEFT JOIN hdm0 ON hdm0.k = ms.k AND hdm0.m = ms.m LEFT JOIN esm1 ON esm1.k = ms.k AND esm1.m = ms.m LEFT JOIN esb1 ON esb1.k = ms.k AND esb1.m = ms.m LEFT JOIN ecm1 ON ecm1.k = ms.k AND ecm1.m = ms.m LEFT JOIN ecb1 ON ecb1.k = ms.k AND ecb1.m = ms.m LEFT JOIN edm1 ON edm1.k = ms.k AND edm1.m = ms.m ORDER BY ms.k, ms.m
+ \num{4} &   \num{10} &            &               &               &               &            &            &               &               &               &            & \num{1.04} & \num{1.04} & \num{0.48} &            &               &               &            &               &               & \num{1.04} \\
+ \num{4} &   \num{20} & \num{1.03} & \textbf{1.37} &    \num{1.04} & \textbf{1.33} & \num{0.48} & \num{1.24} & \textbf{3.61} & \textbf{1.25} & \textbf{3.80} & \num{0.55} & \num{1.02} & \num{1.03} & \num{0.48} & \num{1.10} & \textbf{1.99} & \textbf{1.80} & \num{1.97} & \textbf{7.93} & \textbf{5.26} & \num{1.02} \\
+ \num{4} &   \num{40} & \num{1.01} &    \num{1.19} &    \num{1.03} &    \num{1.17} & \num{0.47} & \num{1.12} & \textbf{1.65} &    \num{1.13} & \textbf{1.93} & \num{0.52} & \num{1.00} & \num{1.01} & \num{0.48} & \num{1.10} & \textbf{2.04} & \textbf{1.85} & \num{1.24} & \textbf{2.90} & \textbf{3.06} & \num{1.00} \\
+ \num{4} &   \num{80} & \num{1.01} &    \num{1.19} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.01} &    \num{1.08} &    \num{1.01} & \textbf{1.41} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.10} & \textbf{2.16} & \textbf{1.96} & \num{1.02} &    \num{1.13} & \textbf{1.46} & \num{1.00} \\
+ \num{4} &  \num{160} & \num{1.01} &    \num{1.19} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.05} & \textbf{2.38} & \textbf{2.26} & \num{1.00} &    \num{1.01} & \textbf{1.32} & \num{1.00} \\
+ \num{4} &  \num{320} & \num{1.01} &    \num{1.18} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.05} & \textbf{2.77} & \textbf{2.63} & \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{1.00} \\
+ \num{4} &  \num{640} & \num{1.01} &    \num{1.10} &    \num{1.02} &    \num{1.08} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.05} & \textbf{3.57} & \textbf{3.39} & \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{1.00} \\
+ \num{4} & \num{1280} & \num{1.01} &    \num{1.19} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.05} & \textbf{3.20} & \textbf{3.03} & \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{1.00} \\
+ \num{7} &   \num{20} & \num{1.21} & \textbf{3.93} & \textbf{1.23} & \textbf{3.25} & \num{0.52} & \num{1.24} & \textbf{3.61} & \textbf{1.25} & \textbf{3.80} & \num{0.55} & \num{1.00} & \num{1.00} & \num{0.48} &            &               &               &            &               &               & \num{1.00} \\
+ \num{7} &   \num{40} & \num{1.01} &    \num{1.19} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.12} & \textbf{2.31} &    \num{1.13} & \textbf{2.69} & \num{0.52} & \num{1.00} & \num{1.01} & \num{0.48} & \num{1.11} & \textbf{2.91} & \textbf{2.63} & \num{1.50} & \textbf{6.95} & \textbf{6.07} & \num{1.00} \\
+ \num{7} &   \num{80} & \num{1.01} &    \num{1.19} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.03} &    \num{1.16} &    \num{1.03} & \textbf{1.48} & \num{0.50} & \num{1.00} & \num{1.00} & \num{0.48} & \num{1.10} & \textbf{2.97} & \textbf{2.69} & \num{1.06} & \textbf{1.93} & \textbf{2.38} & \num{1.00} \\
+ \num{7} &  \num{160} & \num{1.01} &    \num{1.19} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.00} &    \num{1.01} &    \num{1.00} & \textbf{1.32} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.11} & \textbf{3.49} & \textbf{3.15} & \num{1.00} &    \num{1.02} & \textbf{1.33} & \num{1.00} \\
+ \num{7} &  \num{320} & \num{1.01} &    \num{1.18} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.11} & \textbf{4.07} & \textbf{3.68} & \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{1.00} \\
+ \num{7} &  \num{640} & \num{1.01} &    \num{1.19} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.11} & \textbf{5.24} & \textbf{4.73} & \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{1.00} \\
+ \num{7} & \num{1280} & \num{1.01} &    \num{1.10} &    \num{1.02} &    \num{1.08} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.11} & \textbf{5.33} & \textbf{4.78} & \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{1.00} \\
+\num{10} &   \num{20} &            &               &               &               &            &            &               &               &               &            & \num{1.00} & \num{1.00} & \num{0.48} &            &               &               &            &               &               &            \\
+\num{10} &   \num{40} & \num{1.01} & \textbf{1.37} &    \num{1.02} & \textbf{1.35} & \num{0.47} & \num{1.12} & \textbf{3.61} &    \num{1.13} & \textbf{4.21} & \num{0.52} & \num{1.00} & \num{1.00} & \num{0.48} & \num{1.21} & \textbf{4.56} & \textbf{3.76} & \num{1.07} & \textbf{1.72} & \textbf{2.11} & \num{1.00} \\
+\num{10} &   \num{80} & \num{1.01} & \textbf{1.37} &    \num{1.02} & \textbf{1.35} & \num{0.47} & \num{1.06} & \textbf{1.65} &    \num{1.06} & \textbf{2.04} & \num{0.51} & \num{1.01} & \num{1.01} & \num{0.48} & \num{1.21} & \textbf{4.92} & \textbf{4.06} & \num{1.25} & \textbf{2.55} & \textbf{2.66} & \num{1.00} \\
+\num{10} &  \num{160} & \num{1.01} & \textbf{1.37} &    \num{1.02} & \textbf{1.35} & \num{0.47} & \num{1.00} &    \num{1.01} &    \num{1.00} & \textbf{1.32} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.11} & \textbf{3.47} & \textbf{3.14} & \num{1.01} &    \num{1.11} & \textbf{1.44} & \num{1.00} \\
+\num{10} &  \num{320} & \num{1.01} &    \num{1.19} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.21} & \textbf{6.71} & \textbf{5.54} & \num{1.00} &    \num{1.00} & \textbf{1.32} & \num{1.00} \\
+\num{10} &  \num{640} & \num{1.01} & \textbf{1.37} &    \num{1.02} & \textbf{1.35} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.11} & \textbf{8.24} & \textbf{7.42} & \num{1.00} &    \num{1.00} & \textbf{1.32} & \num{1.00} \\
+\num{10} & \num{1280} & \num{1.01} & \textbf{1.21} &    \num{1.02} &    \num{1.19} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.06} & \textbf{7.29} & \textbf{6.88} & \num{1.00} &    \num{1.01} & \textbf{1.32} & \num{1.00} \\
+\num{13} &   \num{20} &            &               &               &               &            &            &               &               &               &            & \num{1.07} & \num{1.08} & \num{0.49} &            &               &               &            &               &               &            \\
+\num{13} &   \num{40} & \num{1.01} &    \num{1.19} &    \num{1.02} &    \num{1.17} & \num{0.47} & \num{1.25} & \textbf{6.22} & \textbf{1.25} & \textbf{6.54} & \num{0.55} & \num{1.00} & \num{1.00} & \num{0.47} &            &               &               &            &               &               & \num{1.00} \\
+\num{13} &   \num{80} & \num{1.01} & \textbf{1.37} &    \num{1.02} & \textbf{1.35} & \num{0.47} & \num{1.12} & \textbf{2.31} &    \num{1.13} & \textbf{2.69} & \num{0.52} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.21} & \textbf{4.91} & \textbf{4.05} & \num{1.07} & \textbf{2.58} & \textbf{3.17} & \num{1.00} \\
+\num{13} &  \num{160} & \num{1.01} & \textbf{1.37} &    \num{1.02} & \textbf{1.35} & \num{0.47} & \num{1.00} &    \num{1.08} &    \num{1.00} & \textbf{1.41} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.21} & \textbf{5.43} & \textbf{4.47} & \num{1.00} &    \num{1.06} & \textbf{1.38} & \num{1.00} \\
+\num{13} &  \num{320} & \num{1.01} & \textbf{1.37} &    \num{1.02} & \textbf{1.35} & \num{0.47} & \num{1.00} &    \num{1.01} &    \num{1.00} & \textbf{1.32} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.11} & \textbf{4.91} & \textbf{4.42} & \num{1.00} &    \num{1.04} & \textbf{1.36} & \num{1.00} \\
+\num{13} &  \num{640} & \num{1.01} & \textbf{1.38} &    \num{1.02} & \textbf{1.36} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} & \num{1.21} & \textbf{8.23} & \textbf{6.78} & \num{1.00} &    \num{1.01} & \textbf{1.32} & \num{1.00} \\
+\num{13} & \num{1280} & \num{1.01} &    \num{1.20} &    \num{1.02} &    \num{1.18} & \num{0.47} & \num{1.00} &    \num{1.00} &    \num{1.00} & \textbf{1.31} & \num{0.49} & \num{1.00} & \num{1.00} & \num{0.47} &            &               &               & \num{1.00} &    \num{1.01} & \textbf{1.32} & \num{1.00} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT max_mismatches AS k, pattern_lengt...)
+\hline
+\end{tabular}
+\caption{
+Peak memory usage during locating, per $k$ and $m$, for hamming- and edit distance.
+$\iM=$ Move-rb, $\iB=$ b-move and $\iR=$ br-index.
+For an index $X$, $\isz{X}$ is its size and $\pk{X}$ its peak memory usage while locating with CIGAR output, \emph{including} the reported occurrences and their CIGARs.
+$\pks{X}$ is the peak without CIGAR output; br-index cannot compute CIGARs, so it is compared against Move-rb without CIGAR output as well.
+}
+\label{tab:mem}
+\end{table*}

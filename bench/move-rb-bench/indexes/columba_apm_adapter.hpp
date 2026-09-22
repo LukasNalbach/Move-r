@@ -225,7 +225,7 @@ struct columba_apm_adapter::search_context_t {
     }
 
     struct hash {
-        inline static pos_t operator()(const search_context_t& ctx)
+        inline pos_t operator()(const search_context_t& ctx) const
         {
             auto [b, e] = ctx.forward_sa_interval();
             pos_t h = pos_hash<pos_t>(b);

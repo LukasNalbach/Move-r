@@ -24,6 +24,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 BUILD="$REPO_ROOT/build"
 BRI_BUILD="$BUILD/cli/bri-build"   # Move-r builds its own bri-build into build/cli/ (see CMakeLists.txt)
+BIGBWT="$REPO_ROOT/external/Big-BWT/bigbwt"   # bundled Big-BWT driver, used for the columba-rlc build
 
 TEXTS="$SCRIPT_DIR/texts"
 RESULTS="$SCRIPT_DIR/results"
@@ -100,15 +101,47 @@ run_timed "br-index" "$RESULTS/results-build-br-index.txt" \
     "$BRI_BUILD" -divsufsort -o "$INDEXES/$t" "$TEXTS/$t"
 
 # columba / columba-rlc (b-move) only support DNA, so skip them for non-DNA texts (-C 0).
-# NOTE: columba's -f expects a (multi-)FASTA reference; if the plain text is rejected,
-#       wrap it as a single-record FASTA first.
+#
+# Their -f takes a (multi-)FASTA reference and validates the file *extension*
+# (BuildParameters::validFastaExtension accepts .fasta/.fa/.FASTA/.FA/.fna/.FNA only), so a
+# plain text -- including every text name the paper uses -- is rejected outright. We therefore
+# hand them a single-record FASTA copy of the text. It is written once and reused on later
+# runs; it costs as much disk as the text itself.
 if [ "$run_columba" = 1 ]; then
+    fasta="$TEXTS/$t.fa"
+    if [ ! -s "$fasta" ]; then
+        echo ">>> [$t] writing the FASTA copy columba needs ($fasta)" >&2
+        { printf '>%s\n' "$t"; cat "$TEXTS/$t"; } > "$fasta"
+    fi
+
     echo ">>> [$t] building columba" >&2
     run_timed "columba" "$RESULTS/results-build-columba.txt" \
-        "$BUILD/cli/columba-build"     -t "$threads"    -r "$INDEXES_COLUMBA/$t"     -f "$TEXTS/$t"
+        "$BUILD/cli/columba-build" -r "$INDEXES_COLUMBA/$t" -f "$fasta"
+
+    # columba-rlc (b-move) is built via prefix-free parsing, which is four steps -- the same ones
+    # upstream's external/columba/src/bmove/columba_build_pfp.sh runs: preprocess the FASTA,
+    # Big-BWT on the text, Big-BWT on its reverse, then --pfp to build the index from the parsing.
+    # (columba-rlc-build's own -p/--pfp is only that last step; it fails on its own.) All four run
+    # under one /usr/bin/time so the record covers the whole build.
+    #
+    # The --pfp step is passed -f as well, although it reads the parsing rather than the FASTA:
+    # columba-rlc-build dispatches to the 32- or 64-bit variant by the summed size of its -f inputs
+    # (cli/tools/columba-build-dispatch.cpp), and without -f it sees 0 and always takes the 64-bit
+    # one. For inputs below 4 GiB the preprocess step picks 32-bit, and the resulting index mixes
+    # both widths and fails to load ("Cannot open file: <base>.fsid").
     echo ">>> [$t] building columba-rlc" >&2
-    run_timed "columba-rlc" "$RESULTS/results-build-columba-rlc.txt" \
-        "$BUILD/cli/columba-rlc-build" -t "$threads" -p -r "$INDEXES_COLUMBA_RLC/$t" -f "$TEXTS/$t"
+    rlc="$INDEXES_COLUMBA_RLC/$t"
+    if [ ! -x "$BIGBWT" ]; then
+        echo "warning: $BIGBWT not found; skipping columba-rlc -- check out and build the" >&2
+        echo "         Big-BWT submodule in external/Big-BWT" >&2
+    else
+        run_timed "columba-rlc" "$RESULTS/results-build-columba-rlc.txt" bash -c \
+            "'$BUILD/cli/columba-rlc-build' --preprocess -l 100 -r '$rlc' -f '$fasta' && '$BIGBWT' -e -s -v '$rlc' && '$BIGBWT' -e -s -v '$rlc.rev' && '$BUILD/cli/columba-rlc-build' --pfp -r '$rlc' -f '$fasta'"
+        # drop the parsing intermediates, so they are not counted as part of the index size
+        rm -f "$rlc" "$rlc.rev" \
+              "$rlc.bwt" "$rlc.ssa" "$rlc.esa" "$rlc.log" \
+              "$rlc.rev.bwt" "$rlc.rev.ssa" "$rlc.rev.esa" "$rlc.rev.log"
+    fi
 fi
 
 # assemble the competitor index flags shared by both benchmarks

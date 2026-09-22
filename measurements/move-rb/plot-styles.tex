@@ -1,0 +1,175 @@
+% plot-styles.tex -- the part of the paper's preamble that charts/*.tex and tables/*.tex need.
+%
+% Extracted verbatim from the paper source (definitions.tex): the colour definitions, the
+% per-index marker styles (brindex / bmove / columba / moverb / moverbrlzsa), the pgfplots
+% axis styles the charts reference (querystyle_apm, querystyle_apm_same_alg,
+% querystyle_raw_performance, querystyle_kfig, constructionstyle, legend) and the notation
+% macros used by tables/mem_factor.tex, tables/texts.tex and tables/patterns_grid.tex.
+%
+% plots.tex uses this to build a standalone PDF of every figure and table; include it from
+% your own preamble if you want to embed the charts somewhere else.
+
+\usepackage{pgfplots}
+\usepackage{tikz}
+\usepackage{subcaption}
+\usepackage{caption}    % tables/patterns_grid.tex uses \captionof
+\usepackage{siunitx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\definecolor{my-dark-red}{RGB}{183, 28, 28}
+\definecolor{my-red}{RGB}{244,67,54}
+\definecolor{my-pink}{RGB}{233,30,99}
+\definecolor{my-purple}{RGB}{156,39,176}
+\definecolor{my-deep-purple}{RGB}{103,58,183}
+\definecolor{my-indigo}{RGB}{63,81,181}
+\definecolor{my-blue}{RGB}{33,150,243}
+\definecolor{my-light-blue}{RGB}{3,169,244}
+\definecolor{my-cyan}{RGB}{0,188,212}
+\definecolor{my-teal}{RGB}{0,150,136}
+\definecolor{my-green}{RGB}{76,175,80}
+\definecolor{my-light-green}{RGB}{139,195,74}
+\definecolor{my-lime}{RGB}{205,220,57}
+\definecolor{my-yellow}{RGB}{255,235,59}
+\definecolor{my-amber}{RGB}{255,193,7}
+\definecolor{my-orange}{RGB}{255,152,0}
+\definecolor{my-deep-orange}{RGB}{255,87,34}
+\definecolor{my-brown}{RGB}{121,85,72}
+\definecolor{my-grey}{RGB}{120,120,120}
+\definecolor{my-blue-grey}{RGB}{96,125,139}
+\definecolor{my-lipics-grey}{rgb}{0.6,0.6,0.61}
+
+\tikzset{
+  empty/.style={draw=none,mark=x,every mark/.append style={mark size=0.0pt}},
+  brindex/.style={mark=*,my-yellow,semithick,draw=black,every mark/.append style={mark size=2.5pt}},
+  bmove/.style={mark=square*,my-blue,semithick,draw=black,every mark/.append style={mark size=2.5pt}},
+  columba/.style={mark=pentagon*,my-purple,semithick,draw=black,every mark/.append style={mark size=2.8pt}},
+  moverb/.style={mark=diamond*,my-green,semithick,draw=black,every mark/.append style={mark size=3.2pt}},
+  moverbrlzsa/.style={mark=triangle*,my-red,semithick,draw=black,every mark/.append style={mark size=3.2pt}},
+  marks/.style={
+    every mark/.append style={mark size=3pt},
+  },
+  legendmarks/.style={
+    marks,
+    every plot/.append style={only marks}
+  },
+  chart/.style={
+    legend label/.style={font={\footnotesize},anchor=west,align=left},
+    legend box/.style={rectangle, draw, minimum size=5pt},
+    axis/.style={black,semithick,->},
+    axis label/.style={anchor=east,font={\footnotesize}},
+  }
+}
+
+\pgfplotsset{
+  title style={yshift=-5pt, font=\bfseries, inner sep=0pt},
+  major grid style={thin,dotted,color=my-blue-grey},
+  minor grid style={thin,dotted,color=my-grey!45},
+  ymajorgrids,
+  yminorgrids,
+  xmajorgrids,
+  xminorgrids,
+  every tick label/.append style={font=\footnotesize},
+  every axis label/.append style={font=\footnotesize},
+  legend cell align=left,
+  legend pos=outer north east,
+  scaled x ticks=false,
+  scaled y ticks=false,
+  max space between ticks=30,
+  minor tick num=2,
+  every axis/.append style={
+    line width=0.5pt,
+    tick style={
+      line cap=round,
+      thin,
+      major tick length=4pt,
+      minor tick length=2pt,
+    },
+  },
+  xticklabel style={
+    /pgf/number format/fixed,
+    /pgf/number format/precision=3
+  },
+  yticklabel style={
+    /pgf/number format/fixed,
+    /pgf/number format/precision=3
+  },
+  querystyle_apm/.style={
+    scale only axis,
+    width=4.6cm,
+    height=3.3cm,
+    yticklabel style={text width=0.72cm, align=right},
+    title style={at={(0.5,1.03)}},
+    x label style={at={(0.5,0.02)}},
+    y label style={at={(0.1,0.5)}},
+    align=center,
+    xmin=10,
+    xmax=1280,
+    log basis x=2,
+    log basis y=10,
+    ytick={1e-10,1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1,1e0,1e1,1e2,1e3,1e4,1e5,1e6,1e7,1e8,1e9,1e10,1e11,1e12},
+    minor ytick={2e-10,3e-10,4e-10,5e-10,6e-10,7e-10,8e-10,9e-10,2e-9,3e-9,4e-9,5e-9,6e-9,7e-9,8e-9,9e-9,2e-8,3e-8,4e-8,5e-8,6e-8,7e-8,8e-8,9e-8,2e-7,3e-7,4e-7,5e-7,6e-7,7e-7,8e-7,9e-7,2e-6,3e-6,4e-6,5e-6,6e-6,7e-6,8e-6,9e-6,2e-5,3e-5,4e-5,5e-5,6e-5,7e-5,8e-5,9e-5,2e-4,3e-4,4e-4,5e-4,6e-4,7e-4,8e-4,9e-4,2e-3,3e-3,4e-3,5e-3,6e-3,7e-3,8e-3,9e-3,2e-2,3e-2,4e-2,5e-2,6e-2,7e-2,8e-2,9e-2,2e-1,3e-1,4e-1,5e-1,6e-1,7e-1,8e-1,9e-1,2e0,3e0,4e0,5e0,6e0,7e0,8e0,9e0,2e1,3e1,4e1,5e1,6e1,7e1,8e1,9e1,2e2,3e2,4e2,5e2,6e2,7e2,8e2,9e2,2e3,3e3,4e3,5e3,6e3,7e3,8e3,9e3,2e4,3e4,4e4,5e4,6e4,7e4,8e4,9e4,2e5,3e5,4e5,5e5,6e5,7e5,8e5,9e5,2e6,3e6,4e6,5e6,6e6,7e6,8e6,9e6,2e7,3e7,4e7,5e7,6e7,7e7,8e7,9e7,2e8,3e8,4e8,5e8,6e8,7e8,8e8,9e8,2e9,3e9,4e9,5e9,6e9,7e9,8e9,9e9,2e10,3e10,4e10,5e10,6e10,7e10,8e10,9e10,2e11,3e11,4e11,5e11,6e11,7e11,8e11,9e11},
+    enlarge x limits=0.05,
+    enlarge y limits=0.08,
+    xtick={10,20,40,80,160,320,640,1280},
+    xticklabels={10,20,40,80,160,320,640,1280},
+    ymajorgrids=true,
+    yminorgrids=true,
+  },
+  querystyle_apm_same_alg/.style={
+    querystyle_apm,
+    width=4.6cm,
+    height=2.75cm,
+  },
+  querystyle_raw_performance/.style={
+    querystyle_apm,
+    width=4.7cm,
+    height=3.25cm,
+  },
+  querystyle_kfig/.style={
+    querystyle_apm,
+    width=4.5cm,
+    height=2.75cm,
+  },
+  constructionstyle/.style={
+    align=center,
+    title style={at={(0.5,1.03)}},
+    x label style={at={(0.5,0.02)}},
+    y label style={at={(0.1,0.5)}},
+    width=6.35cm,
+    height=4.9cm,
+    max space between ticks=20,
+  },
+  legend/.style={
+    width=2cm,
+    height=2cm,
+    xmin=10,xmax=10,
+    ymin=10,ymax=10,
+    ymajorgrids=false,
+    xtick=\empty,
+    ytick=\empty,
+    x axis line style={-,draw opacity=0},
+    y axis line style={-,draw opacity=0},
+    xtick style={draw=none},
+    ytick style={draw=none},
+    legend style={
+        font=\footnotesize,
+        anchor=north,
+        at={(0,0)},
+        /tikz/every even column/.append style={column sep=0.1cm}
+    },
+  },
+}
+
+% ---- notation macros used by the tables ----
+\newcommand{\idx}{\mathsf{idx}}
+\newcommand{\peak}{\mathsf{peak}}
+\newcommand{\SA}{\mathsf{SA}}
+\newcommand{\iM}{\mathsf{M}}         % move-rb
+\newcommand{\iB}{\mathsf{B}}         % b-move
+\newcommand{\iR}{\mathsf{R}}         % br-index
+\newcommand{\isz}[1]{\idx_{#1}}      % index size,         e.g. \isz{\iM}
+\newcommand{\pk}[1]{\peak_{#1}}      % peak with CIGAR,    e.g. \pk{\iB}
+\newcommand{\pks}[1]{\peak_{#1}^{*}} % peak without CIGAR, e.g. \pks{\iR}
+\newcommand{\bwd}[1]{\overleftarrow{#1}}
+\newcommand{\floor}[1]{\lfloor #1 \rfloor}

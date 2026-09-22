@@ -1,0 +1,390 @@
+% IMPORT-DATA results_ext results/results-ext.txt
+% IMPORT-DATA results_apm results/results-apm.txt
+
+\begin{table*}[p]
+\centering
+
+\vspace*{\fill}
+% =============================== Row 1 ===============================
+\begin{minipage}[c]{0.49\textwidth}
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.18}
+% ---- extension count ----
+\begin{tabular}{|r|rr|rr|rr|}
+\hline
+\multicolumn{1}{|c|}{text}
+& \multicolumn{2}{c|}{sars2}
+& \multicolumn{2}{c|}{chr19}
+& \multicolumn{2}{c|}{dewiki} \\
+$m$
+& $N$ & $\floor{occ/N}$
+& $N$ & $\floor{occ/N}$
+& $N$ & $\floor{occ/N}$ \\
+\hline
+%% TABULAR SELECT
+%%     pattern_length,
+%%     MAX(CASE WHEN text LIKE 'sars2%' THEN num_patterns ELSE NULL END),
+%%     MAX(CASE WHEN text LIKE 'sars2%' THEN num_occurrences / num_patterns ELSE NULL END),
+%%     MAX(CASE WHEN text LIKE 'chr19%' THEN num_patterns ELSE NULL END),
+%%     MAX(CASE WHEN text LIKE 'chr19%' THEN num_occurrences / num_patterns ELSE NULL END),
+%%     MAX(CASE WHEN text LIKE 'dewiki%' THEN num_patterns ELSE NULL END),
+%%     MAX(CASE WHEN text LIKE 'dewiki%' THEN num_occurrences / num_patterns ELSE NULL END)
+%% FROM results_ext
+%% WHERE dist_metr = 'exact' AND algo = 'count_move_rb_move'
+%% GROUP BY pattern_length
+%% ORDER BY pattern_length
+  10 & 124733 & 1765895 & 137833 & 1199869 & 28012 & 253393 \\
+  20 &  48320 & 1599931 &  71840 &  100930 & 23252 &  18400 \\
+  40 &  23838 & 1528209 &  47583 &    2769 & 19732 &   4078 \\
+  80 &  12302 & 1408223 &  31893 &     886 & 15685 &   2702 \\
+ 160 &   6349 & 1221234 &  19652 &     793 & 11377 &   1394 \\
+ 320 &   3353 &  935224 &  11290 &     682 &  7516 &   1503 \\
+ 640 &   1819 &  598603 &   6102 &     542 &  4554 &    615 \\
+1280 &   1030 &  270775 &   3199 &     393 &  2608 &    206 \\
+% END TABULAR SELECT     pattern_length,     MAX(CASE WHEN text LIKE 'sars2%...)
+\hline
+\end{tabular}
+\captionof{table}{Pattern sets used for extension measurements.}
+\label{tab:patterns_count}
+
+\vspace{0.5cm}
+% ---- extension locate ----
+\begin{tabular}{|r|rr|rr|rr|}
+\hline
+\multicolumn{1}{|c|}{text}
+& \multicolumn{2}{c|}{sars2}
+& \multicolumn{2}{c|}{chr19}
+& \multicolumn{2}{c|}{dewiki} \\
+$m$
+& $N$ & $\floor{occ/N}$
+& $N$ & $\floor{occ/N}$
+& $N$ & $\floor{occ/N}$ \\
+\hline
+%% TABULAR SELECT
+%%     pattern_length,
+%%     MAX(CASE WHEN text LIKE 'sars2%' THEN num_patterns ELSE NULL END),
+%%     MAX(CASE WHEN text LIKE 'sars2%' THEN num_occurrences / num_patterns ELSE NULL END),
+%%     MAX(CASE WHEN text LIKE 'chr19%' THEN num_patterns ELSE NULL END),
+%%     MAX(CASE WHEN text LIKE 'chr19%' THEN num_occurrences / num_patterns ELSE NULL END),
+%%     MAX(CASE WHEN text LIKE 'dewiki%' THEN num_patterns ELSE NULL END),
+%%     MAX(CASE WHEN text LIKE 'dewiki%' THEN num_occurrences / num_patterns ELSE NULL END)
+%% FROM results_ext
+%% WHERE dist_metr = 'exact' AND algo = 'locate_move_rb_move'
+%% GROUP BY pattern_length
+%% ORDER BY pattern_length
+  10 & 137 & 1770167 &   240 & 1113687 &   695 & 363573 \\
+  20 & 152 & 1599232 &  2449 &  102251 &  8909 &  18249 \\
+  40 & 160 & 1529478 & 25002 &    2719 & 13446 &   4594 \\
+  80 & 171 & 1398672 & 23277 &     886 & 12176 &   2664 \\
+ 160 & 189 & 1235384 & 15409 &     794 &  9510 &   1526 \\
+ 320 & 222 &  997236 &  9051 &     683 &  6312 &   1695 \\
+ 640 & 310 &  612260 &  4978 &     546 &  3965 &    660 \\
+1280 & 440 &  260110 &  2592 &     394 &  2246 &    211 \\
+% END TABULAR SELECT     pattern_length,     MAX(CASE WHEN text LIKE 'sars2%...)
+\hline
+\end{tabular}
+\captionof{table}{Pattern sets used for $\SA$-interval enumeration measurements.}
+\label{tab:patterns_locate}
+\end{minipage}
+\hfill
+\begin{minipage}[c]{0.49\textwidth}
+\centering
+\fontsize{6.5pt}{7.6pt}\selectfont
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{1.18}
+% ---- APM count ----
+\begin{tabular}{|rr|rr|rr|rr|}
+\hline
+\multicolumn{2}{|c|}{text}
+& \multicolumn{2}{c|}{sars2}
+& \multicolumn{2}{c|}{chr19}
+& \multicolumn{2}{c|}{dewiki} \\
+$k$ & $m$
+& $N$ & $\floor{occ/N}$
+& $N$ & $\floor{occ/N}$
+& $N$ & $\floor{occ/N}$ \\
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 4 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 4 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 4 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'count_br_index' AND dist_metr = 'hamming' AND max_mismatches = 4 AND cigar = 0)
+%% SELECT '\num{4}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{4} &   \num{10} &  \num{216} & \num{1355134869} &   \num{199} & \num{1188337257} &   \num{36} & \num{7964645} \\
+\num{4} &   \num{20} &  \num{845} &    \num{1750788} &   \num{490} &    \num{3343201} &  \num{351} &  \num{104757} \\
+\num{4} &   \num{40} & \num{1868} &    \num{1655330} &  \num{2988} &     \num{327374} &  \num{900} &    \num{8298} \\
+\num{4} &   \num{80} &  \num{800} &    \num{1617623} & \num{10923} &       \num{4227} & \num{1392} &    \num{1884} \\
+\num{4} &  \num{160} &  \num{283} &    \num{1608933} & \num{20639} &        \num{983} & \num{1954} &     \num{802} \\
+\num{4} &  \num{320} &   \num{86} &    \num{1395685} & \num{11079} &        \num{885} & \num{1415} &     \num{527} \\
+\num{4} &  \num{640} &   \num{23} &    \num{1277406} &  \num{4549} &        \num{834} &  \num{843} &     \num{355} \\
+\num{4} & \num{1280} &    \num{6} &    \num{1062504} &  \num{1778} &        \num{711} &  \num{464} &     \num{221} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 7 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 7 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 7 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'count_br_index' AND dist_metr = 'hamming' AND max_mismatches = 7 AND cigar = 0)
+%% SELECT '\num{7}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{7} &   \num{10} &   \num{9} & \num{26027797178} &    \num{9} & \num{23643396101} &   \num{2} & \num{1716741013} \\
+\num{7} &   \num{20} &  \num{22} &    \num{28989809} &   \num{11} &    \num{36580853} &  \num{28} &     \num{627181} \\
+\num{7} &   \num{40} & \num{678} &     \num{1662128} &  \num{413} &     \num{1318297} & \num{246} &      \num{41841} \\
+\num{7} &   \num{80} & \num{395} &     \num{1640185} & \num{1655} &       \num{33419} & \num{261} &       \num{1700} \\
+\num{7} &  \num{160} & \num{146} &     \num{1534497} & \num{9506} &        \num{1162} & \num{650} &        \num{807} \\
+\num{7} &  \num{320} &  \num{41} &     \num{1505817} & \num{8098} &         \num{889} & \num{999} &        \num{544} \\
+\num{7} &  \num{640} &   \num{7} &     \num{1130424} & \num{3244} &         \num{838} & \num{624} &        \num{396} \\
+\num{7} & \num{1280} &   \num{4} &      \num{614985} & \num{1137} &         \num{735} & \num{351} &        \num{214} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 10 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 10 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 10 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'count_br_index' AND dist_metr = 'hamming' AND max_mismatches = 10 AND cigar = 0)
+%% SELECT '\num{10}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{10} &   \num{20} &   \num{4} & \num{799334386} &            &               &   \num{2} & \num{1302498} \\
+\num{10} &   \num{40} &  \num{70} &   \num{1684849} &   \num{34} & \num{4464461} &  \num{84} &   \num{15850} \\
+\num{10} &   \num{80} & \num{216} &   \num{1649381} &  \num{273} &  \num{202272} &  \num{25} &    \num{6015} \\
+\num{10} &  \num{160} &  \num{89} &   \num{1547560} & \num{2711} &    \num{1657} & \num{167} &    \num{1091} \\
+\num{10} &  \num{320} &  \num{25} &   \num{1566325} & \num{5936} &     \num{943} & \num{549} &     \num{599} \\
+\num{10} &  \num{640} &   \num{5} &   \num{1490785} & \num{2588} &     \num{848} & \num{485} &     \num{461} \\
+\num{10} & \num{1280} &   \num{4} &   \num{1231271} &  \num{870} &     \num{752} & \num{273} &     \num{237} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 13 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 13 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'count_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 13 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'count_br_index' AND dist_metr = 'hamming' AND max_mismatches = 13 AND cigar = 0)
+%% SELECT '\num{13}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{13} &   \num{20} &           &               &            &               &   \num{2} & \num{31309391} \\
+\num{13} &   \num{40} &  \num{13} & \num{1685845} &    \num{7} & \num{4619983} &  \num{25} &     \num{7555} \\
+\num{13} &   \num{80} & \num{151} & \num{1645531} &  \num{105} &  \num{431466} &  \num{45} &     \num{1469} \\
+\num{13} &  \num{160} &  \num{55} & \num{1517316} & \num{1026} &    \num{3472} &  \num{83} &      \num{755} \\
+\num{13} &  \num{320} &  \num{21} & \num{1477573} & \num{4274} &     \num{969} & \num{439} &      \num{527} \\
+\num{13} &  \num{640} &   \num{6} & \num{1123596} & \num{2156} &     \num{845} & \num{366} &      \num{336} \\
+\num{13} & \num{1280} &   \num{4} &  \num{746125} &  \num{715} &     \num{756} & \num{226} &      \num{217} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+\end{tabular}
+\captionof{table}{Pattern sets used for APM count query measurements.}
+\label{tab:patterns_count_apm}
+\end{minipage}
+
+\vspace*{\fill}
+% =============================== Row 2 ===============================
+\begin{minipage}[c]{0.49\textwidth}
+\centering
+\fontsize{6.5pt}{7.6pt}\selectfont
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{1.18}
+% ---- APM locate hamming ----
+\begin{tabular}{|rr|rr|rr|rr|}
+\hline
+\multicolumn{2}{|c|}{text}
+& \multicolumn{2}{c|}{sars2}
+& \multicolumn{2}{c|}{chr19}
+& \multicolumn{2}{c|}{dewiki} \\
+$k$ & $m$
+& $N$ & $\floor{occ/N}$
+& $N$ & $\floor{occ/N}$
+& $N$ & $\floor{occ/N}$ \\
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 4 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 4 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 4 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'hamming' AND max_mismatches = 4 AND cigar = 0)
+%% SELECT '\num{4}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{4} &   \num{10} &          &               &             &               &    \num{6} & \num{3194011} \\
+\num{4} &   \num{20} & \num{62} & \num{1688831} &    \num{29} & \num{3864776} &  \num{147} &  \num{104548} \\
+\num{4} &   \num{40} & \num{66} & \num{1675259} &   \num{253} &  \num{389521} &  \num{987} &    \num{6423} \\
+\num{4} &   \num{80} & \num{62} & \num{1653685} &  \num{8537} &    \num{4316} & \num{1646} &    \num{1130} \\
+\num{4} &  \num{160} & \num{55} & \num{1575676} & \num{17447} &     \num{973} & \num{1562} &     \num{787} \\
+\num{4} &  \num{320} & \num{34} & \num{1543124} &  \num{9096} &     \num{887} & \num{1345} &     \num{512} \\
+\num{4} &  \num{640} & \num{13} & \num{1303815} &  \num{3732} &     \num{815} &  \num{802} &     \num{331} \\
+\num{4} & \num{1280} &  \num{4} & \num{1430145} &  \num{1446} &     \num{726} &  \num{433} &    \num{1008} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 7 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 7 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 7 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'hamming' AND max_mismatches = 7 AND cigar = 0)
+%% SELECT '\num{7}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{7} &   \num{20} &  \num{4} & \num{22031076} &    \num{5} & \num{14591903} &  \num{37} & \num{97795} \\
+\num{7} &   \num{40} & \num{62} &  \num{1649700} &   \num{56} &  \num{1637275} & \num{211} & \num{23327} \\
+\num{7} &   \num{80} & \num{57} &  \num{1649584} & \num{1075} &    \num{31330} & \num{273} &  \num{3701} \\
+\num{7} &  \num{160} & \num{45} &  \num{1552192} & \num{8422} &     \num{1133} & \num{675} &  \num{1084} \\
+\num{7} &  \num{320} & \num{25} &  \num{1483367} & \num{6662} &      \num{893} & \num{853} &   \num{706} \\
+\num{7} &  \num{640} &  \num{7} &  \num{1216400} & \num{2636} &      \num{835} & \num{580} &   \num{344} \\
+\num{7} & \num{1280} &  \num{4} &   \num{387847} &  \num{909} &      \num{767} & \num{323} &   \num{213} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 10 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 10 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 10 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'hamming' AND max_mismatches = 10 AND cigar = 0)
+%% SELECT '\num{10}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{10} &   \num{20} &          &               &            &               &   \num{2} & \num{1023488} \\
+\num{10} &   \num{40} & \num{33} & \num{1667677} &   \num{20} & \num{2155878} &  \num{53} &   \num{10108} \\
+\num{10} &   \num{80} & \num{51} & \num{1631092} &  \num{230} &  \num{155522} & \num{107} &   \num{11154} \\
+\num{10} &  \num{160} & \num{38} & \num{1592654} & \num{2623} &    \num{1347} & \num{362} &     \num{819} \\
+\num{10} &  \num{320} & \num{18} & \num{1615341} & \num{5016} &     \num{923} & \num{478} &     \num{508} \\
+\num{10} &  \num{640} &  \num{6} & \num{1500072} & \num{2136} &     \num{823} & \num{476} &     \num{344} \\
+\num{10} & \num{1280} &  \num{4} & \num{1396514} &  \num{697} &     \num{800} & \num{251} &     \num{212} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 13 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 13 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'hamming' AND max_mismatches = 13 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'hamming' AND max_mismatches = 13 AND cigar = 0)
+%% SELECT '\num{13}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{13} &   \num{20} &          &               &            &               &   \num{2} & \num{16649636} \\
+\num{13} &   \num{40} &  \num{9} & \num{1687772} &    \num{5} & \num{4033664} &  \num{22} &    \num{25691} \\
+\num{13} &   \num{80} & \num{44} & \num{1669396} &   \num{57} &  \num{548352} &  \num{78} &     \num{1747} \\
+\num{13} &  \num{160} & \num{30} & \num{1635451} &  \num{952} &    \num{2547} &  \num{78} &      \num{798} \\
+\num{13} &  \num{320} & \num{16} & \num{1397344} & \num{3630} &     \num{985} & \num{284} &      \num{504} \\
+\num{13} &  \num{640} &  \num{6} & \num{1077729} & \num{1713} &     \num{827} & \num{364} &      \num{354} \\
+\num{13} & \num{1280} &  \num{4} & \num{1152011} &  \num{562} &     \num{762} & \num{205} &      \num{236} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+\end{tabular}
+\captionof{table}{Pattern sets used for APM hamming distance locate query measurements.}
+\label{tab:patterns_locate_apm_ham}
+\end{minipage}
+\hfill
+\begin{minipage}[c]{0.49\textwidth}
+\centering
+\fontsize{6.5pt}{7.6pt}\selectfont
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{1.18}
+% ---- APM locate edit ----
+\begin{tabular}{|rr|rr|rr|rr|}
+\hline
+\multicolumn{2}{|c|}{text}
+& \multicolumn{2}{c|}{sars2}
+& \multicolumn{2}{c|}{chr19}
+& \multicolumn{2}{c|}{dewiki} \\
+$k$ & $m$
+& $N$ & $\floor{occ/N}$
+& $N$ & $\floor{occ/N}$
+& $N$ & $\floor{occ/N}$ \\
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 4 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 4 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 4 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'edit' AND max_mismatches = 4 AND cigar = 0)
+%% SELECT '\num{4}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{4} &   \num{10} &         &               &             &               &    \num{2} & \num{9667806} \\
+\num{4} &   \num{20} & \num{7} & \num{8377239} &    \num{15} & \num{5822686} &   \num{41} &  \num{178538} \\
+\num{4} &   \num{40} & \num{8} & \num{8142132} &    \num{92} &  \num{685916} &  \num{423} &    \num{5883} \\
+\num{4} &   \num{80} & \num{8} & \num{8173130} &  \num{4671} &    \num{4978} &  \num{582} &    \num{2763} \\
+\num{4} &  \num{160} & \num{8} & \num{7548369} & \num{13520} &    \num{1027} & \num{1264} &     \num{902} \\
+\num{4} &  \num{320} & \num{7} & \num{6992365} &  \num{7921} &     \num{953} & \num{1243} &     \num{645} \\
+\num{4} &  \num{640} & \num{4} & \num{6170921} &  \num{3469} &     \num{895} &  \num{782} &     \num{447} \\
+\num{4} & \num{1280} & \num{4} & \num{1735373} &  \num{1349} &     \num{803} &  \num{437} &     \num{285} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 7 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 7 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 7 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'edit' AND max_mismatches = 7 AND cigar = 0)
+%% SELECT '\num{7}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{7} &   \num{20} &         &                &            &                &   \num{2} & \num{360879} \\
+\num{7} &   \num{40} & \num{5} & \num{12316892} &    \num{4} & \num{14806481} & \num{146} &   \num{6986} \\
+\num{7} &   \num{80} & \num{5} & \num{11254693} &  \num{261} &   \num{120229} & \num{358} &   \num{1758} \\
+\num{7} &  \num{160} & \num{5} & \num{10235658} & \num{6062} &     \num{1246} & \num{440} &   \num{1220} \\
+\num{7} &  \num{320} & \num{4} &  \num{8902425} & \num{6058} &      \num{986} & \num{858} &    \num{761} \\
+\num{7} &  \num{640} & \num{4} &  \num{8929898} & \num{2692} &      \num{950} & \num{203} &    \num{691} \\
+\num{7} & \num{1280} & \num{4} &  \num{4477059} &  \num{942} &      \num{901} & \num{336} &    \num{319} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 10 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 10 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 10 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'edit' AND max_mismatches = 10 AND cigar = 0)
+%% SELECT '\num{10}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{10} &   \num{40} & \num{4} & \num{13468801} &    \num{4} & \num{1460356} &   \num{3} & \num{8336} \\
+\num{10} &   \num{80} & \num{5} & \num{11924783} &   \num{66} &  \num{326894} & \num{202} & \num{3646} \\
+\num{10} &  \num{160} & \num{5} &  \num{7797436} & \num{1106} &    \num{2973} & \num{257} & \num{1134} \\
+\num{10} &  \num{320} & \num{4} & \num{15762605} & \num{3456} &    \num{1053} & \num{112} &  \num{856} \\
+\num{10} &  \num{640} & \num{4} & \num{12364702} & \num{1605} &     \num{977} & \num{312} &  \num{567} \\
+\num{10} & \num{1280} & \num{4} &  \num{2904388} &  \num{532} &     \num{911} & \num{198} &  \num{287} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+%% TABULAR
+%% WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_apm WHERE algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 13 AND cigar = 0),
+%% s AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'sars2.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 13 AND cigar = 0),
+%% c AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'chr19.ACGT.50Gi' AND algo = 'locate_move_rb_rlzsa' AND dist_metr = 'edit' AND max_mismatches = 13 AND cigar = 0),
+%% d AS (SELECT pattern_length AS m, num_patterns AS N, CAST(num_occurrences / (1.0 * num_patterns) AS INTEGER) AS o FROM results_apm WHERE text = 'dewiki.50Gi' AND algo = 'locate_br_index' AND dist_metr = 'edit' AND max_mismatches = 13 AND cigar = 0)
+%% SELECT '\num{13}', printf('\num{%d}', ms.m),
+%%   CASE WHEN s.N IS NULL THEN '' ELSE printf('\num{%d}', s.N) END, CASE WHEN s.o IS NULL THEN '' ELSE printf('\num{%d}', s.o) END,
+%%   CASE WHEN c.N IS NULL THEN '' ELSE printf('\num{%d}', c.N) END, CASE WHEN c.o IS NULL THEN '' ELSE printf('\num{%d}', c.o) END,
+%%   CASE WHEN d.N IS NULL THEN '' ELSE printf('\num{%d}', d.N) END, CASE WHEN d.o IS NULL THEN '' ELSE printf('\num{%d}', d.o) END
+%% FROM ms LEFT JOIN s ON s.m = ms.m LEFT JOIN c ON c.m = ms.m LEFT JOIN d ON d.m = ms.m ORDER BY ms.m
+\num{13} &   \num{40} &         &                &            &               &   \num{4} & \num{3084} \\
+\num{13} &   \num{80} & \num{4} & \num{14573149} &    \num{9} & \num{1375248} &  \num{39} & \num{1993} \\
+\num{13} &  \num{160} & \num{4} & \num{10711647} &  \num{259} &    \num{5079} &  \num{44} & \num{2234} \\
+\num{13} &  \num{320} & \num{4} & \num{10411006} & \num{2053} &    \num{1190} &  \num{52} & \num{1081} \\
+\num{13} &  \num{640} & \num{4} &  \num{8829307} & \num{1100} &     \num{972} & \num{232} &  \num{568} \\
+\num{13} & \num{1280} &         &                &  \num{374} &     \num{924} & \num{148} &  \num{332} \\
+% END TABULAR WITH ms AS (SELECT DISTINCT pattern_length AS m FROM results_a...)
+\hline
+\end{tabular}
+\captionof{table}{Pattern sets used for APM edit distance locate query measurements.}
+\label{tab:patterns_locate_apm_edit}
+\end{minipage}
+\vspace*{\fill}
+\end{table*}

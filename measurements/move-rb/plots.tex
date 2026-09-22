@@ -1,0 +1,126 @@
+% plots.tex -- standalone driver that renders every figure and table of the Move-rb paper
+% from charts/*.tex and tables/*.tex, so they can be compared against the paper PDF without
+% having the paper sources.
+%
+%   ./make-plots.sh           re-runs sqlplot-tools over every chart/table, then builds this
+%   pdflatex plots.tex        builds this from the chart/table files as they are
+%
+% Each caption names the corresponding float in the paper. The charts are sized for the SIAM
+% two-column layout, hence the twocolumn article class here.
+
+\documentclass[letterpaper,10pt,twocolumn]{article}
+\usepackage[letterpaper,margin=0.9in]{geometry}
+\input{plot-styles}
+
+\title{Move-rb: paper figures and tables}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{table*}[t]
+\centering
+\input{tables/texts}
+\caption{\textup{[paper Table 3.1 --- \texttt{tables/texts.tex}, from \texttt{results-ext.txt}
+and \texttt{results-apm.txt}]} Sizes and compression rates ($n / r$ and $n / \bwd{r}$) of the
+tested texts, and sizes of the tested indexes.}
+\label{tab:texts}
+\end{table*}
+
+\begin{figure*}[t]
+\centering
+\input{charts/construction}
+\caption{\textup{[paper Figure 3.1 --- \texttt{charts/construction.tex}, from
+\texttt{results-build.txt}]} Peak memory usage during index construction versus index
+construction time.}
+\label{fig:construction-memory-usage}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\input{charts/apm}
+\caption{\textup{[paper Figure 3.2 --- \texttt{charts/apm.tex}, from
+\texttt{results-apm.txt}]} APM query throughput as a geometric mean over the results for
+$k \in \{4, 7, 10, 13\}$. All indexes use their native APM algorithms.}
+\label{fig:apm}
+\end{figure*}
+
+% paper Table C.1 -- brings its own table* environment and caption
+\input{tables/mem_factor}
+
+\begin{figure*}[t]
+\centering
+\input{charts/raw_performance}
+\caption{\textup{[paper Figure D.1 --- \texttt{charts/raw\_performance.tex}, from
+\texttt{results-ext.txt}]} Raw extension and $\SA$-interval enumeration throughput versus
+pattern length.}
+\label{fig:raw_performance}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\input{charts/apm-same-alg}
+\caption{\textup{[paper Figure E.1 --- \texttt{charts/apm-same-alg.tex}, from
+\texttt{results-apm.txt}]} APM query throughput as a geometric mean over the results for
+$k \in \{4, 7, 10, 13\}$. All indexes use our optimized APM algorithms.}
+\label{fig:apm_same_alg}
+\end{figure*}
+
+% paper Figures F.1-F.4: native APM algorithms, one figure per k
+\begin{figure*}[p]
+\centering
+\input{charts/apm_native_k4}
+\caption{\textup{[paper Figure F.1 --- \texttt{charts/apm\_native\_k4.tex}]} APM query
+throughput for $k = 4$. All indexes use their native APM algorithms.}
+\label{fig:apm_native_k4}
+
+\input{charts/apm_native_k7}
+\caption{\textup{[paper Figure F.2 --- \texttt{charts/apm\_native\_k7.tex}]} APM query
+throughput for $k = 7$. All indexes use their native APM algorithms.}
+\label{fig:apm_native_k7}
+\end{figure*}
+
+\begin{figure*}[p]
+\centering
+\input{charts/apm_native_k10}
+\caption{\textup{[paper Figure F.3 --- \texttt{charts/apm\_native\_k10.tex}]} APM query
+throughput for $k = 10$. All indexes use their native APM algorithms.}
+\label{fig:apm_native_k10}
+
+\input{charts/apm_native_k13}
+\caption{\textup{[paper Figure F.4 --- \texttt{charts/apm\_native\_k13.tex}]} APM query
+throughput for $k = 13$. All indexes use their native APM algorithms.}
+\label{fig:apm_native_k13}
+\end{figure*}
+
+% paper Figures F.5-F.8: our optimized APM algorithms, one figure per k
+\begin{figure*}[p]
+\centering
+\input{charts/apm_samealg_k4}
+\caption{\textup{[paper Figure F.5 --- \texttt{charts/apm\_samealg\_k4.tex}]} APM query
+throughput for $k = 4$. All indexes use our optimized APM algorithms.}
+\label{fig:apm_same_alg_k4}
+
+\input{charts/apm_samealg_k7}
+\caption{\textup{[paper Figure F.6 --- \texttt{charts/apm\_samealg\_k7.tex}]} APM query
+throughput for $k = 7$. All indexes use our optimized APM algorithms.}
+\label{fig:apm_same_alg_k7}
+\end{figure*}
+
+\begin{figure*}[p]
+\centering
+\input{charts/apm_samealg_k10}
+\caption{\textup{[paper Figure F.7 --- \texttt{charts/apm\_samealg\_k10.tex}]} APM query
+throughput for $k = 10$. All indexes use our optimized APM algorithms.}
+\label{fig:apm_same_alg_k10}
+
+\input{charts/apm_samealg_k13}
+\caption{\textup{[paper Figure F.8 --- \texttt{charts/apm\_samealg\_k13.tex}]} APM query
+throughput for $k = 13$. All indexes use our optimized APM algorithms.}
+\label{fig:apm_same_alg_k13}
+\end{figure*}
+
+% paper Tables G.1-G.5 -- brings its own table* environment and captions
+\input{tables/patterns_grid}
+
+\end{document}
