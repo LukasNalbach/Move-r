@@ -23,17 +23,17 @@ make
 
 This produces the CLI tools in `build/cli/` and the benchmark tools in `build/bench/`.
 The reproduction scripts locate them automatically at `../../build` relative to this folder.
-The `cp` step is only kept because the top-level `README.md` lists it; CMake applies the patched
-submodule sources itself on every configure, so running it changes nothing.
+CMake copies the patched submodule sources into the submodules on every configure run. The `cp`
+line above is the one from the top-level `README.md` and is not needed here.
 
-**Compiler.** GCC 12 through 15 all work. Mixing versions does not: building with an older GCC
-than the one your distribution's `libtbb` was compiled with fails to link with
-`libtbb.so: undefined reference to __cxa_call_terminate@CXXABI_1.3.15`. Use the system compiler
-unless you have a reason not to.
+**Compiler.** GCC 12, 13, 14 and 15 all work. Use the compiler of your distribution. If you
+select an older GCC than the one your `libtbb` was built with, linking fails with
+`libtbb.so: undefined reference to __cxa_call_terminate@CXXABI_1.3.15`.
 
-**Big-BWT.** `measure-text.sh` builds with `-c bigbwt`, and `columba-rlc` needs it too, so the
-bundled Big-BWT in `external/Big-BWT` has to be there. Check that `external/Big-BWT/makefile`
-exists after cloning and that `make` produced the `bigbwt` driver next to it.
+**Big-BWT.** The scripts build the indexes with `-c bigbwt`, and `columba-rlc` needs Big-BWT as
+well. After cloning, check that the file `external/Big-BWT/makefile` exists and that `make`
+created the program `bigbwt` in that directory. If `external/Big-BWT` is empty, run
+`git submodule update --init external/Big-BWT`.
 
 **GNU time.** The competitor builds are wrapped in `/usr/bin/time -v` for wall time. Their
 peak *heap* memory is measured with `malloc_count` (each build tool reports it directly,
@@ -50,9 +50,9 @@ use a small text; full-scale reproduction needs a large machine and free disk sp
 
 ## 2. Provide the texts and patterns
 
-Place each input text in [`texts/`](texts/) under the name the scripts expect. All three are
-archived on Zenodo together with this code, BSC-compressed
-([10.5281/zenodo.22879117](https://doi.org/10.5281/zenodo.22879117)):
+Place each input text in [`texts/`](texts/) under the name the scripts expect. All three texts
+are on Zenodo ([10.5281/zenodo.22879117](https://doi.org/10.5281/zenodo.22879117)), compressed
+with bsc:
 
 | Text       | File name         | Download | Notes                                        |
 | ---------- | ----------------- | -------- | -------------------------------------------- |
@@ -60,7 +60,8 @@ archived on Zenodo together with this code, BSC-compressed
 | chr19      | `chr19.ACGT.50Gi` | [`chr19.ACGT.50Gi.bsc`](https://zenodo.org/records/22879117/files/chr19.ACGT.50Gi.bsc?download=1) (10.3 GB) | DNA, reduced to `A`,`C`,`G`,`T`              |
 | dewiki     | `dewiki.50Gi`     | [`dewiki.50Gi.bsc`](https://zenodo.org/records/22879117/files/dewiki.50Gi.bsc?download=1) (214 MB) | byte alphabet (German Wikipedia)             |
 
-Each file decompresses to a 50 GiB text with [bsc](https://github.com/IlyaGrebnov/libbsc):
+Each file decompresses to a text of 50 GiB. Decompress it with
+[bsc](https://github.com/IlyaGrebnov/libbsc):
 
 ```shell
 bsc d sars2.ACGT.50Gi.bsc texts/sars2.ACGT.50Gi
@@ -78,7 +79,7 @@ directly (see below).
 ```
 
 These are machine-calibrated (their pattern counts were tuned on the paper's machine, see
-§6), so unpacking them reproduces the paper's exact query sets. By default `measure-text.sh`
+§7), so unpacking them reproduces the paper's exact query sets. By default `measure-text.sh`
 **regenerates** fresh patterns into `patterns/` / `patterns_ext/` on each run (calibrated to
 *your* machine); unpack `patterns.7z` only if you want to inspect or reuse the original sets.
 
@@ -90,8 +91,8 @@ These are machine-calibrated (their pattern counts were tuned on the paper's mac
 ./measure-all.sh
 ```
 
-and then, to turn the five per-index build logs into the single `results-build.txt`
-that `charts/construction.tex` reads (see §6):
+`measure-all.sh` writes one build log per index. Combine them into the single file
+`results-build.txt`, which `charts/construction.tex` reads (see §6):
 
 ```shell
 ./make-results-build.sh
@@ -131,12 +132,12 @@ For every text, `measure-text.sh`:
    - `move-rb` and `move-rb-rlzsa` (`move-rb-build -c bigbwt`), which write their own
      construction metrics via `-m_idx`.
    - `br-index` (`bri-build -divsufsort`, as in the paper), `columba` (`columba-build`) and
-     `columba-rlc` (four steps, as in upstream's `columba_build_pfp.sh`:
-     `columba-rlc-build --preprocess`, `bigbwt` on the text, `bigbwt` on its reverse, then
-     `columba-rlc-build --pfp`). Their wall time is captured
-     with `/usr/bin/time -v`; their peak heap memory is reported by the build tools themselves
-     via `malloc_count` (a `Peak memory usage during construction:` line in the build log),
-     consistent with the `move-rb` construction peak.
+     `columba-rlc`. `columba-rlc` is built in the four steps of upstream's
+     `columba_build_pfp.sh`: `columba-rlc-build --preprocess`, `bigbwt` on the text, `bigbwt`
+     on the reversed text, and `columba-rlc-build --pfp`. The build time of these three is
+     measured with `/usr/bin/time -v`. Their peak heap memory is reported by the build tools
+     themselves via `malloc_count`, as a `Peak memory usage during construction:` line in the
+     build log. This is the same quantity that `move-rb` reports for its own construction.
 2. **APM measurements.** `move-rb-gen-apm-queries` samples random substring patterns and
    auto-calibrates the pattern count `N` per `(k, m)` set so that `move-rb-rlzsa` runs for
    about `-T` seconds (but at least `-M` patterns). `move-rb-bench-apm` then benchmarks
@@ -164,17 +165,18 @@ All results land in [`results/`](results/):
 | `results-ext.txt`                 | raw extension + enumeration throughput (`RESULT`)   |
 | `results-build.txt`               | the five build logs, assembled by `make-results-build.sh` |
 
-`results-apm.txt`, `results-ext.txt` and `results-build.txt` are the inputs to the paper's
-figures and tables (the `charts/*.tex` and `tables/*.tex` files import them via
-`sqlplot-tools`) — see §6 below.
+The files `charts/*.tex` and `tables/*.tex` read `results-apm.txt`, `results-ext.txt` and
+`results-build.txt` and produce the figures and tables of the paper from them. Section 6
+describes how.
 
 ## 6. Regenerating the figures and tables
 
-Every figure and table of the paper is generated from the `results-*.txt` files by
-[`sqlplot-tools`](https://github.com/bingmann/sqlplot-tools): each file in
-[`charts/`](charts/) and [`tables/`](tables/) carries its `% IMPORT-DATA` and
-`%% SELECT` / `%% MULTIPLOT` / `%% TABULAR` directives at the top, and sqlplot-tools
-rewrites the `\addplot` coordinates resp. the tabular rows below them in place.
+The figures and tables of the paper are generated from the `results-*.txt` files with
+[sqlplot-tools](https://github.com/bingmann/sqlplot-tools). Every file in [`charts/`](charts/)
+and [`tables/`](tables/) begins with a block of `% IMPORT-DATA` and `%% SELECT`,
+`%% MULTIPLOT` or `%% TABULAR` lines. sqlplot-tools loads the results file named there into an
+SQLite database, runs the query, and writes the resulting `\addplot` coordinates or table rows
+into the same file, below the query block.
 
 | File                                  | Paper float     | Reads                                |
 | ------------------------------------- | --------------- | ------------------------------------ |
@@ -188,29 +190,35 @@ rewrites the `\addplot` coordinates resp. the tabular rows below them in place.
 | `charts/apm_samealg_k{4,7,10,13}.tex` | Figures F.5–F.8 | `results-apm.txt`                    |
 | `tables/patterns_grid.tex`            | Tables G.1–G.5  | `results-ext.txt`, `results-apm.txt` |
 
-The files are committed with the paper's numbers already substituted, so they compile as
-they are. [`results-paper/`](results-paper/) holds the exact measurement data behind them.
+Each of these files already contains the numbers of the paper, so it compiles without running
+sqlplot-tools first. The measurement data behind these numbers is in
+[`results-paper/`](results-paper/).
 
-**Build them.**
+**Building the figures.**
 
 ```shell
-./make-plots.sh --paper     # rebuild the paper's figures from results-paper/
-./make-plots.sh             # ... or from your own results/
+./make-plots.sh --paper     # use results-paper/, the data of the paper
+./make-plots.sh             # use results/, your own measurements
 ```
 
-`make-plots.sh` stages everything in `build-plots-paper/` resp. `build-plots/`, runs
-sqlplot-tools over every chart and table there and builds the result into a single PDF
-(`plots.pdf`) via [`plots.tex`](plots.tex) — one float per paper figure/table, captioned
-with the number it carries in the paper. Nothing under `charts/` or `tables/` is modified,
-so you can diff your numbers against the paper's:
+`make-plots.sh` copies the charts, the tables and the results into the directory
+`build-plots-paper/` or `build-plots/`, runs sqlplot-tools on every chart and table in that
+directory, and compiles all of them into one PDF `plots.pdf`. Each figure and table is on a
+page of its own, with the number it has in the paper written in the caption.
+
+The files in `charts/` and `tables/` are not modified, so you can compare your numbers with the
+numbers of the paper:
 
 ```shell
 diff -u charts/apm.tex build-plots/charts/apm.tex
 ```
 
-It needs `sqlplot-tools` built with the SQLite backend (on your `PATH`, or pointed at by
-`$SQLPLOT_TOOLS`) and a `pdflatex` with `pgfplots`, `siunitx`, `subcaption` and `caption`.
-On Ubuntu:
+Running `./make-plots.sh --paper` produces files that are byte for byte identical to the ones
+in `charts/` and `tables/`.
+
+**What you need.** sqlplot-tools with the SQLite backend, either in your `PATH` or in the
+variable `SQLPLOT_TOOLS`, and pdflatex with the packages `pgfplots`, `siunitx`, `subcaption`
+and `caption`. On Ubuntu:
 
 ```shell
 sudo apt install cmake libboost-all-dev libsqlite3-dev libpq-dev \
@@ -220,77 +228,74 @@ cd sqlplot-tools && mkdir build && cd build && cmake .. && make
 export SQLPLOT_TOOLS=$PWD/src/sqlplot-tools
 ```
 
-(`libpq-dev` is needed even for the SQLite build — sqlplot-tools' CMake looks for
-PostgreSQL unconditionally.)
+`libpq-dev` is in this list because the CMake file of sqlplot-tools searches for PostgreSQL
+even if you only build the SQLite backend. If your sqlplot-tools has both backends, it tries
+PostgreSQL first and then uses SQLite. It prints the line `Connection to PostgreSQL failed`
+when it does this. That line can be ignored.
 
-[`plot-styles.tex`](plot-styles.tex) holds the marker and axis styles and the notation
-macros the charts and tables use, extracted from the paper's preamble; include it if you
-want to embed one of the charts in a document of your own.
+[`plot-styles.tex`](plot-styles.tex) contains the colors, the markers, the axis settings and
+the macros that the charts and tables use. Include this file if you want to use one of the
+charts in a different document.
 
-`./make-plots.sh --paper` reproduces the committed `charts/` and `tables/` files byte for byte.
+**If you measure your own text.** Every chart and table selects the three texts of the paper by
+name, for example `WHERE text = 'sars2.ACGT.50Gi'`. If you measured a different text, these
+queries find no rows, and sqlplot-tools reports `MULTIPLOT() requires group column list`. In
+that case `make-plots.sh` prints the name of the file, keeps the version with the numbers of
+the paper, and continues with the next file. To plot your own text, replace the text names in
+the `%%` query block of that file.
 
-**Your own texts.** Every chart and table selects the paper's three texts by name
-(`WHERE text = 'sars2.ACGT.50Gi'`, `'chr19.ACGT.50Gi'`, `'dewiki.50Gi'`). Measuring a text of
-your own therefore leaves those queries with no rows, and sqlplot-tools reports
-`MULTIPLOT() requires group column list`. `make-plots.sh` keeps the paper's version of such a
-file, names it and carries on, so the rest of the PDF is still yours. To plot your own text,
-replace the text names in the `%%` query block of the file you care about.
-
-**sqlplot-tools and PostgreSQL.** A sqlplot-tools built with both backends tries PostgreSQL
-first and falls back to SQLite3 on its own; the `Connection to PostgreSQL failed` line it
-prints on the way is harmless.
-
-**`results-build.txt`.** `charts/construction.tex` reads a single
-`results/results-build.txt` holding one `RESULT` line per (index, text):
+**The file `results-build.txt`.** `charts/construction.tex` (Figure 3.1) reads one file with
+one `RESULT` line per index and text:
 
 ```
 RESULT algo=build_move_rb_move text=sars2.ACGT.50Gi n=50000000001 time_build=22834000000000 peak_memory_usage=6099000000 size_index=3876616865
 ```
 
-`algo` is one of `build_move_rb_move`, `build_move_rb_rlzsa`, `build_br_index`,
-`build_columba` or `build_bmove` (= `columba-rlc`), `time_build` is in nanoseconds and
-`peak_memory_usage` / `size_index` are in bytes.
+`algo` is `build_move_rb_move`, `build_move_rb_rlzsa`, `build_br_index`, `build_columba` or
+`build_bmove`, where `build_bmove` is `columba-rlc`. `time_build` is in nanoseconds,
+`peak_memory_usage` and `size_index` are in bytes.
 
-`measure-text.sh` writes the five raw `results-build-*.txt` logs listed in §5;
-[`make-results-build.sh`](make-results-build.sh) turns them into `results-build.txt`:
+`measure-text.sh` writes one build log per index, the five `results-build-*.txt` files listed
+in §5. [`make-results-build.sh`](make-results-build.sh) reads those five logs and writes
+`results-build.txt`:
 
 ```shell
 ./make-results-build.sh
 ```
 
-`move-rb` and `move-rb-rlzsa` report every field directly in their `-m_idx` record. For
-`br-index`, `columba` and `columba-rlc` the fields are read out of the build log: the wall
-time from `/usr/bin/time -v`, the peak heap from the `Peak memory usage during
-construction:` line the build tools print via `malloc_count`, `n` from the input text and
-`size_index` from the index files on disk. Builds that failed or are missing are skipped
-with a warning, so a partial run still yields a usable chart.
+`move-rb` and `move-rb-rlzsa` write every field into their `-m_idx` record, so the script only
+copies them. For `br-index`, `columba` and `columba-rlc` it reads the build time from the
+output of `/usr/bin/time -v`, the peak memory from the line
+`Peak memory usage during construction:` that these tools print, `n` from the size of the input
+text, and `size_index` from the size of the index files. If a build failed or its log is
+missing, the script prints a warning and omits that line.
 
-The data behind the paper's Figure 3.1 is in
+The data of Figure 3.1 of the paper is in
 [`results-paper/results-build.txt`](results-paper/results-build.txt).
 
-**`sigma`, `r` and `r_rev`.** `tables/texts.tex` takes the alphabet size and the two
-compression rates $n/r$ and $n/\bwd{r}$ from the `build_move_rb_move` row of
-`results-build.txt`, where `make-results-build.sh` carries them over from the `-m_idx` record.
-They used to be literals in the query, which meant the column kept showing the paper's texts
-whatever you had measured. `sigma` counts the sentinel, so the table prints `sigma - 1`.
+**The columns `sigma`, n/r and n/r_rev of Table 3.1.** `tables/texts.tex` reads these three
+values from the `build_move_rb_move` line of `results-build.txt`. `move-rb-build -m_idx` writes
+them as `sigma`, `r` and `r_rev`, and `make-results-build.sh` copies them into
+`results-build.txt`. `sigma` counts the sentinel character as well, so the table prints
+`sigma - 1`.
 
-The values in `results-paper/` were read back out of the index files the paper was measured
-with. For sars2 and chr19 they give compression rates 0.03% above the ones printed in the
-paper (1000.93 instead of 1000.64, and 1119.46 instead of 1119.13); dewiki matches exactly.
-The two DNA indexes were rebuilt after the table had been made, which fits the pattern -- the
-offset is the same in both columns of a text. The tables here follow the indexes.
+The values in `results-paper/results-build.txt` were read out of the index files that the
+measurements of the paper were made with. For sars2 and chr19 the resulting n/r and n/r_rev are
+0.03% higher than the values printed in Table 3.1 of the paper: 1000.93 instead of 1000.64, and
+1119.46 instead of 1119.13. For dewiki the values are the same. The reason for this difference
+is not known. The tables in this repository show the values from the index files.
 
 ## 7. Notes
 
 - **Machine-dependent calibration.** `N` is calibrated to a target wall time on *your*
   machine, so the pattern counts and absolute throughputs will differ between systems.
 - **Single-threaded.** All builds and queries run with one thread (`-p 1`).
-- **columba input format.** `columba-build` / `columba-rlc-build` take their reference via
-  `-f`, which validates the file *extension* (`.fasta`, `.fa`, `.FASTA`, `.FA`, `.fna`,
-  `.FNA`), so a plain text is rejected whatever its content. `measure-text.sh` therefore
-  writes a single-record FASTA copy next to the text (`texts/<text>.fa`) on the first run and
-  reuses it afterwards; budget as much free disk as the text itself. They also do not accept
-  a `-t` thread option.
+- **Input format of columba.** `columba-build` and `columba-rlc-build` read the text with `-f`
+  and check the file extension (`.fasta`, `.fa`, `.FASTA`, `.FA`, `.fna`, `.FNA`). A file with
+  a different extension is rejected, no matter what it contains. On the first run,
+  `measure-text.sh` writes a FASTA copy of the text to `texts/<text>.fa` and uses that copy in
+  later runs. The copy needs as much disk space as the text. Neither tool has an option for
+  the number of threads.
 - **Re-runs.** `measure-all.sh` truncates `results-apm.txt`, `results-ext.txt` and the
   `results-build-*.txt` logs before it starts; `measure-text.sh` appends, so running it
   directly several times accumulates rows.
