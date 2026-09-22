@@ -58,11 +58,11 @@ inline void transform_byte_file_parallel(const std::string& file, uint64_t len, 
         buf.emplace_back(sdsl::int_vector_buffer<8>(file, std::ios::in, block, 8, true));
     }
 
-    uint64_t chunk = div_ceil<uint64_t>(div_ceil<uint64_t>(len, uint64_t(p)), block) * block;
-
     #pragma omp parallel num_threads(p)
     {
+        uint16_t p_ = omp_get_num_threads();
         uint16_t i_p = omp_get_thread_num();
+        uint64_t chunk = div_ceil<uint64_t>(div_ceil<uint64_t>(len, uint64_t(p_)), block) * block;
         uint64_t b = std::min<uint64_t>(len, uint64_t(i_p) * chunk);
         uint64_t e = std::min<uint64_t>(len, b + chunk);
 
