@@ -1,6 +1,6 @@
 # Move-r
 
-This repository contains a collection of uni- and bi-directional compressed text-index implementations and the data structures they are built from. It features move data structures [1], relative Lempel-Ziv encoded (differential) suffix arrays (RLZSA) [3, 4] and Lempel-Ziv-End compressed suffix arrays (LZEndSA) [4], together with command-line tools, examples, tests and benchmarks for all of them.
+This repository contains a collection of uni- and bi-directional compressed text-index implementations and the data structures they are built from. It features move data structures [1], relative Lempel-Ziv encoded (differential) suffix arrays (RLZSA) [3, 4] and Lempel-Ziv-End compressed suffix arrays (LZEndSA) [4], together with command-line tools, examples, tests and benchmarks for all of them. The bi-directional index Move-rb and its approximate pattern matching are described in [11] (accepted at ALENEX 2027, [arxiv.org](https://arxiv.org/abs/2609.30089)).
 
 ## Contents
 
@@ -43,7 +43,7 @@ This repository contains a collection of uni- and bi-directional compressed text
 ## Included Indexes & Data Structures
 
 - **Move-r** — an optimized and parallelized implementation of the modified r-index OptBWTR described in [1] ([arxiv.org](https://arxiv.org/abs/2006.05104)) (see [benchmarks](benchmarks/move-r.md)). It supports `count`, `locate` and `revert` queries as well as random access to the suffix array (SA) and the Burrows-Wheeler-Transform (BWT). Its locate support uses either a move data structure (`locate_move`) or an optimized RLZSA (`locate_rlzsa`); there are also `count`-only and `locate_one` (one occurrence per pattern) modes. Move-r works over byte alphabets as well as over arbitrary integer alphabets.
-- **Move-rb and Move-rb-rlzsa (bi-directional)** — the bi-directional variants of Move-r and Move-r-rlzsa. In addition to `count`, `locate` and `revert`, `move_rb` can extend the currently matched pattern to **both** the left and the right, and it supports **approximate pattern matching** under the hamming distance (`count`/`locate`) and the edit distance (`locate`) via configurable [search schemes](#search-schemes).
+- **Move-rb and Move-rb-rlzsa (bi-directional)** — the bi-directional variants of Move-r and Move-r-rlzsa, described in [11] ([arxiv.org](https://arxiv.org/abs/2609.30089)). In addition to `count`, `locate` and `revert`, `move_rb` can extend the currently matched pattern to **both** the left and the right, and it supports **approximate pattern matching** under the hamming distance (`count`/`locate`) and the edit distance (`locate`) via configurable [search schemes](#search-schemes).
 - **Move data structure** — an implementation of the move data structure [1] with the balancing algorithm described in [2]. A separate variant (`move_data_structure_l_`) additionally stores a string interleaved with the arrays needed for move queries (intended for storing the characters of the BWT (sub-)runs).
 - **Optimized RLZSA** — an optimized RLZSA implementation [4] that can be constructed in O(r) additional space from an r-index and is smaller and faster than the original implementation from [3]. **This is the RLZSA used by the `locate_rlzsa` mode of Move-r and Move-rb** (i.e. the `.move-rb-rlzsa` indexes and the `move_rb_rlzsa` results in the benchmarks use this optimized RLZSA).
 - **RLZSA and LZEndSA indexes** — an r-index combined with an LZEndSA [4] (`r-index-lzendsa`) and a faithful reimplementation of the RLZSA-based index described in [3] (`r-index-rlzsa`). Additionally, a plain RLZSA index and a plain LZEndSA index are included, in which pattern search is implemented using binary search over the compressed SA. **These standalone `rlzsa` / `r-index-rlzsa` indexes are the original, *unoptimized* RLZSA of [3]** — distinct from the optimized RLZSA above that Move-r/Move-rb's `locate_rlzsa` uses.
@@ -506,7 +506,7 @@ GoogleTest-based unit tests live in [tests/](tests/) and are built into `build/t
 - `test-sa-index` — the RLZSA / LZEndSA suffix-array indexes
 
 ## Benchmarks
-A comparison of Move-r with other r-indexes (tested texts, query and construction performance) can be found in [benchmarks/move-r.md](benchmarks/move-r.md). The instructions on how to replicate the measurements presented in [2] can be found [here](measurements/move-r/replicate.md).
+A comparison of Move-r with other r-indexes (tested texts, query and construction performance) can be found in [benchmarks/move-r.md](benchmarks/move-r.md). The instructions on how to replicate the measurements presented in [2] can be found [here](measurements/move-r/replicate.md). The instructions on how to replicate the measurements presented in [11] can be found [here](measurements/move-rb/replicate.md).
 
 ## References
 [1] Takaaki Nishimoto and Yasuo Tabei. Optimal-time queries on bwt-runs compressed indexes.
@@ -538,6 +538,9 @@ In 24th International Workshop on Algorithms in Bioinformatics (WABI), LIPIcs vo
 
 [10] Yuma Arakawa, Gonzalo Navarro and Kunihiko Sadakane. Bi-directional r-indexes.
 In 33rd Annual Symposium on Combinatorial Pattern Matching (CPM), LIPIcs vol. 223, 2022. ([paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.CPM.2022.11))
+
+[11] Johannes Fischer and Lukas Nalbach. Move-rb: Faster Bi-Directional r-indexes and Approximate Pattern Matching.
+Accepted at the SIAM Symposium on Algorithm Engineering and Experiments (ALENEX), 2027. ([paper](https://arxiv.org/abs/2609.30089))
 
 ## License
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

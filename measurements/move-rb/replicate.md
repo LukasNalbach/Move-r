@@ -1,8 +1,9 @@
 # Reproducing the Move-rb measurements
 
 This directory reproduces the construction, approximate-pattern-matching (APM) and raw
-extension/enumeration measurements of the Move-rb paper for `move-rb`, `move-rb-rlzsa`,
-`br-index`, `columba` and `columba-rlc` (b-move).
+extension/enumeration measurements of the [Move-rb paper](https://arxiv.org/abs/2609.30089)
+(accepted at ALENEX 2027) for `move-rb`, `move-rb-rlzsa`, `br-index`, `columba` and
+`columba-rlc` (b-move).
 
 You provide the input texts in [`texts/`](texts/); the scripts build every index and write
 all measurements to [`results/`](results/).
