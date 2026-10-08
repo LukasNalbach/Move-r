@@ -112,16 +112,18 @@ int main(int argc, char** argv)
         input = buffer.str();
     }
 
-    std::ofstream out(idx_file);
-
+    // the index file is only created once the index has been built, so a failed construction (e.g. running
+    // out of memory) does not leave behind an empty index file that the benchmarks would try to load
     if (nplcp)
     {
         br_index_nplcp<> idx(input,sais);
+        std::ofstream out(idx_file);
         idx.serialize(out);
-    } 
-    else 
+    }
+    else
     {
         br_index<> idx(input,sais);
+        std::ofstream out(idx_file);
         idx.serialize(out);
     }
 
@@ -133,6 +135,4 @@ int main(int argc, char** argv)
     const size_t raw_peak = malloc_count_peak();
     const uint64_t peak = raw_peak > mem_baseline ? raw_peak - mem_baseline : raw_peak;
     cout << "Peak memory usage during construction: " << peak << " bytes" << endl;
-
-    out.close();
 }
