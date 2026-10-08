@@ -432,13 +432,8 @@ void measure_br_index(const bench_config_t& cfg)
 {
     std::cerr << "loading the br-index from " << cfg.br_index_path << " ..." << std::endl;
     br_index_adapter::br_index_t br_index;
-    std::ifstream in(cfg.br_index_path);
-
-    if (!in.good()) {
-        throw std::runtime_error("br-index file " + cfg.br_index_path + " not found");
-    }
-
-    load_measured([&]{ br_index.load(in); });
+    std::ifstream in = open_br_index(cfg.br_index_path);
+    load_measured([&]{ load_br_index(br_index, in, cfg.br_index_path); });
     in.close();
 
     br_index_adapter index(br_index);

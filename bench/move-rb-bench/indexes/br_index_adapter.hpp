@@ -28,6 +28,8 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <tuple>
 #include <stdexcept>
@@ -43,6 +45,39 @@
 
 // the interface this adapter implements (checked by the static_assert at the bottom)
 #include "index_adapter.hpp"
+
+/**
+ * @brief opens a serialized br-index (.bri) for loading. br_index::load does not check its input stream and
+ *        crashes on a missing or empty file (e.g. the one left behind by a failed bri-build run), so such a
+ *        file is rejected with an exception instead, which makes the benchmarks skip the br-index
+ * @param path path to the .bri file
+ * @return the opened input stream
+ */
+inline std::ifstream open_br_index(const std::string& path)
+{
+    std::error_code ec;
+    const uint64_t size = std::filesystem::file_size(path, ec);
+
+    if (ec) throw std::runtime_error("br-index file " + path + " not found");
+    if (size == 0) throw std::runtime_error("br-index file " + path + " is empty (its construction did not finish)");
+
+    std::ifstream in(path);
+    if (!in.good()) throw std::runtime_error("br-index file " + path + " cannot be opened");
+    return in;
+}
+
+/**
+ * @brief loads a br-index from a stream opened by open_br_index
+ * @param index the br-index to load into
+ * @param in the input stream
+ * @param path path to the .bri file (for the error message)
+ */
+template <typename br_index_t>
+inline void load_br_index(br_index_t& index, std::ifstream& in, const std::string& path)
+{
+    index.load(in);
+    if (!in.good()) throw std::runtime_error("br-index file " + path + " is truncated");
+}
 
 /**
  * @brief Adapter that exposes the bidirectional r-index (bri::br_index) through the
@@ -660,13 +695,8 @@ class br_index_native {
      */
     br_index_native(const std::string& path)
     {
-        std::ifstream in(path);
-
-        if (!in.good()) {
-            throw std::runtime_error("br-index file " + path + " not found");
-        }
-
-        _index.load(in);
+        std::ifstream in = open_br_index(path);
+        load_br_index(_index, in, path);
         in.close();
     }
 
