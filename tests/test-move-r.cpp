@@ -79,6 +79,7 @@ constexpr uint64_t range_end = 20;
 // the number of iterations of the fuzz tests other than TEST(test_move_r, index) (see fuzz_iterations)
 constexpr uint64_t num_iterations_parallel_construction = 20;
 constexpr uint64_t num_iterations_pfp_integer_alphabet = 30;
+constexpr uint64_t num_iterations_input_widths = 10;
 constexpr uint64_t num_iterations_retrieve_range_to_file = 20;
 
 /**
@@ -555,6 +556,42 @@ TEST(test_move_r, pfp_integer_alphabet)
             default: run.template operator()<uint64_t>(); break;
         }
     } } }, fuzz_iterations(num_iterations_pfp_integer_alphabet), nullptr, 0);
+}
+
+/* the index of a text with symbols of 2 to 7 bytes (built with the suffix array or the prefix-free parsing) is the same
+   as the one of the same values in 64 bits (the symbols of 1 byte are a byte alphabet) */
+TEST(test_move_r, input_widths)
+{
+    run_fuzz("move-r", { { "input-widths", [](uint64_t i) {
+        auto run = [&]<typename sym_t>() {
+            if constexpr (sizeof(sym_t) > sizeof(uint8_t) && sizeof(sym_t) < sizeof(uint64_t)) {
+                // the symbols are drawn from span consecutive values, starting at 1 or close to the largest value
+                const uint64_t span = random_log_uniform_size(min_random_alphabet_size, max_input_size, gen);
+                const uint64_t first = gen() % 2 == 0 ? 1 : max_value_of<sym_t>() - num_excluded_symbol_values - span;
+                std::vector<uint64_t> values = random_repetitive_input<std::vector<uint64_t>>(min_pfp_input_size,
+                    max_input_size, first, first + span - 1, gen() | 1);
+                std::vector<sym_t> input(values.begin(), values.end());
+
+                move_r_params params { .mode = _suffix_array, .num_threads = 1 + gen() % max_num_threads,
+                    .reorder_alphabet = gen() % 2 == 0 };
+                const move_r<_locate_move> reference(values, params);
+                std::stringstream expected;
+                reference.serialize(expected);
+                params.mode = i % 2 == 0 ? _suffix_array : _pfp;
+                const move_r<_locate_move> index(input, params);
+                std::stringstream actual;
+                index.serialize(actual);
+
+                ASSERT_TRUE(actual.str() == expected.str()) << "the index differs from the one of 64-bit symbols, "
+                    << sizeof(sym_t) << "-byte symbols, n = " << input.size() << ", sigma = "
+                    << reference.alphabet_size() << (params.mode == _pfp ? ", prefix-free parsing" : ", suffix array");
+            }
+        };
+
+        #define MOVE_R_TEST_INPUT_WIDTH(sym_t) run.template operator()<sym_t>();
+        MOVE_R_FOR_EACH_INPUT_WIDTH(MOVE_R_TEST_INPUT_WIDTH)
+        #undef MOVE_R_TEST_INPUT_WIDTH
+    } } }, fuzz_iterations(num_iterations_input_widths), nullptr, 0);
 }
 
 // BWT_range and SA_range with a file name write the values of the range [l, r] to the file

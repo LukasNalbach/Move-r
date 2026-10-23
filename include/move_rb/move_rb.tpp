@@ -69,6 +69,7 @@ template <direction_t dir>
 void move_rb<support>::log_direction_sizes() const
 {
     std::cout << (dir == LEFT ? "forward index:" : "backward index:") << std::endl;
+    listing_indent++;
     index<dir>().log_data_structure_sizes();
 
     log_component("S_MLF_p", S_MLF_p<dir>().size_in_bytes());
@@ -79,6 +80,7 @@ void move_rb<support>::log_direction_sizes() const
     }
 
     if constexpr (dir == RIGHT && has_SA_pos) log_component("SA_pos", opt_size(_SA_pos));
+    listing_indent--;
 }
 
 template <move_r_support support>
@@ -101,12 +103,7 @@ void move_rb<support>::log_data_structure_sizes() const
 {
     const bool owner = begin_listing(size_in_bytes());
     log_direction_sizes<LEFT>();
-
-    std::cout << std::endl;
     log_direction_sizes<RIGHT>();
-    // the data structures of the whole index are listed in a block of their own
-    std::cout << std::endl;
-
     log_context_tables_size();
     if (_seq_data.has_sequences()) log_component("FASTA sequences", _seq_data.size_in_bytes());
     if (owner) end_listing();

@@ -73,10 +73,10 @@ public:
     // returns the separator symbol (undefined if !has_sequences())
     inline uint8_t separator_sym() const { return _separator_sym; }
 
-    // returns the size of the sequence starting positions and of the sequence names in bytes
+    // returns the size in bytes
     uint64_t size_in_bytes() const
     {
-        uint64_t bytes = _seq_starts.size_in_bytes() + _seq_names.size() * sizeof(std::string);
+        uint64_t bytes = _seq_starts.size_in_bytes();
         for (const std::string& name : _seq_names) bytes += name.size();
         return bytes;
     }

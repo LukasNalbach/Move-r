@@ -591,7 +591,7 @@ public:
 
     /**
      * @brief logs the sizes of the data structures of one direction (the move_r index and the samplings of the
-     *        input intervals) under the heading "forward index:" or "backward index:"
+     *        input intervals) indented under the heading "forward index:" or "backward index:"
      * @tparam dir the direction
      */
     template <direction_t dir>
@@ -608,8 +608,8 @@ public:
 
     /**
      * @brief logs the sizes of the data structures with their shares of the index size, one per line (see
-     *        log_component), in the blocks "forward index:", "backward index:" and a block of the data structures
-     *        of the whole index; the list ends with the size of the rest of the index ("other")
+     *        log_component), indented under the headings "forward index:" and "backward index:", followed by the
+     *        data structures of the whole index; the list ends with the size of the rest of the index ("other")
      */
     void log_data_structure_sizes() const;
 

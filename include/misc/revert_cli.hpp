@@ -148,7 +148,7 @@ void revert_index(direct_ifstream& index_file, direct_ofstream& output_file, rev
     const std::string with_threads = " with " + format_threads(cli.num_threads);
 
     if (cli.in_memory) {
-        log_phase_start(true, time, "reverting the index in memory" + with_threads);
+        log_phase_start(true, time, "reverting the index" + with_threads);
         no_init_vector<uint8_t> text; // the text: [0..length-1] text[i] = T[i]
         revert_text(index, cli, &text);
         log_phase_end(true, time);

@@ -56,8 +56,8 @@ inline constexpr std::string_view positions_format
     = "input size + 1 values of 40 bits each (48 bits each for an input of 2^40 or more symbols), little endian";
 
 // the format of a file with the BWT (see write_bwt)
-inline constexpr std::string_view bwt_format = "input size + 1 symbols, one byte each for a byte alphabet, else 40 bits "
-    "each, little endian; the terminator is written as 0";
+inline constexpr std::string_view bwt_format = "input size + 1 symbols, one byte each for a byte alphabet, else the "
+    "fewest bytes each that hold the largest symbol, little endian; the terminator is written as 0";
 
 /** @brief the options of an extract mode */
 struct extract_cli_t {
@@ -270,8 +270,12 @@ void write_bwt(const move_r_t& index, const extract_cli_t& cli)
             typename move_r_t::retrieve_params { .l = 0, .r = n - 1, .num_threads = cli.num_threads });
     };
 
-    if (index.byte_alphabet) write_range<1>(cli, n, 1, retrieve);
-    else write_range<uint40_t::width>(cli, n, 1, retrieve);
+    // the fewest bytes that hold the largest symbol
+    const uint8_t symbol_bytes = index.byte_alphabet ? sizeof(uint8_t) : byte_width(index.max_input_symbol());
+
+    move_r_with_symbol_type(symbol_bytes, [&](auto type) {
+        write_range<sizeof(typename decltype(type)::type)>(cli, n, 1, retrieve);
+    });
 }
 
 #endif // MOVE_R_MISC_EXTRACT_MODES_CLI_HPP

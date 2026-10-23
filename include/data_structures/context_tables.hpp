@@ -165,7 +165,7 @@ public:
         uint64_t size_in_bytes() const
         {
             return orders[0].size_in_bytes() + orders[1].size_in_bytes()
-                + sample_marks.size_in_bytes() + samples.size_in_bytes() - sizeof(samples);
+                + sample_marks.size_in_bytes() + samples.size_in_bytes();
         }
 
         // writes the level to out

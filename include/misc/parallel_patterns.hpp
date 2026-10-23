@@ -238,9 +238,8 @@ pattern_totals_t process_patterns(pattern_reader& reader, const pattern_processi
     // the number of patterns, with their reverse complements (0 if the reader does not know it)
     const uint64_t num_patterns = reader.num_patterns() * (options.reverse_complements ? 2 : 1);
     auto time = now();
-    if (options.log) log_out() << std::endl;
     log_phase_start(options.log, time, "searching " + (num_patterns == 0 ? std::string("the") : format_number(num_patterns))
-        + " patterns using " + format_threads(threads));
+        + " patterns with " + format_threads(threads));
     phase_progress progress(options.log, num_patterns);
     // block b is held in blocks[b % 3]: while block b is processed, block b - 1 is written and block b + 1 is read
     std::array<pattern_block_t, 3> blocks;

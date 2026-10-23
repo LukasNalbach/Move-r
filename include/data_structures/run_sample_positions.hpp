@@ -148,7 +148,7 @@ public:
     inline bool empty() const { return blocks.empty(); }
 
     // returns the size in bytes
-    uint64_t size_in_bytes() const { return sizeof(*this) + blocks.size() * sizeof(uint64_t); }
+    uint64_t size_in_bytes() const { return blocks.size() * sizeof(uint64_t); }
 
     // ############################# QUERY METHODS #############################
 

@@ -146,8 +146,7 @@ void move_r<support, mlf_enc>::set_alphabet_order(const std::vector<uint64_t>& o
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 uint64_t move_r<support, mlf_enc>::size_in_bytes() const
 {
-    return sizeof(*this) +
-        _M_LF.size_in_bytes() +
+    return _M_LF.size_in_bytes() +
         map_ext_bytes() +
         l_data_structures_bytes() +
         _M_Phi.size_in_bytes() +

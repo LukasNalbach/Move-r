@@ -28,7 +28,6 @@
 #define MOVE_R_MOVE_RB_CONSTRUCTION_CONTEXT_TABLES_TPP
 
 #include <misc/sort.hpp>
-#include <misc/serialized_size.hpp>
 
 #include <data_structures/blocked_positions.hpp>
 #include <data_structures/elias_fano_bit_vector.hpp>
@@ -195,9 +194,9 @@ void move_rb<support>::build_context_tables(double share, uint64_t base,
     // number of parents per thread, that are extended in one round (see extend_level_parents)
     constexpr uint64_t round_parents_per_thread = 4096;
 
-    // maximum size of the serialized tables in bytes
-    uint64_t budget = uint64_t(share * double(base == 0 ? serialized_size_in_bytes(*this) : base));
-    uint64_t used = 0; // size of the serialized built levels in bytes
+    // maximum size of the tables in bytes
+    uint64_t budget = uint64_t(share * double(base == 0 ? size_in_bytes() : base));
+    uint64_t used = 0; // size of the built levels in bytes
     double last_bytes_per_entry = 0; // size per entry of the last built level in bytes
     std::vector<uint32_t> entry_of_symbol; // [0..sigma-1] the entry of the pattern c in level 1
     _context_tables.set_alphabet_size(sigma);
@@ -426,7 +425,7 @@ void move_rb<support>::build_context_tables(double share, uint64_t base,
             used += entry_of_symbol.size() * sizeof(uint32_t);
         }
 
-        const uint64_t lvl_bytes = serialized_size_in_bytes(lvl);
+        const uint64_t lvl_bytes = lvl.size_in_bytes();
         if (!single_length && used + lvl_bytes > budget) break;
         used += lvl_bytes;
         last_bytes_per_entry = double(lvl_bytes) / double(num_entries);

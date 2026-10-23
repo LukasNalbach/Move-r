@@ -41,7 +41,7 @@ void move_r<support, mlf_enc>::construction::log_store_or_load(const char* verb,
     const uint64_t before = pos();
     fnc();
     const bool storing = std::string(verb) == "storing";
-    end_spill_phase(std::string(verb) + " " + name + (storing ? " to disk" : " from disk"), pos() - before,
+    end_spill_phase(std::string(storing ? "storing " : "reading ") + name, pos() - before, storing,
         std::string("time_") + (storing ? "store_" : "load_") + name);
 }
 

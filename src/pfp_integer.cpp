@@ -110,13 +110,9 @@ void build_rlbwt_pfp_integer(const pfp_integer_text_t& input, uint64_t offset, b
     const std::string& prefix, const pfp_rlbwt::params& prm)
 {
     // the symbol type of pfp-rlbwt with the fewest bytes that hold the largest symbol
-    switch ((std::bit_width(input.max_symbol + offset) + 7) / 8) {
-        case 0:
-        case 1: build<uint8_t>(input, offset, reverse, prefix, prm); break;
-        case 2: build<uint16_t>(input, offset, reverse, prefix, prm); break;
-        case 3: build<pfp_rlbwt::sym24_t>(input, offset, reverse, prefix, prm); break;
-        case 4: build<uint32_t>(input, offset, reverse, prefix, prm); break;
-        case 5: build<pfp_rlbwt::sym40_t>(input, offset, reverse, prefix, prm); break;
-        default: build<pfp_rlbwt::sym48_t>(input, offset, reverse, prefix, prm); break;
+    switch (byte_width(input.max_symbol + offset)) {
+        #define MOVE_R_PFP_SYMBOL_CASE(sym_t) case sizeof(sym_t): build<sym_t>(input, offset, reverse, prefix, prm); break;
+        PFP_RLBWT_FOR_EACH_SYMBOL_TYPE(MOVE_R_PFP_SYMBOL_CASE)
+        #undef MOVE_R_PFP_SYMBOL_CASE
     }
 }

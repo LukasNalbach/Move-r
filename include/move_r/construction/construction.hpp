@@ -48,22 +48,25 @@ inline constexpr uint64_t min_logged_spill_bytes = direct_io_alignment;
 
 /**
  * @brief ends a phase that stores a data structure to disk, loads it from disk or deletes it, started with
- *        log_phase_start(log, time, ""): logs "<message>: <size>, in ~ <time>" if bytes >= min_logged_spill_bytes,
- *        else nothing; the measurement keys of log_phase_end are written in both cases
+ *        log_phase_start(log, time, ""): logs "<message>: <size>, in ~ <time>" (a stored data structure) or
+ *        "<message>, in ~ <time>" if bytes >= min_logged_spill_bytes, else nothing; the measurement keys of
+ *        log_phase_end are written in both cases
  * @param log whether logging is enabled
  * @param time the phase timer
- * @param message the message of the phase, e.g. "storing M_Phi to disk"
+ * @param message the message of the phase, e.g. "storing M_Phi"
  * @param bytes the number of bytes stored, loaded or deleted
+ * @param stored whether the phase stores the data structure (only then its size is logged)
  * @param mf the measurement file (nullptr: none)
  * @param mf_key the measurement key of the phase (empty: none)
  */
 inline void log_spill_phase_end(bool log, std::chrono::steady_clock::time_point& time, const std::string& message,
-    uint64_t bytes, std::ostream* mf, const std::string& mf_key)
+    uint64_t bytes, bool stored, std::ostream* mf, const std::string& mf_key)
 {
     if (!log) return;
 
     if (bytes >= min_logged_spill_bytes) {
-        log_out() << message << ": " << format_size(bytes);
+        log_out() << message;
+        if (stored) log_out() << ": " << format_size(bytes);
         log_phase_end(log, time, mf, mf_key);
     } else {
         if (mf != nullptr && !mf_key.empty()) {
@@ -437,16 +440,18 @@ public:
 
     /**
      * @brief ends a phase that stores a data structure to disk or loads it, started with log_phase_start(""): like
-     *        log_phase_end, after logging "<message>: <size>", if bytes >= min_logged_spill_bytes, else like
-     *        log_phase_end_quiet
-     * @param message the message of the phase, e.g. "storing M_Phi to disk"
+     *        log_phase_end, after logging "<message>: <size>" (stored) or "<message>" (loaded), if
+     *        bytes >= min_logged_spill_bytes, else like log_phase_end_quiet
+     * @param message the message of the phase, e.g. "storing M_Phi"
      * @param bytes the number of bytes stored or loaded
+     * @param stored whether the phase stores the data structure (only then its size is logged)
      * @param mf_key measurement-file key of the phase
      */
-    void end_spill_phase(const std::string& message, uint64_t bytes, const std::string& mf_key)
+    void end_spill_phase(const std::string& message, uint64_t bytes, bool stored, const std::string& mf_key)
     {
         if (params.log && bytes >= min_logged_spill_bytes) {
-            std::cout << message << ": " << format_size(bytes);
+            std::cout << message;
+            if (stored) std::cout << ": " << format_size(bytes);
             log_phase_end(mf_key);
         } else {
             log_phase_end_quiet(mf_key);
@@ -467,8 +472,7 @@ public:
 
     /**
      * @brief ends a move-data-structure construction phase: ends the RESULT line in mf_mds (see begin_mds_result),
-     *        writes the elapsed time, the peak memory usage and the number of intervals to measurement_file, and prints a
-     *        newline
+     *        writes the elapsed time, the peak memory usage and the number of intervals to measurement_file
      * @param time_key measurement-file key for the elapsed time
      * @param count_key measurement-file key for the number of intervals
      * @param count number of intervals in the built move data structure
@@ -503,7 +507,7 @@ public:
         write(file);
         file.close();
         drop_from_page_cache(file_name);
-        end_spill_phase("storing " + name + " to disk", std::filesystem::file_size(file_name), mf_key);
+        end_spill_phase("storing " + name, std::filesystem::file_size(file_name), true, mf_key);
     }
 
     /**
@@ -527,7 +531,7 @@ public:
         file.close();
         const uint64_t bytes = std::filesystem::file_size(file_name);
         if (remove_file) std::filesystem::remove(file_name);
-        end_spill_phase("loading " + name + " from disk", bytes, mf_key);
+        end_spill_phase("reading " + name, bytes, false, mf_key);
     }
 
     /**

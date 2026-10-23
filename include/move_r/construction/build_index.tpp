@@ -28,7 +28,6 @@
 #define MOVE_R_MOVE_R_CONSTRUCTION_BUILD_INDEX_TPP
 
 #include <libsais40_types.hpp>
-#include <misc/serialized_size.hpp>
 #include <move_r/move_r.hpp>
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
@@ -106,7 +105,6 @@ void move_r<support, mlf_enc>::construction::log_mds_phase_end(const std::string
         *params.measurement_file << " " << time_key << params.measurement_key_suffix << "=" << time_diff_ns(time, now())
                        << " peak_" << time_key << params.measurement_key_suffix << "=" << phase_peak()
                        << " " << count_key << params.measurement_key_suffix << "=" << count;
-    std::cout << std::endl;
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
@@ -293,10 +291,8 @@ void move_r<support, mlf_enc>::construction::log_finished()
 
     // a sub-index of a larger construction writes its summary only to the measurement file
     if (!is_bidirectional && params.peak_memory_usage == nullptr) {
-        std::cout << std::endl;
-        log_output_size("index", serialized_size_in_bytes(idx), n);
+        log_output_size("index", idx.size_in_bytes(), n);
         idx.log_data_structure_sizes();
-        std::cout << std::endl;
         // if the pfp output was read from a cache, the construction time does not include the BWT construction, so
         // no throughput is printed
         log_construction_summary(time_construction, n,

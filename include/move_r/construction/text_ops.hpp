@@ -298,7 +298,7 @@ MOVE_R_TEXT_OP_DISPATCH(move_r_bwt_runs_from_sa,
 // templates; it does not need them
 #if !defined(STRING_UTILS_NO_EXTERN_TEMPLATES) && !defined(__INTELLISENSE__)
 
-#define MOVE_R_DECLARE_TEXT_OPS(bytes, sym_t) \
+#define MOVE_R_DECLARE_TEXT_OPS(sym_t) \
     extern template void move_r_unmap_text_of<sym_t>( \
         move_r_input_view&, uint64_t, uint64_t, const elias_fano_bit_vector&, \
         const interleaved_bit_aligned_vectors&); \
