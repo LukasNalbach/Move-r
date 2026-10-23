@@ -24,236 +24,212 @@
  * SOFTWARE.
  */
 
-#pragma once
+#ifndef MOVE_R_MOVE_R_CONSTRUCTION_MOVE_PHI_TPP
+#define MOVE_R_MOVE_R_CONSTRUCTION_MOVE_PHI_TPP
 
-#include <ips4o.hpp>
+#include <misc/utils.hpp>
+
+#include <misc/sort.hpp>
+#include <misc/text_lce.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-template <bool bigbwt, typename sa_sint_t>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_sas_from_sa()
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::build_sa_run_from_sa()
 {
-    log_phase_start("building SA_s and SA_e");
+    log_phase_start("building SA_run");
 
-    if constexpr (bigbwt) {
-        for (uint16_t i = 0; i < p; i++) {
-            SA_file_bufs.emplace_back(sdsl::int_vector_buffer<40>(
-                prefix_tmp_files + ".sa", std::ios::in,
-                128 * 1024, 40, true));
-        }
-    }
-
-    idx._SA_s = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
-    idx._SA_e = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
-
-    idx._SA_s.resize_no_init(r_);
-    idx._SA_e.resize_no_init(r_);
+    // SA is sampled at the start of each run and at the end of each run longer than 1 (see run_sample_positions)
+    prepare_sa_run(true);
 
     #pragma omp parallel for num_threads(p)
     for (uint64_t i = 0; i < r_; i++) {
-        idx._SA_s.template set_parallel<0, pos_t>(i,
-            SA<bigbwt, sa_sint_t>(omp_get_thread_num(), idx._M_LF.p(i)));
+        const bool starts = idx.run_starts_at(i);
+        if (starts) idx._SA_run.template set_parallel<0, uint64_t>(idx._SA_run_pos.start_sample_index(i), sa[idx.M_LF().p(i)]);
 
-        idx._SA_e.template set_parallel<0, pos_t>(i,
-            SA<bigbwt, sa_sint_t>(omp_get_thread_num(), idx._M_LF.p(i + 1) - 1));
+        if (idx.run_ends_at(i) && !(starts && idx.M_LF().len(i) == 1))
+            idx._SA_run.template set_parallel<0, uint64_t>(idx._SA_run_pos.end_sample_index(i), sa[idx.M_LF().p(i + 1) - 1]);
     }
 
-    log_phase_end("time_build_sa_s_sa_s_");
+    log_phase_end("time_build_sa_run");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-template <bool bigbwt, typename sa_sint_t>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_iphim1_sas_from_sa()
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::build_iphi_inv_from_sa()
 {
-    log_phase_start(is_bidirectional ? "building I_Phi^{-1} and SA_s and SA_e" : "building I_Phi^{-1} and SA_s");
+    // true <=> SA_run is built (else the samples are stored as input intervals of M_Phi^{-1}, see sa_samples_layout_t)
+    const bool at_run_boundaries = builds_SA_samples && samples_layout == _at_run_boundaries;
+    log_phase_start(at_run_boundaries ? "building I_Phi^{-1} and SA_run" : "building I_Phi^{-1}");
 
-    if constexpr (bigbwt) {
-        for (uint16_t i = 0; i < p; i++) {
-            SA_file_bufs.emplace_back(sdsl::int_vector_buffer<40>(
-                prefix_tmp_files + ".sa", std::ios::in,
-                128 * 1024, 40, true));
-        }
-    }
+    I_Phi_inv.reset(r, n);
+    const bool with_ends = samples_at_run_ends();
+    if (at_run_boundaries) prepare_sa_run(with_ends);
 
-    no_init_resize(I_Phi_m1, r);
-
-    if constexpr (support == _locate_move) {
-        no_init_resize(SA_s, r_);
-    } else {
-        idx._SA_s = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
-        idx._SA_s.resize_no_init(r_);
-
-        if constexpr (is_bidirectional) {
-            idx._SA_e = interleaved_bit_aligned_vectors<pos_t>({ bit_width(n) });
-            idx._SA_e.resize_no_init(r_);
-        }
-    }
-
-    I_Phi_m1[0] = std::make_pair(
-        SA<bigbwt, sa_sint_t>(0, n - 1),
-        SA<bigbwt, sa_sint_t>(0, 0));
+    I_Phi_inv.set<0>(0, sa[n - 1]);
+    I_Phi_inv.set<1>(0, sa[0]);
 
     #pragma omp parallel num_threads(p_)
     {
-        uint16_t i_p = omp_get_thread_num();
+        uint64_t i_p = omp_get_thread_num();
+        uint64_t first_run = r_p[i_p]; // the first run of thread i_p's section
+        uint64_t num_runs = r_p[i_p + 1] - r_p[i_p]; // the number of runs in it
+        uint64_t j = n_p[i_p]; // the starting position of the current BWT run
+        // the input interval of M_LF containing j
+        uint64_t x = bin_search_max_leq(j, 0, r_ - 1, [&](uint64_t y) { return idx.M_LF().p(y); });
 
-        // Iteration range start position of thread i_p.
-        pos_t b_r = r_p[i_p];
-
-        // Number of BWT runs within thread i_p's section.
-        pos_t rp_diff = r_p[i_p + 1] - r_p[i_p];
-
-        // start position of the current BWT run.
-        pos_t j = n_p[i_p];
-
-        // Index of the current input interval in M_LF, initially the index of the input interval of M_LF containing b
-        pos_t x = bin_search_max_leq<pos_t>(j, 0, r_ - 1, [&](pos_t y) { return idx._M_LF.p(y); });
-
-        for (pos_t i = 0; i < rp_diff; i++) {
+        for (uint64_t i = 0; i < num_runs; i++) {
             if (j != 0) [[likely]] {
-                I_Phi_m1[b_r + i] = std::make_pair(
-                    SA<bigbwt, sa_sint_t>(i_p, j - 1),
-                    SA<bigbwt, sa_sint_t>(i_p, j));
+                I_Phi_inv.set<0>(first_run + i, sa[j - 1]);
+                I_Phi_inv.set<1>(first_run + i, sa[j]);
             }
 
-            pos_t k = j;
+            const uint64_t k = j; // the starting position of the run
             j += run_len(i_p, i);
-            bool first_interval = true;
+            const uint64_t first = x; // the first input interval of the run
+            while (x < r_ && idx.M_LF().p(x) < j) x++;
 
-            while (k < j) {
-                if constexpr (support == _locate_move) {
-                    if (first_interval) {
-                        SA_s[x] = SA<bigbwt, sa_sint_t>(i_p, k);
-                        first_interval = false;
-                    } else {
-                        SA_s[x] = n;
-                    }
-                } else {
-                    idx._SA_s.template set_parallel<0, pos_t>(x,
-                        SA<bigbwt, sa_sint_t>(i_p, k));
-                }
-
-                x++;
-                k = idx._M_LF.p(x);
-
-                if constexpr (is_bidirectional) {
-                    idx._SA_e.template set_parallel<0, pos_t>(x - 1,
-                        SA<bigbwt, sa_sint_t>(i_p, k - 1));
-                }
+            if (at_run_boundaries) {
+                idx._SA_run.template set_parallel<0, uint64_t>(idx._SA_run_pos.start_sample_index(first), sa[k]);
+                // a run of length 1 has only a sample at its start (see run_sample_positions)
+                if (with_ends && j - k > 1)
+                    idx._SA_run.template set_parallel<0, uint64_t>(idx._SA_run_pos.end_sample_index(x - 1), sa[j - 1]);
             }
         }
     }
 
-    if (!build_sa_and_l && !has_rlzsa && support != _locate_move_bi_fwd && support != _locate_rlzsa_bi_fwd) {
-        std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
-
-        SA.clear();
-        SA.shrink_to_fit();
+    // only the in-memory rlz construction reads the suffix array again (see build_SA_rlz)
+    if constexpr (!has_SA_rlz) {
+        sa.clear();
+        sa.shrink_to_fit();
     }
 
-    log_phase_end("time_build_iphi");
+    log_phase_end("time_build_iphi_inv");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_iphi()
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::build_mphi_inv()
 {
-    log_phase_start("\nbuilding I_Phi");
-
-    no_init_resize(I_Phi, r);
-
-    #pragma omp parallel for num_threads(p)
-    for (uint64_t i = 0; i < r; i++) {
-        I_Phi[i] = std::make_pair(I_Phi_m1[i].second, I_Phi_m1[i].first);
-    }
-
-    log_phase_end();
-}
-
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::sort_iphim1()
-{
-    log_phase_start("sorting I_Phi^{-1}");
-
-    // Sort I_Phi^{-1} by the starting positions of its input intervals.
-    auto comp_I_Phi = [](std::pair<pos_t, pos_t> p1, std::pair<pos_t, pos_t> p2) { return p1.first < p2.first; };
-
-    // Choose the correct sorting algorithm.
-    if (p > 1) {
-        ips4o::parallel::sort(I_Phi_m1.begin(), I_Phi_m1.end(), comp_I_Phi);
-    } else {
-        ips4o::sort(I_Phi_m1.begin(), I_Phi_m1.end(), comp_I_Phi);
-    }
-
-    if (log && mf_mds != nullptr) {
-        *mf_mds << "RESULT"
-                << " algo=build_mphi"
-                << " text=" << name_text_file
-                << " num_threads=" << p
-                << " a=" << idx.a;
-    }
-
-    log_phase_end("time_sort_iphim1");
-}
-
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::sort_iphi()
-{
-    log_phase_start("sorting I_Phi");
-
-    // Sort I_Phi by the starting positions of its input intervals.
-    auto comp_I_Phi = [](std::pair<pos_t, pos_t> p1, std::pair<pos_t, pos_t> p2) { return p1.first < p2.first; };
-
-    // Choose the correct sorting algorithm.
-    if (p > 1) {
-        ips4o::parallel::sort(I_Phi.begin(), I_Phi.end(), comp_I_Phi);
-    } else {
-        ips4o::sort(I_Phi.begin(), I_Phi.end(), comp_I_Phi);
-    }
-
-    if (log && mf_mds != nullptr) {
-        *mf_mds << "RESULT"
-                << " algo=build_mphi"
-                << " text=" << name_text_file
-                << " num_threads=" << p
-                << " a=" << idx.a;
-    }
-
-    log_phase_end("time_sort_iphi");
-}
-
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_mphim1()
-{
+    begin_mds_result("build_mphi_inv");
     log_phase_start("\nbuilding M_Phi^{-1}");
 
-    idx._M_Phi_m1 = move_data_structure<pos_t, POS>(
-        std::move(I_Phi_m1), n, {
+    /* the PLCP row stores the PLCP value at the start of the output interval of each input interval; plcp_pair is
+       sorted by the starting positions of the output intervals of the pairs (see plcp_pair) */
+    mds_pair_row plcp_row { .values = plcp_pair.empty() ? nullptr : &plcp_pair, .in_q_order = true, .subtract_offset = true };
+    idx._M_Phi_inv = mphi_t(
+        std::move(I_Phi_inv), n, {
             .num_threads = p,
             .a = idx.a,
-            .log = log,
-            .mf = mf_mds,
+            .pair_rows = &plcp_row,
+            // marks the first input interval of each pair (see build_SA_Phi_inv)
+            .first_pieces = samples_layout == _as_phi_inv_intervals ? &phi_inv_first_intervals : nullptr,
+            .log = params.log,
+            .mf = params.mf_mds,
         },
-        {}, &pi_mphi);
+        idx.mphi_inv_row_widths(n), {}, nullptr);
 
-    r__ = idx._M_Phi_m1.num_intervals();
+    r__ = idx._M_Phi_inv.num_intervals();
     idx.r__ = r__;
 
-    log_mds_phase_end("time_build_mphim1", "r__", r__);
+    log_mds_phase_end("time_build_mphi_inv", "r__", r__);
 }
 
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_mphi()
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::store_run_ranks()
 {
+    store_to_tmp_file("the run ranks", ".run_ranks", "time_store_run_ranks", [&](direct_ofstream& file) {
+        write_in_chunks(file, run_ranks.data(), run_ranks.size_in_bytes());
+        run_ranks.clear();
+    });
+
+    run_ranks_on_disk = true;
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::build_SA_Phi_inv()
+{
+    log_phase_start("building SA_Phi^{-1}");
+
+    /* SA_Phi^{-1}[x] = index of the first input interval of M_Phi^{-1} of the pair of the run starting at the x-th
+       input interval of M_LF, or r'', if no run starts there (see move_r::_SA_Phi_inv). The pair of a run with rank
+       i (see run_ranks) starts at the i-th interval marked in phi_inv_first_intervals. */
+    idx.omega_idx = idx._M_Phi_inv.width_idx();
+    idx._SA_Phi_inv = interleaved_bit_aligned_vectors({ idx.omega_idx });
+    idx._SA_Phi_inv.resize_no_init(r_, p);
+    // number of ranges of input intervals of M_LF (at most one per 2^16 runs)
+    const uint64_t num_ranges = std::clamp<uint64_t>(r >> 16, 1, p);
+    // [0..num_ranges] first_run[t] = index of the first run starting in range t; first_run[num_ranges] = r
+    std::vector<uint64_t> first_run(num_ranges + 1, 0);
+
+    // count the run starts in each range, then compute the prefix sums
+    #pragma omp parallel for num_threads(p) schedule(static, 1)
+    for (uint64_t t = 0; t < num_ranges; t++) {
+        uint64_t runs = 0;
+        for (uint64_t x = (t * r_) / num_ranges; x < ((t + 1) * r_) / num_ranges; x++) runs += idx.run_starts_at(x);
+        first_run[t + 1] = runs;
+    }
+
+    for (uint64_t t = 0; t < num_ranges; t++) first_run[t + 1] += first_run[t];
+    const std::string file_name = prefix_tmp_files + ".run_ranks";
+    // bytes per rank (also in the file, see store_run_ranks)
+    const uint64_t rank_bytes = bytes_per_value(r);
+
+    // iterate over the input intervals of each range and the ranks of its runs; ranks on disk are read in blocks
+    #pragma omp parallel for num_threads(p) schedule(static, 1)
+    for (uint64_t t = 0; t < num_ranges; t++) {
+        static constexpr uint64_t block_length = 1 << 14; // number of ranks read from the file at once
+        uint64_t i = first_run[t]; // index of the next run
+        uint64_t num_left = first_run[t + 1] - i; // number of ranks of the range that have not been read from the file
+        uint_bytes_array<1> block;
+        std::optional<direct_ifstream> file;
+        uint64_t block_pos = 0; // index of the next rank in block
+
+        if (run_ranks_on_disk && num_left != 0) {
+            file.emplace(file_name, std::ios::binary, num_left * rank_bytes);
+            file->seekg(i * rank_bytes);
+        }
+
+        for (uint64_t x = (t * r_) / num_ranges; x < ((t + 1) * r_) / num_ranges; x++) {
+            uint64_t entry = r__;
+
+            if (idx.run_starts_at(x)) {
+                if (run_ranks_on_disk) {
+                    if (block_pos == block.size()) {
+                        block.reset(std::min<uint64_t>(num_left, block_length), r);
+                        read_in_chunks(*file, block.data(), block.size_in_bytes());
+                        num_left -= block.size();
+                        block_pos = 0;
+                    }
+
+                    entry = phi_inv_first_intervals.select(block.get(block_pos++));
+                } else {
+                    entry = phi_inv_first_intervals.select(run_ranks.get(i++));
+                }
+            }
+
+            idx._SA_Phi_inv.template set_parallel<0, uint64_t>(x, entry);
+        }
+    }
+
+    if (run_ranks_on_disk) std::filesystem::remove(file_name);
+    run_ranks_on_disk = false;
+    run_ranks.clear();
+    phi_inv_first_intervals.clear();
+    log_phase_end("time_build_saphi_inv");
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::build_mphi()
+{
+    begin_mds_result("build_mphi");
     log_phase_start("\nbuilding M_Phi");
 
-    idx._M_Phi = move_data_structure<pos_t, POS>(
+    idx._M_Phi = mphi_t(
         std::move(I_Phi), n, {
             .num_threads = p,
             .a = idx.a,
-            .log = log,
-            .mf = mf_mds,
+            .log = params.log,
+            .mf = params.mf_mds,
         },
-        {}, &pi_mphi);
+        {}, {}, nullptr);
 
     r___ = idx._M_Phi.num_intervals();
     idx.r___ = r___;
@@ -261,183 +237,145 @@ void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_mphi()
     log_mds_phase_end("time_build_mphi", "r___", r___);
 }
 
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_saphim1()
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::store_iphi_inv()
 {
-    log_phase_start("building SA_Phi^{-1}");
+    store_to_tmp_file("I_Phi^{-1}", ".iphi_inv", "time_store_iphi_inv", [&](direct_ofstream& file) {
+        const uint64_t iphi_inv_bytes = I_Phi_inv.size_in_bytes();
+        phase_progress prog(params.log, iphi_inv_bytes);
+        write_in_chunks(file, I_Phi_inv.data(), iphi_inv_bytes, &prog);
+        prog.finish();
+        I_Phi_inv.clear();
+    });
+}
 
-    no_init_resize(pi_, r_);
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::load_iphi_inv(bool remove_file)
+{
+    load_from_tmp_file("I_Phi^{-1}", ".iphi_inv", "time_load_iphi_inv", remove_file, [&](direct_ifstream& file) {
+        I_Phi_inv.reset(r, n);
+        const uint64_t iphi_inv_bytes = I_Phi_inv.size_in_bytes();
+        phase_progress prog(params.log, iphi_inv_bytes);
+        read_in_chunks(file, I_Phi_inv.data(), iphi_inv_bytes, &prog);
+        prog.finish();
+    });
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::build_iphi()
+{
+    log_phase_start("\nbuilding I_Phi");
+
+    I_Phi.reset(r, n);
+    // true <=> the second component of each pair is the index of its run until the pairs are sorted (see sort_iphi)
+    const bool with_runs = !LCP_run.empty();
 
     #pragma omp parallel for num_threads(p)
-    for (uint64_t i = 0; i < r_; i++) {
-        pi_[i] = i;
+    for (uint64_t i = 0; i < r; i++) {
+        I_Phi.set<0>(i, I_Phi_inv.get<1>(i));
+        I_Phi.set<1>(i, with_runs ? i : I_Phi_inv.get<0>(i));
     }
 
-    auto comp_pi_ = [&](pos_t i, pos_t j) { return SA_s[i] < SA_s[j]; };
-    if (p > 1) {
-        ips4o::parallel::sort(pi_.begin(), pi_.end(), comp_pi_);
+    log_phase_end("time_build_iphi");
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::build_plcp_run()
+{
+    log_phase_start("building the run-boundary LCP values");
+
+    /* The pair of the x-th run is (SA[i-1], SA[i]), where i is the starting position of the run in L; LCP[i] is the
+       length of the longest common prefix of the suffixes of T starting at SA[i-1] and SA[i]. The terminator occurs
+       only once in T, so no comparison reads beyond the end of T. */
+    if (T_inp.size() < n)
+        throw std::runtime_error("move_r: T must be in memory to compute the LCP values at the run boundaries");
+    const char* text = T_inp.data();
+    const uint8_t sym_width = T_inp.symbol_width();
+    LCP_run = interleaved_bit_aligned_vectors({ uint8_t(std::bit_width(n)) });
+    LCP_run.resize_no_init(r, p);
+    uint64_t max_val = 0;
+
+    #pragma omp parallel for num_threads(p) schedule(dynamic, 1024) reduction(max : max_val)
+    for (uint64_t x = 0; x < r; x++) {
+        const uint64_t i = I_Phi_inv.get<0>(x);
+        const uint64_t j = I_Phi_inv.get<1>(x);
+        const uint64_t value = text_lce<RIGHT>(text, sym_width, i, j, (n - 1) - std::max(i, j));
+        LCP_run.template set_parallel<0, uint64_t>(x, value);
+        max_val = std::max(max_val, value);
+    }
+
+    // the maximum value in LCP_run is the maximum PLCP value, which determines the width of the PLCP rows
+    idx._plcp_row_width = std::max<uint8_t>(1, std::bit_width(max_val));
+
+    if (delete_T) {
+        T_inp.clear();
+        T_inp.shrink_to_fit();
+    }
+
+    log_phase_end("time_build_plcp_run");
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::sort_iphi_inv()
+{
+    log_phase_start("sorting I_Phi^{-1}");
+
+    if (samples_layout == _as_phi_inv_intervals) {
+        /* the pairs (p, x), where p is the starting position of the input interval of the x-th run, are sorted by p;
+           then the rank of each pair is stored in the run ranks (see run_ranks), and x is replaced by the starting
+           position q of the output interval, which is read from I_Phi^{-1} (still in the order of the runs) */
+        mds_pairs sorted(r, n);
+
+        #pragma omp parallel for num_threads(p)
+        for (uint64_t x = 0; x < r; x++) {
+            sorted.set<0>(x, I_Phi_inv.get<0>(x));
+            sorted.set<1>(x, x);
+        }
+
+        sorted.sort_by<0>(p);
+
+        run_ranks.reset(r, r);
+        advise_huge_pages(run_ranks.data(), run_ranks.size_in_bytes());
+
+        #pragma omp parallel for num_threads(p)
+        for (uint64_t i = 0; i < r; i++) {
+            const uint64_t x = sorted.get<1>(i);
+            run_ranks.set(x, i);
+            sorted.set<1>(i, I_Phi_inv.get<1>(x));
+        }
+
+        I_Phi_inv = std::move(sorted);
     } else {
-        ips4o::sort(pi_.begin(), pi_.end(), comp_pi_);
+        I_Phi_inv.sort_by<0>(p);
     }
 
-    idx.omega_idx = idx._M_Phi_m1.width_idx();
-    idx._SA_Phi_m1 = interleaved_bit_aligned_vectors<pos_t>({ idx.omega_idx });
-    idx._SA_Phi_m1.resize_no_init(r_);
-
-    /* Now we will divide the range [0..n-1] up into p non-overlapping sub-ranges [s[i_p]..s[i_p+1]-1],
-    for each i_p in [0..p-1], with 0 = s[0] < s[1] < ... < s[p] = n, where
-    s[i_p] = min {s' in [0,n-1], s.t. x[i_p] + u[i_p] - 2 >= i_p * lfloor (r+r'')/p rfloor, where
-                    x[i_p] = min {x' in [0,r''-1], s.t. M_Phi^{-1}.q(x') >= s'} and
-                    u[i_p] = min {u' in [0,r-1], s.t. SA_s[u'] >= s'}
-    }.
-    By doing so, we ensure that the number of the output intervals of M_Phi^{-1} starting in the range
-    [s[i_p]..s[i_p+1]-1] plus the number of suffix array samples in SA_s lying in the range
-    [s[i_p]..s[i_p+1]-1] is lfloor (r+r'')/p rfloor +- 1. This property is useful, because it
-    ensures that if with each thread i_p, we simultaneously iterate over those, then each thread
-    iterates over almost exactly the same number lfloor (r+r'')/p rfloor +- 1 of entries in M_Phi^{-1}
-    and SA_s combined. This way, we can acheive good load-balancing. Because we do not have to access
-    s[0..p] later, we will not store those values in an array. */
-
-    /* [0..p], x[i_p] = min {x' in [0,r''-1], s.t. M_Phi^{-1}.q(x') >= s'} stores the number of output
-    intervals in M_Phi^{-1} starting before s[i_p]. */
-    std::vector<pos_t> x(p + 1);
-    x[0] = 0;
-    x[p] = r__;
-
-    /* [0..p], u[i_p] = min {u' in [0,r-1], s.t. SA_s[u'] >= s'} stores the number of suffix array
-    samples in SA_s that are smaller than s[i_p]. */
-    std::vector<pos_t> u(p + 1);
-    u[0] = 0;
-    u[p] = r;
-
-    // Compute s[1..p-1], x[1..p-1] and u[1..p-1].
-    #pragma omp parallel num_threads(p)
-    {
-        // Index in [0..p-1] of the current thread.
-        uint16_t i_p = omp_get_thread_num();
-
-        // The optimal value i_p * lfloor (r+r'')/p rfloor for s[i_p].
-        pos_t o = i_p * ((r + r__) / p);
-
-        // Left interval limit of the binary search for s[i_p].
-        pos_t l_s;
-        // Number of output intervals in M_Phi^{-1} starting before s[i_p].
-        pos_t l_x;
-        // Number of suffix array samples in SA_s that are smaller than s[i_p].
-        pos_t l_u;
-        // Candidate position in the binary search for s[i_p].
-        pos_t m_s;
-        // Right interval limit of the binary search for s[i_p].
-        pos_t r_s;
-
-        // Initialize the search range for s[i_p] to [0..n-1].
-        l_s = 0;
-        r_s = n - 1;
-
-        // Perform a binary search over [0..n-1], to find s[i_p].
-        while (true) {
-            /* Set the Candidate position for s[i_p] to the position in the middle
-            between l_s and r_s. */
-            m_s = l_s + (r_s - l_s) / 2;
-
-            // Find the minimum x' in [0,r''-1], s.t. M_Phi^{-1}.q(pi_mphi[x']) >= m_s.
-            l_x = bin_search_min_geq<pos_t>(m_s, 0, r__ - 1,
-                [&](pos_t y) { return idx._M_Phi_m1.q(pi_mphi[y]); });
-
-            // Find the minimum u' in [0,r-1], s.t. SA_s[pi'[u']] >= m_s.
-            l_u = bin_search_min_geq<pos_t>(m_s, 0, r - 1,
-                [&](pos_t y) { return SA_s[pi_[y]]; });
-
-            /* If l_s = r_s, then l_s is an optimal value for s[i_p] and l_x and
-            l_u are valid values for x[i_p] and u[i_p], respectively. */
-            if (l_s == r_s) {
-                break;
-            }
-
-            // Else, adjust the range for the binary search over [0..n-1].
-            if (l_x + l_u < o) {
-                l_s = m_s + 1;
-            } else {
-                r_s = m_s;
-            }
-        }
-
-        // Store l_x and l_u in x[i_p] and u[i_p], respectively.
-        x[i_p] = l_x;
-        u[i_p] = l_u;
-
-        #pragma omp barrier
-
-        // Iteration range start position in the output intervals of M_Phi^{-1}.
-        pos_t i = x[i_p];
-        // Iteration range start position in SA_s.
-        pos_t j = u[i_p];
-        // Iteration range end position + 1 in SA_s.
-        pos_t j_ = u[i_p + 1];
-
-        // Check if the range, over which the thread i_p has to iterate in SA_s, is empty
-        if (j < j_) {
-            while (idx._M_Phi_m1.q(pi_mphi[i]) != SA_s[pi_[j]]) {
-                i++;
-            }
-
-            /* Iterate over SA_s[pi'[j]],SA_s[pi'[j+1]],...,SA_s[pi'[j'-1]] */
-            while (j < j_) {
-                // Skip the output intervals the balancing algorithm has added to I_Phi^{-1}
-                while (idx._M_Phi_m1.q(pi_mphi[i]) != SA_s[pi_[j]]) {
-                    i++;
-                }
-
-                idx.set_SA_Phi_m1(pi_[j], pi_mphi[i]);
-
-                i++;
-                j++;
-            }
-        }
-    }
-
-    /* Since we set SA_s[j] = n for each j-th input interval of M_LF, whiches starting position is not the starting position of a bwt run,
-    * where j \in [0,r'), SA_s[pi'[r]],SA_s[pi'[r+1]],...,SA_s[pi'[r'-1]] = n holds, hence we set SA_Phi^{-1}[pi'[i]] = r'' for
-    * i \in [r,r') to mark that we cannot recover SA_s[M_LF[x]] = M_Phi^{-1}.q[SA_Phi^{-1}[x]] for each x-th input interval of
-    * M_LF, whiches starting position is not the starting position of a bwt run and where x \in [0,r'). */
-    #pragma omp parallel for num_threads(p)
-    for (uint64_t i = r; i < r_; i++) {
-        idx.set_SA_Phi_m1(pi_[i], r__);
-    }
-
-    x.clear();
-    x.shrink_to_fit();
-
-    u.clear();
-    u.shrink_to_fit();
-
-    pi_mphi.clear();
-    pi_mphi.shrink_to_fit();
-
-    log_phase_end("time_build_saphim1");
+    log_phase_end("time_sort_iphi_inv");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_de()
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::sort_iphi()
 {
-    if constexpr (supports_locate && !is_bidirectional) {
-        idx.p_r = std::min<pos_t>(256, std::max<pos_t>(1, r / 100));
+    log_phase_start("sorting I_Phi");
+
+    I_Phi.sort_by<0>(p);
+
+    /* the second component of each pair is the index x of its run (see build_iphi); it is replaced by the first
+       component of the x-th pair in I_Phi^{-1}, and LCP_run[x] is written to plcp_pair */
+    if (!LCP_run.empty()) {
+        plcp_pair = interleaved_bit_aligned_vectors({ idx._plcp_row_width });
+        plcp_pair.resize_no_init(r, p);
+
+        #pragma omp parallel for num_threads(p)
+        for (uint64_t k = 0; k < r; k++) {
+            const uint64_t x = I_Phi.get<1>(k);
+            I_Phi.set<1>(k, I_Phi_inv.get<0>(x));
+            plcp_pair.template set_parallel<0, uint64_t>(k, LCP_run.template get<0, uint64_t>(x));
+        }
+
+        LCP_run = interleaved_bit_aligned_vectors();
     }
 
-    idx._D_e.resize(idx.p_r - 1);
-
-    #pragma omp parallel for num_threads(p)
-    for (uint16_t i = 0; i < idx.p_r - 1; i++) {
-        pos_t x = bin_search_min_geq<pos_t>(
-            (i + 1) * ((n - 1) / idx.p_r), 0, r - 1,
-            [&](pos_t x) { return (((int64_t) SA_s[pi_[x]]) - 1) % n; });
-
-        idx._D_e[i] = std::make_pair(pi_[x], (pos_t) ((((int64_t) SA_s[pi_[x]]) - 1) % n));
-    }
-
-    SA_s.clear();
-    SA_s.shrink_to_fit();
-
-    pi_.clear();
-    pi_.shrink_to_fit();
+    log_phase_end("time_sort_iphi");
 }
+
+#endif // MOVE_R_MOVE_R_CONSTRUCTION_MOVE_PHI_TPP

@@ -1,0 +1,26 @@
+diff --git a/include/pfp/dictionary.hpp b/include/pfp/dictionary.hpp
+index b5afa0a..875466d 100644
+--- a/include/pfp/dictionary.hpp
++++ b/include/pfp/dictionary.hpp
+@@ -147,7 +147,7 @@ public:
+     _elapsed_time(
+       {
+         isaD.resize(d.size());
+-        for(size_t i = 0; i < saD.size(); ++i){
++        for(int i = 0; i < saD.size(); ++i){
+           isaD[saD[i]] = i;
+         }
+       }
+diff --git a/include/pfp/parse.hpp b/include/pfp/parse.hpp
+index 671dc73..59a8bae 100644
+--- a/include/pfp/parse.hpp
++++ b/include/pfp/parse.hpp
+@@ -108,7 +108,7 @@ public:
+     _elapsed_time(
+       {
+         isaP.resize(p.size());
+-        for(size_t i = 0; i < saP.size(); ++i){
++        for(int i = 0; i < saP.size(); ++i){
+           isaP[saP[i]] = i;
+         }
+       }

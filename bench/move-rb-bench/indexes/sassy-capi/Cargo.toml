@@ -1,0 +1,25 @@
+# A thin C ABI around sassy (external/sassy) for move-rb-bench-apm.
+#
+# sassy ships a C API of its own (its "c" feature), but that one always traces back a CIGAR for
+# every match and always reports only the local minima. The benchmark needs both switches -- a
+# plain locate without an alignment, to compare against move_rb's plain locate, and the tracing
+# one, to compare against its CIGAR locate -- and it needs to count the matches of one chunk of a
+# streamed text without moving them across the ABI. Hence this wrapper.
+
+[package]
+name = "sassy-capi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "sassy_capi"
+crate-type = ["cdylib"]
+
+[dependencies]
+sassy = { path = "../../../../external/sassy", default-features = false }
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = true

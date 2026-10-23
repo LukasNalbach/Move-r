@@ -24,77 +24,67 @@
  * SOFTWARE.
  */
 
-#pragma once
+#ifndef MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_CAPI_HPP
+#define MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_CAPI_HPP
 
 #include <cstddef>
 #include <cstdint>
 
-// Thin C ABI used to drive one columba flavor from the (single) benchmark binary. columba's two flavors
-// (run-length-compressed = b-move, and the FM-index) are selected by a compile-time macro and share global C++
-// symbol names, so they cannot be linked into one executable directly. Instead each flavor is built as its own
-// shared library that exposes ONLY this C ABI (its internal columba symbols are hidden), so the benchmark can
-// link both libraries and measure both flavors in one process without a symbol clash. All heavy work (index
-// loading and search) happens behind the ABI in the flavor library; timing, memory measurement (malloc_count)
-// and output stay in the benchmark binary.
+/* The C interface of a columba plugin. The two variants of columba (b-move and FM-index) are selected by a macro at
+   compile time and define the same C++ symbols, so each variant is built into a shared library (a plugin) whose only
+   exported symbol is its getter of columba_api_t (columba_rlc_api or columba_fm_api); the benchmarks load the plugins
+   with dlopen (see with_columba_plugin). The times and the memory are measured in the benchmarks. */
 extern "C" {
 
 struct columba_api_t {
-    const char* flavor;      // RESULT algo suffix: "columba_rlc" (RLC / b-move) or "columba" (FM-index)
-    const char* base_suffix; // appended to <index_dir>/<text_name> to form this flavor's index base name, so the
-                             // two flavors' (flavor-specific) index files do not collide: "" for RLC, ".fm" for FM
-    int32_t max_k_hamming;   // maximum k the search scheme supports for hamming distance
-    int32_t max_k_edit;      // maximum k for edit distance
+    const char* flavor; // name of the variant in the RESULT lines: columba_rlc (b-move) or columba (FM-index)
+    int32_t max_k_hamming; // maximum number of errors of the search schemes for the hamming distance
+    int32_t max_k_edit; // maximum number of errors of the search schemes for the edit distance
 
-    // loads the index with base name @p base and search scheme @p scheme (k-mer table disabled); returns an
-    // opaque handle, or nullptr if the index could not be loaded (missing files)
+    // loads the index with base name base and the search scheme scheme; returns a handle, or nullptr if the index
+    // cannot be loaded
     void* (*load)(const char* base, const char* scheme);
-    // switches the search scheme (e.g. minU for k<=7, columba for higher k); strategies are rebuilt lazily
+    // sets the search scheme
     void (*set_scheme)(void* handle, const char* scheme);
-    // length of the indexed text (excluding the sentinel)
+    // returns the length of the text without the terminator
     uint64_t (*input_size)(void* handle);
 
-    // precomputes the (forward-strand) read bundles for @p count patterns (pointers + lengths), so bundle setup
-    // is not counted in the per-pattern locate time. Returns an opaque bundle-set handle
+    // creates the read bundles of count patterns (patterns[i] of length lengths[i]); returns a handle of the bundles
     void* (*make_bundles)(void* handle, const char* const* patterns, const uint64_t* lengths, uint64_t count);
-    // locates pattern @p i of the bundle set with at most @p k errors; metric_edit: 1 = edit, 0 = hamming;
-    // want_cigar != 0 additionally builds each occurrence's CIGAR. Returns the occurrence count and writes the
-    // occurrence-vector footprint to *occ_bytes and the CIGAR-data footprint to *cigar_bytes (both in bytes)
-    uint64_t (*locate)(void* handle, void* bundles, uint64_t i, int32_t metric_edit, int32_t k, int32_t want_cigar,
+    // locates the pattern of bundle i with at most k errors (metric_edit: 1 = edit, 0 = hamming; with_cigar: 1 =
+    // compute a CIGAR string for each occurrence) with the algorithm of columba; returns the number of occurrences
+    // and writes the size in bytes of the occurrences to *occ_bytes and of the CIGAR strings to *cigar_bytes
+    uint64_t (*locate)(void* handle, void* bundles, uint64_t i, int32_t metric_edit, int32_t k, int32_t with_cigar,
                        uint64_t* occ_bytes, uint64_t* cigar_bytes);
-    // in-index match phase only (no locate) for edit distance; returns the undeduplicated FM-occurrence count
-    uint64_t (*match_only_edit)(void* handle, void* bundles, uint64_t i, int32_t k);
 
-    // locates pattern @p pat (length m) with <=k errors by driving move_r's OWN apm algorithm on the columba
-    // index (via columba_apm_adapter), then deduplicates exactly like move-rb. metric_edit: 1 = edit, 0 = hamming.
-    // Returns the occurrence count and writes the occurrence-vector footprint to *occ_bytes. This measures the same
-    // algorithm move_rb uses, but on columba's index instead of move_rb's.
+    // locates pat[0..m-1] with at most k errors with the algorithm of move_rb (via columba_apm_adapter) and removes
+    // the duplicates as move-rb locate does; returns the number of occurrences and writes their size in bytes to
+    // *occ_bytes
     uint64_t (*locate_apm)(void* handle, const char* pat, uint64_t m, int32_t metric_edit, int32_t k, uint64_t* occ_bytes);
-
-    // counts pattern @p pat (length m) with <=k HAMMING errors by driving move_r's OWN apm count algorithm on the
-    // columba index (via columba_apm_adapter). columba has no cheap deduplicated count of its own, so this measures
-    // the same count algorithm move_rb uses (SA-interval-width sum, no locate), but on columba's index. Returns the
-    // (deduplicated) occurrence count. Hamming distance only (edit-distance count is unsupported).
+    // returns the number of occurrences of pat[0..m-1] with at most k mismatches, computed with the algorithm of
+    // move_rb (via columba_apm_adapter)
     uint64_t (*count_apm)(void* handle, const char* pat, uint64_t m, int32_t k);
 
-    // ############################# bidirectional-extension benchmark (move-rb-bench-ext) #############################
-
-    // builds a reusable bidirectional-extension adapter (columba_apm_adapter) over the loaded index; kept out of
-    // the per-query timing. Returns an opaque handle to be passed to ext_run and freed with ext_free
+    // creates a columba_apm_adapter for the exact bidirectional search of move-rb-bench-ext; returns its handle
     void* (*ext_make)(void* handle);
-    // exact bidirectional search of pat[0..m) starting at position @p start and extending in the order given by
-    // @p order (m-1 entries, 0 = prepend the next character on the left, 1 = append it on the right). want_locate:
-    // 0 = count only (returns the occurrence count), 1 = also locate all occurrences (returns the count and writes
-    // the occurrence-vector footprint to *occ_bytes)
+    // matches pat[0..m-1] starting at position start and adding the other symbols in the directions of
+    // order[0..m-2] (0 = prepend, 1 = append), see ext_query.hpp; with_locate = 0: returns the number of occurrences;
+    // with_locate = 1: also locates them and writes their size in bytes to *occ_bytes
     uint64_t (*ext_run)(void* ext, const char* pat, uint64_t m, uint64_t start, const uint8_t* order,
-                        int32_t want_locate, uint64_t* occ_bytes);
+                        int32_t with_locate, uint64_t* occ_bytes);
+    // frees the adapter of ext_make
     void (*ext_free)(void* ext);
 
+    // frees the read bundles of make_bundles
     void (*free_bundles)(void* bundles);
+    // frees the index of load
     void (*destroy)(void* handle);
 };
 
-// exported by libcolumba_rlc_plugin / libcolumba_fm_plugin respectively (each library defines only its own)
+// the getters of the plugins (each plugin defines one of them)
 const columba_api_t* columba_rlc_api();
 const columba_api_t* columba_fm_api();
 
 } // extern "C"
+
+#endif // MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_CAPI_HPP

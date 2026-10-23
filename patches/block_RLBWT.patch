@@ -1,0 +1,453 @@
+diff --git a/Makefile b/Makefile
+index 37a4448..7270b04 100644
+--- a/Makefile
++++ b/Makefile
+@@ -33,19 +33,19 @@ all: gpp make_alphabet_header
+ gpp: make_bwt bench_bwt count_matches
+ 
+ make_bwt: make_bwt.cpp $(HEADERS)
+-	g++ $(CFLAGS) -DNDEBUG -Ofast -o make_bwt make_bwt.cpp
++	g++ $(CFLAGS) -DNDEBUG -Ofast -fpermissive -o make_bwt make_bwt.cpp -ldl
+ 
+ bench_bwt: bench_bwt.cpp $(HEADERS)
+-	g++ $(CFLAGS) -DNDEBUG -Ofast -o bench_bwt bench_bwt.cpp
++	g++ $(CFLAGS) -DNDEBUG -Ofast -fpermissive -o bench_bwt bench_bwt.cpp
+ 
+ make_alphabet_header: make_alphabet_header.cpp include/reader.hpp
+-	g++ $(CFLAGS) -DNDEBUG -Ofast -o make_alphabet_header make_alphabet_header.cpp
++	g++ $(CFLAGS) -DNDEBUG -Ofast -fpermissive -o make_alphabet_header make_alphabet_header.cpp
+ 
+ make_test_data: make_test_data.cpp $(HEADERS)
+-	g++ $(CFLAGS) -DNDEBUG -Ofast -o make_test_data make_test_data.cpp
++	g++ $(CFLAGS) -DNDEBUG -Ofast -fpermissive -o make_test_data make_test_data.cpp
+ 
+ count_matches: count_matches.cpp $(HEADERS)
+-	g++ $(CFLAGS) -DNDEBUG -Ofast -o count_matches count_matches.cpp
++	g++ $(CFLAGS) -DNDEBUG -Ofast -fpermissive -o count_matches count_matches.cpp
+ 
+ new_queries: new_queries.cpp $(HEADERS)
+ 	g++ $(CFLAGS) -DNDEBUG -Ofast -o new_queries new_queries.cpp
+diff --git a/count_matches.cpp b/count_matches.cpp
+index 8fab41b..f60bf5c 100644
+--- a/count_matches.cpp
++++ b/count_matches.cpp
+@@ -5,6 +5,7 @@
+ #include <vector>
+ #include <random>
+ #include <chrono>
++#include <tuple>
+ 
+ #include "include/reader.hpp"
+ #include "include/types.hpp"
+@@ -23,31 +24,33 @@ void help() {
+ }
+ 
+ template <class bwt_type>
+-std::pair<double, size_t> bench(const std::string& in_file_path, std::ifstream& patterns, bool o_t, double& bps) {
++std::tuple<uint64_t, uint64_t, uint64_t> bench(const std::string& in_file_path, std::ifstream& patterns, bool o_t, double& bps) {
+     using std::chrono::duration_cast;
+     using std::chrono::high_resolution_clock;
+     using std::chrono::nanoseconds;
+ 
+     bwt_type bwt(in_file_path);
+-    //bwt.print();
+     bps = 8 * double(bwt.bytes()) / bwt.size();
+-    double total = 0;
+     std::string p;
+     size_t i = 0;
++    uint64_t time_query = 0;
++    uint64_t num_queries = 0;
++    uint64_t num_occurrenes = 0;
+     while (std::getline(patterns, p)) {
+         auto start = high_resolution_clock::now();
+-        uint64_t count = bwt.count(p);
++        num_occurrenes += bwt.count(p);
+         auto end = high_resolution_clock::now();
+-        double time = duration_cast<nanoseconds>(end - start).count();
++        time_query += duration_cast<nanoseconds>(end - start).count();
++        /*
+         if (o_t) {
+             std::cout << p << "\t" << count << "\t" << time << std::endl;
+         } else {
+             std::cout << p << "\t" << count << std::endl;
+         }
+-        total += time;
+-        i++;
++        */
++        num_queries++;
+     }
+-    return {total, i};
++    return {time_query, num_queries, num_occurrenes};
+ }
+ 
+ int main(int argc, char const* argv[]) {
+@@ -75,8 +78,8 @@ int main(int argc, char const* argv[]) {
+     }
+     std::ifstream p(patterns);
+     std::cerr << "looking for patterns from " << patterns << " in " << in_file_path << std::endl;
+-    std::cout << "Pattern\tcount\ttime" << std::endl;
+-    std::pair<double, size_t> res;
++    //std::cout << "Pattern\tcount\ttime" << std::endl;
++    std::tuple<uint64_t, uint64_t, uint64_t> res;
+     double bps = 0;
+     if (run_block) {
+         res = bench<bbwt::run<>>(in_file_path, p, output_time, bps);
+@@ -85,6 +88,12 @@ int main(int argc, char const* argv[]) {
+     } else {
+         res = bench<bbwt::two_byte<>>(in_file_path, p, output_time, bps);
+     }
+-    std::cerr << "Mean query time: " << res.first << " / " << res.second << " = " << (res.first / res.second) << "ns\n" 
++    std::cerr << "Mean query time: " << std::get<0>(res) << " / " << std::get<1>(res) << " = " << (std::get<0>(res) / std::get<1>(res)) << "ns\n" 
+               << " with " << bps << " bits per symbol" << std::endl;
++    std::cerr << "total number of occurrences: " << std::get<2>(res) << std::endl;
++    std::ofstream results_file("blockrlbwt_count_result.txt");
++    results_file.write((char*)&std::get<0>(res),sizeof(uint64_t));
++    results_file.write((char*)&std::get<1>(res),sizeof(uint64_t));
++    results_file.write((char*)&std::get<2>(res),sizeof(uint64_t));
++    results_file.close();
+ }
+\ No newline at end of file
+diff --git a/include/custom_alphabet.hpp b/include/custom_alphabet.hpp
+index 536144b..14d75a3 100644
+--- a/include/custom_alphabet.hpp
++++ b/include/custom_alphabet.hpp
+@@ -10,13 +10,13 @@ template <class dtype>
+ class custom_alphabet {
+    private:
+     inline static const uint8_t c_map[] = {
+-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-          0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+-          0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++          0, 0, 0, 79, 106, 22, 36, 6, 83, 45, 0, 43, 65, 9, 82, 64,
++          86, 62, 63, 78, 58, 53, 44, 55, 32, 34, 41, 74, 70, 23, 16, 51,
++          17, 75, 81, 69, 29, 66, 85, 50, 47, 48, 57, 39, 42, 38, 68, 60,
++          33, 67, 28, 56, 73, 54, 40, 37, 61, 14, 26, 49, 95, 1, 96, 3,
++          18, 100, 89, 92, 97, 107, 88, 91, 99, 105, 35, 84, 98, 90, 104, 93,
++          76, 21, 103, 101, 102, 94, 77, 87, 30, 59, 80, 24, 52, 25, 13, 7,
++          10, 19, 12, 8, 20, 11, 2, 5, 27, 31, 4, 72, 15, 46, 71, 0,
+           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+@@ -27,13 +27,13 @@ class custom_alphabet {
+           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+     inline static const uint8_t r_map[] = {
+-        65, 67, 71, 84, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++        0, 61, 102, 63, 106, 103, 7, 95, 99, 13, 96, 101, 98, 94, 57, 108,
++        30, 32, 64, 97, 100, 81, 5, 29, 91, 93, 58, 104, 50, 36, 88, 105,
++        24, 48, 25, 74, 6, 55, 45, 43, 54, 26, 44, 11, 22, 9, 109, 40,
++        41, 59, 39, 31, 92, 21, 53, 23, 51, 42, 20, 89, 47, 56, 17, 18,
++        15, 12, 37, 49, 46, 35, 28, 110, 107, 52, 27, 33, 80, 86, 19, 3,
++        90, 34, 14, 8, 75, 38, 16, 87, 70, 66, 77, 71, 67, 79, 85, 60,
++        62, 68, 76, 72, 65, 83, 84, 82, 78, 73, 4, 69, 0, 0, 0, 0,
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+@@ -47,19 +47,227 @@ class custom_alphabet {
+     typedef std::pair<uint32_t, std::pair<uint16_t, uint16_t>> S;
+ 
+     inline static const L L_map[] = {
+-        {262143, {0, 46}},
+-        {262143, {0, 28}},
+-        {262143, {0, 10}},
+-        {262143, {2, 8}}};
++        {1, {0, 63}},
++        {63, {0, 57}},
++        {63, {0, 51}},
++        {63, {0, 45}},
++        {255, {0, 37}},
++        {511, {0, 28}},
++        {1023, {0, 18}},
++        {1023, {0, 8}},
++        {1023, {1, 6}},
++        {1023, {2, 4}},
++        {1023, {3, 2}},
++        {1023, {5, 8}},
++        {2047, {6, 5}},
++        {2047, {7, 2}},
++        {2047, {9, 7}},
++        {2047, {10, 4}},
++        {2047, {11, 1}},
++        {2047, {13, 6}},
++        {2047, {14, 3}},
++        {4095, {16, 7}},
++        {4095, {17, 3}},
++        {4095, {19, 7}},
++        {4095, {20, 3}},
++        {8191, {22, 6}},
++        {8191, {23, 1}},
++        {8191, {25, 4}},
++        {8191, {27, 7}},
++        {8191, {28, 2}},
++        {8191, {30, 5}},
++        {16383, {32, 7}},
++        {16383, {33, 1}},
++        {16383, {35, 3}},
++        {16383, {37, 5}},
++        {16383, {39, 7}},
++        {32767, {41, 8}},
++        {32767, {42, 1}},
++        {32767, {44, 2}},
++        {32767, {46, 3}},
++        {32767, {48, 4}},
++        {32767, {50, 5}},
++        {32767, {52, 6}},
++        {32767, {54, 7}},
++        {32767, {56, 8}},
++        {32767, {57, 1}},
++        {32767, {59, 2}},
++        {32767, {61, 3}},
++        {32767, {63, 4}},
++        {32767, {65, 5}},
++        {65535, {67, 5}},
++        {65535, {69, 5}},
++        {65535, {71, 5}},
++        {65535, {73, 5}},
++        {65535, {75, 5}},
++        {65535, {77, 5}},
++        {65535, {79, 5}},
++        {65535, {81, 5}},
++        {65535, {83, 5}},
++        {65535, {85, 5}},
++        {65535, {87, 5}},
++        {65535, {89, 5}},
++        {65535, {91, 5}},
++        {65535, {93, 5}},
++        {65535, {95, 5}},
++        {65535, {97, 5}},
++        {65535, {99, 5}},
++        {65535, {101, 5}},
++        {65535, {103, 5}},
++        {65535, {105, 5}},
++        {65535, {107, 5}},
++        {131071, {109, 4}},
++        {131071, {111, 3}},
++        {131071, {113, 2}},
++        {131071, {115, 1}},
++        {131071, {118, 8}},
++        {131071, {120, 7}},
++        {131071, {122, 6}},
++        {131071, {124, 5}},
++        {131071, {126, 4}},
++        {131071, {128, 3}},
++        {131071, {130, 2}},
++        {131071, {132, 1}},
++        {262143, {135, 7}},
++        {262143, {137, 5}},
++        {262143, {139, 3}},
++        {262143, {141, 1}},
++        {262143, {144, 7}},
++        {262143, {146, 5}},
++        {262143, {148, 3}},
++        {262143, {150, 1}},
++        {524287, {153, 6}},
++        {524287, {155, 3}},
++        {524287, {158, 8}},
++        {524287, {160, 5}},
++        {524287, {162, 2}},
++        {524287, {165, 7}},
++        {524287, {167, 4}},
++        {524287, {169, 1}},
++        {1048575, {172, 5}},
++        {1048575, {174, 1}},
++        {1048575, {177, 5}},
++        {1048575, {179, 1}},
++        {1048575, {182, 5}},
++        {2097151, {185, 8}},
++        {2097151, {187, 3}},
++        {2097151, {190, 6}},
++        {2097151, {192, 1}},
++        {4194303, {195, 3}},
++        {4194303, {198, 5}}};
+ 
+     inline static const S S_map[] = {
+-        {262143, {0, 14}},
+-        {262143, {1, 4}},
+-        {262143, {3, 2}},
+-        {262143, {6, 8}}};
++        {1, {0, 31}},
++        {63, {0, 25}},
++        {63, {0, 19}},
++        {63, {0, 13}},
++        {255, {0, 5}},
++        {511, {1, 4}},
++        {1023, {2, 2}},
++        {1023, {4, 8}},
++        {1023, {5, 6}},
++        {1023, {6, 4}},
++        {1023, {7, 2}},
++        {1023, {9, 8}},
++        {2047, {10, 5}},
++        {2047, {11, 2}},
++        {2047, {13, 7}},
++        {2047, {14, 4}},
++        {2047, {15, 1}},
++        {2047, {17, 6}},
++        {2047, {18, 3}},
++        {4095, {20, 7}},
++        {4095, {21, 3}},
++        {4095, {23, 7}},
++        {4095, {24, 3}},
++        {8191, {26, 6}},
++        {8191, {27, 1}},
++        {8191, {29, 4}},
++        {8191, {31, 7}},
++        {8191, {32, 2}},
++        {8191, {34, 5}},
++        {16383, {36, 7}},
++        {16383, {37, 1}},
++        {16383, {39, 3}},
++        {16383, {41, 5}},
++        {16383, {43, 7}},
++        {32767, {45, 8}},
++        {32767, {46, 1}},
++        {32767, {48, 2}},
++        {32767, {50, 3}},
++        {32767, {52, 4}},
++        {32767, {54, 5}},
++        {32767, {56, 6}},
++        {32767, {58, 7}},
++        {32767, {60, 8}},
++        {32767, {61, 1}},
++        {32767, {63, 2}},
++        {32767, {65, 3}},
++        {32767, {67, 4}},
++        {32767, {69, 5}},
++        {65535, {71, 5}},
++        {65535, {73, 5}},
++        {65535, {75, 5}},
++        {65535, {77, 5}},
++        {65535, {79, 5}},
++        {65535, {81, 5}},
++        {65535, {83, 5}},
++        {65535, {85, 5}},
++        {65535, {87, 5}},
++        {65535, {89, 5}},
++        {65535, {91, 5}},
++        {65535, {93, 5}},
++        {65535, {95, 5}},
++        {65535, {97, 5}},
++        {65535, {99, 5}},
++        {65535, {101, 5}},
++        {65535, {103, 5}},
++        {65535, {105, 5}},
++        {65535, {107, 5}},
++        {65535, {109, 5}},
++        {65535, {111, 5}},
++        {131071, {113, 4}},
++        {131071, {115, 3}},
++        {131071, {117, 2}},
++        {131071, {119, 1}},
++        {131071, {122, 8}},
++        {131071, {124, 7}},
++        {131071, {126, 6}},
++        {131071, {128, 5}},
++        {131071, {130, 4}},
++        {131071, {132, 3}},
++        {131071, {134, 2}},
++        {131071, {136, 1}},
++        {262143, {139, 7}},
++        {262143, {141, 5}},
++        {262143, {143, 3}},
++        {262143, {145, 1}},
++        {262143, {148, 7}},
++        {262143, {150, 5}},
++        {262143, {152, 3}},
++        {262143, {154, 1}},
++        {524287, {157, 6}},
++        {524287, {159, 3}},
++        {524287, {162, 8}},
++        {524287, {164, 5}},
++        {524287, {166, 2}},
++        {524287, {169, 7}},
++        {524287, {171, 4}},
++        {524287, {173, 1}},
++        {1048575, {176, 5}},
++        {1048575, {178, 1}},
++        {1048575, {181, 5}},
++        {1048575, {183, 1}},
++        {1048575, {186, 5}},
++        {2097151, {189, 8}},
++        {2097151, {191, 3}},
++        {2097151, {194, 6}},
++        {2097151, {196, 1}},
++        {4194303, {199, 3}},
++        {4194303, {202, 5}}};
+ 
+    public:
+-    static const constexpr uint8_t width = 2;
++    static const constexpr uint8_t width = 7;
+     static constexpr uint8_t convert(uint8_t c) {
+         return c_map[c];
+     }
+@@ -70,7 +278,7 @@ class custom_alphabet {
+         return sizeof(custom_alphabet);
+     }
+     static constexpr uint16_t elems() {
+-        return 4;
++        return 108;
+     }
+     template <class o_t>
+     static void write_statics(o_t& out) {
+@@ -80,13 +288,13 @@ class custom_alphabet {
+         out.write(reinterpret_cast<const char*>(c_map), 256);
+         out.write(reinterpret_cast<const char*>(r_map), 256);
+         if constexpr (sizeof(dtype) == 4) {
+-            uint32_t s = 32;
++            uint32_t s = 864;
+             out.write(reinterpret_cast<char*>(&s), 4);
+-            out.write(reinterpret_cast<const char*>(S_map), 32);
++            out.write(reinterpret_cast<const char*>(S_map), 864);
+         } else {
+-            uint32_t s = 64;
++            uint32_t s = 1728;
+             out.write(reinterpret_cast<char*>(&s), 4);
+-            out.write(reinterpret_cast<const char*>(L_map), 64);
++            out.write(reinterpret_cast<const char*>(L_map), 1728);
+         }
+     }
+     template <class i_t>
+@@ -113,7 +321,7 @@ class custom_alphabet {
+     }
+ 
+    private:
+-    uint8_t counts[(sizeof(dtype) == 8 ? 9 : 0) + (sizeof(dtype) == 4 ? 9 : 0)];
++    uint8_t counts[(sizeof(dtype) == 8 ? 206 : 0) + (sizeof(dtype) == 4 ? 206 : 0)];
+    public:
+     custom_alphabet() : counts() {}
+ 
+@@ -159,7 +367,7 @@ class custom_alphabet {
+     }
+ 
+     void print() const {
+-        for (uint16_t i = 0; i < 4; i++) {
++        for (uint16_t i = 0; i < 108; i++) {
+             std::cerr << int(revert(i)) << ": " << p_sum(i) << std::endl;
+         }
+     }
+diff --git a/make_bwt.cpp b/make_bwt.cpp
+index 4a83675..ba4ad41 100644
+--- a/make_bwt.cpp
++++ b/make_bwt.cpp
+@@ -6,6 +6,11 @@
+ #include "include/reader.hpp"
+ #include "include/types.hpp"
+ 
++#include "../grlBWT/external/malloc_count-master/malloc_count.h"
++extern "C" {
++    #include "../grlBWT/external/malloc_count-master/malloc_count.c"
++}
++
+ void help() {
+     std::cout << "Create RLBWT data structure and output it to file.\n\n"
+         << "Usage: make_rlbwt [-i file_name] [-h heads] [-r runs] <out_file>\n"

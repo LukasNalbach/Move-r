@@ -24,79 +24,43 @@
  * SOFTWARE.
  */
 
-#pragma once
+#ifndef MOVE_R_MISC_HASH_HPP
+#define MOVE_R_MISC_HASH_HPP
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <type_traits>
+#include <misc/hashing.hpp>
+#include <misc/utils.hpp>
 
 /**
- * @brief hashes a 32-bit value (murmur3 finalizer)
- * @param x a 32-bit value
- * @return the hash of x
+ * @brief hash functor for a value that converts to uint128_t (e.g. packed_uint_t, see move_r/construction/input_view.hpp);
+ *        usable as a hash-map key hasher
  */
-inline static uint32_t hash_32(uint32_t x)
-{
-    x ^= x >> 16;
-    x *= 0x85ebca6bU;
-    x ^= x >> 13;
-    x *= 0xc2b2ae35U;
-    x ^= x >> 16;
-    return x;
-}
-
-/**
- * @brief hashes a 64-bit value (splitmix64)
- * @param x a 64-bit value
- * @return the hash of x
- */
-inline static uint64_t hash_64(uint64_t x)
-{
-    x += 0x9e3779b97f4a7c15ULL;
-    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
-    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
-    return x ^ (x >> 31);
-}
-
-/**
- * @brief hashes a position (using hash_32 or hash_64 depending on pos_t)
- * @tparam pos_t unsigned integer position type (uint32_t or uint64_t)
- * @param x a position
- * @return the hash of x
- */
-template <class pos_t>
-inline static pos_t pos_hash(pos_t x)
-{
-    static_assert(std::is_same_v<pos_t, uint32_t> || std::is_same_v<pos_t, uint64_t>);
-
-    if constexpr (std::is_same_v<pos_t, uint32_t>) {
-        return hash_32(x);
-    } else {
-        return hash_64(x);
+struct wide_hash {
+    /**
+     * @brief returns hash_64 of the XOR of the lower and the upper 64 bits of a value
+     * @tparam val_t a type converting to uint128_t
+     * @param value the value
+     */
+    template <typename val_t>
+    uint64_t operator()(const val_t& value) const
+    {
+        uint128_t x = value;
+        return hash_64(uint64_t(x) ^ uint64_t(x >> 64));
     }
-}
-
-static constexpr uint64_t GOLDEN_RATIO_64 = 0x9e3779b97f4a7c15ULL;
-static constexpr uint32_t GOLDEN_RATIO_32 = 0x9e3779b9UL;
+};
 
 /**
  * @brief combines the hash value hash with the value x (boost-style hash_combine)
- * @tparam pos_t unsigned integer type (uint32_t or uint64_t)
  * @param hash the hash value to update
  * @param x the value to combine into hash
  */
-template <class pos_t>
-inline static void hash_combine(pos_t& hash, pos_t x)
+inline static void hash_combine(uint64_t& hash, uint64_t x)
 {
-    static_assert(std::is_same_v<pos_t, uint32_t> || std::is_same_v<pos_t, uint64_t>);
-
-    if constexpr (std::is_same_v<pos_t, uint32_t>) {
-        hash ^= x + GOLDEN_RATIO_32 + (hash << 6) + (hash >> 2);
-    } else {
-        hash ^= x + GOLDEN_RATIO_64 + (hash << 6) + (hash >> 2);
-    }
+    hash ^= x + golden_ratio_64 + (hash << 6) + (hash >> 2);
 }
 
 /**
@@ -106,8 +70,10 @@ struct span_hash {
     template <typename sym_t>
     uint64_t operator()(std::span<const sym_t> s) const
     {
-        uint64_t h = 1469598103934665603ULL; // FNV-1a offset basis
-        for (sym_t c : s) h = (h ^ (uint64_t) (std::make_unsigned_t<sym_t>) c) * 1099511628211ULL; // FNV-1a prime
+        constexpr uint64_t fnv_offset_basis = 1469598103934665603ULL;
+        constexpr uint64_t fnv_prime = 1099511628211ULL;
+        uint64_t h = fnv_offset_basis;
+        for (sym_t c : s) h = (h ^ (uint64_t) (std::make_unsigned_t<sym_t>) c) * fnv_prime;
         return h;
     }
 };
@@ -122,3 +88,5 @@ struct span_eq {
         return std::equal(a.begin(), a.end(), b.begin(), b.end());
     }
 };
+
+#endif // MOVE_R_MISC_HASH_HPP

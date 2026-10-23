@@ -24,119 +24,114 @@
  * SOFTWARE.
  */
 
-#pragma once
+#ifndef MOVE_R_MOVE_R_CONSTRUCTION_RLBWT_TPP
+#define MOVE_R_MOVE_R_CONSTRUCTION_RLBWT_TPP
 
-#include <ips4o.hpp>
+#include <filesystem>
+#include <stdexcept>
+
+#include <libsais40.hpp>
+#include <misc/sort.hpp>
+#include <move_r/construction/pfp_output.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-template <rlbwt_build_mode mode, typename sa_sint_t>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_rlbwt_c()
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::build_sa()
 {
-    log_phase_start("building RLBWT");
+    if (!byte_alphabet && idx.symbols_remapped) {
+        log_phase_start("mapping T to its effective alphabet");
+        int_alphabet->map_text(T_inp, n, p);
+        log_phase_end("time_map_t_effective");
+        release_int_alphabet();
+    }
 
-    std::vector<sa_sint_t>& SA = get_sa<sa_sint_t>(); // [0..n-1] The suffix array
+    log_phase_start("building SA");
+
+    // fs, the extra space after the suffix array that libsais requires for a byte alphabet
+    uint64_t fs = byte_alphabet ? 6 * 256 : 0;
+    resize_no_init(sa, n + fs);
+    move_r_build_sa(T_inp, sa.data(), n, byte_alphabet ? 0 : idx.sigma, fs, p);
+
+    sa.resize(n);
+
+    log_phase_end("time_build_sa");
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::build_rlbwt_c()
+{
+    log_phase_start(rlbwt_from_pfp ? "reading RLBWT" : "building RLBWT");
 
     p_ = byte_alphabet ? p : 1;
+    // the runs written by the prefix-free parsing (see pfp_rlbwt::run_data_file)
+    const pfp_rlbwt::run_data_fields& pfp_fields = pfp_output.fields();
+    // each thread reads at least one of them (r >= 1, see pfp_rlbwt::run_data_file::open)
+    if (rlbwt_from_pfp) p_ = std::min<uint64_t>(p_, pfp_fields.r);
+
     r_p.resize(p_ + 1, 0);
-    uint8_t width_bwt = byte_alphabet ? 1 : byte_width(idx.sigma);
-    RLBWT.resize(p_, interleaved_byte_aligned_vectors<uint32_t, uint32_t>({ width_bwt, 4 }));
+    uint8_t width_sym = rlbwt_from_pfp ? std::max<uint8_t>(1, std::bit_width(pfp_fields.max_symbol))
+                                       : std::bit_width(idx.sigma - 1);
+    uint8_t width_len = rlbwt_from_pfp ? std::bit_width(pfp_fields.max_run_length) : std::bit_width(n);
+    RLBWT.resize(p_, interleaved_bit_aligned_vectors({ width_sym, width_len }));
 
-    if constexpr (byte_alphabet) {
-        C.resize(p_, std::vector<pos_t>(byte_alphabet ? 256 : idx.sigma, 0));
+    if (byte_alphabet) {
+        C.resize(p_, std::vector<uint64_t>(num_symbol_values(), 0));
     }
 
-    if constexpr (mode == _bwt_file) {
-        for (uint16_t i = 0; i < p; i++) {
-            BWT_file_bufs.emplace_back(sdsl::int_vector_buffer<8>(
-                prefix_tmp_files + ".bwt", std::ios::in,
-                128 * 1024, 8, true));
-        }
-    }
+    // read the runs written by the prefix-free parsing; thread i_p reads the runs [i_p * r / p', (i_p + 1) * r / p')
+    if (rlbwt_from_pfp) {
+        n_p.resize(p_ + 1);
 
-    for (uint16_t i = 0; i < p_; i++) {
-        n_p.emplace_back(i * (n / p_));
-    }
+        #pragma omp parallel num_threads(p_)
+        {
+            uint64_t i_p = omp_get_thread_num();
+            const uint64_t beg = (i_p * pfp_fields.r) / p_;
+            const uint64_t end = ((i_p + 1) * pfp_fields.r) / p_;
+            RLBWT[i_p].reserve(end - beg);
+            pfp_rlbwt::run_stream runs(pfp_output, beg, end, false, false);
+            pfp_rlbwt::run_record rec;
 
-    n_p.emplace_back(n);
+            for (uint64_t x = beg; x < end; x++) {
+                runs.next(rec);
+                if (x == beg) n_p[i_p] = rec.start;
+                uint64_t sym = rec.symbol;
 
-    #pragma omp parallel num_threads(p_)
-    {
-        // Index in [0..p_-1] of the current thread.
-        uint16_t i_p = omp_get_thread_num();
+                // the bytes have been mapped to [3..sigma+1] (see min_mapped_symbol); the terminator is 0
+                if (sym < move_r_min_mapped_symbol_pfp) [[unlikely]] sym = 0;
+                else sym -= move_r_min_mapped_symbol_pfp - move_r_min_mapped_symbol;
 
-        // Iteration range start position of thread i_p.
-        pos_t b = n_p[i_p];
-        // Iteration range end position of thread i_p.
-        pos_t e = n_p[i_p + 1];
-
-        // Store in C[i_p][c] the number of occurrences of c in L[b..e], for each c in [0..255].
-
-        i_sym_t prev_sym; // previous symbol in L.
-        i_sym_t cur_sym; // current symbol in L.
-        pos_t i_ = b; // start position of the last seen run in L.
-
-        if constexpr (mode == _sa) {
-            prev_sym = SA[b] == 0 ? 0 : T<i_sym_t>(SA[b] - 1);
-        } else if constexpr (mode == _bwt) {
-            prev_sym = char_to_uchar(L[b]);
-        } else if constexpr (mode == _bwt_file) {
-            prev_sym = BWT_file_bufs[i_p][b];
-
-            if (prev_sym < 3) [[unlikely]] {
-                prev_sym = 0;
-            } else {
-                prev_sym -= 2;
-            }
-        }
-
-        // Iterate over the range L[b+1..e-1]
-        for (pos_t i = b + 1; i < e; i++) {
-            if constexpr (mode == _sa) {
-                cur_sym = SA[i] == 0 ? 0 : T<i_sym_t>(SA[i] - 1);
-            } else if constexpr (mode == _bwt) {
-                cur_sym = char_to_uchar(L[i]);
-            } else if constexpr (mode == _bwt_file) {
-                cur_sym = BWT_file_bufs[i_p][i];
-
-                if (cur_sym < 3) [[unlikely]] {
-                    cur_sym = 0;
-                } else {
-                    cur_sym -= 2;
-                }
+                add_run(i_p, sym, rec.length);
+                if (byte_alphabet) C[i_p][sym] = C[i_p][sym] + rec.length;
             }
 
-            // check if there is a run starting at L[i]
-            if (cur_sym != prev_sym) {
-                add_run(i_p, prev_sym, i - i_);
-                if constexpr (byte_alphabet)
-                    C[i_p][prev_sym] += i - i_;
-                prev_sym = cur_sym;
-                i_ = i;
-            }
+            r_p[i_p] = RLBWT[i_p].size();
+            RLBWT[i_p].shrink_to_fit();
         }
 
-        // add the run L[i'..e)
-        add_run(i_p, prev_sym, e - i_);
-        if constexpr (byte_alphabet)
-            C[i_p][prev_sym] += e - i_;
-        // Store in r_p[i_p] the number of runs starting in L[b..e).
-        r_p[i_p] = RLBWT[i_p].size();
-        RLBWT[i_p].shrink_to_fit();
+        n_p[p_] = pfp_fields.n;
+    } else {
+        for (uint64_t i = 0; i < p_; i++) {
+            n_p.emplace_back(i * (n / p_));
+        }
+
+        n_p.emplace_back(n);
+
+        phase_progress prog(params.log, n);
+        move_r_bwt_runs_from_sa(T_inp, sa, n_p, r_p, RLBWT, C, byte_alphabet, p_, prog);
+        prog.finish();
     }
 
-    // for i_p \in [1,p'-2], merge the last run in thread i_p's section with the first run in thread
-    // i_p+1's section, if their characters are equal
-    for (uint16_t i_p = 0; i_p < p_ - 1; i_p++) {
-        i_sym_t c = run_sym(i_p, r_p[i_p] - 1);
+    // merge the last run in thread i_p's section with the first run in thread i_p+1's section, if their symbols are equal
+    for (uint64_t i_p = 0; i_p < p_ - 1; i_p++) {
+        uint64_t c = run_sym(i_p, r_p[i_p] - 1);
 
         if (run_sym(i_p + 1, 0) == c) {
-            pos_t l = run_len(i_p, r_p[i_p] - 1);
+            uint64_t l = run_len(i_p, r_p[i_p] - 1);
             set_run_len(i_p + 1, 0, run_len(i_p + 1, 0) + l);
 
-            if constexpr (byte_alphabet) {
-                C[i_p][c] -= l;
-                C[i_p + 1][c] += l;
+            if (byte_alphabet) {
+                C[i_p][c] = C[i_p][c] - l;
+                C[i_p + 1][c] = C[i_p + 1][c] + l;
             }
 
             n_p[i_p + 1] -= l;
@@ -145,111 +140,92 @@ void move_r<support, sym_t, pos_t, mlf_enc>::construction::build_rlbwt_c()
         }
     }
 
-    if constexpr (mode == _bwt_file) {
-        for (uint16_t i = 0; i < p; i++) {
-            BWT_file_bufs[i].close();
-        }
+    if (rlbwt_from_pfp) release_pfp_output();
 
-        BWT_file_bufs.clear();
-        BWT_file_bufs.shrink_to_fit();
-        std::filesystem::remove(prefix_tmp_files + ".bwt");
+    // build_plcp_run reads T
+    if (delete_T && !(has_mphi && !rlbwt_from_pfp)) {
+        T_inp.clear();
+        T_inp.shrink_to_fit();
     }
 
-    if (&L == &L_tmp) {
-        L.clear();
-        L.shrink_to_fit();
+    // choose_revert_starts reads sa at the run starts
+    if (!builds_SA_samples && !chooses_revert_starts()) {
+        sa.clear();
+        sa.shrink_to_fit();
     }
 
-    if (delete_T) {
-        T_str.clear();
-        T_str.shrink_to_fit();
-        T_vec.clear();
-        T_vec.shrink_to_fit();
-    }
-
-    if ((support == _count || support == _count_bi) && mode != _bwt) {
-        SA.clear();
-        SA.shrink_to_fit();
-    }
-
-    /* Now, r_p[i_p] stores the number of runs starting in the iteration range L[b..e] of thread
-    i_p in [0..p'-1], and r_p[p'] = 0. We want r_p[i_p] to store the number of runs starting before
-    the iteration range start position b of thread i_p in [0..p'-1]. Also, we want r_p[p'] to store
-    the number of all runs. This way, we can build I_LF[r_p[i_p]..r_p[i_p+1]-1] with thread i_p in [0..p'-1]
-    using the C-array in C[p'] while using and updating the rank-function in C[i_p] on-the-fly. */
-
-    for (uint16_t i = p_; i > 0; i--) {
+    // r_p[i_p] <- the number of runs before thread i_p's section (the index of its first run), r_p[p'] = r
+    for (uint64_t i = p_; i > 0; i--) {
         r_p[i] = r_p[i - 1];
     }
 
     r_p[0] = 0;
 
-    for (uint16_t i = 2; i <= p_; i++) {
+    for (uint64_t i = 2; i <= p_; i++) {
         r_p[i] += r_p[i - 1];
     }
 
-    /* Now, r_p[i_p] stores the number of runs starting before the iteration range start position b of
-    thread i_p in [0..p'-1] and r_p[p'] stores the number of all runs, so we are done with r_p[0..p'] */
-
     r = r_p[p_];
     idx.r = r;
+    // the move data structures have at least r intervals
+    mds_check_num_intervals(r);
 
-    if constexpr (int_alphabet) {
-        C.emplace_back(std::vector<pos_t>(idx.sigma, 0));
+    if (!byte_alphabet) {
+        C.emplace_back(std::vector<uint64_t>(idx.sigma, 0));
 
-        for (pos_t i = 0; i < r; i++) {
-            C[0][run_sym(0, i)] += run_len(0, i);
+        for (uint64_t i = 0; i < r; i++) {
+            C[0][run_sym(0, i)] = C[0][run_sym(0, i)] + run_len(0, i);
         }
     }
 
-    process_c();
+    compute_C();
 
     log_phase_end("time_build_rlbwt");
 }
 
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-void move_r<support, sym_t, pos_t, mlf_enc>::construction::process_c()
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::compute_C()
 {
-    /* Now, C[i_p][c] is the number of occurrences of c in L[b..e], where [b..e] is the range of the
-    thread i_p in [0..p'-1]. Also, we have C[p'][0..255] = 0. */
+    uint64_t max_symbol = num_symbol_values();
 
-    /* We want to have C[i_p][c] = rank(L,c,b-1), where b is the iteration range start position of
-    thread i_p in [0..p'-1]. Also, we want C[p'][0..255] to be the C-array, that is C[p'][c] stores
-    the number of occurrences of all smaller characters c' < c in L[0..n-1], for c in [0..255]. */
-
-    pos_t max_symbol = byte_alphabet ? 256 : idx.sigma;
-
-    for (pos_t i = 1; i < p_; i++) {
+    // C[i_p][c] <- the number of occurrences of c in the sections 0..i_p
+    for (uint64_t i = 1; i < p_; i++) {
         #pragma omp parallel for num_threads(p)
         for (uint64_t j = 0; j < max_symbol; j++) {
-            C[i][j] += C[i - 1][j];
+            C[i][j] = C[i][j] + C[i - 1][j];
         }
     }
 
-    /* Now, we have C[i_p][c] = rank(L,c,e), for each c in [0..255] and i_p in [0..p'-1],
-    where e is the iteration range end position of thread i_p. */
+    // shift the rows by one; C[i_p][c] = the number of occurrences of c in L[0..n_p[i_p]-1], C[0][c] = 0
+    C.insert(C.begin(), std::vector<uint64_t>(max_symbol, 0));
 
-    C.insert(C.begin(), std::vector<pos_t>());
-    no_init_resize(C[0], max_symbol);
-
-    #pragma omp parallel for num_threads(p)
-    for (uint64_t j = 0; j < max_symbol; j++) {
-        C[0][j] = 0;
-    }
-
-    /* Now, we have C[i_p][c] = rank(L,c,b-1), for each c in [0..255] and i_p in [0..p'-1],
-    where b is the iteration range start position of thread i_p, so we are done with C[0..p'-1][0..255].
-    Also, we have C[p'][c] = rank(L,c,n-1), for c in [0..255]. */
-
-    pos_t cp_im1 = C[p_][0]; // stores at the start of the i-th iteration C[p'][i-1]
+    // C[p'][c] is the number of occurrences of c in L; C[p'] <- its exclusive prefix sum, the C-array
+    uint64_t count_prev = C[p_][0]; // the number of occurrences of the symbol i - 1 in L
     C[p_][0] = 0;
-    pos_t cp_im1_tmp;
 
-    for (pos_t i = 1; i < max_symbol; i++) {
-        cp_im1_tmp = C[p_][i];
-        C[p_][i] = cp_im1 + C[p_][i - 1];
-        cp_im1 = cp_im1_tmp;
+    for (uint64_t i = 1; i < max_symbol; i++) {
+        const uint64_t count_cur = C[p_][i];
+        C[p_][i] = count_prev + C[p_][i - 1];
+        count_prev = count_cur;
     }
-
-    // Now we are done with C, since C[p'] is the C-array.
 }
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::store_rlbwt()
+{
+    store_to_tmp_file("RLBWT", ".rlbwt", "time_store_rlbwt", [&](direct_ofstream& file) {
+        for (uint64_t i = 0; i < p_; i++) RLBWT[i].serialize(file);
+        release_rlbwt();
+    });
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::load_rlbwt()
+{
+    load_from_tmp_file("RLBWT", ".rlbwt", "time_load_rlbwt", true, [&](direct_ifstream& file) {
+        RLBWT.resize(p_);
+        for (uint64_t i = 0; i < p_; i++) RLBWT[i].load(file);
+    });
+}
+
+#endif // MOVE_R_MOVE_R_CONSTRUCTION_RLBWT_TPP

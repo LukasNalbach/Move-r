@@ -1,306 +1,207 @@
-cmake_minimum_required(VERSION "3.10.2")
-set(CMAKE_CXX_STANDARD 20)
+cmake_minimum_required(VERSION 3.21)
 
-find_package(Git REQUIRED)
-
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/external/libsais/LICENSE")
-  message(STATUS "Downloading the git submodules")
-  execute_process(COMMAND git submodule update --init --recursive WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-endif()
-
-message(STATUS "Applying the patched files to the submodules")
-file(COPY "${CMAKE_SOURCE_DIR}/patched-files/external" DESTINATION "${CMAKE_SOURCE_DIR}")
-
+# Move-r: the move-r and move-rb indexes, their command-line tools, benchmarks and tests. If Move-r is added by another project, only its library is built.
 project (move-r LANGUAGES C CXX)
 
 cmake_policy(SET CMP0048 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
 
-if(NOT CMAKE_BUILD_TYPE)
-  message(STATUS "Setting build type to 'Release' as none was specified.")
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
+# string-utils (unless the project that added Move-r already provides it)
+if(NOT TARGET string_utils)
+  file(GLOB move_r_string_utils_contents "${CMAKE_CURRENT_SOURCE_DIR}/external/string-utils/*")
+
+  if(move_r_string_utils_contents STREQUAL "")
+    find_package(Git REQUIRED)
+    message(STATUS "Downloading the git submodule external/string-utils")
+    execute_process(COMMAND "${GIT_EXECUTABLE}" submodule update --init -- external/string-utils
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+  endif()
+
+  # the prefix of the options and environment variables (MOVE_R_MARCH_NATIVE, MOVE_R_TMPDIR, ...); they also apply
+  # to the submodules added below
+  if(PROJECT_IS_TOP_LEVEL)
+    set(STRING_UTILS_PREFIX MOVE_R)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/external/string-utils/cmake/settings.cmake")
+  endif()
+
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/external/string-utils" EXCLUDE_FROM_ALL)
 endif()
 
-message("building in ${CMAKE_BUILD_TYPE} mode")
+# options: the command-line tools and the tests are ON if Move-r is the top-level project; the benchmarks are always
+# OFF unless they are switched on, then their external indexes are downloaded and built too. The global build options
+# are defined in external/string-utils/cmake/.
+option(MOVE_R_BUILD_MOVE_R_CLI     "Build the move-r command line tools" ${PROJECT_IS_TOP_LEVEL})
+option(MOVE_R_BUILD_MOVE_RB_CLI    "Build the move-rb command line tools" ${PROJECT_IS_TOP_LEVEL})
+option(MOVE_R_BUILD_TOOLS_CLI      "Build the shared command line tools (gen-patterns, gen-repetitive, print-data-structures)" ${PROJECT_IS_TOP_LEVEL})
+option(MOVE_R_BUILD_TESTS "Build tests" ${PROJECT_IS_TOP_LEVEL})
 
-# options
-option(MOVE_R_BUILD_MOVE_R_CLI  "Build the move-r binaries"  ON)
-option(MOVE_R_BUILD_MOVE_RB_CLI "Build the move-rb cli tools " ON)
-option(MOVE_R_BUILD_LZENDSA_CLI "Build LZend-SA binaries" ON)
-option(MOVE_R_BUILD_RLZSA_CLI "Build RLZ-SA binaries" ON)
-option(MOVE_R_BUILD_MOVE_R_BENCH  "Build move-r-bench" ON)
-option(MOVE_R_BUILD_MOVE_RB_BENCH "Build move-rb-bench-apm/-ext & move-rb-gen-apm-/-ext-queries" ON)
-option(MOVE_R_BUILD_EXAMPLES "Build the example programs" ON)
-option(MOVE_R_BUILD_TESTS "Build tests" ON)
-option(MOVE_R_BUILD_INTERNAL_BENCH "Build programs for benchmarking Move-r's internal data structures" ON)
-option(MOVE_R_USE_MALLOC_COUNT "Track memory usage via malloc_count (overrides malloc/free)" ON)
-option(MOVE_R_MARCH_NATIVE "Tune the build for the host CPU (-march=native); turn OFF for portable binaries" ON)
-option(MOVE_R_ENABLE_LTO "Enable link-time optimization (LTO/IPO) for move-r targets" ON)
+# benchmarks
+option(MOVE_R_BUILD_MOVE_R_BENCH    "Build move-r-bench, move-r-bench-ops and the external indexes they measure against" OFF)
+option(MOVE_R_BUILD_MOVE_RB_BENCH   "Build the move-rb benchmarks and the external indexes they measure against (columba, br-index)" OFF)
 
+# download the missing submodules: the own components and sparse-map without their submodules (string-utils downloads
+# the libraries it provides), and the external indexes of the benchmarks that are on with theirs
+set(move_r_component_submodules external/move-data-structure external/rlz-ref external/pfp-rlbwt
+  external/sparse-map)
+
+set(move_r_third_party_submodules "")
+if(MOVE_R_BUILD_MOVE_R_BENCH)
+  list(APPEND move_r_third_party_submodules external/rcomp external/r-index-f external/pfp-thresholds
+    external/gsa-is external/r-index external/OnlineRlbwt external/grlBWT external/block_RLBWT)
+endif()
+if(MOVE_R_BUILD_MOVE_RB_BENCH)
+  list(APPEND move_r_third_party_submodules external/columba external/fmt external/parallel-hashmap
+    external/br-index external/sassy)
+endif()
+
+string_utils_fetch_submodules("${CMAKE_CURRENT_SOURCE_DIR}" PATHS ${move_r_component_submodules})
+string_utils_fetch_submodules("${CMAKE_CURRENT_SOURCE_DIR}" RECURSIVE PATHS ${move_r_third_party_submodules})
+
+# the libraries of string-utils beyond its core that are used here (the external indexes of the benchmarks use all of
+# sdsl)
+string_utils_add_components(libsais gtl emhash)
+if(MOVE_R_BUILD_MOVE_R_BENCH OR MOVE_R_BUILD_MOVE_RB_BENCH)
+  string_utils_add_components(sdsl)
+endif()
+
+# apply the patches in patches/ to the downloaded submodules
+string_utils_apply_patches("${CMAKE_CURRENT_SOURCE_DIR}")
+
+# the benchmarks against external indexes (move-r-bench, the move-rb benchmarks) use POSIX (fork, dlopen, /proc) and are not built on Windows; the benchmarks of the operations of our indexes
+# (move-r-bench-ops, move-rb-bench-ops) are
 if(WIN32)
-  set(MOVE_R_BUILD_MOVE_R_BENCH OFF CACHE BOOL "" FORCE)
-  set(MOVE_R_BUILD_MOVE_RB_BENCH OFF CACHE BOOL "" FORCE)
-endif()
-
-# compile flags
-if(MOVE_R_MARCH_NATIVE)
-  set(move_r_arch_flags "-march=native")
+  set(move_r_external_benches OFF)
 else()
-  set(move_r_arch_flags "")
-endif()
-
-add_compile_options(-pthread)
-
-set(move_r_debug_flags "-Wall -Wextra -Wpedantic -ggdb")
-set(move_r_release_flags "-w ${move_r_arch_flags} -DNDEBUG")
-
-set(CMAKE_CXX_FLAGS_DEBUG           "${move_r_debug_flags} -O0")
-set(CMAKE_CXX_FLAGS_RELEASE         "${move_r_release_flags} -O3")
-set(CMAKE_CXX_FLAGS_MINSIZEREL      "${move_r_release_flags} -Os")
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO  "${move_r_debug_flags} -O3")
-
-if(WIN32)
-  include_directories(BEFORE "${CMAKE_SOURCE_DIR}/cmake/winshim")
-  add_compile_definitions(_REENTRANT)
-  set(IPS4O_OPTIMIZE_FOR_NATIVE OFF CACHE BOOL "" FORCE)
-  set(IPS2RA_OPTIMIZE_FOR_NATIVE OFF CACHE BOOL "" FORCE)
-  set(IPS4O_DISABLE_PARALLEL ON CACHE BOOL "" FORCE)
-
-  if(NOT MINGW)
-    add_compile_definitions(MSVC_COMPILER _HAS_DEPRECATED_RESULT_OF=1)
-  else()
-    get_filename_component(_mingw_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
-    get_filename_component(_mingw_root "${_mingw_bin}" DIRECTORY)
-    if(EXISTS "${_mingw_root}/lib/libgomp.a")
-      set(OpenMP_gomp_LIBRARY "${_mingw_root}/lib/libgomp.a" CACHE FILEPATH "" FORCE)
-    endif()
-  endif()
-
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    add_compile_options(-mcx16)
-  endif()
-
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    get_filename_component(_llvm_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
-    get_filename_component(_llvm_root "${_llvm_bin}" DIRECTORY)
-    if(EXISTS "${_llvm_root}/lib/libomp.lib")
-      foreach(_lang C CXX)
-        set(OpenMP_${_lang}_FLAGS "-fopenmp=libomp" CACHE STRING "" FORCE)
-        set(OpenMP_${_lang}_LIB_NAMES "libomp" CACHE STRING "" FORCE)
-      endforeach()
-      set(OpenMP_libomp_LIBRARY "${_llvm_root}/lib/libomp.lib" CACHE FILEPATH "" FORCE)
-      if(EXISTS "${_llvm_root}/bin/libomp.dll")
-        list(APPEND MOVE_R_WIN_RUNTIME_DLLS "${_llvm_root}/bin/libomp.dll")
-      endif()
-    endif()
-  endif()
-  
-  set(MOVE_R_WINDOWS_TBB_ROOT "" CACHE PATH "Root of an extracted oneAPI TBB (Windows) release")
-  if(MOVE_R_WINDOWS_TBB_ROOT)
-    include_directories(BEFORE "${MOVE_R_WINDOWS_TBB_ROOT}/include")
-    find_library(MOVE_R_WIN_TBB_LIB NAMES tbb12 tbb
-      PATHS "${MOVE_R_WINDOWS_TBB_ROOT}/lib/intel64/vc14" "${MOVE_R_WINDOWS_TBB_ROOT}/lib" NO_DEFAULT_PATH)
-    file(GLOB _tbb_dll "${MOVE_R_WINDOWS_TBB_ROOT}/redist/intel64/vc14/tbb12.dll"
-                       "${MOVE_R_WINDOWS_TBB_ROOT}/redist/intel64/vc14/tbb.dll"
-                       "${MOVE_R_WINDOWS_TBB_ROOT}/bin/*tbb12*.dll"
-                       "${MOVE_R_WINDOWS_TBB_ROOT}/bin/*tbb.dll")
-    if(_tbb_dll)
-      list(APPEND MOVE_R_WIN_RUNTIME_DLLS ${_tbb_dll})
-    endif()
-  else()
-    message(WARNING "MOVE_R_WINDOWS_TBB_ROOT is not set: ips4o's parallel sort needs Intel "
-      "oneTBB on Windows. Download an 'oneapi-tbb-*-win' release and set MOVE_R_WINDOWS_TBB_ROOT.")
-  endif()
+  set(move_r_external_benches ON)
 endif()
 
 ############################# move-r dependencies #############################
 
-# openmp
-find_package(OpenMP REQUIRED)
-
-# ips4o
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/ips4o")
-set_target_properties(ips4o_example PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1)
-
-# ips2ra
-set(IPS2RA_DISABLE_PARALLEL ON CACHE BOOL "" FORCE)
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/ips2ra")
-
-# libsais
-set(LIBSAIS_USE_OPENMP ON CACHE BOOL "" FORCE)
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/libsais/")
-
-set(BIGBWT_DIR "${CMAKE_SOURCE_DIR}/external/Big-BWT")
-if(NOT WIN32 AND (EXISTS "${BIGBWT_DIR}/makefile" OR EXISTS "${BIGBWT_DIR}/Makefile"))
-  add_custom_target(bigbwt ALL COMMAND make WORKING_DIRECTORY "${BIGBWT_DIR}"
-    COMMENT "Building bundled Big-BWT (bigbwt)")
-  add_compile_definitions(MOVE_R_BIGBWT_DIR="${BIGBWT_DIR}")
-endif()
-
-add_library(malloc_count INTERFACE)
-target_include_directories(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/malloc_count/")
-if(MOVE_R_USE_MALLOC_COUNT AND NOT WIN32)
-  target_sources(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/external/malloc_count/malloc_count.c")
-  target_link_libraries(malloc_count INTERFACE dl)
-  target_compile_definitions(malloc_count INTERFACE MOVE_R_USE_MALLOC_COUNT=1)
-else()
-  target_sources(malloc_count INTERFACE "${CMAKE_SOURCE_DIR}/cmake/malloc_count_stub.c")
-  target_compile_definitions(malloc_count INTERFACE MOVE_R_USE_MALLOC_COUNT=0)
-endif()
-
-# sdsl
-set(SDSL_ROOT "${CMAKE_SOURCE_DIR}/external/sdsl-lite")
-set(SDSL_INCLUDE_DIR "${SDSL_ROOT}/include")
-
-# libdivsufsort (bundled with sdsl-lite).
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BUILD_DIVSUFSORT64 ON CACHE BOOL "" FORCE)
-set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-add_subdirectory("${SDSL_ROOT}/external/libdivsufsort" "${CMAKE_BINARY_DIR}/external/libdivsufsort")
-unset(CMAKE_POLICY_VERSION_MINIMUM)
-set(CMAKE_WARN_DEPRECATED ON CACHE BOOL "" FORCE)
-set(DIVSUFSORT_INCLUDE_DIR "${CMAKE_BINARY_DIR}/external/libdivsufsort/include")
-set_target_properties(divsufsort divsufsort64 PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_include_directories(divsufsort INTERFACE "${DIVSUFSORT_INCLUDE_DIR}")
-target_include_directories(divsufsort64 INTERFACE "${DIVSUFSORT_INCLUDE_DIR}")
-
-# sdsl static library
-file(GLOB sdsl_sources "${SDSL_ROOT}/lib/*.cpp")
-add_library(sdsl STATIC ${sdsl_sources})
-set_target_properties(sdsl PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_compile_options(sdsl PRIVATE -w -DNDEBUG -fpermissive)
-target_include_directories(sdsl PUBLIC "${SDSL_INCLUDE_DIR}")
-target_include_directories(sdsl PRIVATE "${DIVSUFSORT_INCLUDE_DIR}")
-target_link_libraries(sdsl PUBLIC divsufsort divsufsort64)
-
-# gtl
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/gtl/")
+# OpenMP, sdsl, libsais, ips4o, ips2ra, malloc_count etc. are provided by string-utils
 
 # sparse-map
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/sparse-map/")
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/external/sparse-map/" EXCLUDE_FROM_ALL)
 
-# emhash
-add_library(emhash INTERFACE)
-target_include_directories(emhash INTERFACE "${CMAKE_SOURCE_DIR}/external/emhash/")
+# move-data-structure (unless the project that added Move-r already provides it)
+if(NOT TARGET move_data_structure)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/external/move-data-structure" EXCLUDE_FROM_ALL)
+endif()
 
-# sux
-add_library(sux INTERFACE)
-target_include_directories(sux INTERFACE "${CMAKE_SOURCE_DIR}/external/sux/")
+# pfp-rlbwt (used by the construction mode _pfp)
+if(NOT TARGET pfp_rlbwt)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/external/pfp-rlbwt" EXCLUDE_FROM_ALL)
+endif()
 
-# ordered
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/ordered/")
-
-# rmq
-add_library(rmq INTERFACE)
-target_include_directories(rmq INTERFACE "${CMAKE_SOURCE_DIR}/external/rmq/include/")
-
-# unordered_dense
-add_subdirectory("${CMAKE_SOURCE_DIR}/external/unordered_dense/")
+# rlz-ref (unless the project that added Move-r already provides it)
+if(NOT TARGET rlz_ref)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/external/rlz-ref" EXCLUDE_FROM_ALL)
+endif()
 
 ############################# move-r #############################
 
 # move-r
 add_library(move_r INTERFACE)
-target_include_directories(move_r INTERFACE "${CMAKE_SOURCE_DIR}/include/")
-target_compile_options(move_r INTERFACE -fno-strict-aliasing)
-target_link_libraries(move_r INTERFACE
-  OpenMP::OpenMP_CXX sdsl libsais ips4o ips2ra gtl sparse_map malloc_count
-  emhash sux ordered rmq unordered_dense divsufsort divsufsort64
-)
+target_include_directories(move_r INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include/")
+target_link_libraries(move_r INTERFACE string_utils libsais libsais40 gtl emhash move_data_structure rlz_ref
+  sparse_map pfp_rlbwt)
 
-if(WIN32 AND MOVE_R_WIN_TBB_LIB)
-  target_link_libraries(move_r INTERFACE "${MOVE_R_WIN_TBB_LIB}")
-endif()
+# the prefix-free parsing of a text with an integer alphabet (see include/move_r/construction/pfp_integer.hpp)
+add_library(move_r_pfp_integer STATIC src/pfp_integer.cpp)
+target_include_directories(move_r_pfp_integer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include/")
+target_link_libraries(move_r_pfp_integer PRIVATE string_utils sparse_map pfp_rlbwt)
+target_link_libraries(move_r INTERFACE move_r_pfp_integer)
 
-if(MINGW)
-  target_link_libraries(move_r INTERFACE atomic dl)
-  target_link_options(move_r INTERFACE -static)
-endif()
+# explicit instantiations of all profiles of the indexes (the option MOVE_R_EXTERN_TEMPLATES, whose value string-utils
+# stores in STRING_UTILS_EXTERN_TEMPLATES); each translation unit instantiates one group of members for all index
+# types (see src/instantiations.cpp)
+if(STRING_UTILS_EXTERN_TEMPLATES)
+  # src/instantiations.cpp is compiled once per part
+  set(move_r_instantiation_parts
+    MOVE_R MOVE_R_CONSTRUCTION_TEXT MOVE_R_CONSTRUCTION_MOVE MOVE_R_CONSTRUCTION_SA_RLZ
+    MOVE_RB_1 MOVE_RB_2 MOVE_RB_BUILD_1 MOVE_RB_BUILD_2 MOVE_RB_APM_1 MOVE_RB_APM_2
+    SORT TEXT_OPS)
+  set(move_r_instantiation_objects "")
 
-if(MOVE_R_ENABLE_LTO)
-  include(CheckIPOSupported)
-  check_ipo_supported(RESULT MOVE_R_IPO_SUPPORTED OUTPUT MOVE_R_IPO_ERROR LANGUAGES CXX)
-  if(NOT MOVE_R_IPO_SUPPORTED)
-    message(WARNING "MOVE_R_ENABLE_LTO is ON but LTO/IPO is not supported by the toolchain: ${MOVE_R_IPO_ERROR}")
-  endif()
-endif()
-
-function(move_r_add_tool name src outdir)
-  add_executable(${name} "${src}")
-  target_link_libraries(${name} PRIVATE move_r ${ARGN})
-  set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${outdir}")
-  if(MOVE_R_ENABLE_LTO AND MOVE_R_IPO_SUPPORTED)
-    set_target_properties(${name} PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
-  endif()
-  foreach(_dll ${MOVE_R_WIN_RUNTIME_DLLS})
-    add_custom_command(TARGET ${name} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" "${outdir}")
+  foreach(part IN LISTS move_r_instantiation_parts)
+    string(TOLOWER "move_r_instantiations_${part}" part_target)
+    add_library(${part_target} OBJECT src/instantiations.cpp)
+    target_compile_definitions(${part_target} PRIVATE MOVE_R_INSTANTIATION_PART_${part})
+    target_include_directories(${part_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include/")
+    target_link_libraries(${part_target} PRIVATE string_utils libsais libsais40 gtl emhash move_data_structure
+      rlz_ref sparse_map pfp_rlbwt)
+    list(APPEND move_r_instantiation_objects $<TARGET_OBJECTS:${part_target}>)
   endforeach()
+
+  add_library(move_r_instantiations STATIC ${move_r_instantiation_objects})
+  target_link_libraries(move_r_instantiations PRIVATE string_utils move_data_structure rlz_ref sparse_map
+    move_r_pfp_integer pfp_rlbwt)
+  target_link_libraries(move_r INTERFACE move_r_instantiations)
+endif()
+
+# adds an executable (see string_utils_add_executable) that is linked against move_r and the libraries in ARGN
+function(move_r_add_tool name src outdir)
+  string_utils_add_executable(${name} "${src}" "${outdir}" move_r ${ARGN})
 endfunction()
 
 ############################# move-r cli #############################
 
+# a command-line tool whose modes are implemented in translation units in cli/<dir>/ that are compiled in parallel
+# (see cli/<dir>/modes.hpp)
+function(move_r_add_cli name dir)
+  list(TRANSFORM ARGN PREPEND "cli/${dir}/" OUTPUT_VARIABLE sources)
+  list(TRANSFORM sources APPEND ".cpp")
+  move_r_add_tool(${name} "${sources}" "${CMAKE_BINARY_DIR}/cli/")
+endfunction()
+
 if(MOVE_R_BUILD_MOVE_R_CLI)
-  foreach(tool move-r-build move-r-revert move-r-count move-r-locate move-r-query)
-    move_r_add_tool(${tool} cli/move-r/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
-  endforeach()
+  move_r_add_cli(move-r move-r main build query revert extract info)
 endif()
 
 if(MOVE_R_BUILD_MOVE_RB_CLI)
-  foreach(tool move-rb-build move-rb-revert move-rb-count move-rb-locate move-rb-query)
-    move_r_add_tool(${tool} cli/move-rb/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
-  endforeach()
+  move_r_add_cli(move-rb move-rb main build query revert extract info)
 endif()
 
-if(MOVE_R_BUILD_MOVE_R_CLI OR MOVE_R_BUILD_MOVE_RB_CLI)
+if(MOVE_R_BUILD_TOOLS_CLI)
   move_r_add_tool(gen-patterns cli/tools/gen-patterns.cpp "${CMAKE_BINARY_DIR}/cli/")
+  move_r_add_tool(gen-repetitive cli/tools/gen-repetitive.cpp "${CMAKE_BINARY_DIR}/cli/")
+  move_r_add_tool(fasta-to-text cli/tools/fasta-to-text.cpp "${CMAKE_BINARY_DIR}/cli/")
   move_r_add_tool(print-data-structures cli/tools/print-data-structures.cpp "${CMAKE_BINARY_DIR}/cli/")
+  # compiled without optimization
+  target_compile_options(print-data-structures PRIVATE -O0)
 endif()
 
-if(MOVE_R_BUILD_LZENDSA_CLI)
-  foreach(tool lzendsa-build lzendsa-convert lzendsa-count lzendsa-locate lzendsa-random-access
-               r-index-lzendsa-build r-index-lzendsa-count r-index-lzendsa-locate)
-    move_r_add_tool(${tool} cli/lzendsa/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
-  endforeach()
+############################# internal benchmarks #############################
+
+if(MOVE_R_BUILD_MOVE_R_BENCH)
+  move_r_add_tool(move-r-bench-ops bench/move-r-bench-ops/move-r-bench-ops.cpp
+    "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
-if(MOVE_R_BUILD_RLZSA_CLI)
-  foreach(tool rlzsa-build rlzsa-convert rlzsa-count rlzsa-locate rlzsa-random-access
-               r-index-rlzsa-build r-index-rlzsa-count r-index-rlzsa-locate)
-    move_r_add_tool(${tool} cli/rlzsa/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/")
-  endforeach()
-endif()
-
-############################# move-r examples #############################
-
-if(MOVE_R_BUILD_EXAMPLES)
-  foreach(ex move-data-structure move-r-queries move-r-retrieval move-r-store-load move-rb-queries)
-    move_r_add_tool(example-${ex} examples/${ex}.cpp "${CMAKE_BINARY_DIR}/examples/")
-  endforeach()
+if(MOVE_R_BUILD_MOVE_RB_BENCH)
+  move_r_add_tool(move-rb-bench-ops bench/move-rb-bench-ops/move-rb-bench-ops.cpp
+    "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
 ############################# move-r benchmark cli #############################
 
-if(MOVE_R_BUILD_MOVE_R_BENCH)
+if(MOVE_R_BUILD_MOVE_R_BENCH AND move_r_external_benches)
   # rcomp
   add_library(rcomp INTERFACE)
-  target_include_directories(rcomp INTERFACE "${CMAKE_SOURCE_DIR}/external/rcomp/include/")
+  target_include_directories(rcomp INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/external/rcomp/include/")
 
   # r-index-f
   add_library(r-index-f INTERFACE)
   target_include_directories(r-index-f INTERFACE
-    "${CMAKE_SOURCE_DIR}/external/r-index-f/include/common/"
-    "${CMAKE_SOURCE_DIR}/external/r-index-f/include/r_index_f/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/r-index-f/include/common/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/r-index-f/include/r_index_f/"
   )
   target_link_libraries(r-index-f INTERFACE sdsl)
-  add_executable(pfp-thresholds "${CMAKE_SOURCE_DIR}/external/pfp-thresholds/test/src/pfp_thresholds.cpp")
-  target_sources(pfp-thresholds PRIVATE "${CMAKE_SOURCE_DIR}/external/gsa-is/gsacak.c")
+  add_executable(pfp-thresholds "${CMAKE_CURRENT_SOURCE_DIR}/external/pfp-thresholds/test/src/pfp_thresholds.cpp")
+  target_sources(pfp-thresholds PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/gsa-is/gsacak.c")
   target_include_directories(pfp-thresholds PRIVATE
-    "${CMAKE_SOURCE_DIR}/external/pfp-thresholds/include/common/"
-    "${CMAKE_SOURCE_DIR}/external/pfp-thresholds/include/pfp/"
-    "${CMAKE_SOURCE_DIR}/external/gsa-is/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/pfp-thresholds/include/common/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/pfp-thresholds/include/pfp/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/gsa-is/"
   )
   target_link_libraries(pfp-thresholds PRIVATE sdsl malloc_count)
   set_target_properties(pfp-thresholds PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/external/pfp-thresholds/")
@@ -308,21 +209,21 @@ if(MOVE_R_BUILD_MOVE_R_BENCH)
   # r-index
   add_library(r-index INTERFACE)
   target_include_directories(r-index INTERFACE
-    "${CMAKE_SOURCE_DIR}/external/r-index/internal/"
-    "${CMAKE_SOURCE_DIR}/external/r-index/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/r-index/internal/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/r-index/"
   )
   target_link_libraries(r-index INTERFACE sdsl divsufsort divsufsort64)
 
   # OnlineRlbwt
   add_library(OnlineRlbwt INTERFACE)
   target_include_directories(OnlineRlbwt INTERFACE
-    "${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/"
-    "${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/module/Basics/"
-    "${CMAKE_SOURCE_DIR}/external/OnlineRlbwt/module/BTree/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/OnlineRlbwt/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/OnlineRlbwt/module/Basics/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/OnlineRlbwt/module/BTree/"
   )
 
   # grlBWT
-  set(GRLBWT_ROOT "${CMAKE_SOURCE_DIR}/external/grlBWT/")
+  set(GRLBWT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/grlBWT/")
   set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
   add_subdirectory("${GRLBWT_ROOT}/external/cdt/")
   add_subdirectory("${GRLBWT_ROOT}/external/bioparsers/")
@@ -332,7 +233,7 @@ if(MOVE_R_BUILD_MOVE_R_BENCH)
     "${GRLBWT_ROOT}/lib/exact_algo/exact_par_phase.cpp"
     "${GRLBWT_ROOT}/lib/opt_algo/opt_ind_phase.cpp"
     "${GRLBWT_ROOT}/lib/opt_algo/opt_par_phase.cpp"
-    "${CMAKE_SOURCE_DIR}/external/malloc_count/malloc_count.c"
+    "${STRING_UTILS_EXTERNAL_DIR}/malloc_count/malloc_count.c"
   )
   target_link_libraries(grlbwt PUBLIC z pthread cdt dl sdsl biopar)
   target_include_directories(grlbwt PUBLIC
@@ -340,7 +241,7 @@ if(MOVE_R_BUILD_MOVE_R_BENCH)
     "${GRLBWT_ROOT}/include/exact_algo/"
     "${GRLBWT_ROOT}/include/opt_algo/"
     "${GRLBWT_ROOT}/external/"
-    "${CMAKE_SOURCE_DIR}/external/malloc_count/"
+    "${STRING_UTILS_EXTERNAL_DIR}/malloc_count/"
   )
   add_executable(grlbwt-cli "${GRLBWT_ROOT}/main.cpp")
   add_executable(grlbwt2rle "${GRLBWT_ROOT}/scripts/grlbwt2rle.cpp")
@@ -356,11 +257,11 @@ if(MOVE_R_BUILD_MOVE_R_BENCH)
     execute_process(COMMAND mkdir "${CMAKE_BINARY_DIR}/external/block_RLBWT/")
   endif()
   execute_process(
-    COMMAND make "${CMAKE_SOURCE_DIR}/external/block_RLBWT/make_alphabet_header"
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/external/block_RLBWT/"
+    COMMAND make "${CMAKE_CURRENT_SOURCE_DIR}/external/block_RLBWT/make_alphabet_header"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/block_RLBWT/"
   )
   execute_process(COMMAND mv
-    "${CMAKE_SOURCE_DIR}/external/block_RLBWT/make_alphabet_header"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/block_RLBWT/make_alphabet_header"
     "${CMAKE_BINARY_DIR}/external/block_RLBWT/make_alphabet_header"
   )
 
@@ -372,8 +273,8 @@ endif()
 
 ############################# move_rb approximate-pattern-matching benchmark #############################
 
-if(MOVE_R_BUILD_MOVE_RB_BENCH)
-  set(columba_src "${CMAKE_SOURCE_DIR}/external/columba/src")
+if(MOVE_R_BUILD_MOVE_RB_BENCH AND move_r_external_benches)
+  set(columba_src "${CMAKE_CURRENT_SOURCE_DIR}/external/columba/src")
   set(MOVE_R_COLUMBA_BITS "both" CACHE STRING "columba index widths to build for the move-rb-bench-* tools: both, 32 or 64")
   set_property(CACHE MOVE_R_COLUMBA_BITS PROPERTY STRINGS both 32 64)
   if(NOT MOVE_R_COLUMBA_BITS MATCHES "^(both|32|64)$")
@@ -398,54 +299,57 @@ if(MOVE_R_BUILD_MOVE_RB_BENCH)
     "${columba_src}/indexinterface.cpp")
 
   set(columba_includes
-    "${columba_src}" "${CMAKE_SOURCE_DIR}/external/fmt/include" "${CMAKE_SOURCE_DIR}/external/parallel-hashmap"
-    "${CMAKE_SOURCE_DIR}/include"
+    "${columba_src}" "${CMAKE_CURRENT_SOURCE_DIR}/external/fmt/include" "${CMAKE_CURRENT_SOURCE_DIR}/external/parallel-hashmap"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "$<TARGET_PROPERTY:string_utils,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:move_data_structure,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:rlz_ref,INTERFACE_INCLUDE_DIRECTORIES>"
+    "$<TARGET_PROPERTY:pfp_rlbwt,INTERFACE_INCLUDE_DIRECTORIES>"
     "$<TARGET_PROPERTY:sdsl,INTERFACE_INCLUDE_DIRECTORIES>"
     "$<TARGET_PROPERTY:gtl,INTERFACE_INCLUDE_DIRECTORIES>"
     "$<TARGET_PROPERTY:sparse_map,INTERFACE_INCLUDE_DIRECTORIES>"
     "$<TARGET_PROPERTY:ips4o,INTERFACE_INCLUDE_DIRECTORIES>"
     "$<TARGET_PROPERTY:ips2ra,INTERFACE_INCLUDE_DIRECTORIES>"
-    "$<TARGET_PROPERTY:unordered_dense,INTERFACE_INCLUDE_DIRECTORIES>"
-    "$<TARGET_PROPERTY:ordered,INTERFACE_INCLUDE_DIRECTORIES>"
     "$<TARGET_PROPERTY:sux,INTERFACE_INCLUDE_DIRECTORIES>"
     "$<TARGET_PROPERTY:emhash,INTERFACE_INCLUDE_DIRECTORIES>"
-    "$<TARGET_PROPERTY:rmq,INTERFACE_INCLUDE_DIRECTORIES>"
     "$<TARGET_PROPERTY:malloc_count,INTERFACE_INCLUDE_DIRECTORIES>")
 
   function(move_r_add_columba_plugin name)
     add_library(${name} SHARED
-      "${CMAKE_SOURCE_DIR}/bench/move-rb-bench/indexes/columba_capi.cpp" ${columba_common_sources} ${ARGN})
-    target_include_directories(${name} PRIVATE ${columba_includes})
+      "${CMAKE_CURRENT_SOURCE_DIR}/bench/move-rb-bench/indexes/columba_capi.cpp" ${columba_common_sources} ${ARGN})
+    target_include_directories(${name} SYSTEM PRIVATE ${columba_includes})
+    target_compile_definitions(${name} PRIVATE "$<TARGET_PROPERTY:string_utils,INTERFACE_COMPILE_DEFINITIONS>")
     target_compile_options(${name} PRIVATE -O3 -fno-fast-math -fno-strict-aliasing)
+    string_utils_silence_warnings(${name})
     target_link_libraries(${name} PRIVATE sdsl)
     set_target_properties(${name} PROPERTIES
       POSITION_INDEPENDENT_CODE ON LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bench/")
   endfunction()
   if(columba_bits_32)
-    move_r_add_columba_plugin(columba_rlc_plugin_32
+    move_r_add_columba_plugin(columba-rlc-plugin-32
       "${columba_src}/bmove/bmove.cpp" "${columba_src}/bmove/moverepr.cpp")
-    target_compile_definitions(columba_rlc_plugin_32 PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY THIRTY_TWO)
-    move_r_add_columba_plugin(columba_fm_plugin_32
+    target_compile_definitions(columba-rlc-plugin-32 PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY THIRTY_TWO)
+    move_r_add_columba_plugin(columba-fm-plugin-32
       "${columba_src}/fmindex/fmindex.cpp")
-    target_compile_definitions(columba_fm_plugin_32 PRIVATE ALPHABET=5 FMT_HEADER_ONLY THIRTY_TWO)
+    target_compile_definitions(columba-fm-plugin-32 PRIVATE ALPHABET=5 FMT_HEADER_ONLY THIRTY_TWO)
   endif()
   if(columba_bits_64)
-    move_r_add_columba_plugin(columba_rlc_plugin_64
+    move_r_add_columba_plugin(columba-rlc-plugin-64
       "${columba_src}/bmove/bmove.cpp" "${columba_src}/bmove/moverepr.cpp")
-    target_compile_definitions(columba_rlc_plugin_64 PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY)
-    move_r_add_columba_plugin(columba_fm_plugin_64
+    target_compile_definitions(columba-rlc-plugin-64 PRIVATE ALPHABET=5 RUN_LENGTH_COMPRESSION PHI_MOVE FMT_HEADER_ONLY)
+    move_r_add_columba_plugin(columba-fm-plugin-64
       "${columba_src}/fmindex/fmindex.cpp")
-    target_compile_definitions(columba_fm_plugin_64 PRIVATE ALPHABET=5 FMT_HEADER_ONLY)
+    target_compile_definitions(columba-fm-plugin-64 PRIVATE ALPHABET=5 FMT_HEADER_ONLY)
   endif()
 
   add_library(br_index INTERFACE)
-  target_include_directories(br_index INTERFACE "${CMAKE_SOURCE_DIR}/external/br-index/src")
+  target_include_directories(br_index INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/external/br-index/src")
   target_link_libraries(br_index INTERFACE sdsl divsufsort divsufsort64)
 
   ############################# index-build CLI tools for the compared indexes #############################
 
   # br-index's own index builder
-  add_executable(bri-build "${CMAKE_SOURCE_DIR}/external/br-index/src/bri-build.cpp")
+  add_executable(bri-build "${CMAKE_CURRENT_SOURCE_DIR}/external/br-index/src/bri-build.cpp")
   target_link_libraries(bri-build PRIVATE br_index malloc_count)
   set_target_properties(bri-build PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
 
@@ -453,7 +357,7 @@ if(MOVE_R_BUILD_MOVE_RB_BENCH)
     "${columba_src}/buildindex.cpp" "${columba_src}/logger.cpp"
     "${columba_src}/parameters/buildparameters.cpp" "${columba_src}/seqfile.cpp")
 
-  set(columba_bigbwt_dir "${CMAKE_SOURCE_DIR}/external/columba/external/Big-BWT")
+  set(columba_bigbwt_dir "${CMAKE_CURRENT_SOURCE_DIR}/external/columba/external/Big-BWT")
   set(COLUMBA_BIGBWT_USABLE FALSE)
   if(EXISTS "${columba_bigbwt_dir}/utils.h")
     set(COLUMBA_BIGBWT_USABLE TRUE)
@@ -463,7 +367,9 @@ if(MOVE_R_BUILD_MOVE_RB_BENCH)
 
   function(move_r_add_columba_build name rlc bits)
     add_executable(${name} ${columba_build_sources})
-    target_include_directories(${name} PRIVATE ${columba_includes})
+    target_include_directories(${name} SYSTEM PRIVATE ${columba_includes})
+    target_compile_definitions(${name} PRIVATE "$<TARGET_PROPERTY:string_utils,INTERFACE_COMPILE_DEFINITIONS>")
+    string_utils_silence_warnings(${name})
     target_compile_definitions(${name} PRIVATE ALPHABET=5 FMT_HEADER_ONLY HAVE_ZLIB)
     if(rlc)
       target_sources(${name} PRIVATE "${columba_src}/util.cpp" "${columba_src}/bmove/moverepr.cpp")
@@ -502,7 +408,7 @@ if(MOVE_R_BUILD_MOVE_RB_BENCH)
     if(NOT v64)
       set(v64 "${v32}")
     endif()
-    add_executable(${name} "${CMAKE_SOURCE_DIR}/cli/tools/columba-build-dispatch.cpp")
+    add_executable(${name} "${CMAKE_CURRENT_SOURCE_DIR}/bench/move-rb-bench/indexes/columba-build-dispatch.cpp")
     target_compile_definitions(${name} PRIVATE
       COLUMBA_BUILD_32="columba-internal/${v32}" COLUMBA_BUILD_64="columba-internal/${v64}")
     set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/cli/")
@@ -530,16 +436,41 @@ if(MOVE_R_BUILD_MOVE_RB_BENCH)
 
   set(columba_plugins "")
   if(columba_bits_32)
-    list(APPEND columba_plugins columba_rlc_plugin_32 columba_fm_plugin_32)
+    list(APPEND columba_plugins columba-rlc-plugin-32 columba-fm-plugin-32)
   endif()
   if(columba_bits_64)
-    list(APPEND columba_plugins columba_rlc_plugin_64 columba_fm_plugin_64)
+    list(APPEND columba_plugins columba-rlc-plugin-64 columba-fm-plugin-64)
+  endif()
+
+  ############################# sassy (online approximate matching) #############################
+  # sassy (external/sassy) is a Rust library; cargo builds its C interface
+  # (bench/move-rb-bench/indexes/sassy-capi) into bench/libsassy_capi.so, which move-rb-bench-apm loads.
+  # It is only built if cargo and external/sassy exist.
+  find_program(MOVE_R_CARGO cargo HINTS "$ENV{HOME}/.cargo/bin")
+  set(sassy_capi_dir "${CMAKE_CURRENT_SOURCE_DIR}/bench/move-rb-bench/indexes/sassy-capi")
+  if(MOVE_R_CARGO AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/sassy/Cargo.toml")
+    set(sassy_capi_so "${CMAKE_BINARY_DIR}/bench/libsassy_capi.so")
+    # sassy requires AVX2 or NEON at compile time (target-cpu=native)
+    add_custom_command(OUTPUT "${sassy_capi_so}"
+      COMMAND "${CMAKE_COMMAND}" -E env RUSTFLAGS=-Ctarget-cpu=native
+              "${MOVE_R_CARGO}" build --release --manifest-path "${sassy_capi_dir}/Cargo.toml"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${sassy_capi_dir}/target/release/libsassy_capi.so" "${sassy_capi_so}"
+      DEPENDS "${sassy_capi_dir}/src/lib.rs" "${sassy_capi_dir}/Cargo.toml"
+      COMMENT "Building sassy and its C ABI (cargo)" VERBATIM)
+    add_custom_target(sassy-capi DEPENDS "${sassy_capi_so}")
+  else()
+    message(STATUS "sassy is not built (needs cargo and a checkout of external/sassy); "
+                   "move-rb-bench-apm's --sassy will be unavailable")
   endif()
 
   move_r_add_tool(move-rb-bench-apm bench/move-rb-bench/move-rb-bench-apm.cpp
     "${CMAKE_BINARY_DIR}/bench/" br_index ${CMAKE_DL_LIBS})
   target_link_options(move-rb-bench-apm PRIVATE -rdynamic)
   add_dependencies(move-rb-bench-apm ${columba_plugins})
+  if(TARGET sassy-capi)
+    add_dependencies(move-rb-bench-apm sassy-capi)
+  endif()
   move_r_add_tool(move-rb-gen-apm-queries bench/move-rb-bench/move-rb-gen-apm-queries.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 
@@ -554,16 +485,30 @@ endif()
 ############################# move-r tests #############################
 
 if(MOVE_R_BUILD_TESTS)
-  add_subdirectory("${CMAKE_SOURCE_DIR}/external/googletest/")
+  # googletest and the test helpers (test-fuzz.hpp, test-inputs.hpp, test-references.hpp) are provided by string-utils
   include(GoogleTest)
   enable_testing()
+  string_utils_add_components(tests)
 
-  set_target_properties(gtest gtest_main gmock gmock_main
-    PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "")
-
-  foreach(s move-r move-rb move-data-structure data-structures csa-indexes rlzsa-opt edit-distance-matrix)
-    move_r_add_tool("test-${s}" "${CMAKE_SOURCE_DIR}/tests/test-${s}.cpp"
-      "${CMAKE_BINARY_DIR}/tests/" gtest_main)
+  foreach(s move-r move-rb data-structures edit-distance-matrix)
+    move_r_add_tool("test-${s}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-${s}.cpp"
+      "${CMAKE_BINARY_DIR}/tests/" string_utils_test)
     gtest_discover_tests("test-${s}")
   endforeach()
+
+  foreach(s move-r move-rb data-structures edit-distance-matrix)
+    set_target_properties("test-${s}" PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+  endforeach()
 endif()
+
+############################# silence the dependencies #############################
+
+# disable the warnings of the external libraries
+set(move_r_external_targets
+  sparse_map rcomp r-index r-index-f OnlineRlbwt br_index
+  grlbwt pfp-thresholds cdt bioparsers
+  columba-rlc-plugin-32 columba-rlc-plugin-64 columba-fm-plugin-32 columba-fm-plugin-64
+  columba-rlc-build-32 columba-rlc-build-64 columba-build-fm-32 columba-build-fm-64)
+
+string_utils_mark_system(${move_r_external_targets})
+string_utils_silence_warnings(${move_r_external_targets})

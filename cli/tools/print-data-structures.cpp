@@ -24,335 +24,335 @@
  * SOFTWARE.
  */
 
+/**
+ * @file print-data-structures.cpp
+ * @brief the tool print-data-structures: builds a data structure from a small input and prints its contents
+ */
+
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
-#include <fstream>
+#include <iomanip>
 #include <iostream>
-#include <limits>
+#include <iterator>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <lzendsa/lzendsa.hpp>
+#include <omp.h>
+
+#include <misc/cli_help.hpp>
+#include <misc/log_structures.hpp>
+#include <misc/move_r_cli.hpp>
+#include <misc/parse.hpp>
 #include <move_data_structure/move_data_structure.hpp>
 #include <move_r/move_r.hpp>
 #include <move_rb/move_rb.hpp>
-#include <rlzsa/rlzsa.hpp>
 
-std::string structure;                  // the data structure to build
-std::string input;                      // the input (text, or interval sequence for mds)
-bool input_provided = false;            // whether an input was given via -t, -f or stdin
-int64_t n_mds = -1;                     // the universe size n (only for mds)
-int64_t d = -1;                         // sampling parameter delta (rlzsa / lzendsa; -1 => auto)
-int64_t h = 8192;                       // maximum phrase length (lzendsa)
-uint16_t a = 8;                         // balancing parameter (move_r / move_rb / mds)
-uint16_t p = omp_get_max_threads();     // number of threads (move_r / move_rb)
-bool verbose = false;                   // whether to print construction log messages
-move_r_support support = _locate_move;  // the support type (move_r / move_rb)
+namespace {
+
+// the number of significant digits of the printed numbers
+constexpr int printed_significant_digits = 4;
+
+// the data structures of <data_structure>, in the order of the help
+const std::vector<std::string> data_structure_names = { "mds", "sa_rlz", "move-r", "move-rb", "context_tables" };
+
+/** @brief the options of print-data-structures */
+struct print_cli_t {
+    std::string data_structure; // <data_structure> (see data_structure_names)
+    std::string input; // the input: a text, or for mds a disjoint interval sequence (-t, -f or stdin)
+    bool has_input = false; // whether the input was given with -t or -f
+    uint64_t mds_n = 0; // -n: the universe size n of the move data structure (0: not given)
+    uint64_t a = min_balancing_parameter; // -balance: the balancing parameter
+    uint64_t num_threads = omp_get_max_threads(); // -p
+    uint64_t rlz_max_reference_len = move_r_params {}.rlz_max_reference_len; // -rlz-ref
+    move_r_support support = _locate_move; // -s: the support type (move-r and move-rb)
+    uint64_t max_depth = default_logged_tree_depth; // -depth: the depth up to which trees are printed
+    uint64_t max_entries = default_logged_entries; // -entries: the maximum number of printed entries per table or tree
+    // -context-table: the maximum size of the context tables of move-rb and context_tables as a share of the index
+    double context_table_share = 1;
+    bool context_tables_single_length = false; // -context-table-one-length
+} cli;
 
 /**
- * @brief prints the usage information and exits
- * @param msg an optional error message printed before the usage information
+ * @brief prints the help of print-data-structures
+ * @param out the stream to print to
  */
-void help(std::string msg)
+void print_help(std::ostream& out)
 {
-    if (msg != "") std::cout << msg << std::endl << std::endl;
-    std::cout << "print-data-structures: builds a data structure from a (small) input and prints its contents." << std::endl << std::endl;
-    std::cout << "usage: print-data-structures <structure> [options]" << std::endl << std::endl;
-    std::cout << "   <structure>      the data structure to build; one of:" << std::endl;
-    std::cout << "                      rlzsa      the old rlzsa" << std::endl;
-    std::cout << "                      rlzsa_opt  the new rlzsa (optimized)" << std::endl;
-    std::cout << "                      lzendsa    the lzendsa" << std::endl;
-    std::cout << "                      mds        a move data structure" << std::endl;
-    std::cout << "                      move_r     a move-r index" << std::endl;
-    std::cout << "                      move_rb    a bidirectional move-r index" << std::endl << std::endl;
-    std::cout << "   input (if none of -t/-f is given, the input is read from stdin):" << std::endl;
-    std::cout << "   -t <input>       use <input> as the input; for mds this is a disjoint interval" << std::endl;
-    std::cout << "                    sequence such as \"(0,1),(1,0)\" (any non-digit separators are allowed)" << std::endl;
-    std::cout << "   -f <file>        read the input from <file>" << std::endl << std::endl;
-    std::cout << "   options:" << std::endl;
-    std::cout << "   -s <support>     support type (move_r / move_rb); default: locate_move" << std::endl;
-    std::cout << "                      move_r:  count, locate_one, locate_move, locate_rlzsa" << std::endl;
-    std::cout << "                      move_rb: count, locate_move, locate_rlzsa" << std::endl;
-    std::cout << "   -n <integer>     universe size n (required for mds)" << std::endl;
-    std::cout << "   -a <integer>     balancing parameter, a >= 2 (move_r / move_rb / mds); default: 8" << std::endl;
-    std::cout << "   -d <integer>     sampling parameter delta (rlzsa / lzendsa); default: auto (~10%)" << std::endl;
-    std::cout << "   -h <integer>     maximum phrase length (lzendsa); default: 8192" << std::endl;
-    std::cout << "   -p <integer>     number of threads (move_r / move_rb); default: all" << std::endl;
-    std::cout << "   -v               print construction log messages" << std::endl;
-    exit(msg == "" ? 0 : 1);
+    const print_cli_t defaults;
+    help_printer h(out);
+    h.intro("print-data-structures: builds a data structure from a small input and prints its contents.",
+        "print-data-structures <data_structure> [options]");
+    h.group("arguments");
+    h.option("<data_structure>", "mds | sa_rlz | move-r | move-rb | context_tables",
+        "mds: a move data structure of a disjoint interval sequence\n"
+        "sa_rlz: the RLZ encoding of the differential suffix array SA^d (of move-r -s locate-rlzsa)\n"
+        "move-r, move-rb: a move-r index or a bidirectional move-r index (move-rb: with its context tables)\n"
+        "context_tables: the context tables of a move-rb index");
+    h.group("input");
+    h.option("-t <s>", "a string", "the input; for mds the pairs (p_0, q_0), (p_1, q_1), ... of a disjoint interval "
+        "sequence, e.g. \"(0,1),(1,0)\" (all symbols other than digits separate the integers)");
+    h.option("-f <file>", "a path", "read the input from this file");
+    h.group("data structure");
+    h.option("-s <support>", "count | locate-one | locate-move | locate-rlzsa (default: "
+        + move_r_support_option_name(defaults.support) + "); move-rb: count, locate-move or locate-rlzsa",
+        "the support type (move-r and move-rb)");
+    h.option("-n <n>", "integer >= 1 (required for mds)", "the universe size of the move data structure: its "
+        "intervals partition [0..n-1]");
+    h.option("-balance <a>", "integer >= " + std::to_string(min_balancing_parameter) + " (default: "
+        + std::to_string(defaults.a) + ")", "the balancing parameter of the move data structures");
+    h.option("-rlz-ref <len>", "integer >= 0 (default: " + std::to_string(defaults.rlz_max_reference_len)
+        + ", chosen by the construction)", "sa_rlz: the number of values of SA^d in the reference");
+    h.option("-context-table <share>", "real >= 0 (default: " + help_value(defaults.context_table_share) + ")",
+        "move-rb and context_tables: the maximum size of the context tables as a share of the size of the index");
+    h.option("-context-table-one-length", "", "move-rb and context_tables: store the context tables for one pattern "
+        "length only");
+    h.group("output");
+    h.option("-depth <d>", "integer >= 0 (default: " + std::to_string(defaults.max_depth) + ")",
+        "the depth up to which trees are printed (the roots have depth 0)");
+    h.option("-entries <k>", "integer >= 1 (default: " + std::to_string(defaults.max_entries) + ")",
+        "the maximum number of printed values or nodes per table or tree");
+    h.group("execution");
+    h.option_threads();
+    h.text("Without -t and -f, the input is read from stdin (without a final line break).");
 }
 
 /**
- * @brief parses the support type given with the -s option
- * @param s the support string
+ * @brief returns the non-negative integers of a string in their order; all symbols other than digits separate them
+ * @param str the string
  */
-void parse_support(const std::string& s)
+std::vector<uint64_t> parse_integers(const std::string& str)
 {
-    if      (s == "count")                   support = _count;
-    else if (s == "locate_one")              support = _locate_one;
-    else if (s == "locate_move")             support = _locate_move;
-    else if (s == "locate_rlzsa")            support = _locate_rlzsa;
-    else help("error: unknown support '" + s + "' provided with -s");
-}
-
-/**
- * @brief parses a disjoint interval sequence from str by extracting every non-negative integer and
- *        grouping the integers into consecutive pairs (p_0, q_0), (p_1, q_1), ...
- * @tparam pos_t the index integer type
- * @param str the string to parse
- * @return the disjoint interval sequence
- */
-template <typename pos_t>
-std::vector<std::pair<pos_t, pos_t>> parse_intervals(const std::string& str)
-{
-    std::vector<pos_t> values;
+    std::vector<uint64_t> values;
+    constexpr uint64_t decimal_base = 10;
     uint64_t i = 0;
 
     while (i < str.size()) {
         if (std::isdigit((uint8_t) str[i])) {
             uint64_t value = 0;
+
             while (i < str.size() && std::isdigit((uint8_t) str[i])) {
-                value = value * 10 + (str[i] - '0');
+                value = value * decimal_base + (str[i] - '0');
                 i++;
             }
-            values.push_back((pos_t) value);
+
+            values.push_back(value);
         } else {
             i++;
         }
     }
 
+    return values;
+}
+
+/**
+ * @brief parses a disjoint interval sequence: groups the integers of str (see parse_integers) into consecutive pairs
+ *        (p_0, q_0), (p_1, q_1), ...
+ * @param str the string to parse
+ * @return the pairs (p_i, q_i)
+ * @throws std::runtime_error if the number of integers is odd
+ */
+std::vector<std::pair<uint64_t, uint64_t>> parse_intervals(const std::string& str)
+{
+    // the integers of str in their order (p_0, q_0, p_1, q_1, ...)
+    const std::vector<uint64_t> values = parse_integers(str);
+
     if (values.size() % 2 != 0)
-        help("error: the interval sequence must contain an even number of integers (p, q pairs)");
+        throw std::runtime_error("the interval sequence must contain an even number of integers (pairs (p_i, q_i))");
 
-    std::vector<std::pair<pos_t, pos_t>> intervals;
+    std::vector<std::pair<uint64_t, uint64_t>> intervals;
     intervals.reserve(values.size() / 2);
-    for (uint64_t j = 0; j + 1 < values.size(); j += 2)
-        intervals.push_back({ values[j], values[j + 1] });
-
+    for (uint64_t j = 0; j + 1 < values.size(); j += 2) intervals.emplace_back(values[j], values[j + 1]);
     return intervals;
 }
 
 /**
- * @brief builds the old rlzsa from the input text and prints its contents (the decoded suffix array)
- * @tparam int_t the rlzsa integer type
+ * @brief reads the value of an option as a decimal number >= 0 (see parse_double)
+ * @param args the arguments, positioned after the option
+ * @param option the option (for the error message)
  */
-template <typename int_t>
-void build_rlzsa()
+double read_share(cli_arguments& args, const std::string& option)
 {
-    rlzsa<int_t> index(input, d, false, verbose);
-    uint64_t n = index.input_size();
-
-    std::cout << std::endl << "n = " << n << ", z = " << index.num_phrases()
-        << ", size = " << format_size(index.size_in_bytes()) << std::endl;
-    std::cout << "(the old rlzsa has no contents-logging facility; printing the decoded suffix array)" << std::endl;
-
-    log_indexed("SA:", index.template sa_values<uint64_t>(0, n - 1));
+    double value = 0;
+    if (!parse_double(args.value(option), value) || !(value >= 0)) throw usage_error(option + " expects a number >= 0");
+    return value;
 }
 
-/**
- * @brief builds the new rlzsa_opt (via a move_r<_locate_rlzsa> index) from the input text and prints
- *        its contents and data-structure sizes
- * @tparam pos_t the index integer type
- */
-template <typename pos_t>
-void build_rlzsa_opt()
+// the construction parameters of the indexes
+move_r_params index_params()
 {
-    move_r<_locate_rlzsa, char, pos_t> index(input, { .num_threads = p, .a = a, .log = verbose });
-
-    std::cout << "n = " << index.input_size()
-        << ", z = " << index.num_phrases_rlzsa() << std::endl << std::endl;
-    index.rlzsa().log_data_structures();
+    return { .num_threads = cli.num_threads, .a = cli.a, .rlz_max_reference_len = cli.rlz_max_reference_len };
 }
 
-/**
- * @brief builds the lzendsa from the input text and prints its contents and data-structure sizes
- * @tparam int_t the lzendsa integer type
- */
-template <typename int_t>
-void build_lzendsa()
-{
-    lzendsa<int_t> index(input, d, h, false, verbose);
+// prints a line "<name> = <value>"
+void print_fact(const std::string& name, uint64_t value) { std::cout << name << " = " << value << std::endl; }
 
-    std::cout << "n = " << index.input_size() << ", z = " << index.num_phrases()
-        << ", h = " << h << ", size = " << format_size(index.size_in_bytes()) << std::endl << std::endl;
-    index.sa_encoding().log_data_structures();
+// builds a move_r<_locate_rlzsa> of the input and prints the RLZ encoding of SA^d
+void print_sa_rlz()
+{
+    move_r<_locate_rlzsa> index(cli.input, index_params());
+    print_fact("n", index.input_size() + 1);
+    index.SA_rlz().log_data_structures();
 }
 
-/**
- * @brief builds a move data structure from the parsed interval sequence and prints its contents
- * @tparam pos_t the index integer type
- */
-template <typename pos_t>
-void build_mds()
+// builds a move data structure of the interval sequence of the input and prints it
+void print_mds()
 {
-    std::vector<std::pair<pos_t, pos_t>> intervals = parse_intervals<pos_t>(input);
+    const std::vector<std::pair<uint64_t, uint64_t>> intervals = parse_intervals(cli.input);
+    if (intervals.empty()) throw std::runtime_error("the interval sequence is empty");
+    if (cli.mds_n == 0) throw usage_error("mds requires -n <n>");
+    uint64_t max_value = cli.mds_n;
+    for (const auto& [p_i, q_i] : intervals) max_value = std::max({ max_value, p_i, q_i });
+    mds_pairs pairs(intervals.size(), max_value);
 
-    if (intervals.empty()) help("error: the interval sequence is empty");
-    if (n_mds < 0) help("error: <n> (the universe size) is required for mds; provide it with -n");
+    for (uint64_t i = 0; i < intervals.size(); i++) {
+        pairs.set<0>(i, intervals[i].first);
+        pairs.set<1>(i, intervals[i].second);
+    }
 
-    move_data_structure<pos_t, POS> mds(std::move(intervals), (pos_t) n_mds,
-        { .num_threads = p, .a = a });
-
-    std::cout << "n = " << n_mds << ", k' = " << mds.num_intervals()
-        << ", a = " << mds.balancing_parameter() << std::endl << std::endl;
+    move_data_structure<POS> mds(std::move(pairs), cli.mds_n, { .num_threads = cli.num_threads, .a = cli.a });
+    print_fact("n", cli.mds_n);
+    print_fact("k'", mds.num_intervals());
+    print_fact("a", mds.balancing_parameter());
+    std::cout << std::endl;
     mds.log_data_structures();
 }
 
 /**
- * @brief builds a move_r index from the input text and prints its contents and data-structure sizes
- * @tparam pos_t the index integer type
- * @tparam supp the move-r support type
+ * @brief builds a move_r of the input and prints its contents
+ * @tparam support the support type
  */
-template <typename pos_t, move_r_support supp>
-void build_move_r()
+template <move_r_support support>
+void print_move_r()
 {
-    move_r<supp, char, pos_t> index(input, { .num_threads = p, .a = a, .log = verbose });
+    move_r<support> index(cli.input, index_params());
     index.log_data_structures();
 }
 
 /**
- * @brief builds a move_rb index from the input text and prints its contents and data-structure sizes
- * @tparam pos_t the index integer type
- * @tparam supp the move-r support type
+ * @brief builds a move_rb of the input and prints its contents
+ * @tparam support the support type
  */
-template <typename pos_t, move_r_support supp>
-void build_move_rb()
+template <move_r_support support>
+void print_move_rb()
 {
-    move_rb<supp, char, pos_t> index(input, { .num_threads = p, .a = a, .log = verbose });
+    move_r_params params = index_params();
+    params.context_table_share = cli.context_table_share;
+    params.context_tables_single_length = cli.context_tables_single_length;
+    move_rb<support> index(cli.input, params);
+
+    if (cli.data_structure == "context_tables") {
+        index.log_context_tables(cli.max_depth, cli.max_entries);
+        return;
+    }
+
     index.log_data_structures();
+    std::cout << std::endl << "context tables:" << std::endl;
+    index.log_context_tables(cli.max_depth, cli.max_entries);
 }
 
-/**
- * @brief dispatches a move_r build to the right (pos_t, support) instantiation
- * @param use_64_bit whether to use 64-bit positions
- */
-void dispatch_move_r(bool use_64_bit)
+// builds a move_r with the support type of -s and prints it
+void dispatch_move_r()
 {
-    auto run = [&]<move_r_support supp>() {
-        if (use_64_bit) build_move_r<uint64_t, supp>();
-        else            build_move_r<uint32_t, supp>();
-    };
+    switch (cli.support) {
+        case _count:        print_move_r<_count>(); break;
+        case _locate_one:   print_move_r<_locate_one>(); break;
+        case _locate_move:  print_move_r<_locate_move>(); break;
+        case _locate_rlzsa: print_move_r<_locate_rlzsa>(); break;
+        default: throw usage_error("move-r supports -s count, locate-one, locate-move and locate-rlzsa");
+    }
+}
 
-    switch (support) {
-        case _count:                   run.template operator()<_count>(); break;
-        case _locate_one:              run.template operator()<_locate_one>(); break;
-        case _locate_move:             run.template operator()<_locate_move>(); break;
-        case _locate_rlzsa:            run.template operator()<_locate_rlzsa>(); break;
-        default:                       help("error: unsupported support type for move_r");
+// builds a move_rb with the support type of -s and prints it
+void dispatch_move_rb()
+{
+    switch (cli.support) {
+        case _count:        print_move_rb<_count>(); break;
+        case _locate_move:  print_move_rb<_locate_move>(); break;
+        case _locate_rlzsa: print_move_rb<_locate_rlzsa>(); break;
+        default: throw usage_error("move-rb supports -s count, locate-move and locate-rlzsa");
     }
 }
 
 /**
- * @brief dispatches a move_rb build to the right (pos_t, support) instantiation; move_rb only
- *        supports count, locate_move and locate_rlzsa
- * @param use_64_bit whether to use 64-bit positions
- */
-void dispatch_move_rb(bool use_64_bit)
-{
-    auto run = [&]<move_r_support supp>() {
-        if (use_64_bit) build_move_rb<uint64_t, supp>();
-        else            build_move_rb<uint32_t, supp>();
-    };
-
-    switch (support) {
-        case _count:        run.template operator()<_count>(); break;
-        case _locate_move:  run.template operator()<_locate_move>(); break;
-        case _locate_rlzsa: run.template operator()<_locate_rlzsa>(); break;
-        default:            help("error: move_rb only supports count, locate_move and locate_rlzsa");
-    }
-}
-
-/**
- * @brief program entry point
+ * @brief reads the arguments into cli
  * @param argc the number of command-line arguments
  * @param argv the command-line arguments
- * @return the exit code
  */
-int main(int argc, char** argv)
+void read_arguments(int argc, char** argv)
 {
-    if (argc < 2) help("");
-    structure = argv[1];
-    if (structure == "-h" || structure == "--help") help("");
+    cli_arguments args(argc, argv);
+    if (args.at_option()) throw usage_error("expected <data_structure> before the options");
+    cli.data_structure = args.next();
 
-    int32_t i = 2;
-    while (i < argc) {
-        std::string s = argv[i++];
-        auto value = [&](const std::string& opt) -> std::string {
-            if (i >= argc) help("error: missing parameter after " + opt);
-            return argv[i++];
-        };
+    while (!args.empty()) {
+        const std::string s = args.next();
 
         if (s == "-t") {
-            input = value("-t");
-            input_provided = true;
+            cli.input = args.value("-t");
+            cli.has_input = true;
         } else if (s == "-f") {
-            std::string path = value("-f");
-            std::ifstream ifs(path);
-            if (!ifs.good()) help("error: cannot open input file '" + path + "'");
-            input = std::string(std::istreambuf_iterator<char>(ifs), {});
-            input_provided = true;
+            const std::string path = args.value("-f");
+            direct_ifstream file(path);
+            require_readable(file, path);
+            cli.input = std::string(std::istreambuf_iterator<char>(file), {});
+            file.close();
+            drop_from_page_cache(path, true);
+            cli.has_input = true;
         } else if (s == "-s") {
-            parse_support(value("-s"));
+            const std::string name = args.value("-s");
+            if (!parse_move_r_support(name, cli.support)) throw usage_error("unknown support type " + name);
         } else if (s == "-n") {
-            n_mds = std::stoll(value("-n"));
-        } else if (s == "-a") {
-            a = std::stoi(value("-a"));
-            if (a < 2) help("error: a < 2");
-        } else if (s == "-d") {
-            d = std::stoll(value("-d"));
-        } else if (s == "-h") {
-            h = std::stoll(value("-h"));
+            cli.mds_n = args.integer("-n", 1);
+        } else if (s == "-balance") {
+            cli.a = args.integer("-balance", min_balancing_parameter);
         } else if (s == "-p") {
-            p = std::stoi(value("-p"));
-            if (p < 1) help("error: p < 1");
-            if (p > omp_get_max_threads()) help("error: p > maximum number of threads");
-        } else if (s == "-v") {
-            verbose = true;
+            cli.num_threads = args.integer("-p", 1, omp_get_max_threads());
+        } else if (s == "-rlz-ref") {
+            cli.rlz_max_reference_len = args.integer("-rlz-ref");
+        } else if (s == "-depth") {
+            cli.max_depth = args.integer("-depth");
+        } else if (s == "-entries") {
+            cli.max_entries = args.integer("-entries", 1);
+        } else if (s == "-context-table") {
+            cli.context_table_share = read_share(args, "-context-table");
+        } else if (s == "-context-table-one-length") {
+            cli.context_tables_single_length = true;
         } else {
-            help("error: unrecognized option '" + s + "'");
+            throw unknown_option(s);
         }
     }
 
-    // if no input was provided via -t or -f, read it from stdin
-    if (!input_provided) {
-        input = std::string(std::istreambuf_iterator<char>(std::cin), {});
-        // strip a single trailing newline that interactive input usually adds
-        if (!input.empty() && input.back() == '\n') input.pop_back();
-    }
+    const std::string& name = cli.data_structure;
+    if (std::find(data_structure_names.begin(), data_structure_names.end(), name) == data_structure_names.end())
+        throw usage_error("unknown data structure " + name);
+}
 
-    std::cout << std::setprecision(4);
+} // namespace
 
-    if (structure == "mds") {
-        bool use_64_bit = n_mds >= UINT_MAX;
-        if (use_64_bit) build_mds<uint64_t>();
-        else            build_mds<uint32_t>();
-        return 0;
-    }
+int main(int argc, char** argv)
+{
+    return run_cli(argc, argv, print_help, [&] {
+        read_arguments(argc, argv);
 
-    if (input.empty()) help("error: the input is empty");
+        if (!cli.has_input) {
+            cli.input = std::string(std::istreambuf_iterator<char>(std::cin), {});
+            if (!cli.input.empty() && cli.input.back() == '\n') cli.input.pop_back();
+        }
 
-    // for small inputs the automatic SA-sampling rate (rlzsa / lzendsa) can round down to 0; for an
-    // inspection tool on small inputs, sampling every SA value (d = 1) is the sensible default
-    if (d < 0 && input.size() < 10000) d = 1;
+        std::cout << std::setprecision(printed_significant_digits);
 
-    if (structure == "rlzsa") {
-        bool use_64_bit = input.size() > INT_MAX;
-        if (use_64_bit) build_rlzsa<int64_t>();
-        else            build_rlzsa<int32_t>();
-    } else if (structure == "lzendsa") {
-        bool use_64_bit = input.size() > INT_MAX;
-        if (use_64_bit) build_lzendsa<int64_t>();
-        else            build_lzendsa<int32_t>();
-    } else if (structure == "rlzsa_opt") {
-        bool use_64_bit = (input.size() + 1) >= UINT_MAX;
-        if (use_64_bit) build_rlzsa_opt<uint64_t>();
-        else            build_rlzsa_opt<uint32_t>();
-    } else if (structure == "move_r") {
-        dispatch_move_r((input.size() + 1) >= UINT_MAX);
-    } else if (structure == "move_rb") {
-        dispatch_move_rb((input.size() + 1) >= UINT_MAX);
-    } else {
-        help("error: unknown structure '" + structure + "'");
-    }
+        if (cli.data_structure == "mds") {
+            print_mds();
+            return;
+        }
 
-    return 0;
+        if (cli.input.empty()) throw std::runtime_error("the input is empty");
+        const std::string& name = cli.data_structure;
+        if (name == "sa_rlz") print_sa_rlz();
+        else if (name == "move-r") dispatch_move_r();
+        else dispatch_move_rb();
+    });
 }

@@ -30,47 +30,78 @@
 
 #include <gtest/gtest.h>
 
-#include <misc/directional_substring.hpp>
-#include <misc/edit_distance_matrix.hpp>
+#include <data_structures/edit_distance_matrix.hpp>
 #include <misc/apm.hpp>
-#include <misc/strings.hpp>
+#include "test-inputs.hpp"
+#include "test-patterns.hpp"
 #include <misc/utils.hpp>
 #include <misc/log.hpp>
-#include "test-progress.hpp"
+#include "test-fuzz.hpp"
+#include "test-parameters.hpp"
 
-// thread-local so run_fuzz can validate independent instances concurrently across the threads
-thread_local std::mt19937 gen(std::random_device{}());
-uint64_t min_input_size = 1;
-uint64_t max_input_size = 80000;
-
+// one generator per thread (run_fuzz runs parallel functionalities on all threads)
+thread_local std::mt19937 gen(test_seed() + omp_get_thread_num());
 thread_local std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
 
+// the random inputs have a length in [min_input_size, max_input_size]; max_input_size is calibrated by run_fuzz to its
+// time budget, down to min_fuzz_input_size
+uint64_t min_input_size = 1;
+uint64_t max_input_size = 80000;
+constexpr uint64_t min_fuzz_input_size = 2000;
+
+// number of random inputs of each fuzz test (see fuzz_iterations)
+constexpr uint64_t num_iterations_matrix = 320000;
+constexpr uint64_t num_iterations_distance = 320000;
+constexpr uint64_t num_iterations_locate = 430;
+
+// the two largest symbol values do not occur in the random inputs: the ranks 1..sigma of the alphabet map stay below
+// uint8_t(-1), which edit_distance_matrix reserves for a symbol that does not occur in the pattern, next to rank 0
+constexpr uint64_t num_excluded_symbols = 2;
+
+// verify_edit_distance_matrix: the pattern and the text have a length of at most matrix_length_per_error times the
+// largest number of errors the matrix supports; the text is a mutated copy of the pattern with probability
+// prob_text_from_pattern
+constexpr uint64_t matrix_length_per_error = 2;
+constexpr double prob_text_from_pattern = 0.75;
+// verify_edit_dist_bounded_and_cigar: P and T are empty with probability prob_empty each; otherwise P is a mutated
+// substring of length at most bounded_max_length, and T is a mutated copy of P with probability prob_copy, else a
+// mutated substring
+constexpr uint64_t bounded_max_length = 40;
+constexpr double prob_empty = 0.05;
+constexpr double prob_copy = 0.5;
+// verify_locate_edit_dist: k is drawn from [0, locate_max_errors] and is at most |P| / pattern_length_per_error for a
+// pattern of length at most locate_max_pattern_length
+constexpr uint64_t locate_max_errors = 6;
+constexpr uint64_t pattern_length_per_error = 3;
+constexpr uint64_t locate_max_pattern_length = 20;
+// TEST(test_edit_distance_matrix, matrix) checks the 64-bit matrix with probability prob_64_bit_matrix, else the
+// 128-bit one
+constexpr double prob_64_bit_matrix = 0.5;
+
 /**
- * @brief computes the edit (Levenshtein) distance of two sequences using a full (unbanded) dynamic-programming
- *        matrix -- the independent scalar reference all bit-parallel routines are verified against
- * @tparam pos_t unsigned integer type for the distance
+ * @brief returns the edit distance of T and P (full DP matrix)
  * @tparam inp_t contiguous range type of the sequences
  * @param T the first sequence
  * @param P the second sequence
- * @return the edit distance of T and P
  */
-template <typename pos_t, std::ranges::contiguous_range inp_t>
-static pos_t edit_dist(const inp_t& T, const inp_t& P)
+template <std::ranges::contiguous_range inp_t>
+static uint64_t reference_edit_distance(const inp_t& T, const inp_t& P)
 {
-    pos_t n = T.size();
-    pos_t m = P.size();
+    uint64_t n = T.size();
+    uint64_t m = P.size();
 
-    std::vector<std::vector<pos_t>> dist(n + 1, std::vector<pos_t>(m + 1));
+    // [0..n][0..m] dist[i][j] = edit distance of T[0..i-1] and P[0..j-1]
+    std::vector<std::vector<uint64_t>> dist(n + 1, std::vector<uint64_t>(m + 1));
 
-    for (pos_t i = 0; i <= n; i++) dist[i][0] = i;
-    for (pos_t j = 0; j <= m; j++) dist[0][j] = j;
+    for (uint64_t i = 0; i <= n; i++) dist[i][0] = i;
+    for (uint64_t j = 0; j <= m; j++) dist[0][j] = j;
 
-    for (pos_t i = 1; i <= n; i++) {
+    for (uint64_t i = 1; i <= n; i++) {
         auto c1 = T[i - 1];
 
-        for (pos_t j = 1; j <= m; j++) {
+        for (uint64_t j = 1; j <= m; j++) {
             auto c2 = P[j - 1];
-            pos_t cost = c1 != c2;
+            uint64_t cost = c1 != c2;
 
             dist[i][j] = std::min({
                 dist[i - 1][j] + 1,        // delete
@@ -84,39 +115,36 @@ static pos_t edit_dist(const inp_t& T, const inp_t& P)
 }
 
 /**
- * @brief computes the effective byte alphabet of input: its size and the byte -> one-based rank map (with the
- * ranks ordered by unsigned byte value, matching how move_r orders a byte alphabet)
+ * @brief returns sigma and alph_map, where alph_map[c] is the rank of byte c among the distinct bytes of input
+ *        (1-based, in increasing order of the unsigned byte values), or 0 if c does not occur
  * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
  * @param input the input sequence
- * @return the pair (alphabet size, byte -> one-based rank map)
  */
 template <typename inp_t>
-static std::pair<uint16_t, std::vector<uint8_t>> effective_alphabet(const inp_t& input)
+static std::pair<uint16_t, std::vector<uint8_t>> compute_alphabet_map(const inp_t& input)
 {
-    std::vector<uint8_t> alph_map(256, 0);
+    std::vector<uint8_t> alph_map(byte_alphabet_size, 0);
 
     for (uint64_t i = 0; i < input.size(); i++)
-        alph_map[sym_to_uchar(input[i])] = 1;
+        alph_map[std::bit_cast<uint8_t>(input[i])] = 1;
 
     uint16_t sigma = 0;
 
-    for (uint16_t c = 0; c < 256; c++)
+    for (uint16_t c = 0; c < byte_alphabet_size; c++)
         if (alph_map[c] != 0) alph_map[c] = ++sigma;
 
     return { sigma, std::move(alph_map) };
 }
 
 /**
- * @brief draws a random substring of input (of length at most max_length before mutation) and optionally
- * applies random edits to it, drawing the replacement symbols from input (so the result stays within
- * input's effective alphabet)
+ * @brief returns a random substring of input of length at most max_length, with random edits (see apply_random_edits)
+ *        if mutate is true
  * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
  * @tparam gen_t random number generator type
  * @param input the input sequence to draw the substring from
- * @param max_length the maximum length of the drawn (pre-mutation) substring
- * @param mutate whether to apply random edits to the drawn substring
+ * @param max_length the maximum length of the substring before the edits
+ * @param mutate whether to apply random edits to the substring
  * @param gen random number generator
- * @return the (possibly mutated) substring
  */
 template <typename inp_t, typename gen_t>
 static inp_t random_substring(const inp_t& input, uint64_t max_length, bool mutate, gen_t& gen)
@@ -128,102 +156,94 @@ static inp_t random_substring(const inp_t& input, uint64_t max_length, bool muta
     uint64_t length = std::min<uint64_t>(input.size() - pos, length_distrib(gen));
     inp_t substring(input.begin() + pos, input.begin() + pos + length);
 
-    if (mutate) mutate_pattern<uint64_t>(substring, input, gen);
+    if (mutate) apply_random_edits(substring, input, gen);
     return substring;
 }
 
 /**
- * @brief builds an edit_distance_matrix over a pattern drawn from input, feeds it a mutated copy of the
- *        pattern (or an unrelated substring) as the query, and verifies that every final-column cell's edit
- *        distance (when within the error budget) matches the unbanded reference; the alphabet map covers all of
- *        input (as an index' map_int does), so every pattern and query symbol has a rank
+ * @brief checks every cell of the last column of an edit_distance_matrix with value <= k against
+ *        reference_edit_distance; the pattern is a mutated substring of input, the text a mutated copy of the pattern
+ *        or of another substring
  * @tparam word_t the matrix word type (uint64_t or uint128_t)
  * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
  * @tparam gen_t random number generator type
- * @param input the input sequence to draw the pattern and query from
+ * @param input the input sequence to draw the pattern and the text from
  * @param gen random number generator
  */
 template <typename word_t, typename inp_t, typename gen_t>
 static void verify_edit_distance_matrix(const inp_t& input, gen_t& gen)
 {
     using matrix_t = edit_distance_matrix<word_t>;
-    constexpr uint16_t k_limit = matrix_t::k_limit;
+    constexpr uint16_t max_supported_errors = matrix_t::max_supported_errors;
 
-    auto [sigma, alph_map] = effective_alphabet(input);
-    std::uniform_int_distribution<int32_t> k_distrib(0, k_limit);
+    auto [sigma, alph_map] = compute_alphabet_map(input);
+    std::uniform_int_distribution<int32_t> k_distrib(0, max_supported_errors);
     uint16_t k = k_distrib(gen);
 
-    inp_t pat = random_substring(input, 2 * k_limit, true, gen);
-    int32_t plen = pat.size();
+    inp_t P = random_substring(input, matrix_length_per_error * max_supported_errors, true, gen);
+    int32_t m = P.size();
 
-    // the query text is a further-mutated copy of the pattern most of the time (so that, even over the
-    // exhaustive alphabet, many band cells stay within the error budget) and an unrelated substring otherwise
-    inp_t text = prob_distrib(gen) < 0.75 ? pat : random_substring(input, 2 * k_limit, false, gen);
-    mutate_pattern<uint64_t>(text, input, gen);
-    int32_t tlen = text.size();
+    inp_t T = prob_distrib(gen) < prob_text_from_pattern ? P
+        : random_substring(input, matrix_length_per_error * max_supported_errors, false, gen);
+    apply_random_edits(T, input, gen);
+    int32_t n = T.size();
 
     matrix_t M;
-    directional_substring<uint32_t, inp_t> pat_col(pat, 0, plen - 1, RIGHT);
-    M.set_input(pat_col, sigma, alph_map);
+    directional_substring<inp_t> pattern_view(P, 0, m - 1, RIGHT);
+    M.set_input(pattern_view, sigma, alph_map);
     M.init(k);
-    for (int32_t i = 1; i <= tlen && i < M.num_rows(); i++)
-        M.compute_row(i, text[i - 1]);
+    for (int32_t i = 1; i <= n && i < M.num_rows(); i++)
+        M.compute_row(i, T[i - 1]);
 
-    for (uint16_t i = 0; i < M.num_rows() && i <= tlen; i++) {
+    for (uint16_t i = 0; i < M.num_rows() && i <= n; i++) {
         if (!M.is_in_final_column(i)) continue;
-        uint16_t mv = M(i, M.num_cols() - 1);
+        uint16_t value = M(i, M.num_cols() - 1);
 
-        // the matrix value must match the unbanded reference whenever it is within the error budget
-        if (mv <= k) {
-            inp_t prefix(text.begin(), text.begin() + i);
-            EXPECT_EQ(mv, edit_dist<uint16_t>(prefix, pat)) << "matrix value at final column, row " << i
-                << " (plen=" << plen << " tlen=" << tlen << " sigma=" << sigma << " k=" << k << ")";
+        if (value <= k) {
+            inp_t prefix(T.begin(), T.begin() + i);
+            EXPECT_EQ(value, reference_edit_distance(prefix, P)) << "matrix value at final column, row " << i
+                << " (plen=" << m << " tlen=" << n << " sigma=" << sigma << " k=" << k << ")";
         }
     }
 }
 
 /**
- * @brief verifies the bit-parallel edit-distance routines against the unbanded reference over a pair of
- *        strings drawn from input and a random error budget: edit_dist_bounded must equal the clamped unbanded
- *        reference, and (when the distance is within the budget) edit_cigar must report the exact distance and
- *        a CIGAR that validly aligns the two strings with exactly that many edits
+ * @brief checks edit_dist_bounded against reference_edit_distance (capped at k + 1) and, if the distance is at most
+ *        k, that edit_cigar returns the distance and a CIGAR with that many edits, for two random strings P and T and
+ *        a random k
  * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
  * @tparam gen_t random number generator type
  * @param input the input sequence to draw the two strings from
  * @param gen random number generator
  */
 template <typename inp_t, typename gen_t>
-static void verify_edit_dist_routines(const inp_t& input, gen_t& gen)
+static void verify_edit_dist_bounded_and_cigar(const inp_t& input, gen_t& gen)
 {
-    using pos_t = uint32_t;
-    std::uniform_int_distribution<int32_t> k_distrib(0, 20); // spans both matrix word types (k_limit 10 / 20)
+    constexpr uint64_t max_length = bounded_max_length;
+
+    // k is drawn up to the maximum of the larger matrix word type
+    std::uniform_int_distribution<int32_t> k_distrib(0, edit_distance_max_errors_128);
     int32_t k = k_distrib(gen);
 
-    // M starts as a copy of P half the time (so that pairs within the error budget occur frequently) and as
-    // an independent substring otherwise, and is always further mutated; either may be empty (the routines
-    // must handle empty sequences)
-    inp_t P = prob_distrib(gen) < 0.05 ? inp_t() : random_substring(input, 40, true, gen);
-    inp_t M = prob_distrib(gen) < 0.05 ? inp_t() : (prob_distrib(gen) < 0.5 ? P : random_substring(input, 40, false, gen));
-    mutate_pattern<uint64_t>(M, input, gen);
-    int32_t n1 = P.size(), n2 = M.size();
+    inp_t P = prob_distrib(gen) < prob_empty ? inp_t() : random_substring(input, max_length, true, gen);
+    inp_t T = prob_distrib(gen) < prob_empty ? inp_t() : (prob_distrib(gen) < prob_copy ? P : random_substring(input, max_length, false, gen));
+    apply_random_edits(T, input, gen);
+    int32_t len_P = P.size(), len_T = T.size();
 
-    // the bit-parallel bounded distance must match the clamped unbanded reference
-    int64_t bp = edit_dist_bounded<pos_t>(P, M, k);
-    int64_t full = std::min<int64_t>(edit_dist<pos_t>(P, M), k + 1);
-    EXPECT_EQ(bp, full) << "n1=" << n1 << " n2=" << n2 << " k=" << k;
+    int64_t dist = edit_dist_bounded(P, T, k);
+    int64_t dist_ref = std::min<int64_t>(reference_edit_distance(P, T), k + 1);
+    EXPECT_EQ(dist, dist_ref) << "len_P=" << len_P << " len_T=" << len_T << " k=" << k;
 
-    // within the budget, edit_cigar reports the exact distance and a CIGAR that validly aligns P against M
-    if (bp <= k && n1 > 0 && n2 > 0) {
-        auto [err, cigar] = edit_cigar<pos_t>(P, n1, M, n2, k);
-        EXPECT_EQ(int64_t(err), bp) << "n1=" << n1 << " n2=" << n2 << " k=" << k;
-        EXPECT_EQ(num_cigar_edits(P.data(), n1, M.data(), n2, cigar), int64_t(err))
-            << "n1=" << n1 << " n2=" << n2 << " k=" << k;
+    if (dist <= k && len_P > 0 && len_T > 0) {
+        auto [err, cigar] = edit_cigar(P, len_P, T, len_T, k);
+        EXPECT_EQ(int64_t(err), dist) << "len_P=" << len_P << " len_T=" << len_T << " k=" << k;
+        EXPECT_EQ(num_cigar_edits(P.data(), len_P, T.data(), len_T, cigar), int64_t(err))
+            << "len_P=" << len_P << " len_T=" << len_T << " k=" << k;
     }
 }
 
 /**
- * @brief verifies the bit-parallel edit-distance locate against an inline unbanded reference, searching input
- *        for a mutated pattern drawn from it
+ * @brief checks locate_edit_dist against reference_edit_distance for a mutated pattern drawn from input
  * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
  * @tparam gen_t random number generator type
  * @param input the input sequence to draw the pattern from and search in
@@ -232,42 +252,45 @@ static void verify_edit_dist_routines(const inp_t& input, gen_t& gen)
 template <typename inp_t, typename gen_t>
 static void verify_locate_edit_dist(const inp_t& input, gen_t& gen)
 {
-    using pos_t = uint32_t;
-    std::uniform_int_distribution<pos_t> k_distrib(0, 6);
-    inp_t P = random_substring(input, 20, true, gen);
-    // bound the edit-distance budget by a third of the pattern length (matching the locate tests elsewhere)
-    pos_t k = std::min<pos_t>(k_distrib(gen), P.size() / 3);
+    std::uniform_int_distribution<uint64_t> k_distrib(0, locate_max_errors);
+    inp_t P = random_substring(input, locate_max_pattern_length, true, gen);
+    uint64_t k = std::min<uint64_t>(k_distrib(gen), P.size() / pattern_length_per_error);
     int64_t n = input.size(), m = P.size();
 
-    // reference: for each starting position, the shortest window with the minimum (within-budget) edit distance
-    std::vector<aprx_occ_t<pos_t>> ref;
+    // the occurrences, sorted by pos: for each pos, the shortest window with the minimum number of errors, if it is <= k
+    std::vector<aprx_occ_t<>> ref;
 
     for (int64_t i = 0; i < n; i++) {
-        aprx_occ_t<pos_t> occ{.pos = pos_t(i), .len = 0, .err = k + 1};
+        aprx_occ_t<> occ(uint64_t(i), 0, k + 1);
         int64_t l_max = std::min<int64_t>(m + k, n - i);
 
         for (int64_t l = std::max<int64_t>(1, m - int64_t(k)); l <= l_max; l++) {
             inp_t window(input.begin() + i, input.begin() + i + l);
-            pos_t err = edit_dist<pos_t>(window, P);
-            if (err < occ.err) { occ.err = err; occ.len = l; } // ascending l: ties keep the shortest window
+            uint64_t err = reference_edit_distance(window, P);
+            if (err < occ.err()) { occ.set_err(err); occ.set_len(l); }
         }
 
-        if (occ.err <= k) ref.emplace_back(occ);
+        if (occ.err() <= k) ref.emplace_back(occ);
     }
 
-    EXPECT_EQ(locate_edit_dist<pos_t>(input, P, k), ref) << "n=" << n << " m=" << m << " k=" << k;
+    EXPECT_EQ(locate_edit_dist(input, P, k), ref) << "n=" << n << " m=" << m << " k=" << k;
 }
 
-// generates a random repetitive input over the byte-alphabet value type selected by i (char/uint8_t/int8_t)
-// and passes it to verify(input), so each functionality gets an equal share of the three value types
+/**
+ * @brief generates a random repetitive input over the symbol type char, uint8_t or int8_t (chosen by i % 3) and calls
+ *        verify(input)
+ * @tparam verify_t type of verify
+ * @param i the iteration
+ * @param verify the check to run on the input
+ */
 template <typename verify_t>
-static void with_edit_distance_input(uint64_t i, verify_t verify)
+static void for_random_input_type(uint64_t i, verify_t verify)
 {
     auto run = [&]<typename sym_t, typename inp_t>() {
-        // a byte alphabet reserves the two largest values, matching the alphabet the apm machinery sees
         sym_t min_sym = std::numeric_limits<sym_t>::min();
-        sym_t max_sym = std::numeric_limits<sym_t>::max() - 2;
-        inp_t input = random_repetitive_input<inp_t>(min_input_size, max_input_size, min_sym, max_sym);
+        sym_t max_sym = std::numeric_limits<sym_t>::max() - num_excluded_symbols;
+        inp_t input = random_repetitive_input<inp_t>(
+            min_input_size, max_input_size, min_sym, max_sym, gen());
         verify(input);
     };
 
@@ -280,22 +303,22 @@ static void with_edit_distance_input(uint64_t i, verify_t verify)
 
 TEST(test_edit_distance_matrix, matrix)
 {
-    run_fuzz("edit-distance-matrix", { { "matrix", [](uint64_t i) { with_edit_distance_input(i, [](auto& input) {
-        if (prob_distrib(gen) < 0.5) verify_edit_distance_matrix<uint64_t>(input, gen);
+    run_fuzz("edit-distance-matrix", { { "matrix", [](uint64_t i) { for_random_input_type(i, [](auto& input) {
+        if (prob_distrib(gen) < prob_64_bit_matrix) verify_edit_distance_matrix<uint64_t>(input, gen);
         else                         verify_edit_distance_matrix<uint128_t>(input, gen);
-    }); }, true } }, fuzz_iterations(320000));
+    }); }, true } }, fuzz_iterations(num_iterations_matrix), &max_input_size, min_fuzz_input_size);
 }
 
 TEST(test_edit_distance_matrix, distance)
 {
     run_fuzz("edit-distance-matrix", { { "distance", [](uint64_t i) {
-        with_edit_distance_input(i, [](auto& input) { verify_edit_dist_routines(input, gen); }); }, true } },
-        fuzz_iterations(320000));
+        for_random_input_type(i, [](auto& input) { verify_edit_dist_bounded_and_cigar(input, gen); }); }, true } },
+        fuzz_iterations(num_iterations_distance), &max_input_size, min_fuzz_input_size);
 }
 
 TEST(test_edit_distance_matrix, locate)
 {
     run_fuzz("edit-distance-matrix", { { "locate", [](uint64_t i) {
-        with_edit_distance_input(i, [](auto& input) { verify_locate_edit_dist(input, gen); }); }, true } },
-        fuzz_iterations(430));
+        for_random_input_type(i, [](auto& input) { verify_locate_edit_dist(input, gen); }); }, true } },
+        fuzz_iterations(num_iterations_locate), &max_input_size, min_fuzz_input_size);
 }

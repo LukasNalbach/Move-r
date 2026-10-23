@@ -1,0 +1,222 @@
+diff --git a/src/br_index.hpp b/src/br_index.hpp
+index 25ba901..1ee52b2 100644
+--- a/src/br_index.hpp
++++ b/src/br_index.hpp
+@@ -675,6 +675,104 @@ public:
+         return sample;
+     }
+ 
++    /*
++     * left-extend prev_sample with every character of the alphabet in a single
++     * O(sigma * (t_LF + t_rankL)) sweep, calling report(c, sample) for each character c
++     * (original, not remapped) such that cP occurs.
++     *
++     * Calling left_extension once per character would cost O(sigma^2 * (t_LF + t_rankL)),
++     * because each call recomputes from scratch the prefix sum of occurrences of
++     * aP over a < c. Processing the characters in increasing internal order lets
++     * us maintain that prefix sum incrementally in `acc`, mirroring the
++     * all-symbols sweep of backward_dfs / search_with_mismatch.
++     */
++    template <typename report_fnc_t>
++    void left_extension_all(br_sample const& prev_sample, report_fnc_t report)
++    {
++        // acc = number of occurrences of aP over all internal symbols a < the
++        // current one, i.e. the offset of cP's range within prev_sample.rangeR
++        ulint acc = 0;
++
++        for (ulint a = 1; a < sigma + 1; ++a)
++        {
++            br_sample sample(prev_sample);
++
++            sample.range = LF(prev_sample.range, (uchar)a);
++            if (sample.is_invalid()) continue;
++
++            // the terminator (internal 1) occurs exactly once; count but skip it
++            if (a == 1) { acc++; continue; }
++
++            if (sample.range.second - sample.range.first ==
++                prev_sample.range.second - prev_sample.range.first)
++            {
++                // only a precedes P -> reverse range unchanged, offset grows
++                sample.d++;
++            }
++            else
++            {
++                // aP and bP occur for some b != a -> derive the reverse range from acc
++                sample.rangeR.first = sample.rangeR.first + acc;
++                sample.rangeR.second = sample.rangeR.first + sample.range.second - sample.range.first;
++
++                ulint rnk = bwt.rank(prev_sample.range.second + 1, a);
++                ulint p = bwt.select(rnk - 1, a);
++                ulint run_of_p = bwt.run_of_position(p);
++                if (bwt[prev_sample.range.second] == a)
++                    sample.j = samples_first[run_of_p];
++                else
++                    sample.j = samples_last[run_of_p];
++                sample.d = 0;
++            }
++            sample.len++;
++            acc += sample.range.second + 1 - sample.range.first;
++
++            report(remap_inv[a], sample);
++        }
++    }
++
++    /*
++     * right-extend prev_sample with every character of the alphabet in a single
++     * O(sigma * t_LF) sweep, calling report(c, sample) for each character c
++     * (original, not remapped) such that Pc occurs. Right-extension analogue of
++     * left_extension_all (mirrors forward_dfs).
++     */
++    template <typename report_fnc_t>
++    void right_extension_all(br_sample const& prev_sample, report_fnc_t report)
++    {
++        ulint acc = 0;
++
++        for (ulint a = 1; a < sigma + 1; ++a)
++        {
++            br_sample sample(prev_sample);
++
++            sample.rangeR = LFR(prev_sample.rangeR, (uchar)a);
++            if (sample.is_invalid()) continue;
++
++            if (a == 1) { acc++; continue; }
++
++            if (sample.rangeR.second - sample.rangeR.first !=
++                prev_sample.rangeR.second - prev_sample.rangeR.first)
++            {
++                sample.range.first = sample.range.first + acc;
++                sample.range.second = sample.range.first + sample.rangeR.second - sample.rangeR.first;
++
++                ulint rnk = bwtR.rank(prev_sample.rangeR.second + 1, a);
++                ulint pR = bwtR.select(rnk - 1, a);
++                ulint run_of_pR = bwtR.run_of_position(pR);
++                if (bwtR[prev_sample.rangeR.second] == a)
++                    sample.j = bwt.size() - 2 - samples_firstR[run_of_pR];
++                else
++                    sample.j = bwt.size() - 2 - samples_lastR[run_of_pR];
++                sample.d = sample.len;
++            }
++            sample.len++;
++            acc += sample.range.second + 1 - sample.range.first;
++
++            report(remap_inv[a], sample);
++        }
++    }
++
+     /*
+      * backward search P[left...right]
+      */
+@@ -755,6 +853,51 @@ public:
+         return res;
+     }
+ 
++    /*
++     * locate occurrences of the current pattern P, centered on the toehold occurrence.
++     *
++     * Returns the suffix-array INDEX (within sample.range) of the toehold occurrence,
++     * sets first_pos to its text position (SA value), and fills:
++     *   left  = text positions at SA indices center-1, center-2, ..., range.first  (descending)
++     *   right = text positions at SA indices center+1, center+2, ..., range.second (ascending)
++     * so that the full occurrence set is {reverse(left), first_pos, right}. This mirrors
++     * locate_sample but exposes the centered SA-index that move_r's edit-distance
++     * approximate-pattern-matching enumeration needs.
++     */
++    ulint locate_sample_centered(br_sample const& sample, ulint& first_pos,
++                                 std::vector<ulint>& left, std::vector<ulint>& right)
++    {
++        assert(sample.j >= sample.d);
++
++        ulint sa = sample.j - sample.d;
++        first_pos = sa;
++        left.clear();
++        right.clear();
++
++        // walk left (towards smaller SA indices): Phi(SA[i]) = SA[i-1]
++        ulint pos = sa;
++        while (plcp[pos] >= sample.len)
++        {
++            pos = Phi(pos);
++            left.push_back(pos);
++        }
++
++        // the toehold occupies SA index range.first + (number of left steps)
++        ulint center = sample.range.first + left.size();
++
++        // walk right (towards larger SA indices): PhiI(SA[i]) = SA[i+1]
++        pos = sa;
++        while (true)
++        {
++            if (pos == last_SA_val) break;
++            pos = PhiI(pos);
++            if (plcp[pos] < sample.len) break;
++            right.push_back(pos);
++        }
++
++        return center;
++    }
++
+     std::vector<ulint> locate_samples(std::vector<br_sample> const& samples)
+     {
+         std::vector<ulint> res;
+@@ -1291,6 +1434,22 @@ public:
+         return TERMINATOR;
+     }
+ 
++    /*
++     * alphabet size (including the terminator); internal symbols are 1 (terminator)
++     * and 2..sigma for the sigma-1 distinct original characters
++     */
++    ulint alphabet_size() const { return sigma; }
++
++    /*
++     * map an original character to its internal (remapped) symbol (0 if absent)
++     */
++    uchar char_to_internal(uchar c) const { return remap[c]; }
++
++    /*
++     * map an internal (remapped) symbol back to its original character
++     */
++    uchar internal_to_char(uchar i) const { return remap_inv[i]; }
++
+     /*
+      * get statistics
+      */
+diff --git a/src/bri-build.cpp b/src/bri-build.cpp
+index d33c256..049e391 100644
+--- a/src/bri-build.cpp
++++ b/src/bri-build.cpp
+@@ -1,7 +1,9 @@
+ #include <chrono>
+-#include <iostream> 
++#include <iostream>
+ #include <string>
+ 
++#include <malloc_count.h> // for malloc_count_peak / malloc_count_current
++
+ #include "br_index.hpp"
+ #include "br_index_nplcp.hpp"
+ #include "utils.hpp"
+@@ -71,6 +73,11 @@ int main(int argc, char** argv)
+     using std::chrono::duration_cast;
+     using std::chrono::duration;
+ 
++    // heap usage of this process before construction; peak growth from here on is
++    // reported via malloc_count (0 B when malloc_count is disabled at compile time),
++    // mirroring how move-r and columba measure their construction peak.
++    const size_t mem_baseline = malloc_count_current();
++
+     auto t1 = high_resolution_clock::now();
+ 
+     out_basename = string();
+@@ -123,5 +130,9 @@ int main(int argc, char** argv)
+     ulint total = duration_cast<duration<double, std::ratio<1>>>(t2-t1).count();
+     cout << "Build time: " << get_time(total) << endl;
+ 
++    const size_t raw_peak = malloc_count_peak();
++    const uint64_t peak = raw_peak > mem_baseline ? raw_peak - mem_baseline : raw_peak;
++    cout << "Peak memory usage during construction: " << peak << " bytes" << endl;
++
+     out.close();
+ }
+\ No newline at end of file

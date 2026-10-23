@@ -24,235 +24,424 @@
  * SOFTWARE.
  */
 
-#include <gtest/gtest.h>
-#include <gtl/phmap.hpp>
-#include <move_rb/move_rb.hpp>
-#include <misc/apm.hpp>
-#include <ips2ra.hpp>
-#include "test-index-common.hpp"
-#include "test-progress.hpp"
+#include <algorithm>
+#include <numeric>
 
-std::random_device rd;
-std::mt19937 gen(rd());
-uint16_t max_num_threads = omp_get_max_threads();
-uint64_t min_input_size = 1;
-uint64_t max_input_size = 3000;
-uint64_t min_bigbwt_input_size = 60;
-uint64_t max_pattern_length = 100;
-uint64_t mismatches_limit = 10;
+#include <data_structures/fasta_sequence_data.hpp>
 
-std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
-std::lognormal_distribution<double> a_distrib(2.0, 3.0);
+#include "test-move-rb-common.hpp"
 
-// the individual functionalities a move_rb index is fuzzed for
-enum mrb_func { mrb_extract, mrb_count_hamming, mrb_locate_hamming, mrb_locate_edit, mrb_locate_edit_cigar };
+// the largest input of the tests with error models (their reference aligns the pattern at every starting position)
+inline uint64_t max_model_input_size = 400;
+// the smallest value run_fuzz reduces max_model_input_size to
+inline constexpr uint64_t min_model_fuzz_input_size = 64;
+// the largest length of the repeated block of the inputs of apm_model_repetitive
+inline uint64_t max_model_block_length = 24;
+// the number of patterns apm_model_repetitive queries per index
+inline uint64_t model_queries_per_index = 20;
+// apm_model_repetitive replaces each symbol by a random one with probability 1 / mutation_inverse_probability
+inline constexpr uint64_t mutation_inverse_probability = 10;
+// apm_separator_not_largest: the largest number of errors k of a query, and the smallest number of records (Z occurs
+// in every second one)
+inline constexpr uint64_t separator_test_max_k = 2;
+inline constexpr uint64_t separator_test_min_records = 2;
+// apm_text_ends: the input length is in [min_text_end_input_size, min_text_end_input_size + max_text_end_input_size)
+// (run_fuzz reduces max_text_end_input_size down to min_text_end_input_size), the number of patterns per index, and a
+// pattern is cut from the start, from the end or from a random position of the input with probability
+// 1 / text_end_pattern_inverse_probability each
+inline uint64_t max_text_end_input_size = 200;
+inline constexpr uint64_t min_text_end_input_size = 32;
+inline constexpr uint64_t text_end_queries_per_index = 20;
+inline constexpr uint64_t text_end_pattern_inverse_probability = 3;
+// apm_text_ends: the largest number of errors k of a query
+inline constexpr uint64_t text_end_max_k = 3;
+// large_alphabet_extensions: the internal symbols of the marker and of the separator, and the smallest continuation
+// symbol (above both)
+inline constexpr uint32_t large_alphabet_marker = 3;
+inline constexpr uint32_t large_alphabet_separator = 4;
+inline constexpr uint32_t continuation_base = 10000;
 
-// extraction: forward and backward text
-template <typename sym_t, typename inp_t, typename pos_t, move_r_support support>
-static void verify_move_rb_extract(const move_rb<support, sym_t, pos_t>& index, const inp_t& input)
+// the index operations, for every support (see cycle_supports)
+TEST(test_move_rb, index)
 {
-    pos_t n = input.size();
-    inp_t input_reversed(input.rbegin(), input.rend());
+    run_fuzz("move-rb", { { "index",
+        [](uint64_t i) { cycle_supports(i, _test_index_operations); } } },
+        fuzz_iterations(), &max_input_size, min_fuzz_input_size);
+}
 
-    auto verify_revert = [&](const auto& idx, const inp_t& expected) {
-        inp_t reverted = idx.revert_range({ .num_threads = max_num_threads });
-        ASSERT_EQ((pos_t) reverted.size(), n);
-        #pragma omp parallel for num_threads(max_num_threads)
-        for (pos_t i = 0; i < n; i++) EXPECT_EQ(reverted[i], expected[i]);
+// approximate matching
+TEST(test_move_rb, hamming)
+{
+    run_fuzz("move-rb", {
+        { "count-hamming",  [](uint64_t i) { cycle_multiple_locate_supports(i, _test_count_hamming); } },
+        { "locate-hamming", [](uint64_t i) { cycle_multiple_locate_supports(i, _test_locate_hamming); } },
+    }, fuzz_iterations(), &max_input_size, min_fuzz_input_size);
+}
+
+TEST(test_move_rb, edit)
+{
+    run_fuzz("move-rb", {
+        { "locate-edit",       [](uint64_t i) { cycle_multiple_locate_supports(i, _test_locate_edit); } },
+        { "locate-edit-cigar", [](uint64_t i) { cycle_multiple_locate_supports(i, _test_locate_edit_cigar); } },
+    }, fuzz_iterations(), &max_input_size, min_fuzz_input_size);
+}
+
+TEST(test_move_rb, apm_model)
+{
+    auto run = [](move_rb_test_t test) {
+        return [test](uint64_t i) { cycle_multiple_locate_supports(i, test, min_input_size, max_model_input_size); };
     };
 
-    verify_revert(index.forward_index(), input);
-    verify_revert(index.backward_index(), input_reversed);
+    run_fuzz("move-rb", {
+        { "count-hamming-model",  run(_test_count_hamming_model) },
+        { "locate-hamming-model", run(_test_locate_hamming_model) },
+        { "locate-edit-model",    run(_test_locate_edit_model) },
+    }, fuzz_iterations(), &max_model_input_size, min_model_fuzz_input_size);
 }
 
-// hamming-distance count: the reported occurrence count must equal the naive count
-template <typename sym_t, typename inp_t, typename pos_t, move_r_support support>
-static void verify_count_hamming(const move_rb<support, sym_t, pos_t>& index, const inp_t& pattern,
-    std::span<const sym_t> pattern_span, const search_scheme_t& scheme, pos_t k, std::span<const sym_t> input_span)
+// the approximate-matching algorithms with random error models on short repetitive inputs over 2 to 4 symbols: copies
+// of a random block, each symbol replaced by a random one with probability 1 / mutation_inverse_probability
+TEST(test_move_rb, apm_model_repetitive)
 {
-    auto correct = locate<pos_t, HAMMING_DISTANCE>(input_span, pattern_span, k);
-    EXPECT_EQ(index.count_hamming_dist(pattern, scheme), correct.size());
+    using idx_t = move_rb<_locate_move>;
+    const std::string bases = "ACGT";
+
+    run_fuzz("move-rb", { { "apm-model-repetitive", [&](uint64_t) {
+        std::mt19937_64 gen_test(gen());
+        const std::string syms = bases.substr(0,
+            min_random_alphabet_size + gen_test() % (bases.size() - min_random_alphabet_size + 1));
+        const uint64_t n = max_model_block_length + gen_test() % max_model_input_size;
+        std::string block(1 + gen_test() % max_model_block_length, 'A');
+        for (char& c : block) c = syms[gen_test() % syms.size()];
+        std::string input(n, 'A');
+
+        for (uint64_t i = 0; i < n; i++) {
+            input[i] = gen_test() % mutation_inverse_probability == 0
+                ? syms[gen_test() % syms.size()] : block[i % block.size()];
+        }
+
+        move_r_params params;
+        params.mode = _suffix_array;
+        params.num_threads = 1;
+        idx_t index(input, params);
+        std::span<const uint8_t> input_bytes = byte_span(input);
+
+        for (uint64_t q = 0; q < model_queries_per_index; q++) {
+            const uint64_t m = std::min<uint64_t>(n, 1 + gen_test() % max_model_block_length);
+            std::string pattern = input.substr(gen_test() % (n - m + 1), m);
+            apply_random_edits(pattern, input, gen_test);
+            std::span<const uint8_t> pattern_bytes = byte_span(pattern);
+            const bool edit = gen_test() % 2 == 0;
+            std::string quality;
+            auto costs = random_query_model(index, input_bytes, pattern_bytes, edit ? EDIT_DISTANCE : HAMMING_DISTANCE,
+                max_errors_for(pattern.size(), edit), gen_test, quality);
+            if (!costs) continue;
+
+            const apm_params_t apm_params = random_apm_params(gen_test);
+
+            if (edit) {
+                verify_edit_model(index, pattern_bytes, input_bytes, *costs, apm_params, gen_test);
+            } else {
+                const bool locate = gen_test() % 2 == 0;
+                verify_hamming_model(index, pattern_bytes, input_bytes, *costs, apm_params, locate, gen_test);
+            }
+        }
+    } } }, fuzz_iterations());
 }
 
-// hamming-distance locate: the reported occurrences must equal the naive occurrences exactly
-template <typename sym_t, typename inp_t, typename pos_t, move_r_support support>
-static void verify_locate_hamming(const move_rb<support, sym_t, pos_t>& index, const inp_t& pattern,
-    std::span<const sym_t> pattern_span, const search_scheme_t& scheme, pos_t k, std::span<const sym_t> input_span)
+/* locate with the Hamming and the edit distance (with and without CIGARs) with each search scheme for patterns at the
+   text ends, which the edit-distance search and its text-end pass both find: each position is reported once, and the
+   occurrences are those of the naive reference (see verify_locate_hamming and verify_locate_edit) */
+TEST(test_move_rb, apm_text_ends)
 {
-    auto correct = locate<pos_t, HAMMING_DISTANCE>(input_span, pattern_span, k);
-    auto occ = index.template locate<HAMMING_DISTANCE>(pattern, scheme);
-    ips2ra::sort(occ.begin(), occ.end(), [](const auto& o){ return o.pos; });
-    EXPECT_EQ(occ.size(), correct.size());
-    EXPECT_EQ(occ, correct);
-}
+    using idx_t = move_rb<_locate_move>;
+    const std::string bases = "ACGT";
 
-// edit-distance locate: every reported occurrence has the claimed edit distance (<= k),
-// and the reported set covers every naive occurrence both before and after filtering
-template <typename sym_t, typename inp_t, typename pos_t, move_r_support support>
-static void verify_locate_edit(const move_rb<support, sym_t, pos_t>& index, const inp_t& pattern,
-    std::span<const sym_t> pattern_span, const search_scheme_t& scheme, pos_t k, std::span<const sym_t> input_span)
-{
-    pos_t input_size = input_span.size();
-    auto correct = locate<pos_t, EDIT_DISTANCE>(input_span, pattern_span, k);
-    auto occ = index.template locate<EDIT_DISTANCE>(pattern, scheme);
-    ips2ra::sort(occ.begin(), occ.end(), [](const auto& o){ return o.pos; });
+    run_fuzz("move-rb", { { "apm-text-ends", [&](uint64_t) {
+        std::mt19937_64 gen_test(gen());
+        const std::string syms = bases.substr(0,
+            min_random_alphabet_size + gen_test() % (bases.size() - min_random_alphabet_size + 1));
+        const uint64_t n = min_text_end_input_size + gen_test() % max_text_end_input_size;
+        std::string input(n, 'A');
+        for (char& c : input) c = syms[gen_test() % syms.size()];
 
-    gtl::flat_hash_map<std::span<const sym_t>, pos_t, span_hash, span_eq> dist_cache;
-    for (const auto& o : occ) {
-        if (o.pos + o.len > input_size) { ADD_FAILURE(); continue; }
-        std::span<const sym_t> match = input_span.subspan(o.pos, o.len);
-        auto [it, inserted] = dist_cache.try_emplace(match, 0);
-        if (inserted) it->second = edit_dist_bounded<pos_t>(pattern_span, match, k);
-        EXPECT_TRUE(it->second == o.err && o.err <= k);
-    }
+        move_r_params params;
+        params.mode = _suffix_array;
+        params.num_threads = 1;
+        idx_t index(input, params);
+        std::span<const char> input_span(input);
 
-    EXPECT_TRUE(verify_edit_distance_coverage(occ, correct, k));
-    filter_edit_distance_occurrences(occ, k);
-    EXPECT_TRUE(verify_edit_distance_coverage(occ, correct, k));
-}
+        for (uint64_t q = 0; q < text_end_queries_per_index; q++) {
+            const uint64_t m = std::min<uint64_t>(n, 1 + gen_test() % max_pattern_length);
+            const uint64_t where = gen_test() % text_end_pattern_inverse_probability;
+            const uint64_t pos = where == 0 ? 0 : (where == 1 ? n - m : gen_test() % (n - m + 1));
+            std::string pattern = input.substr(pos, m);
+            apply_random_edits(pattern, input, gen_test);
+            std::span<const char> pattern_span(pattern);
+            const apm_params_t apm_params = random_apm_params(gen_test);
 
-// edit-distance locate with CIGARs: additionally every occurrence's CIGAR must validly align
-// the pattern against the matched text with exactly the claimed number of edits
-template <typename sym_t, typename inp_t, typename pos_t, move_r_support support>
-static void verify_locate_edit_cigar(const move_rb<support, sym_t, pos_t>& index, const inp_t& pattern,
-    std::span<const sym_t> pattern_span, const search_scheme_t& scheme, pos_t k, std::span<const sym_t> input_span)
-{
-    pos_t input_size = input_span.size();
-    auto correct = locate<pos_t, EDIT_DISTANCE>(input_span, pattern_span, k);
-
-    std::vector<aprx_occ_t<pos_t, CIGAR>> cigar_results;
-    // in CIGAR mode locate returns the CIGARs (one per SA-interval); each occurrence's o.cig_idx indexes into them
-    std::vector<cigar_t<sym_t>> cigars = index.template locate<EDIT_DISTANCE, CIGAR>(pattern, scheme, [&](aprx_occ_t<pos_t, CIGAR> o){
-        cigar_results.emplace_back(std::move(o));
-    });
-
-    std::vector<aprx_occ_t<pos_t>> cigar_occurrences;
-    gtl::flat_hash_map<std::span<const sym_t>, pos_t, span_hash, span_eq> dist_cache;
-    for (const auto& o : cigar_results) {
-        cigar_occurrences.push_back({o.pos, o.len, o.err});
-        if (o.pos + o.len > input_size) { ADD_FAILURE(); continue; }
-        std::span<const sym_t> match = input_span.subspan(o.pos, o.len);
-        EXPECT_EQ(num_cigar_edits(pattern_span.data(), pattern_span.size(), match.data(), match.size(), cigars[o.cig_idx]), o.err);
-        auto [it, inserted] = dist_cache.try_emplace(match, 0);
-        if (inserted) it->second = edit_dist_bounded<pos_t>(pattern_span, match, k);
-        EXPECT_TRUE(it->second == o.err && o.err <= k);
-    }
-
-    ips2ra::sort(cigar_occurrences.begin(), cigar_occurrences.end(), [](const auto& o){ return o.pos; });
-    EXPECT_TRUE(verify_edit_distance_coverage(cigar_occurrences, correct, k));
-    filter_edit_distance_occurrences(cigar_occurrences, k);
-    EXPECT_TRUE(verify_edit_distance_coverage(cigar_occurrences, correct, k));
-}
-
-// builds one random move_rb index and verifies exactly one functionality of it: either its extraction queries,
-// or (in a parallel query loop over random patterns) one approximate-match query type
-template <typename sym_t, typename inp_t, typename pos_t, move_r_support support>
-void test_move_rb(mrb_func func)
-{
-    // reserve the three largest symbol values (needed by Big-BWT and move_r construction); a byte alphabet then
-    // has at most 256 - 3 == 253 distinct symbols, matching move_r's distinct-symbol limit (256 - min_valid_char)
-    sym_t min_sym = std::numeric_limits<sym_t>::min();
-    sym_t max_sym = std::numeric_limits<sym_t>::max() - 3;
-
-    inp_t input = random_repetitive_input<inp_t>(min_input_size, max_input_size, min_sym, max_sym);
-    pos_t input_size = input.size();
-
-    // build move-r with a random number of threads and balancing parameter, using Big-BWT half the time for
-    // large enough string inputs (falling back to the in-memory suffix-array construction if it is unavailable)
-    auto make = [&](move_r_construction_mode mode) {
-        return move_rb<support, sym_t, pos_t>(input, {
-            .mode = mode,
-            .num_threads = max_num_threads,
-            .a = std::min<uint16_t>(2 + a_distrib(gen), 32767)
-        });
-    };
-
-    auto build_index = [&]() {
-        if constexpr (std::is_same_v<inp_t, std::string>) {
-            std::uniform_int_distribution<int32_t> use_bigbwt(0, 15);
-            if (input.size() >= min_bigbwt_input_size && use_bigbwt(gen) == 0) {
-                inp_t input_backup = input;
-                
-                try {
-                    return make(_bigbwt);
-                } catch (const std::exception&) {
-                    input = input_backup;
+            for (uint64_t k = 1; k <= text_end_max_k; k++) {
+                for (const search_scheme_t& scheme : { min_u_scheme(k), pigeon_hole_scheme(k), suffix_filter_scheme(k),
+                    zero_one_scheme(k) }) {
+                    if (scheme.p >= pattern.size()) continue;
+                    if (k <= max_errors_for(pattern.size(), false)) {
+                        verify_locate_hamming(index, pattern, pattern_span, scheme, k, input_span, apm_params);
+                    }
+                    if (k > max_errors_for(pattern.size(), true)) continue;
+                    verify_locate_edit<false>(index, pattern, pattern_span, scheme, k, input_span, apm_params);
+                    verify_locate_edit<true>(index, pattern, pattern_span, scheme, k, input_span, apm_params);
                 }
             }
         }
-        return make(_suffix_array);
-    };
-    move_rb<support, sym_t, pos_t> index = build_index();
+    } } }, fuzz_iterations(), &max_text_end_input_size, min_text_end_input_size);
+}
 
-    if (func == mrb_extract) {
-        verify_move_rb_extract(index, input);
-        return;
+// the parsing of the rules of an error model and their compilation for a pattern
+TEST(test_move_rb, apm_model_compile)
+{
+    std::vector<uint8_t> alph_map(256, 0);
+    alph_map['A'] = 1;
+    alph_map['C'] = 2;
+    alph_map['G'] = 3;
+    alph_map['T'] = 4;
+    auto rank = [&](char c) { return uint64_t(alph_map[uint8_t(c)] - 1); };
+
+    EXPECT_EQ(parse_apm_range("-5:").absolute(10), std::make_pair(uint64_t(5), uint64_t(10)));
+    EXPECT_EQ(parse_apm_range(":3").absolute(10), std::make_pair(uint64_t(0), uint64_t(3)));
+    EXPECT_EQ(parse_apm_range("2").absolute(10), std::make_pair(uint64_t(2), uint64_t(3)));
+    EXPECT_EQ(parse_apm_range("-1").absolute(10), std::make_pair(uint64_t(9), uint64_t(10)));
+    EXPECT_EQ(parse_apm_range("3:-3").absolute(10), std::make_pair(uint64_t(3), uint64_t(7)));
+
+    apm_cost_rule_t rule = parse_apm_cost_rule("si=2@-5:/C,T");
+    EXPECT_EQ(rule.ops, APM_SUB | APM_INS);
+    EXPECT_EQ(rule.cost, 2);
+    EXPECT_EQ(rule.from, "C");
+    EXPECT_EQ(rule.to, "T");
+    EXPECT_EQ(parse_apm_cost_rule("d=inf").cost, apm_forbidden);
+    EXPECT_EQ(parse_apm_counter("io=1@2:4").ops, APM_INS | APM_OPEN);
+    EXPECT_THROW(parse_apm_cost_rule("x=1"), std::invalid_argument);
+    EXPECT_THROW(parse_apm_counter("s=200"), std::invalid_argument);
+
+    // P = ACGTRCGTAC: positions 2..4 are exact, T also matches C, R is an IUPAC code
+    const std::string P = "ACGTRCGTAC";
+    apm_model_t model;
+    model.costs.emplace_back(parse_apm_cost_rule("d=2"));
+    model.costs.emplace_back(apm_cost_rule_t{.ops = APM_SUB | APM_INS | APM_DEL, .cost = apm_forbidden,
+        .range = parse_apm_range("2:5")});
+    model.costs.emplace_back(parse_apm_cost_rule("o=3@-2:"));
+    model.classes.emplace_back(parse_apm_class("T,C"));
+    model.counters.emplace_back(parse_apm_counter("s=0@0:1"));
+    model.iupac = true;
+    apm_costs_t costs(model, P, "", false, 6, EDIT_DISTANCE, alph_map);
+
+    EXPECT_EQ(costs.sub(2, rank('A')), apm_forbidden);
+    EXPECT_EQ(costs.ins(4), apm_forbidden);
+    EXPECT_EQ(costs.del(3), apm_forbidden);
+    EXPECT_EQ(costs.del(4), apm_forbidden);
+    EXPECT_EQ(costs.del(2), 2);
+    EXPECT_EQ(costs.del(5), 2);
+    EXPECT_EQ(costs.del(0), apm_forbidden);
+    EXPECT_EQ(costs.del(10), apm_forbidden);
+    EXPECT_EQ(costs.sub(0, rank('C')), apm_forbidden);
+    EXPECT_TRUE(costs.matches(7, rank('C')));
+    EXPECT_FALSE(costs.matches(5, rank('T')));
+    EXPECT_TRUE(costs.matches(4, rank('A')) && costs.matches(4, rank('G')) && !costs.matches(4, rank('C')));
+    EXPECT_EQ(costs.ins_open(8), 3);
+    EXPECT_EQ(costs.ins_open(7), 0);
+    EXPECT_EQ(costs.del_open(9), 3);
+    EXPECT_TRUE(costs.is_affine());
+    EXPECT_TRUE(costs.is_literal(2) && !costs.is_literal(3) && !costs.is_literal(4));
+    EXPECT_EQ(costs.max_errors(2, 4), 0u);
+    EXPECT_EQ(costs.max_errors(), 6u);
+
+    // on the reverse strand, the range [0, 1) of the read is the last position of the pattern and T,C is A,G
+    apm_costs_t reverse(model, std::string("GTACGYACGT"), "", true, 6, EDIT_DISTANCE, alph_map);
+    EXPECT_EQ(reverse.sub(9, rank('A')), apm_forbidden);
+    EXPECT_EQ(reverse.sub(0, rank('A')), 1);
+    EXPECT_TRUE(reverse.matches(2, rank('G')));
+
+    // a substitution costs the quality of its position
+    apm_model_t quality_model;
+    quality_model.quality = true;
+    apm_costs_t quality(quality_model, std::string("ACG"), "!#%", false, 4, HAMMING_DISTANCE, alph_map);
+    EXPECT_EQ(quality.sub(0, rank('C')), 0);
+    EXPECT_EQ(quality.sub(1, rank('A')), 2);
+    EXPECT_EQ(quality.sub(2, rank('A')), 4);
+    EXPECT_EQ(quality.ins(0), apm_forbidden);
+    EXPECT_EQ(quality.tau(), 1);
+
+    // two of ten positions have quality 2: with tau = 3 they are free and a search allows 1 error instead of 2
+    apm_costs_t low(quality_model, std::string("ACGTACGTAC"), "II#IIII#II", false, 40, HAMMING_DISTANCE, alph_map);
+    EXPECT_EQ(low.tau(), 3);
+    EXPECT_EQ(low.max_errors(), 1u);
+    EXPECT_TRUE(low.has_free(2) && !low.has_free(3));
+
+    // the cheapest alignment of P against a prefix of a window
+    apm_model_t unit;
+    apm_costs_t unit_costs(unit, std::string("ACGT"), "", false, 2, EDIT_DISTANCE, alph_map);
+    cigar_t<uint8_t> cigar;
+    EXPECT_EQ(unit_costs.align_prefix(std::string("ACGTT"), &cigar), std::make_pair(uint64_t(0), uint64_t(4)));
+    EXPECT_EQ(unit_costs.align_prefix(std::string("AGTA"), &cigar), std::make_pair(uint64_t(1), uint64_t(3)));
+    EXPECT_EQ(unit_costs.align_prefix(std::string("TTTT")).first, 3u);
+}
+
+/* A FASTA text whose separator is not the largest internal symbol: Z occurs once in every second record, so it is
+   rarer than the separator and is mapped after it. A Hamming search must not extend with the separator, but must
+   still extend with the symbols after it in the internal order. */
+TEST(test_move_rb, apm_separator_not_largest)
+{
+    constexpr uint64_t max_k = separator_test_max_k;
+
+    using idx_t = move_rb<_locate_move>;
+    std::mt19937_64 gen_test(gen());
+    const uint8_t separator = fasta_separator_symbol;
+    const uint64_t num_records = separator_test_min_records + gen_test() % (max_input_size / max_pattern_length);
+    std::string input;
+    std::vector<uint64_t> starts;
+    std::vector<std::string> names;
+
+    for (uint64_t r = 0; r < num_records; r++) {
+        input += char(separator);
+        starts.push_back(input.size());
+        names.push_back("r" + std::to_string(r));
+        const uint64_t length = 1 + gen_test() % max_pattern_length;
+        const uint64_t z = r % 2 == 1 ? gen_test() % length : length;
+        for (uint64_t i = 0; i < length; i++) input += i == z ? 'Z' : (gen_test() % 2 == 0 ? 'A' : 'C');
     }
 
-    // a read-only view for the naive reference algorithms; created AFTER the build, which reallocates input's
-    // buffer (its contents are preserved) -- a view captured earlier would dangle
-    std::span<const sym_t> input_span(input);
+    move_r_params params;
+    params.mode = _suffix_array;
+    params.num_threads = 1;
+    params.reorder_alphabet = true;
+    idx_t index(input, params);
+    fasta_sequence_data sequences;
+    sequences.set_sequences(input.size() + 1, starts, names, separator);
+    index.set_fasta_sequence_data(std::move(sequences));
+    ASSERT_LT(index.forward_index().map_symbol(char(separator)), index.forward_index().map_symbol('Z'))
+        << "the separator is not mapped before Z";
 
-    std::uniform_int_distribution<pos_t> pattern_pos_distrib(0, input_size - 1);
-    std::uniform_int_distribution<pos_t> pattern_length_distrib(1, std::min<pos_t>(max_pattern_length, input_size));
-    // enough queries (spread over the threads) that the approximate-match queries -- not the construction --
-    // dominate the per-iteration time
-    pos_t num_queries = std::min<pos_t>(1'500, std::max<pos_t>(300, input_size / 4));
-
-    #pragma omp parallel for num_threads(max_num_threads), schedule(dynamic,1)
-    for (pos_t cur_query = 0; cur_query < num_queries; cur_query++) {
-        std::random_device rd_thr;
-        std::mt19937 gen_thr(rd_thr());
-        pos_t pattern_pos = pattern_pos_distrib(gen_thr);
-        pos_t pattern_length = std::min<pos_t>(input_size - pattern_pos, pattern_length_distrib(gen_thr));
-        inp_t pattern;
-        no_init_resize(pattern, pattern_length);
-        for (pos_t i = 0; i < pattern_length; i++)
-            pattern[i] = input[pattern_pos + i];
-
-        mutate_pattern<pos_t>(pattern, input, gen_thr);
-        std::span<const sym_t> pattern_span(pattern);
-        // bound the error budget by the pattern length: edit distance is bounded by pattern_length / 3 (the
-        // edit search cost grows steeply with k), hamming distance by the laxer pattern_length / 2
-        const bool is_edit = (func == mrb_locate_edit || func == mrb_locate_edit_cigar);
-        const int32_t max_k = std::min<int32_t>(
-            is_edit ? int32_t(pattern.size()) / 3 : int32_t(pattern.size()) / 2 - 1, mismatches_limit);
-        pos_t k = std::uniform_int_distribution<pos_t>(0, std::max<int32_t>(max_k, 0))(gen_thr);
+    for (uint64_t q = 0; q < max_pattern_length; q++) {
+        const uint64_t r = gen_test() % num_records;
+        const uint64_t record_end = r + 1 < num_records ? starts[r + 1] - 1 : input.size();
+        const uint64_t length = record_end - starts[r];
+        const uint64_t k = 1 + gen_test() % max_k;
         const search_scheme_t scheme = min_u_scheme(k);
+        // a pattern has more symbols than the search scheme has parts
+        const uint64_t min_m = scheme.p + 1;
+        if (length < min_m) continue;
+        const uint64_t m = min_m + gen_test() % (length - min_m + 1);
+        const uint64_t pos = starts[r] + gen_test() % (length - m + 1);
+        std::string pattern = input.substr(pos, m);
+        const std::string replacements = "ACZ";
+        pattern[gen_test() % m] = replacements[gen_test() % replacements.size()];
 
-        switch (func) {
-            case mrb_count_hamming:     verify_count_hamming    (index, pattern, pattern_span, scheme, k, input_span); break;
-            case mrb_locate_hamming:    verify_locate_hamming   (index, pattern, pattern_span, scheme, k, input_span); break;
-            case mrb_locate_edit:       verify_locate_edit      (index, pattern, pattern_span, scheme, k, input_span); break;
-            case mrb_locate_edit_cigar: verify_locate_edit_cigar(index, pattern, pattern_span, scheme, k, input_span); break;
-            case mrb_extract: break; // handled above
+        // the windows without a separator with at most k mismatches
+        std::vector<std::pair<uint64_t, uint64_t>> correct;
+
+        for (uint64_t p = 0; p + m <= input.size(); p++) {
+            uint64_t mismatches = 0;
+            bool crosses = false;
+
+            for (uint64_t i = 0; i < m; i++) {
+                crosses |= uint8_t(input[p + i]) == separator;
+                mismatches += input[p + i] != pattern[i];
+            }
+
+            if (!crosses && mismatches <= k) correct.emplace_back(p, mismatches);
         }
+
+        std::vector<std::pair<uint64_t, uint64_t>> reported;
+        for (const auto& occ : index.locate(pattern, scheme, HAMMING_DISTANCE)) reported.emplace_back(occ.pos(), occ.err());
+        std::sort(reported.begin(), reported.end());
+        EXPECT_EQ(reported, correct) << "pattern " << pattern << ", k = " << k;
     }
 }
 
-template <typename sym_t, typename inp_t>
-static void move_rb_combination(uint64_t i, mrb_func func)
+/* The input has more than move_r_params::min_sigma_L_prev_min distinct symbols, so L_prev_min is built. The suffixes
+   starting with marker are ordered by their distinct continuation and their preceding symbols alternate. The left
+   extensions of marker span thousands of runs of L' and report two symbols, the right extensions report every
+   continuation. */
+TEST(test_move_rb, large_alphabet_extensions)
 {
-    auto run = [&]<move_r_support support>() {
-        if (i % 2 == 0) test_move_rb<sym_t, inp_t, uint32_t, support>(func);
-        else            test_move_rb<sym_t, inp_t, uint64_t, support>(func);
+    using idx_t = move_rb<_locate_move>;
+    constexpr uint32_t marker = large_alphabet_marker;
+    constexpr uint32_t separator = large_alphabet_separator;
+    const uint32_t num_continuations = uint32_t(move_r_params {}.min_sigma_L_prev_min);
+    // the symbols of a group: a preceding symbol, the marker, a continuation and the separator
+    constexpr uint64_t symbols_per_group = 4;
+
+    std::vector<uint32_t> input;
+    input.reserve(symbols_per_group * num_continuations);
+
+    for (uint32_t i = 0; i < num_continuations; i++) {
+        input.emplace_back(1 + (i & 1));
+        input.emplace_back(marker);
+        input.emplace_back(continuation_base + i);
+        input.emplace_back(separator);
+    }
+
+    move_r_params params;
+    params.mode = _suffix_array;
+    params.num_threads = 1;
+    params.a = min_balancing_parameter;
+    params.reorder_alphabet = false;
+    params.context_table_share = 0.0;
+    idx_t index(input, params);
+
+    auto verify = [&](const idx_t& queried, const std::string& label) {
+        EXPECT_FALSE(queried.forward_index().L_prev_min().empty()) << label;
+        EXPECT_FALSE(queried.backward_index().L_prev_min().empty()) << label;
+
+        auto marker_context = [&]() {
+            auto root = queried.template empty_context<COUNT>();
+            auto [ctx, occurs] = root.template extend<LEFT>(marker);
+            EXPECT_TRUE(occurs) << label;
+            return ctx;
+        };
+
+        std::vector<uint64_t> left;
+        auto left_ctx = marker_context();
+        left_ctx.template for_each_extension<LEFT, NO_TERM>(
+            [&](uint64_t sym, const auto&) { left.emplace_back(sym); return true; });
+        EXPECT_EQ(left, (std::vector<uint64_t> { 1, 2 })) << label;
+
+        std::vector<uint64_t> right;
+        auto right_ctx = marker_context();
+        right_ctx.template for_each_extension<RIGHT, NO_TERM>(
+            [&](uint64_t sym, const auto&) { right.emplace_back(sym); return true; });
+
+        std::vector<uint64_t> expected_right(num_continuations);
+        std::iota(expected_right.begin(), expected_right.end(), continuation_base);
+        EXPECT_EQ(right, expected_right) << label;
     };
 
-    if ((i / 2) % 2 == 0) run.template operator()<_locate_move>();
-    else                  run.template operator()<_locate_rlzsa>();
+    verify(index, "built");
+
+    verify(serialize_and_load(index), "loaded");
+
+    params.mode = _suffix_array_space;
+    idx_t space_index(input, params);
+    verify(space_index, "suffix-array-space");
 }
 
-static void move_rb_functionality(uint64_t i, mrb_func func)
+// gives access to the SA-sample of a search context (see move_rb::sample_info_pack_t)
+struct sample_info_access : move_rb<> {
+    using pack_t = sample_info_pack_t;
+    static constexpr sample_t sample_at_run_end = END;
+};
+
+// the fields of an SA-sample hold their largest values: o, i and x positions up to 2^48 - 1
+TEST(test_move_rb, sample_field_widths)
 {
-    switch ((i / 4) % 3) {
-        case 0: move_rb_combination<char,    std::string>(i, func);          break;
-        case 1: move_rb_combination<uint8_t, std::vector<uint8_t>>(i, func); break;
-        case 2: move_rb_combination<int8_t,  std::vector<int8_t>>(i, func);  break;
-    }
+    sample_info_access::pack_t sample {};
+    sample.set_d(BOTH_DIRS);
+    sample.set_t(sample_info_access::sample_at_run_end);
+    sample.set_o(uint48_t::max);
+    sample.set_i(uint48_t::max);
+    sample.set_x(uint48_t::max);
+    EXPECT_EQ(sample.d(), BOTH_DIRS);
+    EXPECT_EQ(sample.t(), sample_info_access::sample_at_run_end);
+    EXPECT_EQ(uint64_t(sample.o()), uint48_t::max);
+    EXPECT_EQ(uint64_t(sample.i()), uint48_t::max);
+    EXPECT_EQ(uint64_t(sample.x()), uint48_t::max);
 }
-
-TEST(test_move_rb, extract)           { run_fuzz("move-rb", { { "extract",           [](uint64_t i) { move_rb_functionality(i, mrb_extract); } } }); }
-TEST(test_move_rb, count_hamming)     { run_fuzz("move-rb", { { "count-hamming",     [](uint64_t i) { move_rb_functionality(i, mrb_count_hamming); } } }); }
-TEST(test_move_rb, locate_hamming)    { run_fuzz("move-rb", { { "locate-hamming",    [](uint64_t i) { move_rb_functionality(i, mrb_locate_hamming); } } }); }
-TEST(test_move_rb, locate_edit)       { run_fuzz("move-rb", { { "locate-edit",       [](uint64_t i) { move_rb_functionality(i, mrb_locate_edit); } } }); }
-TEST(test_move_rb, locate_edit_cigar) { run_fuzz("move-rb", { { "locate-edit-cigar", [](uint64_t i) { move_rb_functionality(i, mrb_locate_edit_cigar); } } }); }

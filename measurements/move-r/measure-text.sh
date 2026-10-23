@@ -9,7 +9,7 @@
 #   indexes/   <- working dir for the built indexes
 #
 # The CLI/benchmark binaries are expected in the project's build/ folder (see README:
-# "mkdir build && cd build && cmake .. && make"). move-r-bench is built into build/bench/,
+# "mkdir build && cd build && cmake .. -DMOVE_R_BUILD_MOVE_R_BENCH=ON && make"). move-r-bench is built into build/bench/,
 # the other tools into build/cli/.
 #
 # Usage: ./measure-text.sh -t <text> [-p <max_threads>]
@@ -50,7 +50,7 @@ if [ ! -f "$TEXTS/$t" ]; then
 fi
 
 # ---------- binary check ----------
-for bin in "$BUILD/bench/move-r-bench" "$BUILD/cli/move-r-build" "$BUILD/cli/move-r-locate"; do
+for bin in "$BUILD/bench/move-r-bench" "$BUILD/cli/move-r"; do
     if [ ! -x "$bin" ]; then
         echo "error: missing binary '$bin' -- build the project first (see README)" >&2
         exit 1
@@ -70,14 +70,14 @@ echo ">>> [$t] balancing-parameter sweep (count / locate for a range of thread c
 
 echo ">>> [$t] construction phases (a=8, threads 1..$p)" >&2
 for ((i_p=1; i_p<=p; i_p*=2)); do
-    "$BUILD/cli/move-r-build" -o "$INDEXES/$t-8" -p "$i_p" -a 8 \
-        -m_idx "$RESULTS/results-move-r-build-phases.txt" \
-        -m_mds "$RESULTS/results-mds-build-phases.txt" "$TEXTS/$t"
+    "$BUILD/cli/move-r" build -o "$INDEXES/$t-8" -p "$i_p" -balance 8 \
+        -m "$RESULTS/results-move-r-build-phases.txt" "$t" \
+        -m-mds "$RESULTS/results-mds-build-phases.txt" "$TEXTS/$t"
 done
 
 echo ">>> [$t] locate statistics (a=2 index)" >&2
-"$BUILD/cli/move-r-build" -o "$INDEXES/$t-2" -p "$p" -a 2 "$TEXTS/$t"
-"$BUILD/cli/move-r-locate" -m "$RESULTS/statistics.txt" "$t" "$INDEXES/$t-2.move-r" "$PATTERNS/$t-patterns-bal"
-"$BUILD/cli/move-r-locate" -m "$RESULTS/statistics.txt" "$t" "$INDEXES/$t-2.move-r" "$PATTERNS/$t-patterns-phi"
+"$BUILD/cli/move-r" build -o "$INDEXES/$t-2" -p "$p" -balance 2 "$TEXTS/$t"
+"$BUILD/cli/move-r" locate -m "$RESULTS/statistics.txt" "$t" "$INDEXES/$t-2.move-r-locate" "$PATTERNS/$t-patterns-bal"
+"$BUILD/cli/move-r" locate -m "$RESULTS/statistics.txt" "$t" "$INDEXES/$t-2.move-r-locate" "$PATTERNS/$t-patterns-phi"
 
 echo ">>> [$t] done" >&2

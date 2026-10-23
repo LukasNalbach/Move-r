@@ -1,0 +1,377 @@
+diff --git a/src/bmove/bmove.cpp b/src/bmove/bmove.cpp
+index 0bb5685..710f871 100644
+--- a/src/bmove/bmove.cpp
++++ b/src/bmove/bmove.cpp
+@@ -546,6 +546,52 @@ void BMove::collectTextPositions(length_t firstPos, length_t originalDepth,
+     }
+ }
+ 
++length_t BMove::locateCentered(const SARangePair& ranges, length_t& firstPos,
++                               std::vector<length_t>& left,
++                               std::vector<length_t>& right) const {
++
++    length_t originalDepth = ranges.getOriginalDepth();
++    firstPos = ranges.getToehold() -
++               (ranges.getToeholdRepresentsEnd() ? (originalDepth - 1) : 0);
++    length_t begin = ranges.getRangeSA().getBegin();
++
++    // walk phi from the centered (toehold) occurrence, collecting the occurrences left of it
++    length_t currentPos = firstPos;
++#ifdef PHI_MOVE
++    length_t textRun = predFirst.rank(firstPos);
++#endif
++    while (plcp[currentPos] >= originalDepth) {
++#ifdef PHI_MOVE
++        phiMove.phi(currentPos, textRun);
++#else
++        phi(currentPos);
++#endif
++        assert(currentPos < textLength);
++        left.push_back(currentPos);
++    }
++
++    length_t c = begin + left.size(); // suffix-array index of the centered occurrence
++
++    // walk phi^-1 from the centered occurrence, collecting the occurrences right of it
++    currentPos = firstPos;
++#ifdef PHI_MOVE
++    textRun = predLast.rank(currentPos);
++#endif
++    while (currentPos != getInitialToehold() + 1) {
++#ifdef PHI_MOVE
++        phiInvMove.phi(currentPos, textRun);
++#else
++        phiInverse(currentPos);
++#endif
++        if (plcp[currentPos] < originalDepth)
++            break;
++        assert(currentPos < textLength);
++        right.push_back(currentPos);
++    }
++
++    return c;
++}
++
+ void BMove::getTextPositionsFromSARange(
+     const SARangePair& ranges, std::vector<length_t>& positions) const {
+ 
+diff --git a/src/bmove/bmove.h b/src/bmove/bmove.h
+index 49aaeba..d28f8fd 100644
+--- a/src/bmove/bmove.h
++++ b/src/bmove/bmove.h
+@@ -492,6 +492,20 @@ class BMove : public IndexInterface {
+     virtual void getTextPositionsFromSARange(
+         const SARangePair& ranges,
+         std::vector<length_t>& positions) const override;
++
++    /**
++     * @brief Enumerate the text positions of a match, centered on the toehold occurrence, tracking
++     * suffix-array indices. Walks phi/phi^-1 from the toehold occurrence (SA index c) and fills @p left
++     * with SA[c-1], SA[c-2], ..., SA[begin] and @p right with SA[c+1], ..., SA[end-1], so a caller can
++     * associate every reported occurrence with its suffix-array index. Added for the Move-r apm adapter.
++     * @param ranges the ranges of the match (must have a valid toehold)
++     * @param firstPos output: the text position (SA value) of the centered (toehold) occurrence
++     * @param left output: the text positions left of the center (descending SA index)
++     * @param right output: the text positions right of the center (ascending SA index)
++     * @returns the suffix-array index c of the centered occurrence
++     */
++    length_t locateCentered(const SARangePair& ranges, length_t& firstPos,
++                            std::vector<length_t>& left, std::vector<length_t>& right) const;
+ };
+ 
+ #endif // BMOVE_H
+\ No newline at end of file
+diff --git a/src/buildindex.cpp b/src/buildindex.cpp
+index b3adab3..439a358 100644
+--- a/src/buildindex.cpp
++++ b/src/buildindex.cpp
+@@ -24,6 +24,8 @@
+ #include "logger.h"      // for Logger, logger
+ #include "util.h"        // for fileExists..
+ 
++#include <malloc_count.h> // for malloc_count_peak / malloc_count_reset_peak
++
+ #include <algorithm>  // for max, transform, equal, max_element, min_ele...
+ #include <array>      // for array
+ #include <cctype>     // for toupper
+@@ -65,6 +67,82 @@
+ 
+ using namespace std;
+ 
++/**
++ * @brief Format a number of bytes as a human-readable string (B/KiB/MiB/GiB).
++ * @param bytes The number of bytes.
++ * @return The formatted string, e.g. "1.23 GiB".
++ */
++static std::string formatMemory(size_t bytes) {
++    const char* units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
++    double value = static_cast<double>(bytes);
++    int unit = 0;
++    while (value >= 1024.0 && unit < 4) {
++        value /= 1024.0;
++        unit++;
++    }
++    char buffer[64];
++    snprintf(buffer, sizeof(buffer), "%.2f %s", value, units[unit]);
++    return std::string(buffer);
++}
++
++#if defined(RUN_LENGTH_COMPRESSION) && defined(BIG_BWT_USABLE)
++/**
++ * @brief Extract the peak heap usage recorded by Big-BWT from one of its
++ * malloc_count log files. Big-BWT runs as a separate process (so this build's
++ * malloc_count cannot observe it directly) but each of its phases appends a
++ * line of the form "... exiting, peak: <value>, current: <value> (KBs)" to
++ * <input>.log. This returns the maximum such peak, converted to bytes.
++ * @param path Path to the Big-BWT log file (e.g. <baseFN>.log).
++ * @return The peak memory usage in bytes, or 0 if the log is absent/unreadable.
++ */
++static uint64_t parseBigbwtLogPeak(const std::string& path) {
++    std::ifstream ifs(path, std::ios::binary);
++    if (!ifs)
++        return 0;
++
++    std::string content;
++    ifs.seekg(0, std::ios::end);
++    content.resize(static_cast<size_t>(ifs.tellg()));
++    ifs.seekg(0, std::ios::beg);
++    ifs.read(&content[0], content.size());
++
++    // Big-BWT's bundled malloc_count reports the peak in KBs; convert to bytes.
++    uint64_t peakBytes = 0;
++    const std::string needle = "peak:";
++    for (size_t pos = content.find(needle); pos != std::string::npos;
++         pos = content.find(needle, pos + needle.size())) {
++        const double kbs = std::strtod(content.c_str() + pos + needle.size(), nullptr);
++        if (kbs > 0.0)
++            peakBytes = std::max(peakBytes, static_cast<uint64_t>(kbs * 1024.0));
++    }
++
++    return peakBytes;
++}
++#endif // RUN_LENGTH_COMPRESSION && BIG_BWT_USABLE
++
++/**
++ * @brief Log the peak heap usage of the construction. @p baseline is the heap
++ * usage of THIS process recorded before construction started (tracked via
++ * malloc_count; 0 B when malloc_count is disabled at compile time). @p
++ * externalPeak is the peak of any separate helper process (Big-BWT prefix-free
++ * parsing) folded in via max(), mirroring how move-r reports its own peak; the
++ * overall construction peak is the larger of the two since the stages run
++ * sequentially in separate processes.
++ * @param baseline The in-process heap usage recorded before construction.
++ * @param externalPeak Peak of an external helper process, in bytes (default 0).
++ */
++static void reportPeakMemory(size_t baseline, uint64_t externalPeak = 0) {
++    const size_t rawPeak = malloc_count_peak();
++    const uint64_t ownPeak = rawPeak > baseline ? rawPeak - baseline : rawPeak;
++    const uint64_t peak = std::max<uint64_t>(ownPeak, externalPeak);
++
++    logger.logInfo("Peak memory usage during construction: " + formatMemory(peak));
++    if (externalPeak > 0) {
++        logger.logInfo("\t(in-process: " + formatMemory(ownPeak) +
++                       ", Big-BWT: " + formatMemory(externalPeak) + ")");
++    }
++}
++
+ // ============================================================================
+ // PARSING
+ // ============================================================================
+@@ -2030,6 +2108,12 @@ int main(int argc, char* argv[]) {
+ 
+     logger.logInfo("Welcome to Columba's index construction!");
+ 
++    // Baseline the heap before construction so the reported peak reflects only
++    // the memory allocated while building the index (tracked via malloc_count;
++    // reports 0 B when malloc_count is disabled at compile time).
++    const size_t memBaseline = malloc_count_current();
++    malloc_count_reset_peak();
++
+     BuildParameters params;
+     if (!BuildParameters::parse(argc, argv, params)) {
+         BuildParameters::showUsage();
+@@ -2040,11 +2124,22 @@ int main(int argc, char* argv[]) {
+ 
+ #if defined(RUN_LENGTH_COMPRESSION) && defined(BIG_BWT_USABLE)
+     if (params.preprocessOnly) {
+-        return preprocessingOnly(params);
++        int rc = preprocessingOnly(params);
++        reportPeakMemory(memBaseline);
++        return rc;
+     }
+ 
+     if (params.pfp) {
+-        return indexConstructingAfterPFP(params);
++        int rc = indexConstructingAfterPFP(params);
++        // Fold in the peak of the separate Big-BWT process(es) that produced the
++        // .bwt/.ssa/.esa this step consumed, read from their malloc_count logs
++        // (still present at --pfp time), so the reported peak reflects the whole
++        // prefix-free-parsing construction, as move-r does.
++        const uint64_t bigbwtPeak =
++            std::max(parseBigbwtLogPeak(params.baseFN + ".log"),
++                     parseBigbwtLogPeak(params.baseFN + ".rev.log"));
++        reportPeakMemory(memBaseline, bigbwtPeak);
++        return rc;
+     }
+ #elif !defined(RUN_LENGTH_COMPRESSION)
+     if (params.allSparsenessFactors) {
+@@ -2074,6 +2169,8 @@ int main(int argc, char* argv[]) {
+         return EXIT_FAILURE;
+     }
+ 
++    reportPeakMemory(memBaseline);
++
+     logger.logInfo("Index construction completed successfully!");
+     logger.logInfo("Exiting... bye!");
+ 
+diff --git a/src/indexinterface.h b/src/indexinterface.h
+index 07fe723..1eb4854 100644
+--- a/src/indexinterface.h
++++ b/src/indexinterface.h
+@@ -561,6 +561,33 @@ class IndexInterface {
+         return wordSize;
+     }
+ 
++    // ------------------------------------------------------------------------
++    // ADDITIONS FOR THE Move-r APPROXIMATE-PATTERN-MATCHING ADAPTER
++    // ------------------------------------------------------------------------
++
++    /** @returns the size of the alphabet (including the sentinel) */
++    length_t alphabetSize() const { return sigma.size(); }
++
++    /** Maps a character to its alphabet index (0 = sentinel, -1 if not in the alphabet). */
++    int charToIdx(char c) const { return sigma.c2i(c); }
++
++    /** Maps an alphabet index back to its character. */
++    char idxToChar(int i) const { return sigma.i2c(i); }
++
++    /**
++     * Extends a match by one character in the given direction; a thin public wrapper around the
++     * (protected) bidirectional extension routines so an external searcher (move_r's apm) can drive the index.
++     * @param positionInAlphabet the alphabet index of the character to add
++     * @param d FORWARD to append (Pc), BACKWARD to prepend (cP)
++     * @param parent the ranges of the current match P
++     * @param child output: the ranges of the extended match
++     * @returns whether the extended match occurs in the text
++     */
++    bool extendRange(length_t positionInAlphabet, Direction d, const SARangePair& parent, SARangePair& child) const {
++        return d == FORWARD ? findRangesWithExtraCharForward(positionInAlphabet, parent, child)
++                            : findRangesWithExtraCharBackward(positionInAlphabet, parent, child);
++    }
++
+     /**
+      * Get the cross-over point form in-index to in-text verification
+      */
+diff --git a/src/logger.cpp b/src/logger.cpp
+index 770366c..92b446c 100644
+--- a/src/logger.cpp
++++ b/src/logger.cpp
+@@ -30,7 +30,7 @@ Logger::Logger(const string& filename)
+ }
+ 
+ Logger::Logger() : startTime(chrono::steady_clock::now()) {
+-    outputStream = &cout;
++    outputStream = &cerr;
+ }
+ 
+ void Logger::setLogFile(const string& filename) {
+diff --git a/src/searchstrategy.cpp b/src/searchstrategy.cpp
+index 3365d9c..b126abf 100644
+--- a/src/searchstrategy.cpp
++++ b/src/searchstrategy.cpp
+@@ -500,8 +500,10 @@ void SearchStrategy::matchApproxAllMap(ReadBundle& bundle, length_t maxED,
+ 
+         index.setIndexInMode(FORWARD_STRAND, FIRST_IN_PAIR);
+         index.exactMatchesOutput(bundle.getRead(), counters, result);
+-        index.setIndexInMode(REVERSE_C_STRAND, FIRST_IN_PAIR);
+-        index.exactMatchesOutput(bundle.getRevComp(), counters, result);
++        if (searchReverseComplement) {
++            index.setIndexInMode(REVERSE_C_STRAND, FIRST_IN_PAIR);
++            index.exactMatchesOutput(bundle.getRevComp(), counters, result);
++        }
+ 
+         if (generateSAMLines) {
+             generateOutputSingleEnd(result, bundle, counters, 0);
+@@ -520,10 +522,12 @@ void SearchStrategy::matchApproxAllMap(ReadBundle& bundle, length_t maxED,
+     // map with the searches
+     matchWithSearches(bundle.getRead(), maxED, counters, occ);
+ 
+-    // set the index in reverse complement mode with the correct sequence
+-    index.setIndexInMode(REVERSE_C_STRAND);
+-    // map with the searches
+-    matchWithSearches(bundle.getRevComp(), maxED, counters, occ);
++    if (searchReverseComplement) {
++        // set the index in reverse complement mode with the correct sequence
++        index.setIndexInMode(REVERSE_C_STRAND);
++        // map with the searches
++        matchWithSearches(bundle.getRevComp(), maxED, counters, occ);
++    }
+ 
+     // C) get all non-redundant matches mapped to the text
+     result = (this->*filterPtr)(occ, maxED, counters, bundle);
+diff --git a/src/searchstrategy.h b/src/searchstrategy.h
+index 5f30512..e1a13da 100644
+--- a/src/searchstrategy.h
++++ b/src/searchstrategy.h
+@@ -194,6 +194,10 @@ class SearchStrategy {
+                                   // the fragment size and orientation
+     bool unmappedSAM = true; // whether to generate SAM lines for unmapped reads
+     bool xaTag = false; // whether to use the XA tag for secondary alignments
++    bool searchReverseComplement =
++        true; // whether approximate matching also searches the
++              // reverse-complement strand (columba's default); set to false to
++              // search only the read itself (Move-r benchmark: forward-only)
+     bool discordantAllowed = false; // whether discordant alignments are allowed
+     length_t nDiscordantPairs = 100000; // number of discordant pairs allowed
+ 
+@@ -1872,6 +1876,16 @@ class SearchStrategy {
+         this->generateSAMLines = generateSAMLines;
+     }
+ 
++    /**
++     * Set whether approximate matching also searches the reverse-complement
++     * strand. By default (true) columba searches both the read and its reverse
++     * complement; set to false to search only the read itself. Added for the
++     * Move-r benchmark, which compares forward-only search.
++     */
++    void setSearchReverseComplement(bool searchReverseComplement) {
++        this->searchReverseComplement = searchReverseComplement;
++    }
++
+     /**
+      * Turn on or off the allowing of discordant pairs
+      */
+@@ -2027,6 +2041,33 @@ class SearchStrategy {
+         (this->*matchPtrSE)(readBundle, maxEDOrIdentity, counters, result);
+     }
+ 
++    /**
++     * Like all-map matchApprox, but stops after the in-index search
++     * (matchWithSearches): it does NOT locate the occurrences in the text.
++     * Returns the number of in-index (FM) occurrences found (undeduplicated --
++     * this is for TIMING the match phase only, not a correctness count).
++     * Honours searchReverseComplement (forward strand only when false). Added
++     * for the Move-r benchmark.
++     */
++    size_t matchApproxMatchOnly(ReadBundle& bundle, length_t maxED,
++                                Counters& counters) {
++        if (maxED == 0) {
++            std::vector<TextOcc> result;
++            index.setIndexInMode(FORWARD_STRAND, FIRST_IN_PAIR);
++            index.exactMatchesOutput(bundle.getRead(), counters, result);
++            return result.size();
++        }
++        Occurrences occ;
++        index.resetFullReadMatrices();
++        index.setIndexInMode(FORWARD_STRAND);
++        matchWithSearches(bundle.getRead(), maxED, counters, occ);
++        if (searchReverseComplement) {
++            index.setIndexInMode(REVERSE_C_STRAND);
++            matchWithSearches(bundle.getRevComp(), maxED, counters, occ);
++        }
++        return occ.getFMOccurrences().size();
++    }
++
+     /**
+      * Matches a pair of reads approximately using this strategy in the current
+      * mode. WARNING: make sure that the orientation is set correctly before
