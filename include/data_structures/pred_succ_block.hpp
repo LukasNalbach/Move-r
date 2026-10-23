@@ -143,7 +143,7 @@ public:
     inline bool empty() const { return _succ.empty() && _pred.empty(); }
 
     // returns the size of the data structure in bytes
-    uint64_t size_in_bytes() const { return sizeof(*this) + _succ.size_in_bytes() + _pred.size_in_bytes(); }
+    uint64_t size_in_bytes() const { return _succ.size_in_bytes() + _pred.size_in_bytes(); }
 
     // ############################# ACCESS METHODS #############################
 

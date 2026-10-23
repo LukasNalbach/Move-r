@@ -660,6 +660,11 @@ public:
     inline uint64_t input_size() const { return n - 1; }
     // returns the number of distinct symbols in the input (without the terminator symbol)
     inline uint32_t alphabet_size() const { return sigma - 1; }
+    // returns the largest symbol of an input with an integer alphabet
+    inline uint64_t max_input_symbol() const
+    {
+        return symbols_remapped ? _alphabet.select_1(_alphabet.num_ones()) : sigma - 1;
+    }
     // returns r, the number of runs in the BWT
     inline uint64_t num_bwt_runs() const { return r; }
     // returns the balancing parameter a

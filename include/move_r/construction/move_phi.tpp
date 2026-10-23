@@ -109,7 +109,7 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_mphi_inv()
 {
     begin_mds_result("build_mphi_inv");
-    log_phase_start("\nbuilding M_Phi^{-1}");
+    log_phase_start("building M_Phi^{-1}:");
 
     /* the PLCP row stores the PLCP value at the start of the output interval of each input interval; plcp_pair is
        sorted by the starting positions of the output intervals of the pairs (see plcp_pair) */
@@ -220,7 +220,7 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_mphi()
 {
     begin_mds_result("build_mphi");
-    log_phase_start("\nbuilding M_Phi");
+    log_phase_start("building M_Phi:");
 
     idx._M_Phi = mphi_t(
         std::move(I_Phi), n, {
@@ -264,7 +264,7 @@ void move_r<support, mlf_enc>::construction::load_iphi_inv(bool remove_file)
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_iphi()
 {
-    log_phase_start("\nbuilding I_Phi");
+    log_phase_start("building I_Phi");
 
     I_Phi.reset(r, n);
     // true <=> the second component of each pair is the index of its run until the pairs are sorted (see sort_iphi)
@@ -282,7 +282,7 @@ void move_r<support, mlf_enc>::construction::build_iphi()
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_plcp_run()
 {
-    log_phase_start("building the run-boundary LCP values");
+    log_phase_start("building LCP_run");
 
     /* The pair of the x-th run is (SA[i-1], SA[i]), where i is the starting position of the run in L; LCP[i] is the
        length of the longest common prefix of the suffixes of T starting at SA[i-1] and SA[i]. The terminator occurs

@@ -108,7 +108,7 @@ void move_r<support, mlf_enc>::construction::build_SA_rlz() requires(has_SA_rlz)
         for (uint64_t i_p = 0; i_p < p; i_p++)
             readers.emplace_back(*this, mlf_starts, phi_inv_starts, nullptr, 0);
 
-        log_phase_start("sampling SA for the RLZ construction");
+        log_phase_start("sampling SA for RLZ");
 
         /* SA is sampled at every 2^sampled_shift-th position inside the runs longer than 2^sampled_shift, where
            sampled_shift = max(10, floor(log_2(n/r))). Each of those runs is decoded once from its start to its last

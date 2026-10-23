@@ -219,7 +219,7 @@ inline void print_build_measurement_options(help_printer& h, bool with_mds_measu
 
 /**
  * @brief limits the number of threads to max(1, n / move_r_min_symbols_per_thread), opens the output file and logs
- *        the start of the build: "building <what> of <file> (<size>) using <p> threads, <parameters>" and
+ *        the start of the build: "building <what> of <file> (<size>) with <p> threads, <parameters>" and
  *        "output: <path>"; n is not known before the construction, its upper bound input_bytes + 1 is used
  * @param cli the options; path_index_file must be set
  * @param what what is built, e.g. "the move-r index"
@@ -247,9 +247,9 @@ inline void begin_build(build_cli_t& cli, const std::string& what, const std::st
     const uint64_t more_files = cli.path_input_files.size() - 1;
     log_out() << "building " << what << " of " << input_name;
     if (more_files > 0) log_out() << " and " << more_files << (more_files == 1 ? " more file" : " more files");
-    log_out() << " (" << format_size(cli.input_bytes) << ") using " << format_threads(cli.num_threads) << ", "
+    log_out() << " (" << format_size(cli.input_bytes) << ") with " << format_threads(cli.num_threads) << ", "
               << parameters << std::endl
-              << "output: " << cli.path_index_file << std::endl << std::endl;
+              << "output: " << cli.path_index_file << std::endl;
 }
 
 /**
@@ -258,12 +258,13 @@ inline void begin_build(build_cli_t& cli, const std::string& what, const std::st
  * @tparam index_t type of the index
  * @param index the index
  * @param cli the options
+ * @param name the name of the index in the log
  */
 template <typename index_t>
-void write_index(const index_t& index, build_cli_t& cli)
+void write_index(const index_t& index, build_cli_t& cli, const std::string& name = "the index")
 {
     auto time = now();
-    log_phase_start(true, time, "writing " + cli.path_index_file);
+    log_phase_start(true, time, "storing " + name);
     index.serialize(cli.index_file);
     cli.index_file.close();
     log_phase_end(true, time, cli.measurement(), "time_serialize_index");
@@ -289,7 +290,7 @@ decltype(auto) build_with_fallback(move_r_construction_mode mode, bool construct
     } catch (const std::runtime_error& error) {
         if (mode != _pfp || construction_mode_given || input_length > move_r_max_input_length_sa) throw;
         end_phase_line();
-        log_out() << std::endl << error.what() << std::endl
+        log_out() << error.what() << std::endl
                   << "falling back to the construction mode sa-space" << std::endl;
         return build(_suffix_array_space);
     }
@@ -359,7 +360,7 @@ struct fasta_cli_t {
         if (path_text.empty()) {
             path_text = temporary_file_path("move-r_fasta_", cli.path_input_files[0]);
             auto time = now();
-            log_phase_start(true, time, "writing the preprocessed FASTA text");
+            log_phase_start(true, time, "storing the FASTA text");
             process_fasta(cli.path_input_files, path_text, cli.fasta_alphabet, fasta_separator_symbol, true,
                 cli.num_threads);
             log_phase_end(true, time, cli.measurement(), "time_preprocess_fasta");

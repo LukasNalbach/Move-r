@@ -37,7 +37,7 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_mlf()
 {
     begin_mds_result("build_mlf");
-    log_phase_start("\nbuilding M_LF");
+    log_phase_start("building M_LF:");
 
     uint8_t width_l_ = std::bit_width(idx.sigma);
 

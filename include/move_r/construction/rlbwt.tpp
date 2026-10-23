@@ -39,7 +39,7 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_sa()
 {
     if (!byte_alphabet && idx.symbols_remapped) {
-        log_phase_start("mapping T to its effective alphabet");
+        log_phase_start("mapping T");
         int_alphabet->map_text(T_inp, n, p);
         log_phase_end("time_map_t_effective");
         release_int_alphabet();

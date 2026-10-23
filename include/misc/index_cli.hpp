@@ -152,8 +152,8 @@ inline std::string alphabet_description(bool byte_alphabet, bool input_order)
 
 /**
  * @brief prints the information about an index (the output of the info modes) after its loading line: the facts,
- *        one per line, an empty line, the size of the index ("<name> size: ..."), the sizes of its data structures,
- *        an empty line and the modes that support it
+ *        one per line, the size of the index ("<name> size: ..."), the sizes of its data structures and the modes that
+ *        support it
  * @tparam log_sizes_fnc_t type of log_sizes
  * @param facts the facts
  * @param name the name of the index in the size line, e.g. "index"
@@ -167,10 +167,9 @@ void print_index_info(const index_facts& facts, const std::string& name, uint64_
     log_sizes_fnc_t log_sizes, const std::string& modes)
 {
     facts.print(std::cout);
-    std::cout << "\n";
     log_output_size(name, index_bytes, input_bytes);
     log_sizes();
-    std::cout << "\nmodes: " << modes << std::endl;
+    std::cout << "modes: " << modes << std::endl;
 }
 
 /**

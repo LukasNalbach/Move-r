@@ -339,7 +339,7 @@ public:
     // returns the size of the data structure in bytes
     uint64_t size_in_bytes() const
     {
-        return sizeof(*this) + size_bits_in_bytes() + size_prefix_sums_in_bytes() + size_tree_in_bytes();
+        return size_bits_in_bytes() + size_prefix_sums_in_bytes() + size_tree_in_bytes();
     }
 
     // ############################# QUERY METHODS #############################

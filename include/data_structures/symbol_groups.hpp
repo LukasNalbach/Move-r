@@ -144,7 +144,7 @@ public:
     // returns the size in bytes
     uint64_t size_in_bytes() const
     {
-        uint64_t bytes = sizeof(*this) + set_of_symbol.size() * sizeof(uint32_t);
+        uint64_t bytes = set_of_symbol.size() * sizeof(uint32_t);
         for (const rank_select_set& set : sets) bytes += set.size_in_bytes();
         return bytes;
     }

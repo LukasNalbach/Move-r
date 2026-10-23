@@ -47,45 +47,48 @@
 
 /**
  * @brief the unsigned symbol type with which an input with symbols of type sym_t is read (the unsigned
- *        integer type of the same width, or uint40_t)
- * @tparam sym_t symbol type of the input
+ *        integer type of the same width, or the packed type itself)
+ * @tparam sym_t symbol type of the input: an integer type of at most 8 bytes or a packed unsigned integer type
+ *         (uint24_t, uint40_t, uint48_t or uint56_t)
  */
 template <typename sym_t>
 struct move_r_symbol {
-    static_assert(std::is_integral_v<sym_t>,
-        "move_r input symbols have to be integers or uint40_t");
-    static_assert(sizeof(sym_t) == 1 || sizeof(sym_t) == 2 || sizeof(sym_t) == 4 || sizeof(sym_t) == 5 || sizeof(sym_t) == 8,
-        "move_r supports symbols of one, two, four, five (uint40_t) or eight bytes");
+    static_assert(std::is_integral_v<sym_t> && sizeof(sym_t) <= sizeof(uint64_t),
+        "move_r input symbols have to be integers of at most 8 bytes or packed unsigned integers");
     using type = std::make_unsigned_t<sym_t>;
 };
 
-template <> struct move_r_symbol<uint40_t> { using type = uint40_t; };
+template <uint8_t bytes> struct move_r_symbol<packed_unsigned<bytes>> { using type = packed_unsigned<bytes>; };
 
 template <typename sym_t> using move_r_symbol_t = typename move_r_symbol<sym_t>::type;
 
-// calls X(width in bytes, symbol type) for each supported width of an input symbol
+// calls X(symbol type) for the unsigned symbol type of each width of an input symbol, 1 to 8 bytes
 #define MOVE_R_FOR_EACH_INPUT_WIDTH(X) \
-    X(1, uint8_t) \
-    X(2, uint16_t) \
-    X(4, uint32_t) \
-    X(5, uint40_t) \
-    X(8, uint64_t)
+    X(uint8_t) \
+    X(uint16_t) \
+    X(uint24_t) \
+    X(uint32_t) \
+    X(uint40_t) \
+    X(uint48_t) \
+    X(uint56_t) \
+    X(uint64_t)
 
 /**
  * @brief calls fnc(std::type_identity<sym_t>()) with the symbol type sym_t of the given width
- * @param width width of an input symbol in bytes (1, 2, 4, 5 or 8)
+ * @param width width of an input symbol in bytes, in [1, 8]
  * @param fnc the function
  */
 template <typename fnc_t>
 inline decltype(auto) move_r_with_symbol_type(uint8_t width, fnc_t&& fnc)
 {
     switch (width) {
-        #define MOVE_R_WIDTH_CASE(bytes, sym_t) case bytes: return fnc(std::type_identity<sym_t>());
+        #define MOVE_R_WIDTH_CASE(sym_t) case sizeof(sym_t): return fnc(std::type_identity<sym_t>());
         MOVE_R_FOR_EACH_INPUT_WIDTH(MOVE_R_WIDTH_CASE)
         #undef MOVE_R_WIDTH_CASE
     }
 
-    throw std::invalid_argument("move_r: the width of an input symbol must be 1, 2, 4, 5 or 8 bytes");
+    throw std::invalid_argument("move_r: the width of an input symbol must be 1 to " + std::to_string(sizeof(uint64_t))
+        + " bytes");
 }
 
 /**
@@ -105,8 +108,8 @@ private:
 public:
     /**
      * @brief constructs a view of a container
-     * @tparam container_t type of the container; its value type must be an integer type of 1, 2, 4 or 8 bytes,
-     *         or uint40_t
+     * @tparam container_t type of the container; its value type must be an integer type of at most 8 bytes or a
+     *         packed unsigned integer type (see move_r_symbol)
      * @param input the container
      */
     template <typename container_t>
@@ -522,7 +525,7 @@ inline std::unique_ptr<move_r_int_alphabet> move_r_int_alphabet::make(uint8_t wi
 // the editor parser of VS Code (__INTELLISENSE__) does not resolve the extern declarations of constrained member
 // templates; it does not need them
 #if !defined(STRING_UTILS_NO_EXTERN_TEMPLATES) && !defined(__INTELLISENSE__)
-#define MOVE_R_DECLARE_INT_ALPHABET(bytes, sym_t) extern template class move_r_int_alphabet_of<sym_t>;
+#define MOVE_R_DECLARE_INT_ALPHABET(sym_t) extern template class move_r_int_alphabet_of<sym_t>;
 MOVE_R_FOR_EACH_INPUT_WIDTH(MOVE_R_DECLARE_INT_ALPHABET)
 #undef MOVE_R_DECLARE_INT_ALPHABET
 #endif

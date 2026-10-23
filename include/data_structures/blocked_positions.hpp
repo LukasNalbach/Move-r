@@ -163,7 +163,7 @@ public:
 
     // returns the size in bytes
     uint64_t size_in_bytes() const
-    { return sizeof(*this) + blocks.size() * sizeof(block_t) + wide_offsets.size() * sizeof(uint64_t); }
+    { return blocks.size() * sizeof(block_t) + wide_offsets.size() * sizeof(uint64_t); }
 
     // fetches the block of the i-th position into the cache
     inline void prefetch(uint64_t i) const { __builtin_prefetch(blocks.data() + i / positions_per_block); }

@@ -35,7 +35,6 @@
 #include <hash_table6.hpp>
 #include <misc/fasta.hpp>
 #include <misc/files.hpp>
-#include <misc/serialized_size.hpp>
 #include <move_r/construction/text_alphabet.hpp>
 #include <pfp_rlbwt/pfp_rlbwt.hpp>
 
@@ -114,13 +113,14 @@ struct move_rb<support>::build_state_t {
      * @brief ends a phase that stores a data structure to disk, loads it or deletes it, started with
      *        log_phase_start(log, time, "") (see ::log_spill_phase_end), and writes the size of the index under the
      *        key live_<key>
-     * @param message the message of the phase, e.g. "storing M_Phi to disk"
+     * @param message the message of the phase, e.g. "storing M_Phi"
      * @param bytes the number of bytes stored, loaded or deleted
+     * @param stored whether the phase stores the data structure (only then its size is logged)
      * @param key measurement-file key of the phase
      */
-    void finish_spill_phase(const std::string& message, uint64_t bytes, const std::string& key)
+    void finish_spill_phase(const std::string& message, uint64_t bytes, bool stored, const std::string& key)
     {
-        log_spill_phase_end(log, time, message, bytes, params.measurement_file, key);
+        log_spill_phase_end(log, time, message, bytes, stored, params.measurement_file, key);
         if (log && params.measurement_file != nullptr) *params.measurement_file << " live_" << key << "=" << idx.size_in_bytes();
     }
 };
@@ -198,10 +198,8 @@ void move_rb<support>::build(
 
     if (st.log && log_summary) {
         uint64_t time_construction = time_diff_ns(time_start, now());
-        std::cout << std::endl;
-        log_output_size("index", serialized_size_in_bytes(*this), n);
+        log_output_size("index", size_in_bytes(), n);
         log_data_structure_sizes();
-        std::cout << std::endl;
         log_construction_summary(time_construction, st.peak_memory_usage, st.params.measurement_file);
     }
 }
@@ -212,7 +210,7 @@ void move_rb<support>::prepare_input(build_state_t& st)
     move_r_input_view& input = st.input;
 
     if (!st.pfp && st.file_input) {
-        log_phase_start(st.log, st.time, "reading input file from disk");
+        log_phase_start(st.log, st.time, "reading T");
 
         // reserve space for the terminator that a sub-index appends (see move_r)
         input.reserve(n);
@@ -235,7 +233,7 @@ void move_rb<support>::prepare_input(build_state_t& st)
         prog.finish();
         st.finish_phase("time_read_input");
     } else if (st.reads_input_file && !st.file_input) {
-        log_phase_start(st.log, st.time, "writing input file to disk");
+        log_phase_start(st.log, st.time, "storing T");
 
         st.input_file_name = st.prefix_tmp_files + ".input";
         direct_ofstream input_ofile(st.input_file_name, std::ios::binary);
@@ -325,14 +323,14 @@ void move_rb<support>::build_byte_alphabet(build_state_t& st)
 
     // the pfp applies the alphabet map while reading the input file
     if (st.pfp) {
-        log_phase_start(st.log, st.time, "writing the alphabet map");
+        log_phase_start(st.log, st.time, "storing the alphabet map");
 
         st.map_file_name = st.prefix_tmp_files + ".map";
         direct_ofstream map_ofile(st.map_file_name, std::ios::binary);
         write_in_chunks(map_ofile, (char*) st.map_int.data(), 256);
         map_ofile.close();
     } else {
-        log_phase_start(st.log, st.time, "mapping T to its internal alphabet");
+        log_phase_start(st.log, st.time, "mapping T");
 
         #pragma omp parallel for num_threads(p)
         for (uint64_t i = 0; i < n - 1; i++) {
@@ -377,7 +375,7 @@ void move_rb<support>::build_integer_alphabet(build_state_t& st)
     // map each symbol of the input to its effective symbol
     alphabet->assign_effective_symbols(st.symbols, st.order, st.p);
 
-    log_phase_start(st.log, st.time, "mapping T to its internal alphabet");
+    log_phase_start(st.log, st.time, "mapping T");
 
     alphabet->map_text(st.input, n, st.p);
 
@@ -403,14 +401,14 @@ void move_rb<support>::build_sub_indexes(build_state_t& st)
     sub_params.sample_run_ends = supports_locate;
 
     try {
-        log_message(st.log, "building forward index:\n");
+        log_message(st.log, "building the forward index:\n");
         idx_fwd = move_r_fwd_t(input, sub_params);
         _pfp_cached_texts = idx_fwd.rlbwt_from_cache() ? 1 : 0;
         if (st.byte_input) idx_fwd.set_alphabet_maps(st.map_int, st.map_ext); else idx_fwd.set_alphabet(st.symbols, st.order);
 
         // store the forward index on disk while the backward index is built
         if (st.pfp || st.sa_space) {
-            log_phase_start(st.log, st.time, "\nstoring forward index to disk");
+            log_phase_start(st.log, st.time, "storing the forward index");
 
             st.idx_fwd_file_name = st.prefix_tmp_files + ".move_r_fwd";
             direct_ofstream idx_fwd_ofile(st.idx_fwd_file_name);
@@ -425,7 +423,7 @@ void move_rb<support>::build_sub_indexes(build_state_t& st)
 
         if (!st.pfp) reverse(input, st.p, st.log, st.params.measurement_file, "time_reverse_t_for_backward");
 
-        log_message(st.log, "\nbuilding backward index:\n");
+        log_message(st.log, "building the backward index:\n");
         sub_params.measurement_key_suffix = "_bwd";
         // the backward index is built for T^R (see move_r_params::reversed)
         sub_params.reversed = true;
@@ -480,12 +478,11 @@ template <move_r_support support>
 void move_rb<support>::load_forward_index(build_state_t& st)
 {
     if (st.pfp || st.sa_space) {
-        log_phase_start(st.log, st.time, "loading forward index from disk");
+        log_phase_start(st.log, st.time, "reading the forward index");
 
         direct_ifstream idx_fwd_ifile(st.idx_fwd_file_name);
         idx_fwd.load(idx_fwd_ifile);
         idx_fwd_ifile.close();
-        log_spilled_size(st.log, st.idx_fwd_file_name);
         std::filesystem::remove(st.idx_fwd_file_name);
 
         st.finish_phase("time_load_forward_index");
@@ -570,7 +567,7 @@ void move_rb<support>::restore_input(build_state_t& st)
 
     // the input is restored only if it was mapped in memory
     if (st.reads_input_file || st.file_input) return;
-    log_phase_start(st.log, st.time, "unmapping T from its internal alphabet");
+    log_phase_start(st.log, st.time, "unmapping T");
 
     if (st.byte_input) {
         #pragma omp parallel for num_threads(st.p)
@@ -598,7 +595,7 @@ void move_rb<support>::restore_input(build_state_t& st)
 template <move_r_support support>
 void move_rb<support>::build_context_tables_phase(build_state_t& st)
 {
-    const uint64_t index_size = serialized_size_in_bytes(*this);
+    const uint64_t index_size = size_in_bytes();
     // the SA-samples and M_Phi are stored on disk while the context tables are built (in the modes _pfp and
     // _suffix_array_space)
 
@@ -620,7 +617,7 @@ void move_rb<support>::build_context_tables_phase(build_state_t& st)
         store(out);
         out.close();
         drop_from_page_cache(file, true);
-        st.finish_spill_phase("storing " + name + " to disk", std::filesystem::file_size(file), "time_store_sa_samples");
+        st.finish_spill_phase("storing " + name, std::filesystem::file_size(file), true, "time_store_sa_samples");
         stored.push_back({ std::move(name), std::move(file), std::move(load) });
     };
 
@@ -657,7 +654,7 @@ void move_rb<support>::build_context_tables_phase(build_state_t& st)
         in.close();
         const uint64_t bytes = std::filesystem::file_size(entry.file);
         std::filesystem::remove(entry.file);
-        st.finish_spill_phase("loading " + entry.name + " from disk", bytes, "time_load_sa_samples");
+        st.finish_spill_phase("reading " + entry.name, bytes, false, "time_load_sa_samples");
     }
 }
 

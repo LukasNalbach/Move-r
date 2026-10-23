@@ -113,7 +113,7 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
     pfp_output_readers = 1 + chooses_revert_starts() + reads_pfp_lcp_samples() + builds_SA_samples;
 
     if (uses_pfp_cache() && std::filesystem::exists(pfp_cache_file()) && read_pfp_cache()) {
-        if (params.log) std::cout << "reading the RLBWT and its samples from " << pfp_prefix << std::endl;
+        if (params.log) std::cout << "reading the PFP cache" << std::endl;
         idx._rlbwt_from_cache = true;
         remove_map_file();
         release_int_alphabet();
@@ -218,7 +218,7 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::read_lcp_run_pfp()
 {
-    log_phase_start("reading the run-boundary LCP values");
+    log_phase_start("reading LCP_run");
 
     LCP_run = interleaved_bit_aligned_vectors({ uint8_t(std::bit_width(n)) });
     LCP_run.resize_no_init(r, p);

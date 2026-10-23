@@ -182,7 +182,7 @@ public:
     // returns the size in bytes
     uint64_t size_in_bytes() const
     {
-        return sizeof(*this) + words.size() * sizeof(uint64_t) + select_samples.size() * sizeof(uint32_t)
+        return words.size() * sizeof(uint64_t) + select_samples.size() * sizeof(uint32_t)
             + (dense ? 0 : sparse.size_in_bytes());
     }
 

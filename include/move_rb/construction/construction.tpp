@@ -35,11 +35,8 @@ move_rb<support>::move_rb(inp_t_& input, move_r_params params, bool log_summary)
 {
     using input_t = std::remove_cvref_t<inp_t_>;
     using input_symbol_t = typename input_t::value_type;
-    static_assert(std::is_integral_v<input_symbol_t>,
-        "move_rb input symbols have to be integers");
-    static_assert(sizeof(input_symbol_t) == 1 || sizeof(input_symbol_t) == 2
-        || sizeof(input_symbol_t) == 4 || sizeof(input_symbol_t) == 8,
-        "move_rb supports symbols of one, two, four or eight bytes");
+    // checks the symbol type (see move_r_symbol)
+    using checked_t [[maybe_unused]] = move_r_symbol_t<input_symbol_t>;
 
     constexpr bool byte_input = sizeof(input_symbol_t) == 1;
     using view_sym_t = std::conditional_t<byte_input, uint8_t, input_symbol_t>;

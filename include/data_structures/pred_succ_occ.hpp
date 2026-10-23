@@ -365,9 +365,8 @@ public:
     // returns the size of the data structure in bytes
     uint64_t size_in_bytes() const
     {
-        return sizeof(*this) - sizeof(frequent_symbol_groups) + symbol_fields.size_in_bytes()
-            + first_occ_of_block.size() * sizeof(uint64_t) + occ_offsets.size() * sizeof(uint64_t)
-            + frequent_symbol_groups.size_in_bytes();
+        return symbol_fields.size_in_bytes() + first_occ_of_block.size() * sizeof(uint64_t)
+            + occ_offsets.size() * sizeof(uint64_t) + frequent_symbol_groups.size_in_bytes();
     }
 
     // ############################# QUERY METHODS #############################

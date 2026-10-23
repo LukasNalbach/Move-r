@@ -171,7 +171,7 @@ MOVE_R_CONSTRUCTION_SORTS()
 
 #include <move_r/move_r.hpp>
 
-#define MOVE_R_DEFINE_TEXT_OPS(bytes, sym_t) \
+#define MOVE_R_DEFINE_TEXT_OPS(sym_t) \
     template class move_r_int_alphabet_of<sym_t>; \
     template void move_r_unmap_text_of<sym_t>( \
         move_r_input_view&, uint64_t, uint64_t, const elias_fano_bit_vector&, \
