@@ -1,0 +1,496 @@
+diff --git a/include/r_index_f/LF_table.hpp b/include/r_index_f/LF_table.hpp
+index ebbdc46..345beb1 100644
+--- a/include/r_index_f/LF_table.hpp
++++ b/include/r_index_f/LF_table.hpp
+@@ -33,16 +33,16 @@ class LF_table
+ {
+ public:
+     // Row of the LF table
+-    typedef struct LF_row
++    struct LF_row
+     {
+-        char character;
++        uchar character;
+         ulint length;
+         ulint interval;
+         ulint offset;
+ 
+         size_t serialize(std::ostream &out, sdsl::structure_tree_node *v = nullptr, std::string name ="")
+         {
+-            sdsl::structure_tree_node *child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
++            sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+             size_t written_bytes = 0;
+ 
+             out.write((char *)&character, sizeof(character));
+@@ -81,12 +81,15 @@ public:
+         LF_runs = vector<LF_row>();
+         vector<vector<size_t>> L_block_indices = vector<vector<size_t>>(ALPHABET_SIZE);
+         
+-        char c;
++        uchar c;
+         ulint i = 0;
+-        r = 0;
++        heads.seekg(0,std::ios::end);
++        r = heads.tellg();
++        heads.seekg(0,std::ios::beg);
+         n = 0;
+-        while ((c = heads.get()) != EOF)
++        while (i < r)
+         {
++            heads.read((char*)&c, 1);
+             size_t length = 0;
+             lengths.read((char *)&length, 5);
+             if (c <= TERMINATOR) c = TERMINATOR;
+@@ -146,8 +149,8 @@ public:
+         LF_runs = vector<LF_row>();
+         vector<vector<size_t>> L_block_indices = vector<vector<size_t>>(ALPHABET_SIZE);
+         
+-        char last_c;
+-        char c;
++        uchar last_c;
++        uchar c;
+         ulint i = 0;
+         r = 0;
+         n = 0;
+@@ -230,68 +233,6 @@ public:
+         mem_stats();
+     }
+ 
+-    LF_table(std::ifstream &heads, std::ifstream &lengths, sdsl::bit_vector splits)
+-    {
+-        heads.clear();
+-        heads.seekg(0);
+-        lengths.clear();
+-        lengths.seekg(0);
+-        
+-        LF_runs = vector<LF_row>();
+-        vector<vector<size_t>> L_block_indices = vector<vector<size_t>>(ALPHABET_SIZE);
+-        
+-        char c;
+-        ulint i = 0;
+-        r = 0;
+-        n = 0;
+-        while ((c = heads.get()) != EOF)
+-        {
+-            size_t length = 0;
+-            lengths.read((char *)&length, 5);
+-            if (c <= TERMINATOR) c = TERMINATOR;
+-
+-            size_t curr_len = 1; // Assume we start at a run-head
+-            for (size_t bwt_i = n+1; bwt_i < n + length; bwt_i++)
+-            {
+-                if (splits[bwt_i]) 
+-                {
+-                    LF_runs.push_back({c, curr_len, 0, 0});
+-                    L_block_indices[c].push_back(i++);
+-                    curr_len = 0;
+-                }
+-                curr_len++;
+-            }
+-            LF_runs.push_back({c, curr_len, 0, 0});
+-            L_block_indices[c].push_back(i++);
+-
+-        }
+-        r = LF_runs.size();
+-
+-        ulint curr_L_num = 0;
+-        ulint L_seen = 0;
+-        ulint F_seen = 0;
+-        for(size_t i = 0; i < L_block_indices.size(); ++i) 
+-        {
+-            for(size_t j = 0; j < L_block_indices[i].size(); ++j) 
+-            {
+-                ulint pos = L_block_indices[i][j];
+-
+-                LF_runs[pos].interval = curr_L_num;
+-                LF_runs[pos].offset = F_seen - L_seen;
+-
+-                F_seen += LF_runs[pos].length;
+-            
+-                while (curr_L_num < r && F_seen >= L_seen + LF_runs[curr_L_num].length) 
+-                {
+-                    L_seen += LF_runs[curr_L_num].length;
+-                    ++curr_L_num;
+-                }
+-            }
+-        }
+-
+-        mem_stats();
+-    }
+-
+     const LF_row get(size_t i)
+     {
+         assert(i < LF_runs.size());
+@@ -308,17 +249,15 @@ public:
+         return r;
+     }
+ 
+-    void invert(std::string outfile) 
++    void invert(std::string& reverted)
+     {
+-        std::ofstream out(outfile);
+-
+         ulint interval = 0;
+         ulint offset = 0;
++        uchar c;
+ 
+-        char c;
+-        while((c = get_char(interval)) > TERMINATOR) 
+-        {
+-            out << c;
++        for (int64_t i=size()-2; i>=0; i--)  {
++            c = get_char(interval);
++            reverted[i] = *reinterpret_cast<char*>(&c);
+             std::pair<ulint, ulint> pos = LF(interval, offset);
+             interval = pos.first;
+             offset = pos.second;
+@@ -363,8 +302,6 @@ public:
+ 
+     void bwt_stats()
+     {
+-        ulint n = size();
+-        ulint r = runs();
+         verbose("Number of BWT equal-letter runs: r = ", r);
+         verbose("Length of complete BWT: n = ", n);
+         verbose("Rate n/r = ", double(n) / r);
+@@ -377,7 +314,7 @@ public:
+     */
+     size_t serialize(std::ostream &out, sdsl::structure_tree_node *v = nullptr, std::string name ="")
+     {
+-        sdsl::structure_tree_node *child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
++        sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+         size_t written_bytes = 0;
+ 
+         out.write((char *)&n, sizeof(n));
+diff --git a/include/r_index_f/ds/base_bv.hpp b/include/r_index_f/ds/base_bv.hpp
+index 21f10df..948de4d 100644
+--- a/include/r_index_f/ds/base_bv.hpp
++++ b/include/r_index_f/ds/base_bv.hpp
+@@ -42,8 +42,39 @@ private:
+ 
+ public:
+ 
++    void copy_from_other(const base_bv& other) {
++        base = other.base;
++        diff_bv = other.diff_bv;
++        diff_select = other.diff_select;
++
++        diff_select.set_vector(&diff_bv);
++    }
++
++    void move_from_other(base_bv&& other) {
++        base = other.base;
++        diff_bv = std::move(other.diff_bv);
++        diff_select = std::move(other.diff_select);
++
++        other.base = 0;
++        other.destroy_select();
++    }
++
++    void destroy_select() {
++        diff_select.set_vector(NULL);
++        diff_select = std::move(bv_select_1());
++    }
++
+     base_bv() {}
+ 
++    base_bv(base_bv&& other) {move_from_other(std::move(other));}
++    base_bv(const base_bv& other) {copy_from_other(other);}
++    base_bv& operator=(base_bv&& other) {move_from_other(std::move(other));return *this;}
++    base_bv& operator=(const base_bv& other) {copy_from_other(other);return *this;}
++
++    ~base_bv() {
++        destroy_select();
++    }
++
+     base_bv(ulint b, std::vector<ulint> diffs) 
+     {
+         std::vector<bool> bit_diff = std::vector<bool>();
+diff --git a/include/r_index_f/ds/heads_bv_w.hpp b/include/r_index_f/ds/heads_bv_w.hpp
+index 61c6e94..d9b8271 100644
+--- a/include/r_index_f/ds/heads_bv_w.hpp
++++ b/include/r_index_f/ds/heads_bv_w.hpp
+@@ -32,7 +32,7 @@
+ using namespace sdsl;
+ 
+ template< class bv_t = bit_vector,
+-          template<class> class char_map_t = ACGT_map >
++          template<class> class char_map_t = symbol_map >
+ class heads_bv_w
+ {
+ private:
+@@ -44,8 +44,38 @@ private:
+         bv_select_1 select;
+         bv_rank_1 rank;
+ 
++        void copy_from_other(const rank_select_bv& other) {
++            bv = other.rank;
++            set_rs();
++        }
++
++        void move_from_other(rank_select_bv&& other) {
++            other.reset_rs();
++            bv = std::move(other.bv);
++            set_rs();
++        }
++
++        void set_rs() {
++            rank.set_vector(&bv);
++            select.set_vector(&bv);
++        }
++
++        void reset_rs() {
++            rank.set_vector(NULL);
++            select.set_vector(NULL);
++        }
++
+         rank_select_bv() {}
+ 
++        rank_select_bv(rank_select_bv&& other) {move_from_other(std::move(other));}
++        rank_select_bv(const rank_select_bv& other) {copy_from_other(other);}
++        rank_select_bv& operator=(rank_select_bv&& other) {move_from_other(std::move(other));return *this;}
++        rank_select_bv& operator=(const rank_select_bv& other) {copy_from_other(other);return *this;}
++
++        ~rank_select_bv() {
++            reset_rs();
++        }
++
+         rank_select_bv(ulint size)
+         {
+             bv = bv_t(size, false);
+@@ -143,7 +173,7 @@ public:
+     }
+ 
+     uchar operator[](size_t idx) {
+-        scan(idx);
++        return scan(idx);
+     }
+ 
+     ulint size()
+diff --git a/include/r_index_f/ds/idx_bit_vector.hpp b/include/r_index_f/ds/idx_bit_vector.hpp
+index 84a92d0..fc1e104 100644
+--- a/include/r_index_f/ds/idx_bit_vector.hpp
++++ b/include/r_index_f/ds/idx_bit_vector.hpp
+@@ -40,12 +40,41 @@ private:
+ 
+ public:
+ 
++    void copy_from_other(const idx_bit_vector& other) {
++        samples = other.pred;
++        set_rs();
++    }
++
++    void move_from_other(idx_bit_vector&& other) {
++        other.reset_rs();
++        samples = std::move(other.samples);
++        set_rs();
++    }
++
++    void set_rs() {
++        pred.set_vector(&samples);
++        run_sample.set_vector(&samples);
++    }
++
++    void reset_rs() {
++        pred.set_vector(NULL);
++        run_sample.set_vector(NULL);
++    }
++
+     idx_bit_vector() {}
+ 
+     idx_bit_vector(vector<bool> vec) {
+         samples = bool_to_bit_vec<bit_vec>(vec);
+-        pred = idx_rank(&samples);
+-        run_sample = idx_select(&samples);
++        set_rs();
++    }
++
++    idx_bit_vector(idx_bit_vector&& other) {move_from_other(std::move(other));}
++    idx_bit_vector(const idx_bit_vector& other) {copy_from_other(other);}
++    idx_bit_vector& operator=(idx_bit_vector&& other) {move_from_other(std::move(other));return *this;}
++    idx_bit_vector& operator=(const idx_bit_vector& other) {copy_from_other(other);return *this;}
++
++    ~idx_bit_vector() {
++        reset_rs();
+     }
+ 
+     ulint sample(ulint rank)
+diff --git a/include/r_index_f/ds/interval_block.hpp b/include/r_index_f/ds/interval_block.hpp
+index 2dcc991..fba0bcf 100644
+--- a/include/r_index_f/ds/interval_block.hpp
++++ b/include/r_index_f/ds/interval_block.hpp
+@@ -38,7 +38,7 @@ template  < class heads_t = heads_wt_w<>,
+             class intervals_t = intervals_rank_w<>,
+             class lengths_t = dac_vector_dp<>,
+             class offsets_t = dac_vector_dp<>,
+-            template<class> class char_map_t = ACGT_map >
++            template<class> class char_map_t = symbol_map >
+ class interval_block
+ {
+ private:
+@@ -80,25 +80,25 @@ public:
+     }
+ 
+     // Return the character at row k
+-    const ulint get_char(const ulint k)
++    ulint get_char(const ulint k)
+     {
+         return heads[k];
+     }
+ 
+     // For a given character and it's rank, return the interval mapping (LF)
+-    const ulint get_interval(const uchar c, const ulint c_rank)
++    ulint get_interval(const uchar c, const ulint c_rank)
+     {
+         return intervals.get(c, c_rank);
+     }
+ 
+     // Get the length at row k
+-    const ulint get_length(const ulint k)
++    ulint get_length(const ulint k)
+     {
+         return lengths[k];
+     }
+ 
+     // Get the offset at row k
+-    const ulint get_offset(const ulint k)
++    ulint get_offset(const ulint k)
+     {
+         return offsets[k];
+     }
+diff --git a/include/r_index_f/ds/interval_pos.hpp b/include/r_index_f/ds/interval_pos.hpp
+index 4aaacd9..d8344ba 100644
+--- a/include/r_index_f/ds/interval_pos.hpp
++++ b/include/r_index_f/ds/interval_pos.hpp
+@@ -55,6 +55,7 @@ public:
+     interval_pos& operator++() 
+     {
+         ++offset;
++        return *this;
+     }
+ 
+     interval_pos operator++(int) 
+@@ -76,7 +77,7 @@ public:
+     */
+     size_t serialize(std::ostream &out, sdsl::structure_tree_node *v = nullptr, std::string name = "") const
+     {
+-        sdsl::structure_tree_node *child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
++        sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+         size_t written_bytes = 0;
+ 
+         out.write((char *)&run, sizeof(run));
+diff --git a/include/r_index_f/ds/intervals_rank_w.hpp b/include/r_index_f/ds/intervals_rank_w.hpp
+index 5d84ea9..95eb2c8 100644
+--- a/include/r_index_f/ds/intervals_rank_w.hpp
++++ b/include/r_index_f/ds/intervals_rank_w.hpp
+@@ -23,6 +23,7 @@
+ 
+ #include <common.hpp>
+ #include <ds/base_bv.hpp>
++#include <ds/base_interpolate.hpp>
+ #include <ds/base_sample.hpp>
+ #include <ds/symbol_map.hpp>
+ #include <sdsl/rmq_support.hpp>
+@@ -35,7 +36,7 @@
+ using namespace sdsl;
+ 
+ template< class interval_t = base_bv<>,
+-          template<class> class char_map_t = ACGT_map >
++          template<class> class char_map_t = symbol_map >
+ class intervals_rank_w
+ {
+ private:
+diff --git a/include/r_index_f/ds/symbol_map.hpp b/include/r_index_f/ds/symbol_map.hpp
+index d742fb0..5a00cec 100644
+--- a/include/r_index_f/ds/symbol_map.hpp
++++ b/include/r_index_f/ds/symbol_map.hpp
+@@ -79,7 +79,7 @@ public:
+         return access[c];
+     }
+ 
+-    T& operator[](const uchar c) const
++    T& operator[](const uchar c)
+     {
+         return access[c];
+     }
+diff --git a/include/r_index_f/r_index_f.hpp b/include/r_index_f/r_index_f.hpp
+index 5c028fa..e0ebaaa 100644
+--- a/include/r_index_f/r_index_f.hpp
++++ b/include/r_index_f/r_index_f.hpp
+@@ -48,7 +48,7 @@ public:
+ 
+     r_index_f() {}
+ 
+-    r_index_f(std::string filename, uint16_t splitting = 0, bool rle = true)
++    r_index_f(std::string filename, bool rle = true)
+     {
+         verbose("Building the R-Index-F using Block Table Compression");
+ 
+@@ -62,23 +62,10 @@ public:
+             std::ifstream ifs_heads(bwt_heads_fname);
+             std::string bwt_len_fname = bwt_fname + ".len";
+             std::ifstream ifs_len(bwt_len_fname);
++
+             ifs_heads.seekg(0);
+             ifs_len.seekg(0);
+-
+-            LF_table temp;
+-
+-            if (splitting)
+-            {
+-                std::string splitting_filename = filename + "." + std::to_string(splitting) + "_col";
+-                std::ifstream ifs_split(splitting_filename);
+-                bit_vector run_splits;
+-                run_splits.load(ifs_split);
+-
+-                temp = LF_table(ifs_heads, ifs_len, run_splits);
+-            }
+-            else {
+-                temp = LF_table(ifs_heads, ifs_len);
+-            }
++            LF_table temp(ifs_heads, ifs_len);
+             B_table = table(temp);
+         }
+         else
+@@ -124,11 +111,11 @@ public:
+         return B_table.size();
+     }
+ 
+-    size_t count(const std::string &pattern){
++    size_t count(std::string &pattern){
+         range_t range = full_range();
+         ulint m = pattern.size();
+         for (ulint i=0; i < m && range.second >= range.first; ++i){
+-            range = LF(range, pattern[m - i - 1]);
++            range = LF(range, *reinterpret_cast<uchar*>(&pattern[m - i - 1]));
+         }
+         return interval_to_idx(range.second) - interval_to_idx(range.first) + 1;  
+     }
+@@ -145,6 +132,18 @@ public:
+     //     out.close();
+     // }
+ 
++    void invert(std::string& reverted)
++    {
++        interval_pos pos(0,0);
++        uchar c;
++
++        for (int64_t i=size()-2; i>=0; i--)  {
++            c = get_char(pos);
++            reverted[i] = *reinterpret_cast<char*>(&c);
++            pos = LF(pos);
++        }
++    }
++
+     interval_pos LF(interval_pos pos)
+     {
+         return B_table.LF(pos);
+@@ -186,8 +185,6 @@ public:
+ 
+     void bwt_stats()
+     {
+-        ulint n = size();
+-        ulint r = runs();
+         verbose("Number of BWT equal-letter runs: r = ", r);
+         verbose("Length of complete BWT: n = ", n);
+         verbose("Rate n/r = ", double(n) / r);

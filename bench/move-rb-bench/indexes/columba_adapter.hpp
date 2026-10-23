@@ -24,7 +24,8 @@
  * SOFTWARE.
  */
 
-#pragma once
+#ifndef MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_ADAPTER_HPP
+#define MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_ADAPTER_HPP
 
 #include <cstdint>
 #include <memory>
@@ -32,9 +33,14 @@
 #include <string>
 #include <vector>
 
-// columba is built in one of two flavors, selected at compile time by the
-// RUN_LENGTH_COMPRESSION macro (set by the linked columba_rlc / columba_fm
-// library): the run-length-compressed move structure (b-move) or the FM-index.
+// ALPHABET is set to 5 by the columba targets (see CMakeLists.txt); the fallback is for tools that parse this header
+// on its own
+#ifndef ALPHABET
+#define ALPHABET 5
+#endif
+
+// the variant of columba is selected by RUN_LENGTH_COMPRESSION (set by the linked columba library): the run-length
+// compressed bidirectional move data structure (b-move) or the bidirectional FM-index
 #ifdef RUN_LENGTH_COMPRESSION
 #include <bmove/bmove.h>
 #else
@@ -47,44 +53,28 @@
 #include <searchstrategy.h>
 
 /**
- * @brief Thin driver for columba's native lossless approximate-pattern-matching
- *        algorithm (Renders/Depuydt et al.), used to benchmark columba's own
- *        search against move_rb.
- *
- * columba is compiled in two flavors (chosen by the RUN_LENGTH_COMPRESSION
- * macro): the run-length-compressed bidirectional move structure (b-move, the
- * successor of the standalone b-move repository, now the RLC flavor of columba)
- * and the bidirectional FM-index. This driver wraps whichever flavor was linked
- * and exposes it through a small interface analogous to the (removed) b-move
- * driver.
- *
- * Like the previous b-move driver, it searches only the pattern itself and NOT
- * its reverse complement (setSearchReverseComplement(false)) and skips SAM-line
- * generation (setGenerateSAMLines(false)), so that only the matching is measured
- * -- comparable to move_rb, which is forward-strand only.
+ * @brief the approximate pattern matching of columba itself (b-move or FM-index, see RUN_LENGTH_COMPRESSION); the
+ *        reverse complement of a pattern is not searched and no SAM lines are generated
  */
 class columba_native {
   public:
 #ifdef RUN_LENGTH_COMPRESSION
-    using columba_index_t = BMove; // run-length-compressed move structure (b-move)
-    // name used in the RESULT lines to distinguish the flavor
-    static constexpr const char* flavor_name = "columba_rlc";
+    using columba_index_t = BMove;
+    static constexpr const char* flavor_name = "columba_rlc"; // name of the variant in the RESULT lines
 #else
-    using columba_index_t = FMIndex; // bidirectional FM-index
-    static constexpr const char* flavor_name = "columba";
+    using columba_index_t = FMIndex;
+    static constexpr const char* flavor_name = "columba"; // name of the variant in the RESULT lines
 #endif
 
   protected:
-    std::unique_ptr<columba_index_t> _index; // the wrapped columba index
-    std::unique_ptr<SearchStrategy> _strategy_hamming; // created on first use
-    std::unique_ptr<SearchStrategy> _strategy_edit; // created on first use
-    std::string _scheme; // columba search scheme name (e.g. columba, minU, pigeon)
-    std::string _id = ">p"; // a dummy sequence id reused for every pattern
+    std::unique_ptr<columba_index_t> _index; // the columba index
+    std::unique_ptr<SearchStrategy> _strategy_hamming; // the search strategy for the hamming distance (see strategy)
+    std::unique_ptr<SearchStrategy> _strategy_edit; // the search strategy for the edit distance (see strategy)
+    std::string _scheme; // name of columba's search scheme (e.g. columba, minU, pigeon)
+    std::string _id = ">p"; // the name of each pattern
 
-    /**
-     * @brief builds a search strategy for the given distance metric, configured
-     *        for forward-strand-only all-mapping without SAM output
-     */
+    // returns a search strategy for a distance metric (all occurrences, single-end, uniform partitioning, only the
+    // pattern itself, no SAM lines)
     std::unique_ptr<SearchStrategy> make_strategy(DistanceMetric metric)
     {
         Parameters params;
@@ -92,7 +82,7 @@ class columba_native {
         params.mMode = ALL;
         params.sMode = SINGLE_END;
         params.searchScheme = _scheme;
-        params.pStrategy = UNIFORM; // match move-rb's uniform (equal-length) partitioning
+        params.pStrategy = UNIFORM;
 
         std::unique_ptr<SearchStrategy> strategy = params.createStrategy(*_index);
         strategy->setSearchReverseComplement(false);
@@ -100,41 +90,27 @@ class columba_native {
         return strategy;
     }
 
-    /**
-     * @brief returns the (lazily created) strategy for the given metric
-     */
+    // returns the search strategy for a distance metric (created at its first use)
     SearchStrategy& strategy(DistanceMetric metric)
     {
-        std::unique_ptr<SearchStrategy>& s =
-            metric == EDIT ? _strategy_edit : _strategy_hamming;
+        std::unique_ptr<SearchStrategy>& s = metric == EDIT ? _strategy_edit : _strategy_hamming;
         if (!s) s = make_strategy(metric);
         return *s;
     }
 
   public:
     /**
-     * @brief loads the columba index from the given base path
-     * @param base base name of the columba index files
-     * @param scheme columba search scheme to use (columba, minU, pigeon, ...)
-     *
-     * The index is loaded with CIGAR generation enabled (noCIGAR = false) so
-     * that the CIGAR-producing locate can be measured; plain locate never
-     * requests the CIGAR (the edit filter does not compute one), so the plain
-     * measurement is unaffected.
-     *
-     * The k-mer range table is DISABLED (wordSize = 0): populateTable then only
-     * stores the full range for the empty string, so no exact-seed k-mer lookups
-     * are used. This matches move_rb (which has no k-mer table) for a fair
-     * comparison; results are identical, only the seeding shortcut is removed.
+     * @brief loads a columba index (with CIGAR support and without the k-mer table: wordSize = 0)
+     * @param base base name of the index files
+     * @param scheme name of columba's search scheme (columba, minU, pigeon, ...)
      */
     columba_native(const std::string& base, const std::string& scheme)
         : _scheme(scheme)
     {
-        Parameters params; // for the index-construction numeric defaults
-        const length_t word_size = 0; // 0 => k-mer range table disabled
+        Parameters params; // the default parameters of the index
+        const length_t word_size = 0;
 #ifdef RUN_LENGTH_COMPRESSION
-        _index = std::make_unique<BMove>(base, false /* verbose */,
-                                         false /* noCIGAR */, word_size);
+        _index = std::make_unique<BMove>(base, false /* verbose */, false /* noCIGAR */, word_size);
 #else
         _index = std::make_unique<FMIndex>(
             base, params.inTextVerificationPoint, false /* noCIGAR */,
@@ -142,11 +118,7 @@ class columba_native {
 #endif
     }
 
-    /**
-     * @brief switches the columba search scheme (e.g. minU for k <= 7, columba
-     *        for higher k); the per-metric strategies are rebuilt lazily on next
-     *        use. The index itself is not reloaded.
-     */
+    // sets the search scheme (the search strategies are created again at their next use)
     void set_scheme(const std::string& scheme)
     {
         if (scheme == _scheme) return;
@@ -155,86 +127,33 @@ class columba_native {
         _strategy_edit.reset();
     }
 
-    /**
-     * @brief returns the wrapped columba index (so move_r's apm can be driven on it via columba_apm_adapter)
-     */
+    // returns the columba index
     inline columba_index_t& get_index() const { return *_index; }
 
-    /**
-     * @brief length of the indexed text (excluding the sentinel)
-     */
+    // returns the length of the text without the terminator
     inline uint64_t input_size() const { return _index->getTextSize() - 1; }
 
-    /**
-     * @brief length of the indexed text including the sentinel
-     */
+    // returns the length of the text including the terminator
     inline uint64_t text_size() const { return _index->getTextSize(); }
 
-    /**
-     * @brief wraps a pattern in a single-strand read bundle (its reverse
-     *        complement is computed but never searched)
-     */
+    // returns a read bundle of a pattern
     inline ReadBundle make_bundle(const std::string& P) { return ReadBundle(Read(_id, P, "*")); }
 
     /**
-     * @brief locates the occurrences of the pattern in @p bundle with at most k
-     *        errors w.r.t. the given distance metric, searching only the pattern
-     *        (forward strand)
+     * @brief returns the occurrences in T of the pattern of a read bundle with at most k errors
      * @param metric HAMMING or EDIT
-     * @return the (native, deduplicated) in-text occurrences reported (no CIGARs)
+     * @param bundle the read bundle of the pattern
+     * @param k the maximum number of errors
+     * @param with_cigar whether a CIGAR string is computed for each occurrence (generateCIGARS)
      */
-    inline std::vector<TextOcc> locate_occ(DistanceMetric metric, ReadBundle& bundle, uint64_t k)
+    inline std::vector<TextOcc> locate_occ(DistanceMetric metric, ReadBundle& bundle, uint64_t k, bool with_cigar)
     {
         Counters counters;
         std::vector<TextOcc> result;
         strategy(metric).matchApprox(bundle, (length_t) k, counters, result);
+        if (with_cigar) _index->generateCIGARS(result, counters, bundle);
         return result;
-    }
-
-    /**
-     * @brief locates the occurrences of the pattern in @p bundle with at most k
-     *        errors w.r.t. the given distance metric, searching only the pattern
-     *        (forward strand)
-     * @param metric HAMMING or EDIT
-     * @return the number of (native, deduplicated) occurrences reported
-     */
-    inline uint64_t locate(DistanceMetric metric, ReadBundle& bundle, uint64_t k) { return locate_occ(metric, bundle, k).size(); }
-
-    /**
-     * @brief like locate_occ, but additionally computes each occurrence's CIGAR
-     *        alignment (columba's generateCIGARS; for RLC from the matched
-     *        string, for the FM-index from the located text) -- for measuring
-     *        columba's CIGAR-producing locate against move_rb's
-     * @param metric HAMMING or EDIT
-     * @return the occurrences, each carrying a CIGAR string (occ.getCigar())
-     */
-    inline std::vector<TextOcc> locate_occ_cigar(DistanceMetric metric, ReadBundle& bundle, uint64_t k)
-    {
-        Counters counters;
-        std::vector<TextOcc> result;
-        SearchStrategy& s = strategy(metric);
-        s.matchApprox(bundle, (length_t) k, counters, result);
-        _index->generateCIGARS(result, counters, bundle);
-        return result;
-    }
-
-    /**
-     * @brief columba's MATCH phase only (matchApproxMatchOnly, no in-text
-     *        locate): returns the number of in-index (FM) occurrences. For
-     *        TIMING the match phase; the count is undeduplicated (do not use as
-     *        a count). Forward strand only.
-     */
-    inline uint64_t match_only(DistanceMetric metric, ReadBundle& bundle, uint64_t k)
-    {
-        Counters counters;
-        return strategy(metric).matchApproxMatchOnly(bundle, (length_t) k, counters);
-    }
-
-    // like match_only, but returns columba's NODE_COUNTER (number of index nodes visited during the match phase)
-    inline uint64_t match_only_nodes(DistanceMetric metric, ReadBundle& bundle, uint64_t k)
-    {
-        Counters counters;
-        strategy(metric).matchApproxMatchOnly(bundle, (length_t) k, counters);
-        return counters.get(Counters::NODE_COUNTER);
     }
 };
+
+#endif // MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_ADAPTER_HPP

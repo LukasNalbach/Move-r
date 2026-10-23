@@ -24,54 +24,26 @@
  * SOFTWARE.
  */
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string_view>
 #include <vector>
 
-bool chars_remapped = false;
-std::vector<uint8_t> map_char;
-uint16_t max_num_threads;
-std::string input;
-uint64_t input_size;
-std::vector<int32_t> SA_32;
-std::vector<int64_t> SA_64;
-std::string BWT;
-std::string path_mf;
-bool check_correctness = false;
-uint64_t external_peak_memory_usage;
-std::ofstream mf;
-std::ifstream input_file;
-std::ifstream patterns_file_1;
-std::ifstream patterns_file_2;
-std::string path_input_file;
-std::string path_patterns_file_1;
-std::string path_patterns_file_2;
-std::string name_text_file;
-int32_t arg_idx = 1;
-
-template <typename sa_sint_t>
-constexpr std::vector<sa_sint_t>& get_sa()
-{
-    if constexpr (std::is_same_v<sa_sint_t, int32_t>) {
-        return SA_32;
-    } else {
-        return SA_64;
-    }
-}
+#include <misc/files.hpp>
 
 #include "framework.hpp"
 #include "indexes.hpp"
 
-void help(std::string msg)
+[[noreturn]] void help(const std::string& msg = "")
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-r-bench: benchmarks construction- and query performance of move-r, block-rlbwt-2, block-rlbwt-v," << std::endl;
     std::cout << "              block-rlbwt-r, r-index, r-index-f, rcomp-glfig and online-rlbwt;" << std::endl;
     std::cout << "              has to be executed from the base folder." << std::endl << std::endl;
-    std::cout << "usage 1: move-r-bench [...] <input_file> <patterns_file_1> <patterns_file_2>" << std::endl;
-    std::cout << "   -c                 check for correctnes if possible; disables the -m option; will not print" << std::endl;
+    std::cout << "usage: move-r-bench [...] <input_file> <patterns_file_1> <patterns_file_2>" << std::endl;
+    std::cout << "   -c                 check for correctness if possible; disables the -m option; will not print" << std::endl;
     std::cout << "                      runtime data if the runtime could be affected by checking for correctness" << std::endl;
     std::cout << "   -m <m_file>        writes measurement data to m_file" << std::endl;
     std::cout << "   <input_file>       input file" << std::endl;
@@ -79,25 +51,14 @@ void help(std::string msg)
     std::cout << "                      to count and locate" << std::endl;
     std::cout << "   <patterns_file_2>  file containing patterns (pattern length << number of occurrences) from <input_file>" << std::endl;
     std::cout << "                      to locate" << std::endl;
-    std::cout << std::endl;
-    std::cout << "usage 2: move-r-bench -a [...] <input_file> <patterns_file_1> <patterns_file_2> <num_threads>" << std::endl;
-    std::cout << "                      constructs move_r using <num_threads> threads and measures count- and locate" << std::endl;
-    std::cout << "                      performance of move_r for a=2, a=4, ..., a=8192." << std::endl;
-    std::cout << "   -m <m_file>        writes measurement data to m_file" << std::endl;
-    std::cout << "   <input_file>       input file" << std::endl;
-    std::cout << "   <patterns_file_1>  file containing patterns (pattern length ~ number of occurrences) from <input_file>" << std::endl;
-    std::cout << "                      to count and locate" << std::endl;
-    std::cout << "   <patterns_file_2>  file containing patterns (pattern length << number of occurrences) from <input_file>" << std::endl;
-    std::cout << "                      to locate" << std::endl;
-    std::cout << "   <num_threads>   maximum number of threads to use" << std::endl;
-    exit(0);
+    std::exit(0);
 }
 
-template <typename pos_t>
+// measures all indexes
 void bench_indexes()
 {
-    bench_index<pos_t, move_r<_locate_move, char, pos_t>, true, true>("move-r", "move_r");
-    bench_index<pos_t, move_r<_locate_rlzsa, char, pos_t>, true, true>("move-rlzsa", "move_rlzsa");
+    bench_index<move_r<_locate_move>, true, true>("move-r", "move_r");
+    bench_index<move_r<_locate_rlzsa>, true, true>("move-rlzsa", "move_rlzsa");
 
     block_rlbwt_data bd = prepare_blockrlbwt();
     measure_blockrlbwt("block_rlbwt_2", bd);
@@ -105,19 +66,14 @@ void bench_indexes()
     measure_blockrlbwt("block_rlbwt_r", bd);
     cleanup_grlbwt(bd);
 
-    bench_index<pos_t, r_index, false, false>("r-index", "r_index");
+    bench_index<r_index, false, false>("r-index", "r_index");
 
-    if (std::is_same_v<pos_t, uint32_t> && input_size <= INT_MAX) {
-        bench_index<pos_t, r_index_rlzsa<int32_t>, true, true>("r-index-rlzsa", "r_index_rlzsa");
-    } else {
-        bench_index<pos_t, r_index_rlzsa<int64_t>, true, true>("r-index-rlzsa", "r_index_rlzsa");
-    }
-
-    bench_index<pos_t, r_index_f<>, true, false>("r-index-f", "r_index_f");
-    bench_index<pos_t, rcomp_glfig, true, true>("rcomp-glfig", "rcomp_glfig");
-    bench_index<pos_t, online_rlbwt, true, true>("online-rlbwt", "online_rlbwt");
+    bench_index<r_index_f<>, true, false>("r-index-f", "r_index_f");
+    bench_index<rcomp_glfig, true, true>("rcomp-glfig", "rcomp_glfig");
+    bench_index<online_rlbwt, true, true>("online-rlbwt", "online_rlbwt");
 }
 
+// parses the option at argv[arg_idx]
 void parse_args(char** argv, int argc)
 {
     std::string s = argv[arg_idx];
@@ -129,76 +85,25 @@ void parse_args(char** argv, int argc)
         mf.open(path_mf, std::filesystem::exists(path_mf) ? std::ios::app : std::ios::out);
         if (!mf.good()) help("error: cannot open nor create measurement file");
     } else if (s == "-c") {
-        if (arg_idx >= argc - 1) help("error: missing parameter after -c option");
         check_correctness = true;
     } else {
         help("error: unrecognized '" + s + "' option");
     }
 }
 
-int main_bench_a(int argc, char** argv)
-{
-    if (argc == 8) {
-        if (std::string(argv[2]) != "-m") help("");
-        path_mf = argv[3];
-        mf.open(path_mf, std::filesystem::exists(path_mf) ? std::ios::app : std::ios::out);
-        if (!mf.good()) help("error: cannot open nor create measurement file");
-        path_input_file = argv[4];
-        path_patterns_file_1 = argv[5];
-        path_patterns_file_2 = argv[6];
-        max_num_threads = atoi(argv[7]);
-    } else if (argc == 6) {
-        path_input_file = argv[2];
-        path_patterns_file_1 = argv[3];
-        path_patterns_file_2 = argv[4];
-        max_num_threads = atoi(argv[5]);
-    } else {
-        help("");
-    }
-
-    patterns_file_1.open(path_patterns_file_1);
-    patterns_file_2.open(path_patterns_file_2);
-    if (!patterns_file_1.good()) help("error: invalid input, could read <patterns_file_1>");
-    if (!patterns_file_2.good()) help("error: invalid input, could read <patterns_file_2>");
-    input_file.open(path_input_file);
-    if (!input_file.good()) help("error: invalid input, could not read <input_file>");
-    if (max_num_threads == 0 || max_num_threads > omp_get_max_threads()) help("error: invalid number of threads");
-
-    std::cout << std::setprecision(4);
-    name_text_file = path_input_file.substr(path_input_file.find_last_of("/\\") + 1);
-    std::cout << "benchmarking " << path_input_file << std::flush;
-
-    input_file.seekg(0, std::ios::end);
-    input_size = input_file.tellg() + (std::streamsize) + 1;
-    input_file.seekg(0, std::ios::beg);
-    no_init_resize(input, input_size);
-    read_from_file(input_file, input.c_str(), input_size - 1);
-    preprocess_input();
-    input[input_size - 1] = 1;
-    input_file.close();
-    std::cout << " (" << format_size(input_size - 1) << ") using up to " << format_threads(max_num_threads) << std::endl;
-
-    if (input_size <= UINT_MAX) {
-        if (input_size <= INT_MAX) {
-            bench_a<uint32_t, int32_t>();
-        } else {
-            bench_a<uint32_t, int64_t>();
-        }
-    } else {
-        bench_a<uint64_t, int64_t>();
-    }
-
-    return 0;
-}
+// the positional arguments: <input_file>, <patterns_file_1> and <patterns_file_2>
+constexpr int num_positional_args = 3;
+// the number of significant digits of the printed numbers
+constexpr int printed_significant_digits = 4;
 
 int main_bench_indexes(int argc, char** argv)
 {
-    if (argc < 4) help("");
-    while (arg_idx < argc - 3) parse_args(argv, argc);
+    if (argc < 1 + num_positional_args) help();
+    while (arg_idx < argc - num_positional_args) parse_args(argv, argc);
 
     path_input_file = argv[arg_idx];
     path_patterns_file_1 = argv[arg_idx + 1];
-    path_patterns_file_2 = argv[arg_idx + 2];
+    path_patterns_file_2 = argv[arg_idx + num_positional_args - 1];
     max_num_threads = 1;
 
     input_file.open(path_input_file);
@@ -213,39 +118,36 @@ int main_bench_indexes(int argc, char** argv)
     system("chmod +x build/external/pfp-thresholds/*");
     system("chmod +x build/external/block_RLBWT/*");
     system("chmod +x build/external/grlBWT/*");
-    std::cout << std::setprecision(4);
-    name_text_file = path_input_file.substr(path_input_file.find_last_of("/\\") + 1);
+    std::cout << std::setprecision(printed_significant_digits);
+    text_name = path_input_file.substr(path_input_file.find_last_of("/\\") + 1);
     std::cout << "benchmarking " << path_input_file << std::flush;
 
     input_file.seekg(0, std::ios::end);
-    input_size = input_file.tellg() + (std::streamsize) + 1;
+    input_size = (uint64_t) input_file.tellg() + 1;
     input_file.seekg(0, std::ios::beg);
     input.reserve(input_size);
-    no_init_resize(input, input_size - 1);
-    read_from_file(input_file, input.c_str(), input_size - 1);
+    resize_no_init(input, input_size - 1);
+    read_in_chunks(input_file, input.data(), input_size - 1);
     input_file.close();
+    drop_from_page_cache(path_input_file, true);
     preprocess_input();
 
     std::cout << " (" << format_size(input_size - 1) << ")" << std::endl;
-    if (check_correctness) std::cout << "correctnes will be checked if possible" << std::endl;
+    if (check_correctness) std::cout << "correctness will be checked if possible" << std::endl;
     std::cout << std::endl;
 
-    if (input_size <= UINT_MAX) {
-        bench_indexes<uint32_t>();
-    } else {
-        bench_indexes<uint64_t>();
-    }
+    bench_indexes();
 
     patterns_file_1.close();
     patterns_file_2.close();
+    drop_from_page_cache(path_patterns_file_1, true);
+    drop_from_page_cache(path_patterns_file_2, true);
 
     return 0;
 }
 
 int main(int argc, char** argv)
 {
-    if (argc == 1) help("");
-    if (std::string(argv[1]) == "-a")
-         return main_bench_a(argc, argv);
-    else return main_bench_indexes(argc, argv);
+    if (argc == 1) help();
+    return main_bench_indexes(argc, argv);
 }

@@ -24,7 +24,13 @@
  * SOFTWARE.
  */
 
-#pragma once
+/**
+ * @file directional_substring.hpp
+ * @brief a view of a substring that is read left-to-right or right-to-left
+ */
+
+#ifndef MOVE_R_MISC_DIRECTIONAL_SUBSTRING_HPP
+#define MOVE_R_MISC_DIRECTIONAL_SUBSTRING_HPP
 
 #include <cstdint>
 #include <string>
@@ -32,74 +38,70 @@
 #include <misc/utils.hpp>
 
 /**
- * @brief a view of the substring string[start..end], that can be read either left-to-right or right-to-left
- * @tparam pos_t unsigned integer position type
+ * @brief a view of the substring string[beg..end] that can be read either left-to-right or right-to-left; the
+ *        substring is empty if end < beg (beg and end are signed: end can be -1)
  * @tparam inp_t the underlying sequence type (e.g. std::string or std::vector<uint8_t>)
  */
-template <typename pos_t, typename inp_t = std::string>
+template <typename inp_t = std::string>
 class directional_substring {
   public:
     using sym_t = typename inp_t::value_type;
 
   protected:
-    const inp_t& string;
-    pos_t start = 1;
-    pos_t end = 0;
-    direction_t dir = NO_DIR;
+    const inp_t& string; // the underlying sequence
+    int64_t beg = 1; // position of the first symbol of the substring in string
+    int64_t end = 0; // position of the last symbol of the substring in string
+    direction_t dir = NO_DIR; // direction in which the substring is read
 
   public:
     directional_substring() = default;
 
     /**
-     * @brief constructs a view of string[start..end] that is read in direction dir
+     * @brief constructs a view of string[beg..end] that is read in direction dir
      * @param string the underlying sequence
-     * @param start start index of the substring (inclusive)
-     * @param end end index of the substring (inclusive)
+     * @param beg position of the first symbol of the substring
+     * @param end position of the last symbol of the substring
      * @param dir direction in which the substring is read (default: RIGHT)
      */
-    directional_substring(const inp_t& string, pos_t start, pos_t end, direction_t dir = RIGHT)
-        : string(string), start(start), end(end), dir(dir) {}
+    directional_substring(const inp_t& string, uint64_t beg, uint64_t end, direction_t dir = RIGHT)
+        : string(string), beg(beg), end(end), dir(dir) {}
 
     /**
-     * @brief returns the i-th symbol of the substring in the current reading direction: counted from the start
-     *        when read left-to-right (RIGHT), from the end when read right-to-left (LEFT)
-     * @param i index into the substring
+     * @brief returns the i-th symbol of the substring in the reading direction: counted from beg if it is read
+     *        left-to-right (RIGHT), from end if it is read right-to-left (LEFT)
+     * @param i [0..size()-1] index in the substring
      * @return the i-th symbol of the substring
      */
-    inline const sym_t& operator[](pos_t i) const
+    inline const sym_t& operator[](uint64_t i) const
     {
-        return dir == LEFT ? string[end - i] : string[start + i];
+        return dir == LEFT ? string[end - i] : string[beg + i];
     }
 
     /**
-     * @brief returns the index of the i-th symbol (in reading direction) within the underlying sequence
-     * @param i index into the substring
+     * @brief returns the position of the i-th symbol (in reading direction) in the underlying sequence
+     * @param i [0..size()-1] index in the substring
      * @return the position of the i-th symbol in the underlying sequence
      */
-    inline pos_t pos(pos_t i) const { return dir == LEFT ? end - i : start + i; }
+    inline uint64_t pos(uint64_t i) const { return dir == LEFT ? end - i : beg + i; }
 
-    /** @brief the underlying sequence this is a substring of */
+    // returns the underlying sequence
     inline const inp_t& underlying() const { return string; }
 
-    /**
-     * @brief returns the length of the substring
-     * @return the length of the substring
-     */
-    inline pos_t size() const
+    // returns the length of the substring
+    inline uint64_t size() const
     {
         if (empty()) return 0;
-        return end - start + 1;
+        return end - beg + 1;
     }
 
     // returns whether the substring is empty
-    inline bool empty() const { return end < start; }
+    inline bool empty() const { return end < beg; }
 
-    /**
-     * @brief sets the direction in which the substring is read
-     * @param dir the new reading direction
-     */
+    // sets the direction in which the substring is read
     void set_direction(direction_t dir) { this->dir = dir; }
 
     // returns the direction in which the substring is read
     inline direction_t direction() const { return dir; }
 };
+
+#endif // MOVE_R_MISC_DIRECTIONAL_SUBSTRING_HPP

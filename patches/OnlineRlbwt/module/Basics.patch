@@ -1,0 +1,13 @@
+diff --git a/StepCode.hpp b/StepCode.hpp
+index ad1a14b..b73e982 100644
+--- a/StepCode.hpp
++++ b/StepCode.hpp
+@@ -333,7 +333,7 @@ namespace itmmti
+      SizeT & bitSize, //!< [out] Capture valBitSize.
+      SizeT & size //!< [out] Capture size.
+      ) : vals_(nullptr) {
+-      this->cpStepCoeCore(other, otherBitSize, otherSize, bitCapacity, bitSize, size);
++      this->cpStepCodeCore(other, otherBitSize, otherSize, bitCapacity, bitSize, size);
+     }
+ 
+ 

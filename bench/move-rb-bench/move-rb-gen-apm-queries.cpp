@@ -24,13 +24,12 @@
  * SOFTWARE.
  */
 
-// move-rb-gen-apm-queries: generates the query (pattern) sets for move-rb-bench-apm. For every
-// (k, m) combination it writes three pattern files - one per benchmark operation:
+// move-rb-gen-apm-queries: generates the pattern files of move-rb-bench-apm. For each k and m it writes the files
 //   <text_name>.patterns-count-hamming-k<k>-m<m>
 //   <text_name>.patterns-locate-hamming-k<k>-m<m>
 //   <text_name>.patterns-locate-edit-k<k>-m<m>
-// The number of patterns in each file is auto-calibrated (using a move_rb index)
-// so that running that file's operation takes approximately a target duration.
+// of substrings of the text at random positions. Patterns are added to a file until their queries on a move_rb index
+// take the target time (--time) in total.
 
 #include <algorithm>
 #include <cerrno>
@@ -38,6 +37,7 @@
 #include <clocale>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -52,39 +52,52 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <misc/index_cli.hpp>
+#include <misc/move_rb_cli.hpp>
 #include <move_rb/move_rb.hpp>
+
+#include "bench_common.hpp"
+#include "timeout_runner.hpp"
 
 #include <ips4o.hpp>
 #include <ips2ra.hpp>
 
 // ############################# CONFIGURATION #############################
 
-std::string path_input_file;         // the text the index was built for
-std::string path_index_file;         // a move_rb index for that text
-double      target_seconds = 1.0;    // target count/locate duration per pattern file (set via --time)
+std::string path_input_file;         // the text the index has been built for
+std::string path_index_file;         // a move_rb index of the text
+double      target_seconds = default_target_seconds; // --time: total time in seconds of the queries of a pattern file
 
-std::string out_dir = ".";           // where the pattern files are written
-std::string text_name;               // name used in the file names (default: basename of input)
-std::string scheme_str = "min_u";    // search scheme (k taken from the grid)
-std::string forbidden;               // characters a generated pattern must not contain (e.g. a FASTA separator)
-bool gen_count = true;               // generate the count-pattern files
-bool gen_locate = true;              // generate the locate-pattern files
-uint64_t min_patterns = 1;           // at least this many patterns per file
-uint64_t seed = 0;                   // RNG seed (0 => random)
-double   timeout_seconds = 10.0;     // per-pattern query timeout (0 => disabled)
-uint64_t max_consecutive_skips = 10; // give up on a (k, m) after this many timeouts in a row
+std::string out_dir = ".";           // -o: directory of the pattern files
+std::string text_name;               // -n: name of the text in the file names (default: file name of the text)
+std::string scheme_str = "min_u";    // -s: search scheme (see search_scheme_of)
+std::string forbidden;               // -x: symbols a pattern must not contain (e.g. a FASTA separator)
+bool gen_count = true;               // --only: generate the count pattern files
+bool gen_locate = true;              // --only: generate the locate pattern files
+uint64_t min_patterns = default_min_patterns; // --min: minimum number of patterns per file
+uint64_t seed = 0;                   // --seed: seed for the positions of the patterns (0: random)
+double   timeout_seconds = default_timeout_seconds; // --timeout: timeout of a query in seconds (0: none)
+// --max-skips: a file is given up after this many timeouts in a row
+uint64_t max_consecutive_skips = default_max_consecutive_skips;
 
-std::vector<int64_t>  ks = {4, 7, 10, 13};
-std::vector<uint64_t> ms = {10, 20, 40, 80, 160, 320, 640, 1280};
+// the default of -k (measurement setup)
+const std::vector<int64_t> default_error_counts = { 4, 7, 10, 13 };
+std::vector<int64_t>  ks = default_error_counts; // -k: the numbers of errors
+std::vector<uint64_t> ms = default_pattern_lengths; // -m: the pattern lengths
 
-std::ifstream index_file;
+direct_ifstream index_file;
 
-// the four benchmark operations a pattern file can target
-struct query_type_t { const char* op; const char* metric; bool is_count; bool is_edit; };
+// an operation of a pattern file
+struct query_type_t {
+    const char* op; // count or locate
+    const char* metric; // hamming or edit
+    bool is_count; // true <=> op is count
+    bool is_edit; // true <=> metric is edit
+};
 
 // ############################# HELPERS #############################
 
-void help(std::string msg)
+[[noreturn]] void help(const std::string& msg = "")
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-rb-gen-apm-queries: generate the query (pattern) sets for move-rb-bench-apm, auto-calibrating" << std::endl;
@@ -97,163 +110,45 @@ void help(std::string msg)
     std::cout << "   -n <text_name>    text name used in the file names (default: basename of <input_file>)" << std::endl;
     std::cout << "   -x <chars>        characters a generated pattern must not contain (e.g. a FASTA separator or" << std::endl;
     std::cout << "                     the terminator); such patterns are skipped (default: none)" << std::endl;
-    std::cout << "   -k <list>         comma-separated list of error counts k (default: 4,7,10,13)" << std::endl;
-    std::cout << "   -m <list>         comma-separated list of pattern lengths (default: 10,20,40,80,160,320,640,1280)" << std::endl;
+    std::cout << "   -k <list>         comma-separated list of error counts k (default: " << join_csv(default_error_counts)
+              << ")" << std::endl;
+    std::cout << "   -m <list>         comma-separated list of pattern lengths (default: "
+              << join_csv(default_pattern_lengths) << ")" << std::endl;
     std::cout << "   -s <scheme>       search scheme: pigeon_hole, suffix_filter, min_u or 01 (default: min_u)" << std::endl;
-    std::cout << "   --time <s>        target count/locate duration per pattern file, in seconds (default: 1s)" << std::endl;
+    std::cout << "   --time <s>        target count/locate duration per pattern file, in seconds (default: "
+              << default_target_seconds << "s)" << std::endl;
     std::cout << "   --only <op>       restrict to count or locate files: count, locate or both (default: both)" << std::endl;
-    std::cout << "   --min <N>         minimum number of patterns per file (default: 1)" << std::endl;
+    std::cout << "   --min <N>         minimum number of patterns per file (default: " << default_min_patterns << ")"
+              << std::endl;
     std::cout << "   --seed <s>        seed for the random pattern positions (default: random)" << std::endl;
     std::cout << "   --timeout <s>     per-pattern query timeout in seconds; a query runs in a forked worker that is" << std::endl;
-    std::cout << "                     killed if it exceeds the timeout, then the pattern is discarded (0 = off, default: 10)" << std::endl;
-    std::cout << "   --max-skips <N>   give up on a (k,m) after this many consecutive timeouts (default: 10)" << std::endl;
+    std::cout << "                     killed if it exceeds the timeout, then the pattern is discarded (0 = off, default: "
+              << default_timeout_seconds << ")" << std::endl;
+    std::cout << "   --max-skips <N>   give up on a (k,m) after this many consecutive timeouts (default: "
+              << default_max_consecutive_skips << ")" << std::endl;
     std::cout << "   <input_file>      the text the index was built for" << std::endl;
-    std::cout << "   <move_rb_index>   a move_rb index (.move-rb or .move-rb-rlzsa) of <input_file>" << std::endl;
-    exit(0);
+    std::cout << "   <move_rb_index>   a move_rb index of <input_file> that supports locate" << std::endl;
+    std::exit(0);
 }
-
-std::vector<std::string> split_csv(const std::string& s)
-{
-    std::vector<std::string> out;
-    std::stringstream ss(s);
-    std::string item;
-    while (std::getline(ss, item, ',')) if (!item.empty()) out.push_back(item);
-    return out;
-}
-
-search_scheme_t make_scheme(int64_t k)
-{
-    if (scheme_str == "suffix_filter") return suffix_filter_scheme(k);
-    if (scheme_str == "min_u")         return min_u_scheme(k);
-    if (scheme_str == "01")            return zero_one_scheme(k);
-    return min_u_scheme(k); // default: min_u
-}
-
-// the outcome of a timed query: its result count and the in-process time the query itself took
-struct timed_result_t { uint64_t count; uint64_t elapsed_ns; };
-
-// reads exactly n bytes from fd into buf; false on EOF or error (e.g. the peer closed its pipe end)
-static bool read_full(int32_t fd, void* buf, uint64_t n)
-{
-    char* p = static_cast<char*>(buf);
-    while (n > 0) {
-        int64_t r = read(fd, p, n);
-        if (r > 0) { p += r; n -= (uint64_t) r; }
-        else if (r == 0) return false;     // EOF: the peer is gone
-        else if (errno == EINTR) continue; // interrupted: retry
-        else return false;                 // error
-    }
-    return true;
-}
-
-// writes exactly n bytes from buf to fd; false if the peer is gone (EPIPE) or on error
-static bool write_full(int32_t fd, const void* buf, uint64_t n)
-{
-    const char* p = static_cast<const char*>(buf);
-    while (n > 0) {
-        int64_t w = write(fd, p, n);
-        if (w > 0) { p += w; n -= (uint64_t) w; }
-        else if (w < 0 && errno == EINTR) continue;
-        else return false;
-    }
-    return true;
-}
-
-// waits up to timeout_ns for fd to become readable; false on timeout or error
-static bool wait_readable(int32_t fd, uint64_t timeout_ns)
-{
-    struct pollfd pfd { fd, POLLIN, 0 };
-    struct timespec ts { (time_t) (timeout_ns / 1000000000ull), (int64_t) (timeout_ns % 1000000000ull) };
-    int32_t r;
-    do { r = ppoll(&pfd, 1, &ts, nullptr); } while (r < 0 && errno == EINTR);
-    return r > 0 && (pfd.revents & POLLIN);
-}
-
-/**
- * @brief runs queries on a forked worker PROCESS so each one can be hard-timed-out.
- * @tparam query_fnc_t query function: (const std::string& pattern) -> uint64_t occurrence count
- */
-template <typename query_fnc_t>
-class timeout_runner {
-    query_fnc_t query;
-    uint64_t m;          // bytes per pattern (the child reads exactly this many per query)
-    pid_t child = -1;
-    int32_t to_child = -1;   // parent -> child: the next pattern
-    int32_t from_child = -1; // child -> parent: the timed_result_t
-
-    void spawn()
-    {
-        int32_t down[2], up[2]; // down: parent->child, up: child->parent
-        if (pipe(down) != 0 || pipe(up) != 0) { perror("pipe"); std::exit(1); }
-        pid_t pid = fork();
-        if (pid < 0) { perror("fork"); std::exit(1); }
-
-        if (pid == 0) {
-            // child: inherits the loaded index (COW). Runs queries until the parent closes the pipe (or
-            // it is killed on timeout), timing each one itself so the measurement excludes the IPC.
-            close(down[1]); close(up[0]);
-            std::string pat;
-            no_init_resize(pat, m);
-            while (read_full(down[0], pat.data(), m)) {
-                auto t1 = now();
-                uint64_t c = query(pat);
-                timed_result_t r { c, time_diff_ns(t1) };
-                if (!write_full(up[1], &r, sizeof(r))) break;
-            }
-            _exit(0);
-        }
-
-        close(down[0]); close(up[1]);
-        child = pid; to_child = down[1]; from_child = up[0];
-    }
-
-    // SIGKILLs the worker (freeing all its memory at once) and reaps it
-    void reap()
-    {
-        if (child <= 0) return;
-        kill(child, SIGKILL);
-        int32_t st;
-        while (waitpid(child, &st, 0) < 0 && errno == EINTR) {}
-        close(to_child); close(from_child);
-        child = -1; to_child = from_child = -1;
-    }
-
-public:
-    timeout_runner(query_fnc_t q, uint64_t pattern_len) : query(std::move(q)), m(pattern_len) { spawn(); }
-    ~timeout_runner() { reap(); }
-
-    // runs one query on the worker, waiting up to timeout_ns; nullopt on timeout (worker killed + replaced)
-    std::optional<timed_result_t> run(const std::string& pattern, uint64_t timeout_ns)
-    {
-        if (write_full(to_child, pattern.data(), m) && wait_readable(from_child, timeout_ns)) {
-            timed_result_t r;
-            if (read_full(from_child, &r, sizeof(r))) return r;
-        }
-
-        reap();
-        spawn();
-        return std::nullopt;
-    }
-};
 
 // ############################# GENERATION #############################
 
 /**
- * @brief generates and writes all pattern files for the loaded index, calibrating the number
- *        of patterns in each so that its operation takes ~target_seconds
- * @tparam pos_t the index integer type
- * @tparam support the move_rb support (_locate_move or _locate_rlzsa)
+ * @brief generates and writes all pattern files; patterns are added to a file until their queries on the index take
+ *        target_seconds in total
+ * @tparam support the locate support of the index
  */
-template <typename pos_t, move_r_support support>
+template <move_r_support support>
 void generate()
 {
-    using idx_t = move_rb<support, char, pos_t>;
-    std::cout << "loading the move_rb index ..." << std::endl;
-    auto index = std::make_shared<idx_t>();
-    index->load(index_file);
+    using idx_t = move_rb<support>;
+    idx_t loaded;
+    idx_t* index = &loaded;
+    load_index_with_progress(*index, index_file, "move_rb index");
     index_file.close();
+    drop_from_page_cache(path_index_file, true);
 
-    std::ifstream tf(path_input_file, std::ios::binary);
+    direct_ifstream tf(path_input_file, std::ios::binary);
     tf.seekg(0, std::ios::end);
     uint64_t text_size = tf.tellg();
 
@@ -270,7 +165,7 @@ void generate()
 
     for (const query_type_t& type : types) {
         for (int64_t k : ks) {
-            search_scheme_t scheme = make_scheme(k);
+            search_scheme_t scheme = search_scheme_of(scheme_str, k);
 
             for (uint64_t m : ms) {
                 if (m < scheme.p) {
@@ -280,7 +175,7 @@ void generate()
                 }
 
                 std::string pattern;
-                no_init_resize(pattern, m);
+                resize_no_init(pattern, m);
                 std::string buffer; // the concatenated patterns to write
                 std::uniform_int_distribution<uint64_t> pos_distrib(0, text_size - m - 1);
                 uint64_t n = 0, total_ns = 0, total_occ = 0, skipped = 0, consecutive_skips = 0;
@@ -289,42 +184,38 @@ void generate()
                     if (type.is_count) {
                         return index->count_hamming_dist(pat, scheme);
                     }
-                    std::vector<aprx_occ_t<pos_t>> occ;
-                    auto report = [&](aprx_occ_t<pos_t> o) { occ.emplace_back(o); };
+                    std::vector<aprx_occ_t<>> occ;
                     if (type.is_edit) {
-                        index->template locate<EDIT_DISTANCE>(pat, scheme, report);
-                        ips2ra::sort(occ.begin(), occ.end(), [](const auto& o){ return o.pos; });
-                        filter_edit_distance_occurrences<pos_t>(occ, (pos_t) scheme.k);
+                        index->locate(pat, scheme, EDIT_DISTANCE, occ);
+                        ips2ra::sort(occ.begin(), occ.end(), key_of_pos {});
+                        filter_edit_distance_occurrences<>(occ, (uint64_t) scheme.k);
                     } else {
-                        index->template locate<HAMMING_DISTANCE>(pat, scheme, report);
+                        index->locate(pat, scheme, HAMMING_DISTANCE, occ);
                     }
                     return occ.size();
                 };
 
-                std::optional<timeout_runner<decltype(run_query)>> runner;
-                if (timeout_ns != 0) runner.emplace(run_query, m);
+                // runs the query of a pattern and measures its time
+                auto timed_query = [&run_query](const std::string& pat) {
+                    auto t1 = now();
+                    uint64_t c = run_query(pat);
+                    return timed_result_t { c, time_diff_ns(t1) };
+                };
 
-                // add patterns until the accumulated query time reaches the target
-                // (a single very expensive pattern still yields one pattern)
+                std::optional<timeout_runner<decltype(timed_query)>> runner;
+                if (timeout_ns != 0) runner.emplace(timed_query, m);
+
+                // add patterns until their queries take target_ns in total (but at least min_patterns patterns)
                 while (n < min_patterns || total_ns < target_ns) {
                     tf.seekg(pos_distrib(rng), std::ios::beg);
                     tf.read(pattern.data(), m);
 
-                    // skip a pattern containing a forbidden character (e.g. a FASTA separator or the terminator),
-                    // which is not a real query and would only hit index boundaries
+                    // skip a pattern that contains a forbidden symbol
                     if (!forbidden.empty() && pattern.find_first_of(forbidden) != std::string::npos) continue;
 
-                    std::optional<timed_result_t> r;
-                    if (runner) {
-                        r = runner->run(pattern, timeout_ns);
-                    } else {
-                        auto t1 = now();
-                        uint64_t c = run_query(pattern);
-                        r = timed_result_t { c, time_diff_ns(t1) };
-                    }
+                    std::optional<timed_result_t> r = runner ? runner->run(pattern, timeout_ns) : timed_query(pattern);
 
-                    // the query exceeded the timeout: discard this pattern and try another, unless
-                    // too many in a row time out (then this (k, m) is just too slow to benchmark)
+                    // the query timed out: discard the pattern; give up after max_consecutive_skips timeouts in a row
                     if (!r.has_value()) {
                         skipped++;
                         if (++consecutive_skips > max_consecutive_skips) {
@@ -353,10 +244,7 @@ void generate()
 
                 std::string fname = (std::filesystem::path(out_dir) / (text_name + ".patterns-" +
                     type.op + "-" + type.metric + "-k" + std::to_string(k) + "-m" + std::to_string(m))).string();
-                std::ofstream of(fname, std::ios::binary);
-                of << "# number=" << n << " length=" << m << " file=" << text_name << " forbidden=" << forbidden << "\n";
-                of.write(buffer.data(), buffer.size());
-                of.close();
+                write_pattern_file(fname, buffer, n, m, text_name, forbidden);
 
                 std::cout << type.op << "-" << type.metric << " k" << k << " m" << m
                           << ": " << n << " patterns";
@@ -368,6 +256,9 @@ void generate()
             }
         }
     }
+
+    tf.close();
+    drop_from_page_cache(path_input_file, true);
 
     std::cout << "\ndone; pattern files written to " << out_dir << std::endl;
 }
@@ -389,8 +280,8 @@ int main(int argc, char** argv)
         else if (o == "-x") forbidden = need("-x");
         else if (o == "--min")  min_patterns = std::stoull(need("--min"));
         else if (o == "--seed") seed = std::stoull(need("--seed"));
-        else if (o == "--time")      target_seconds = std::stod(need("--time"));
-        else if (o == "--timeout")   timeout_seconds = std::stod(need("--timeout"));
+        else if (o == "--time")      { if (!parse_double(need("--time"), target_seconds)) help("error: --time expects a number"); }
+        else if (o == "--timeout")   { if (!parse_double(need("--timeout"), timeout_seconds)) help("error: --timeout expects a number"); }
         else if (o == "--max-skips") max_consecutive_skips = std::stoull(need("--max-skips"));
         else if (o == "-k") { ks.clear(); for (auto& v : split_csv(need("-k"))) ks.push_back(std::stoll(v)); }
         else if (o == "-m") { ms.clear(); for (auto& v : split_csv(need("-m"))) ms.push_back(std::stoull(v)); }
@@ -405,16 +296,14 @@ int main(int argc, char** argv)
         }
     }
 
-    if (argc - i != 2) help("");
+    if (argc - i != 2) help();
     path_input_file = argv[i++];
     path_index_file = argv[i++];
 
     if (target_seconds <= 0) help("error: --time must be > 0");
     if (timeout_seconds < 0) help("error: --timeout must be >= 0");
     if (min_patterns < 1) min_patterns = 1;
-    if (scheme_str != "pigeon_hole" && scheme_str != "suffix_filter" &&
-        scheme_str != "min_u" && scheme_str != "01")
-        help("error: -s must be pigeon_hole, suffix_filter, min_u or 01");
+    if (!is_search_scheme_name(scheme_str)) help("error: -s must be pigeon_hole, suffix_filter, min_u or 01");
     if (!std::filesystem::exists(path_input_file)) help("error: <input_file> does not exist");
     if (text_name.empty()) text_name = std::filesystem::path(path_input_file).filename().string();
     if (!std::filesystem::is_directory(out_dir)) help("error: output directory '" + out_dir + "' does not exist");
@@ -422,23 +311,13 @@ int main(int argc, char** argv)
     index_file.open(path_index_file, std::ios::binary);
     if (!index_file.good()) help("error: cannot open <move_rb_index>");
 
-    bool is_64_bit;
-    move_r_support support;
-    index_file.read((char*) &is_64_bit, 1);
-    index_file.read((char*) &support, sizeof(move_r_support));
-    index_file.seekg(0, std::ios::beg);
-
-    if (support == _count) {
+    const move_r_support support = read_move_rb_support(index_file);
+    if (support == _count)
         help("error: this index only supports count, not locate; rebuild with locate support");
-    } else if (support == _locate_move) {
-        if (is_64_bit) generate<uint64_t, _locate_move>();
-        else           generate<uint32_t, _locate_move>();
-    } else if (support == _locate_rlzsa) {
-        if (is_64_bit) generate<uint64_t, _locate_rlzsa>();
-        else           generate<uint32_t, _locate_rlzsa>();
-    } else {
-        help("error: unknown move_rb support in the index file");
-    }
+
+    if (!dispatch_move_rb_index<_require_all_occs>(support,
+        [&]<move_r_support index_support>() { generate<index_support>(); }))
+        help("error: unsupported support type in <move_rb_index>");
 
     return 0;
 }

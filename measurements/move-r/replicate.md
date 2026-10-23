@@ -17,11 +17,10 @@ the top-level `README.md`:
 # from the repository root
 mkdir build && cd build
 cmake .. -DMOVE_R_BUILD_MOVE_R_BENCH=ON
-cp -rf ../patched-files/* ..
 make
 ```
 
-This produces the CLI tools (`move-r-build`, `move-r-locate`, `gen-patterns`) in
+This produces the CLI tools (`move-r`, `gen-patterns`) in
 `build/cli/` and the benchmark tool `move-r-bench` in `build/bench/`. The reproduction
 scripts locate them automatically at `../../build` relative to this folder.
 
@@ -77,10 +76,10 @@ For every text, `measure-text.sh`:
    paths relative to the repository root, so the script runs it from there.
 2. **Balancing-parameter sweep** (`move-r-bench -a`): count/locate performance of move-r
    for a range of thread counts and balancing parameters → `results/results-a.txt`.
-3. **Construction phases** (`move-r-build`, a=8, threads 1..p): per-phase construction
-   metrics via `-m_idx` / `-m_mds` → `results/results-move-r-build-phases.txt` and
+3. **Construction phases** (`move-r build`, a=8, threads 1..p): per-phase construction
+   metrics via `-m` / `-m-mds` → `results/results-move-r-build-phases.txt` and
    `results/results-mds-build-phases.txt`.
-4. **Locate statistics** (`move-r-build -a 2` then `move-r-locate -m`) → `results/statistics.txt`.
+4. **Locate statistics** (`move-r build -a 2` then `move-r locate -m`) → `results/statistics.txt`.
 
 ## 5. Output
 

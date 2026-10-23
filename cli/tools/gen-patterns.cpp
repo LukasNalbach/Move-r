@@ -24,104 +24,144 @@
  * SOFTWARE.
  */
 
-#include <climits>
-#include <cstdlib>
-#include <fstream>
-#include <iomanip>
+/**
+ * @file gen-patterns.cpp
+ * @brief the tool gen-patterns: writes random substrings of a file as patterns in the Pizza&Chili format
+ */
+
+#include <array>
+#include <cstdint>
 #include <iostream>
+#include <limits>
 #include <random>
-#include <misc/utils.hpp>
-#include <misc/log.hpp>
+#include <stdexcept>
+#include <string>
+
+#include <misc/cli_help.hpp>
 #include <misc/files.hpp>
-#include <vector>
+#include <misc/log.hpp>
+#include <misc/memory.hpp>
+
+namespace {
+
+/** @brief the options of gen-patterns */
+struct gen_patterns_cli_t {
+    std::string path_input_file; // <file>
+    uint64_t pattern_length = 0; // <length>
+    uint64_t num_patterns = 0; // <number>
+    std::string path_patterns_file; // <patterns_file>
+    std::string forbidden; // <forbidden>: the bytes no pattern contains
+    uint64_t seed = 0; // -seed: the seed of the random number generator (0: a random seed)
+};
 
 /**
- * @brief prints the usage information and exits
- * @param msg an optional error message printed before the usage information
+ * @brief prints the help of gen-patterns
+ * @param out the stream to print to
  */
-void help(std::string msg)
+void print_help(std::ostream& out)
 {
-    if (msg != "") std::cout << msg << std::endl;
-    std::cout << "gen-patterns: generate patterns in Pizza&Chili format from a file." << std::endl << std::endl;
-    std::cout << "usage: gen-patterns <file> <length> <number> <patterns_file> [<forbidden>]" << std::endl;
-    std::cout << "       randomly extracts <number> substrings of length <length> from <file>," << std::endl;
-    std::cout << "       avoiding substrings containing characters in <forbidden>." << std::endl;
-    std::cout << "       The output file <patterns_file> has a first line of the form:" << std::endl;
-    std::cout << "       # number=<number> length=<length> file=<file> forbidden=<forbidden>" << std::endl;
-    std::cout << "       and then the <number> patterns come successively without any separator" << std::endl;
-    exit(0);
+    const gen_patterns_cli_t defaults;
+    help_printer h(out);
+    h.intro("gen-patterns: generates patterns in the Pizza&Chili format: random substrings of a file that contain no "
+        "byte of <forbidden>.", "gen-patterns [options] <file> <length> <number> <patterns_file> [<forbidden>]");
+    h.group("arguments");
+    h.option("<file>", "", "the file the patterns are taken from");
+    h.option("<length>", "integer in [1, size of <file>]", "the length of each pattern in bytes");
+    h.option("<number>", "integer >= 1", "the number of patterns");
+    h.option("<patterns_file>", "", "the file the patterns are written to");
+    h.option("<forbidden>", "a string (default: empty)", "the bytes no pattern contains");
+    h.group("options");
+    h.option("-seed <seed>", "integer in [0, " + std::to_string(std::numeric_limits<uint32_t>::max()) + "] (default: "
+        + std::to_string(defaults.seed) + ")", "the seed of the random number generator (0: a random seed)");
+    h.text("The patterns file starts with the line \"# number=<number> length=<length> file=<file> "
+        "forbidden=<forbidden>\" (<file> without its directory), followed by the patterns without separators.");
 }
 
-/**
- * @brief program entry point
- * @param argc the number of command-line arguments
- * @param argv the command-line arguments
- * @return the exit code
- */
-int main(int argc, char* argv[])
+} // namespace
+
+int main(int argc, char** argv)
 {
-    if (argc < 5 || 6 < argc) help("invalid input: wrong number of arguments");
-    std::ifstream input_file(argv[1]);
-    if (!input_file.good()) help("invalid input: could not read <file>");
-    
-    std::cout << std::setprecision(4);
-    input_file.seekg(0, std::ios::end);
-    int64_t input_size = input_file.tellg();
-    int64_t num_patterns = atoi(argv[3]);
-    int64_t pattern_length = atoi(argv[2]);
+    return run_cli(argc, argv, print_help, [&] {
+        gen_patterns_cli_t cli;
+        cli_arguments args(argc, argv);
 
-    if (pattern_length < 1 || pattern_length >= input_size)
-        help("Error: length must be >= 1 and < file length");
-    if (num_patterns < 1) help("Error: number of patterns must be >= 1");
+        while (args.at_option()) {
+            const std::string s = args.next();
+            if (s == "-seed") cli.seed = args.integer("-seed", 0, std::numeric_limits<uint32_t>::max());
+            else throw unknown_option(s);
+        }
 
-    std::ofstream output_file(argv[4]);
-    if (!output_file.is_open()) help("invalid input: could not create <patterns_file>");
+        if (args.remaining() != 4 && args.remaining() != 5)
+            throw usage_error("expected <file>, <length>, <number>, <patterns_file> and optionally <forbidden>");
 
-    std::string forbidden = "";
-    if (argc == 6) forbidden = argv[5];
-    std::vector<uint8_t> is_forbidden;
+        cli.path_input_file = args.next();
+        cli.pattern_length = parse_integer_option("<length>", args.next(), 1);
+        cli.num_patterns = parse_integer_option("<number>", args.next(), 1);
+        cli.path_patterns_file = args.next();
+        if (!args.empty()) cli.forbidden = args.next();
 
-    if (!forbidden.empty()) {
-        is_forbidden.resize(256, 0);
-        for (uint64_t i = 0; i < forbidden.size(); i++) is_forbidden[forbidden[i]] = 1;
-    }
+        direct_ifstream input_file(cli.path_input_file);
+        require_readable(input_file, cli.path_input_file);
+        input_file.seekg(0, std::ios::end);
+        const uint64_t input_size = input_file.tellg();
 
-    std::string basename = argv[1];
-    basename = basename.substr(basename.find_last_of("/\\") + 1);
-    output_file << "# number=" << num_patterns << " length=" << pattern_length << " file=" << basename << " forbidden=\n";
-    input_file.seekg(0, std::ios::beg);
+        if (cli.pattern_length > input_size) {
+            throw std::runtime_error("<length> must be at most the size of " + cli.path_input_file + " ("
+                + format_number(input_size) + " bytes)");
+        }
 
-    auto time = now();
-    log_phase_start(true, time, "generating " + std::to_string(num_patterns) + " patterns of length " + std::to_string(pattern_length));
-    std::uniform_int_distribution<uint64_t> pattern_pos_distrib(0, input_size - pattern_length - 1);
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    uint64_t pos_random;
-    std::string pattern;
-    no_init_resize(pattern, pattern_length);
-    bool found_forbidden = false;
+        direct_ofstream patterns_file(cli.path_patterns_file);
+        require_created(patterns_file, cli.path_patterns_file);
 
-    for (int64_t i = 0; i < num_patterns; i++) {
-        do {
-            pos_random = pattern_pos_distrib(gen);
-            input_file.seekg(pos_random, std::ios::beg);
-            read_from_file(input_file, pattern.c_str(), pattern_length);
-            found_forbidden = false;
+        // is_forbidden[c] = true <=> the byte c occurs in <forbidden>
+        std::array<bool, std::numeric_limits<uint8_t>::max() + 1> is_forbidden {};
+        for (char c : cli.forbidden) is_forbidden[uint8_t(c)] = true;
 
-            if (!forbidden.empty()) {
-                for (int64_t i = 0; i < pattern_length; i++) {
-                    if (is_forbidden[pattern[i]] == 1) {
-                        found_forbidden = true;
-                        break;
+        std::string file_name = cli.path_input_file;
+        file_name = file_name.substr(file_name.find_last_of("/\\") + 1);
+        patterns_file << "# number=" << cli.num_patterns << " length=" << cli.pattern_length << " file=" << file_name
+                      << " forbidden=" << cli.forbidden << "\n";
+        input_file.seekg(0, std::ios::beg);
+
+        const uint64_t seed = cli.seed != 0 ? cli.seed : std::random_device()();
+        auto time = now();
+        log_phase_start(true, time, "generating " + format_number(cli.num_patterns) + " patterns of length "
+            + format_number(cli.pattern_length) + " (seed " + std::to_string(seed) + ")");
+        std::mt19937 random(seed);
+        // the starting positions of the substrings of length <length>
+        std::uniform_int_distribution<uint64_t> pos_distribution(0, input_size - cli.pattern_length);
+        std::string pattern;
+        resize_no_init(pattern, cli.pattern_length);
+        phase_progress progress(true, cli.num_patterns);
+
+        for (uint64_t i = 0; i < cli.num_patterns; i++) {
+            bool has_forbidden;
+
+            // draw substrings until one contains no forbidden byte
+            do {
+                input_file.seekg(pos_distribution(random), std::ios::beg);
+                read_in_chunks(input_file, pattern.data(), cli.pattern_length);
+                has_forbidden = false;
+
+                if (!cli.forbidden.empty()) {
+                    for (char c : pattern) {
+                        if (is_forbidden[uint8_t(c)]) {
+                            has_forbidden = true;
+                            break;
+                        }
                     }
                 }
-            }
-        } while (found_forbidden);
+            } while (has_forbidden);
 
-        output_file.write(pattern.c_str(), pattern_length);
-    }
-    
-    log_phase_end(true, time);
+            patterns_file.write(pattern.data(), cli.pattern_length);
+            progress.at(i);
+        }
 
-    return 0;
+        progress.finish();
+        log_phase_end(true, time);
+        input_file.close();
+        patterns_file.close();
+        drop_from_page_cache(cli.path_input_file, true);
+        drop_from_page_cache(cli.path_patterns_file, true);
+    });
 }

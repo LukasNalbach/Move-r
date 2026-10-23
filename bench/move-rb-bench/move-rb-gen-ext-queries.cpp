@@ -24,11 +24,10 @@
  * SOFTWARE.
  */
 
-// move-rb-gen-ext-queries: generates the pattern sets for move-rb-bench-ext. For every length m it writes a count
-// and a locate file (<text_name>.patterns-{count,locate}-m<m>) of sampled text substrings, each with its pattern
-// count calibrated against a move_rb index to run for ~<time> seconds. The extension plans are not stored; they
-// come from a plan RNG reset to a fixed seed per pattern set (see ext_query.hpp), so move-rb-bench-ext replays the
-// exact same queries.
+// move-rb-gen-ext-queries: generates the pattern files of move-rb-bench-ext. For each m it writes the files
+// <text_name>.patterns-count-m<m> and <text_name>.patterns-locate-m<m> of substrings of the text at random positions.
+// Patterns are added to a file until their queries on a move_rb index take the target time (--time) in total. The
+// extension plans are not stored: move-rb-bench-ext draws the same plans (see ext_query.hpp).
 
 #include <algorithm>
 #include <cerrno>
@@ -36,6 +35,7 @@
 #include <clocale>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -51,34 +51,67 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "ext_query.hpp" // ext_plan_t / make_ext_plan / ext_locate (the shared query model)
+#include "bench_common.hpp"
+#include "ext_query.hpp"
+#include "timeout_runner.hpp"
+#include <misc/index_cli.hpp>
+#include <misc/move_rb_cli.hpp>
 #include <move_rb/move_rb.hpp>
 
 // ############################# CONFIGURATION #############################
 
-std::string path_input_file;         // the text the index was built for
-std::string path_index_file;         // a move_rb index for that text
-double      target_seconds = 1.0;    // target locate duration per pattern file (set via --time)
+std::string path_input_file;         // the text the index has been built for
+std::string path_index_file;         // a move_rb index of the text
+double      target_seconds = default_target_seconds; // --time: total time in seconds of the queries of a pattern file
 
-std::string out_dir = ".";           // where the pattern files are written
-std::string text_name;               // name used in the file names (default: basename of input)
-bool gen_count = true;               // generate the count-pattern files
-bool gen_locate = true;              // generate the locate-pattern files
-std::string forbidden;               // characters a generated pattern must not contain (e.g. a FASTA separator)
-uint64_t min_patterns = 1;           // at least this many patterns per file
-double   timeout_seconds = 10.0;     // per-pattern query timeout (0 => disabled)
-uint64_t max_consecutive_skips = 10; // give up on a set after this many timeouts in a row
+std::string out_dir = ".";           // -o: directory of the pattern files
+std::string text_name;               // -n: name of the text in the file names (default: file name of the text)
+bool gen_count = true;               // --only: generate the count pattern files
+bool gen_locate = true;              // --only: generate the locate pattern files
+std::string forbidden;               // -x: symbols a pattern must not contain (e.g. a FASTA separator)
+uint64_t min_patterns = default_min_patterns; // --min: minimum number of patterns per file
+double   timeout_seconds = default_timeout_seconds; // --timeout: timeout of a query in seconds (0: none)
+// --max-skips: a file is given up after this many timeouts in a row
+uint64_t max_consecutive_skips = default_max_consecutive_skips;
 
-std::vector<uint64_t> ms = {10, 20, 40, 80, 160, 320, 640, 1280};
+std::vector<uint64_t> ms = default_pattern_lengths; // -m: the pattern lengths
 
-// the two benchmark operations a pattern file targets; count and locate get separate files and calibrations
-struct ext_op_t { const char* op; bool is_locate; };
+// an operation of a pattern file
+struct ext_op_t {
+    const char* op; // count or locate
+    bool is_locate; // true <=> op is locate
+};
 
-std::ifstream index_file;
+/* a request to the child of timeout_runner: [0..m-1] the pattern, [m..m+7] plan.start, [m+8..2m+6] the directions of
+   plan.order (0 = LEFT, 1 = RIGHT) */
+
+// returns the number of bytes of a request for a pattern of length m
+inline uint64_t request_size(uint64_t m) { return m + sizeof(uint64_t) + (m == 0 ? 0 : m - 1); }
+
+// encodes a pattern and its extension plan as a request
+inline void encode_request(const std::string& pat, const ext_plan_t& plan, std::string& request)
+{
+    const uint64_t m = pat.size();
+    request.resize(request_size(m));
+    std::memcpy(request.data(), pat.data(), m);
+    std::memcpy(request.data() + m, &plan.start, sizeof(uint64_t));
+    for (uint64_t i = 0; i + 1 < m; i++) request[m + sizeof(uint64_t) + i] = plan.order[i] == LEFT ? 0 : 1;
+}
+
+// decodes a request for a pattern of length m into the pattern and its extension plan
+inline void decode_request(const std::string& request, uint64_t m, std::string& pat, ext_plan_t& plan)
+{
+    pat.assign(request.data(), m);
+    std::memcpy(&plan.start, request.data() + m, sizeof(uint64_t));
+    plan.order.resize(m == 0 ? 0 : m - 1);
+    for (uint64_t i = 0; i + 1 < m; i++) plan.order[i] = request[m + sizeof(uint64_t) + i] == 0 ? LEFT : RIGHT;
+}
+
+direct_ifstream index_file;
 
 // ############################# HELPERS #############################
 
-void help(std::string msg)
+[[noreturn]] void help(const std::string& msg = "")
 {
     if (msg != "") std::cout << msg << std::endl;
     std::cout << "move-rb-gen-ext-queries: generate the query (pattern) sets for move-rb-bench-ext, auto-calibrating" << std::endl;
@@ -91,179 +124,40 @@ void help(std::string msg)
     std::cout << "   -n <text_name>    text name used in the file names (default: basename of <input_file>)" << std::endl;
     std::cout << "   -x <chars>        characters a generated pattern must not contain (e.g. a FASTA separator or" << std::endl;
     std::cout << "                     the terminator); such patterns are skipped (default: none)" << std::endl;
-    std::cout << "   -m <list>         comma-separated list of pattern lengths (default: 10,20,40,80,160,320,640,1280)" << std::endl;
-    std::cout << "   --time <s>        target query duration per pattern file, in seconds (default: 1s)" << std::endl;
+    std::cout << "   -m <list>         comma-separated list of pattern lengths (default: "
+              << join_csv(default_pattern_lengths) << ")" << std::endl;
+    std::cout << "   --time <s>        target query duration per pattern file, in seconds (default: "
+              << default_target_seconds << "s)" << std::endl;
     std::cout << "   --only <op>       restrict to count or locate files: count, locate or both (default: both)" << std::endl;
-    std::cout << "   --min <N>         minimum number of patterns per file (default: 1)" << std::endl;
+    std::cout << "   --min <N>         minimum number of patterns per file (default: " << default_min_patterns << ")"
+              << std::endl;
     std::cout << "   --timeout <s>     per-pattern query timeout in seconds; a query runs in a forked worker that is" << std::endl;
-    std::cout << "                     killed if it exceeds the timeout, then the pattern is discarded (0 = off, default: 10)" << std::endl;
-    std::cout << "   --max-skips <N>   give up on a set after this many consecutive timeouts (default: 10)" << std::endl;
+    std::cout << "                     killed if it exceeds the timeout, then the pattern is discarded (0 = off, default: "
+              << default_timeout_seconds << ")" << std::endl;
+    std::cout << "   --max-skips <N>   give up on a set after this many consecutive timeouts (default: "
+              << default_max_consecutive_skips << ")" << std::endl;
     std::cout << "   <input_file>      the text the index was built for" << std::endl;
-    std::cout << "   <move_rb_index>   a move_rb index (.move-rb or .move-rb-rlzsa) of <input_file>" << std::endl;
-    exit(0);
+    std::cout << "   <move_rb_index>   a move_rb index of <input_file> that supports locate" << std::endl;
+    std::exit(0);
 }
-
-std::vector<std::string> split_csv(const std::string& s)
-{
-    std::vector<std::string> out;
-    std::stringstream ss(s);
-    std::string item;
-    while (std::getline(ss, item, ',')) if (!item.empty()) out.push_back(item);
-    return out;
-}
-
-// the outcome of a timed query: its result count and the in-process time the query itself took
-struct timed_result_t { uint64_t count; uint64_t elapsed_ns; };
-
-// reads exactly n bytes from fd into buf; false on EOF or error (e.g. the peer closed its pipe end)
-static bool read_full(int32_t fd, void* buf, uint64_t n)
-{
-    char* p = static_cast<char*>(buf);
-    while (n > 0) {
-        int64_t r = read(fd, p, n);
-        if (r > 0) { p += r; n -= (uint64_t) r; }
-        else if (r == 0) return false;     // EOF: the peer is gone
-        else if (errno == EINTR) continue; // interrupted: retry
-        else return false;                 // error
-    }
-    return true;
-}
-
-// writes exactly n bytes from buf to fd; false if the peer is gone (EPIPE) or on error
-static bool write_full(int32_t fd, const void* buf, uint64_t n)
-{
-    const char* p = static_cast<const char*>(buf);
-    while (n > 0) {
-        int64_t w = write(fd, p, n);
-        if (w > 0) { p += w; n -= (uint64_t) w; }
-        else if (w < 0 && errno == EINTR) continue;
-        else return false;
-    }
-    return true;
-}
-
-// waits up to timeout_ns for fd to become readable; false on timeout or error
-static bool wait_readable(int32_t fd, uint64_t timeout_ns)
-{
-    struct pollfd pfd { fd, POLLIN, 0 };
-    struct timespec ts { (time_t) (timeout_ns / 1000000000ull), (int64_t) (timeout_ns % 1000000000ull) };
-    int32_t r;
-    do { r = ppoll(&pfd, 1, &ts, nullptr); } while (r < 0 && errno == EINTR);
-    return r > 0 && (pfd.revents & POLLIN);
-}
-
-/**
- * @brief runs extension-locate queries on a forked worker PROCESS so each one can be hard-timed-out. Each query
- *        request is a fixed-size byte blob (per pattern of length m): the m pattern bytes, then the 8-byte start
- *        position, then the m-1 order bytes (0 = LEFT, 1 = RIGHT).
- * @tparam query_fnc_t query function: (const std::string& pattern, const ext_plan_t& plan) -> uint64_t occ count
- */
-template <typename query_fnc_t>
-class timeout_runner {
-    query_fnc_t query;
-    uint64_t m;                 // pattern length
-    uint64_t req_size;          // bytes per request (m + 8 + (m-1))
-    pid_t child = -1;
-    int32_t to_child = -1;   // parent -> child: the next request
-    int32_t from_child = -1; // child -> parent: the timed_result_t
-
-    // decodes a request blob into (pattern, plan)
-    static void decode(const std::vector<char>& req, uint64_t m, std::string& pat, ext_plan_t& plan)
-    {
-        pat.assign(req.data(), m);
-        std::memcpy(&plan.start, req.data() + m, sizeof(uint64_t));
-        plan.order.resize(m == 0 ? 0 : m - 1);
-        for (uint64_t i = 0; i + 1 < m; i++) plan.order[i] = req[m + 8 + i] == 0 ? LEFT : RIGHT;
-    }
-
-    void spawn()
-    {
-        int32_t down[2], up[2]; // down: parent->child, up: child->parent
-        if (pipe(down) != 0 || pipe(up) != 0) { perror("pipe"); std::exit(1); }
-        pid_t pid = fork();
-        if (pid < 0) { perror("fork"); std::exit(1); }
-
-        if (pid == 0) {
-            // child: inherits the loaded index (COW). Runs queries until the parent closes the pipe (or it is
-            // killed on timeout), timing each one itself so the measurement excludes the IPC.
-            close(down[1]); close(up[0]);
-            std::vector<char> req(req_size);
-            std::string pat;
-            ext_plan_t plan;
-            while (read_full(down[0], req.data(), req_size)) {
-                decode(req, m, pat, plan);
-                auto t1 = now();
-                uint64_t c = query(pat, plan);
-                timed_result_t r { c, time_diff_ns(t1) };
-                if (!write_full(up[1], &r, sizeof(r))) break;
-            }
-            _exit(0);
-        }
-
-        close(down[0]); close(up[1]);
-        child = pid; to_child = down[1]; from_child = up[0];
-    }
-
-    // SIGKILLs the worker (freeing all its memory at once) and reaps it
-    void reap()
-    {
-        if (child <= 0) return;
-        kill(child, SIGKILL);
-        int32_t st;
-        while (waitpid(child, &st, 0) < 0 && errno == EINTR) {}
-        close(to_child); close(from_child);
-        child = -1; to_child = from_child = -1;
-    }
-
-    // encodes (pattern, plan) into a request blob
-    void encode(const std::string& pat, const ext_plan_t& plan, std::vector<char>& req) const
-    {
-        req.resize(req_size);
-        std::memcpy(req.data(), pat.data(), m);
-        std::memcpy(req.data() + m, &plan.start, sizeof(uint64_t));
-        for (uint64_t i = 0; i + 1 < m; i++) req[m + 8 + i] = plan.order[i] == LEFT ? 0 : 1;
-    }
-
-public:
-    timeout_runner(query_fnc_t q, uint64_t pattern_len)
-        : query(std::move(q)), m(pattern_len), req_size(pattern_len + 8 + (pattern_len == 0 ? 0 : pattern_len - 1))
-    { spawn(); }
-    ~timeout_runner() { reap(); }
-
-    // runs one query on the worker, waiting up to timeout_ns; nullopt on timeout (worker killed + replaced)
-    std::optional<timed_result_t> run(const std::string& pattern, const ext_plan_t& plan, uint64_t timeout_ns)
-    {
-        std::vector<char> req;
-        encode(pattern, plan, req);
-        if (write_full(to_child, req.data(), req_size) && wait_readable(from_child, timeout_ns)) {
-            timed_result_t r;
-            if (read_full(from_child, &r, sizeof(r))) return r;
-        }
-
-        reap();
-        spawn();
-        return std::nullopt;
-    }
-};
 
 // ############################# GENERATION #############################
 
 /**
- * @brief generates and writes all pattern files for the loaded index, calibrating the number of patterns in each
- *        so that its locate operation takes ~target_seconds
- * @tparam pos_t the index integer type
- * @tparam support the move_rb support (_locate_move or _locate_rlzsa)
+ * @brief generates and writes all pattern files; patterns are added to a file until their queries on the index take
+ *        target_seconds in total
+ * @tparam support the locate support of the index
  */
-template <typename pos_t, move_r_support support>
+template <move_r_support support>
 void generate()
 {
-    using idx_t = move_rb<support, char, pos_t>;
-    std::cout << "loading the move_rb index ..." << std::endl;
-    auto index = std::make_shared<idx_t>();
-    index->load(index_file);
+    using idx_t = move_rb<support>;
+    idx_t loaded;
+    idx_t* index = &loaded;
+    load_index_with_progress(*index, index_file, "move_rb index");
     index_file.close();
 
-    std::ifstream tf(path_input_file, std::ios::binary);
+    direct_ifstream tf(path_input_file, std::ios::binary);
     tf.seekg(0, std::ios::end);
     uint64_t text_size = tf.tellg();
 
@@ -287,55 +181,67 @@ void generate()
             }
 
             std::string pattern;
-            no_init_resize(pattern, m);
+            resize_no_init(pattern, m);
             std::string buffer; // the concatenated patterns to write
             std::uniform_int_distribution<uint64_t> pos_distrib(0, text_size - m - 1);
 
-            // the plan RNG is reset to the fixed ext_plan_seed per pattern set, so move-rb-bench-ext replays the
-            // same plans (nothing is stored in the file)
+            // the generator of the extension plans (move-rb-bench-ext draws the same plans)
             std::mt19937_64 plan_rng(ext_plan_seed);
 
             uint64_t n = 0, total_ns = 0, total_occ = 0, skipped = 0, consecutive_skips = 0;
 
-            // the ext query (count or locate) for one pattern and its extension plan
+            // the query (count or locate) of a pattern with its extension plan
             auto run_query = [index, is_locate = op.is_locate](const std::string& pat, const ext_plan_t& plan) -> uint64_t {
                 if (is_locate) {
                     uint64_t occ = 0;
-                    ext_locate<idx_t>(*index, pat, plan, [&](pos_t){ occ++; });
+                    ext_locate<idx_t>(*index, pat, plan, [&](uint64_t){ occ++; });
                     return occ;
                 }
                 return ext_count<idx_t>(*index, pat, plan);
             };
 
-            std::optional<timeout_runner<decltype(run_query)>> runner;
-            if (timeout_ns != 0) runner.emplace(run_query, m);
+            // runs the query of a pattern and measures its time
+            auto timed_query = [&run_query](const std::string& pat, const ext_plan_t& plan) {
+                auto t1 = now();
+                uint64_t c = run_query(pat, plan);
+                return timed_result_t { c, time_diff_ns(t1) };
+            };
 
-            // add patterns until the accumulated query time reaches the target (a single very expensive pattern
-            // still yields one pattern)
+            // the query of a request in the child of timeout_runner (the request is decoded before the measurement)
+            auto timed_request = [&timed_query, m, pat = std::string(), plan = ext_plan_t()](
+                const std::string& request) mutable {
+                decode_request(request, m, pat, plan);
+                return timed_query(pat, plan);
+            };
+
+            std::optional<timeout_runner<decltype(timed_request)>> runner;
+            if (timeout_ns != 0) runner.emplace(timed_request, request_size(m));
+            std::string request;
+
+            // add patterns until their queries take target_ns in total (but at least min_patterns patterns)
             while (n < min_patterns || total_ns < target_ns) {
                 tf.seekg(pos_distrib(pos_rng), std::ios::beg);
                 tf.read(pattern.data(), m);
 
-                // skip a forbidden pattern before drawing a plan, so the plan RNG stays aligned with accepted ones
+                // skip a pattern that contains a forbidden symbol (before its plan is drawn)
                 if (!forbidden.empty() && pattern.find_first_of(forbidden) != std::string::npos) continue;
 
-                // draw the plan, saving the RNG so it can be restored if the pattern is discarded
+                // draw the plan (the generator is restored if the pattern is discarded)
                 const std::mt19937_64 plan_rng_saved = plan_rng;
                 const ext_plan_t plan = make_ext_plan(m, plan_rng);
 
                 std::optional<timed_result_t> r;
+
                 if (runner) {
-                    r = runner->run(pattern, plan, timeout_ns);
+                    encode_request(pattern, plan, request);
+                    r = runner->run(request, timeout_ns);
                 } else {
-                    auto t1 = now();
-                    uint64_t c = run_query(pattern, plan);
-                    r = timed_result_t { c, time_diff_ns(t1) };
+                    r = timed_query(pattern, plan);
                 }
 
-                // the query exceeded the timeout: discard this pattern and try another, unless too many in a row
-                // time out (then this set is just too slow to benchmark)
+                // the query timed out: discard the pattern; give up after max_consecutive_skips timeouts in a row
                 if (!r.has_value()) {
-                    plan_rng = plan_rng_saved; // restore: a discarded pattern must not consume a plan
+                    plan_rng = plan_rng_saved;
                     skipped++;
                     if (++consecutive_skips > max_consecutive_skips) {
                         std::cerr << "giving up on " << op.op << " m" << m << " after " << consecutive_skips
@@ -361,10 +267,7 @@ void generate()
 
             std::string fname = (std::filesystem::path(out_dir) /
                 (text_name + ".patterns-" + op.op + "-m" + std::to_string(m))).string();
-            std::ofstream of(fname, std::ios::binary);
-            of << "# number=" << n << " length=" << m << " file=" << text_name << " forbidden=" << forbidden << "\n";
-            of.write(buffer.data(), buffer.size());
-            of.close();
+            write_pattern_file(fname, buffer, n, m, text_name, forbidden);
 
             std::cout << op.op << " m" << m << ": " << n << " patterns";
             if (skipped > 0) std::cout << " (" << skipped << " skipped)";
@@ -374,6 +277,9 @@ void generate()
             std::cout << std::endl;
         }
     }
+
+    tf.close();
+    drop_from_page_cache(path_input_file, true);
 
     std::cout << "\ndone; pattern files written to " << out_dir << std::endl;
 }
@@ -393,8 +299,8 @@ int main(int argc, char** argv)
         else if (o == "-n") text_name = need("-n");
         else if (o == "-x") forbidden = need("-x");
         else if (o == "--min")  min_patterns = std::stoull(need("--min"));
-        else if (o == "--time")      target_seconds = std::stod(need("--time"));
-        else if (o == "--timeout")   timeout_seconds = std::stod(need("--timeout"));
+        else if (o == "--time")      { if (!parse_double(need("--time"), target_seconds)) help("error: --time expects a number"); }
+        else if (o == "--timeout")   { if (!parse_double(need("--timeout"), timeout_seconds)) help("error: --timeout expects a number"); }
         else if (o == "--max-skips") max_consecutive_skips = std::stoull(need("--max-skips"));
         else if (o == "-m") { ms.clear(); for (auto& v : split_csv(need("-m"))) ms.push_back(std::stoull(v)); }
         else if (o == "--only") {
@@ -409,7 +315,7 @@ int main(int argc, char** argv)
         }
     }
 
-    if (argc - i != 2) help("");
+    if (argc - i != 2) help();
     path_input_file = argv[i++];
     path_index_file = argv[i++];
 
@@ -423,23 +329,13 @@ int main(int argc, char** argv)
     index_file.open(path_index_file, std::ios::binary);
     if (!index_file.good()) help("error: cannot open <move_rb_index>");
 
-    bool is_64_bit;
-    move_r_support support;
-    index_file.read((char*) &is_64_bit, 1);
-    index_file.read((char*) &support, sizeof(move_r_support));
-    index_file.seekg(0, std::ios::beg);
-
-    if (support == _count) {
+    const move_r_support support = read_move_rb_support(index_file);
+    if (support == _count)
         help("error: this index only supports count, not locate; rebuild with locate support");
-    } else if (support == _locate_move) {
-        if (is_64_bit) generate<uint64_t, _locate_move>();
-        else           generate<uint32_t, _locate_move>();
-    } else if (support == _locate_rlzsa) {
-        if (is_64_bit) generate<uint64_t, _locate_rlzsa>();
-        else           generate<uint32_t, _locate_rlzsa>();
-    } else {
-        help("error: unknown move_rb support in the index file");
-    }
+
+    if (!dispatch_move_rb_index<_require_all_occs>(support,
+        [&]<move_r_support index_support>() { generate<index_support>(); }))
+        help("error: unsupported support type in <move_rb_index>");
 
     return 0;
 }

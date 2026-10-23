@@ -24,516 +24,133 @@
  * SOFTWARE.
  */
 
-#pragma once
+#ifndef MOVE_R_MOVE_RB_QUERIES_TPP
+#define MOVE_R_MOVE_RB_QUERIES_TPP
 
 #include <move_rb/move_rb.hpp>
 
-// ############################# search_context_t METHODS #############################
+template <move_r_support support>
+template <typename fnc_t>
+inline uint64_t move_rb<support>::input_interval(uint64_t i, const elias_fano_bit_vector& sd_arr, fnc_t interval_start)
+{
+    uint64_t x = (std::max<uint64_t>(1, sd_arr.rank_1(i)) - 1) * input_interval_sample_rate;
 
-template <move_r_support support, typename sym_t, typename pos_t>
-template <query_support_t query_support>
+    while (i >= interval_start(x + 1)) {
+        x++;
+    }
+
+    return x;
+}
+
+template <move_r_support support>
 template <direction_t dir>
-inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::build_prev_next(
-    std::array<int64_t, 256>& prev, std::array<int64_t, 256>& next,
-    i_sym_t max_sym) const
+inline uint64_t move_rb<support>::input_interval_near(uint64_t i, uint64_t x) const
 {
-    const auto& idx_dir = idx->index<dir>();
-    pos_t blk_size = idx_dir.PS_L_().block_size();
-    pos_t max = max_sym;
+    const auto& M_LF = index<dir>().M_LF();
+    auto p = [&](uint64_t y) { return M_LF.p(y); };
 
-    const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = const_vars<dir>();
+    // a bidirectional M_LF searches near x itself (see move_data_structure::interval_near)
+    if constexpr (std::remove_cvref_t<decltype(M_LF)>::has_inverse) {
+        uint64_t near = M_LF.interval_near(i, x);
+        if (near != M_LF.num_intervals()) [[likely]] return near;
+        return mlf_interval<dir>(i);
+    }
 
-    pos_t blk = div_ceil<pos_t>(b_, blk_size);
-    pos_t end_pos = std::min<pos_t>(blk * blk_size, e_);
-    int64_t beg = b_;
-    int64_t end = end_pos;
+    // exponential search over at most max_scanned_intervals input intervals to the right or to the left of x
+    if (p(x) <= i) {
+        if (i < p(x + 1)) [[likely]] return x;
 
-    if (end_pos != e_) [[likely]] {
-        for (pos_t i = 0; i <= max; i++) {
-            next[i] = idx_dir.PS_L_().succ_blk(blk, i);
-        }
+        uint64_t hi = std::min<uint64_t>(x + max_scanned_intervals, M_LF.num_intervals() - 1);
+        if (i < p(hi + 1)) return exp_search_max_leq<RIGHT>(i, x, hi, p);
     } else {
-        std::fill_n(next.begin(), max_sym + 1, LONG_MAX);
+        uint64_t lo = x > max_scanned_intervals ? x - max_scanned_intervals : 0;
+        if (p(lo) <= i) return exp_search_max_leq<LEFT>(i, lo, x, p);
     }
 
-    for (int64_t i = end; i >= beg; i--) {
-        next[idx_dir.L_(i)] = i;
-    }
-
-    blk = e_ / blk_size;
-    pos_t beg_pos = std::max<pos_t>(blk * blk_size, b_);
-    beg = beg_pos;
-    end = e_;
-
-    if (beg_pos != b_) [[likely]] {
-        for (pos_t i = 0; i <= max; i++) {
-            prev[i] = idx_dir.PS_L_().pred_blk(blk, i);
-        }
-    } else {
-        std::fill_n(prev.begin(), max_sym + 1, LONG_MIN);
-    }
-
-    for (int64_t i = beg; i <= end; i++) {
-        prev[idx_dir.L_(i)] = i;
-    }
+    return mlf_interval<dir>(i);
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-template <query_support_t query_support>
-template <direction_t dir>
-inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::update_input_intervals()
+template <move_r_support support>
+template <query_support_t query_support, typename sym_t>
+auto move_rb<support>::search(move_r_pattern_view<sym_t> P, bool& occurs) const
+    -> search_context_t<query_support>
 {
-    const auto& idx_dir = idx->index<dir>();
-    auto&& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = vars<dir>();
+    uint64_t matched = 0;
+    auto ctx = context_of<query_support>(P, matched);
+    occurs = true;
 
-    if (dir_lst != NO_DIR && dir != dir_lst) {
-        if (!(idx_dir.M_LF().p(b_) <= b && b < idx_dir.M_LF().p(b_ + 1))) {
-            b_ = input_interval(b, idx->S_MLF_p<dir>(), [&](pos_t x){return idx_dir.M_LF().p(x);});
-        }
-
-        if (!(idx_dir.M_LF().p(e_) <= e && e < idx_dir.M_LF().p(e_ + 1))) {
-            e_ = input_interval(e, idx->S_MLF_p<dir>(), [&](pos_t x){return idx_dir.M_LF().p(x);});
-        }
-    }
-}
-
-template <move_r_support support, typename sym_t, typename pos_t>
-template <query_support_t query_support>
-template <direction_t dir>
-inline void move_rb<support, sym_t, pos_t>::search_context_t<query_support>::update_sample(
-    search_context_t& ctx, const prime_tuple_t& prime
-) const {
-    const auto& idx_dir = idx->index<dir>();
-    const auto& [b_old, e_old, b_R_old, e_R_old, b__old, e__old, b_R__old, e_R__old, s_old] = const_vars<dir>();
-    auto&& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = ctx.vars<dir>();
-
-    if (prime.b != b_old) {
-        s = { .d = dir, .t = BEG, .o = 0, .i = 1, .x = prime.b_ };
-    } else if (prime.e != e_old) {
-        s = { .d = dir, .t = END, .o = e - b, .i = 1, .x = prime.e_ };
-    } else if (e - b < e_old - b_old) {
-        s = { .d = dir, .t = END, .o = idx_dir.M_LF().p(prime.b_ + 1) - 1 - prime.b, .i = 1, .x = prime.b_ };
-    } else {
-        s = s_old;
-        if (s_old.d == dir) s.i++;
+    for (uint64_t i = P.size() - matched; i > 0; i--) {
+        auto [next, ok] = ctx.template extend<ctx_primary_dir>(P[i - 1]);
+        if (!ok) { occurs = false; return ctx; }
+        ctx = std::move(next);
     }
 
+    return ctx;
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-template <query_support_t query_support>
-inline auto move_rb<support, sym_t, pos_t>::search_context_t<query_support>::extend(
-    sym_t sym, direction_t dir) -> extend_res_t
+template <move_r_support support>
+template <query_support_t query_support, typename sym_t>
+auto move_rb<support>::context_of(move_r_pattern_view<sym_t> P, uint64_t& matched) const
+    -> search_context_t<query_support>
 {
-    if (dir == LEFT) {
-        return extend<LEFT>(sym);
-    } else {
-        return extend<RIGHT>(sym);
-    }
+    matched = 0;
+    auto ctx = empty_context<query_support>();
+    const uint64_t len = _context_tables.single_length();
+    if (len == 0 || P.size() < len) return ctx;
+
+    // look up the keys of P[first..first+len-1] in the forward and in the reverse order; the first resp.
+    // the last symbol is the most significant symbol of the key (see context_tables::packed_key)
+    const uint64_t first = P.size() - len;
+    uint64_t key = _context_tables.packed_key(
+        [&](uint64_t i) { return map_symbol(P[first + i]); }, len);
+    uint32_t entry = _context_tables.template lookup<_forward_order>(key);
+    if (entry == ::context_tables::no_entry) return ctx;
+    uint32_t entry_R = ::context_tables::no_entry;
+
+    uint64_t key_R = _context_tables.packed_key(
+        [&](uint64_t i) { return map_symbol(P[first + len - 1 - i]); }, len);
+    entry_R = _context_tables.template lookup<_reverse_order>(key_R);
+
+    load_context<query_support>(ctx, len, entry, entry_R);
+    matched = len;
+    return ctx;
 }
 
-template <move_r_support support, typename sym_t, typename pos_t>
-template <query_support_t query_support>
-template <direction_t dir>
-inline auto move_rb<support, sym_t, pos_t>::search_context_t<query_support>::extend(
-    sym_t sym) -> extend_res_t
-{
-    const auto& idx_dir = idx->index<dir>();
-    i_sym_t i_sym = idx->idx_fwd.map_symbol(sym);
+template <move_r_support support>
+template <typename sym_t>
+uint64_t move_rb<support>::count_hamming_dist(
+    move_r_pattern_view<sym_t> P, const search_scheme_t& scheme, apm_params_t params) const
+    {
+        std::vector<uint8_t> P_(P.begin(), P.end());
 
-    // If i_sym does not occur in L', then P[i..m] does not occur in T
-    if (i_sym == 0) [[unlikely]] {
-        return {search_context_t{}, false};
+        return apm_hamming{*this, params}.count(P_, scheme);
     }
 
-    update_input_intervals<dir>();
+template <move_r_support support>
+template <typename sym_t>
+std::vector<uint64_t> move_rb<support>::count_hamming_dist_histogram(
+    move_r_pattern_view<sym_t> P, const search_scheme_t& scheme, apm_params_t params) const
+    {
+        std::vector<uint8_t> P_(P.begin(), P.end());
 
-    std::array<int64_t, 256> prev;
-    std::array<int64_t, 256> next;
-    build_prev_next<dir>(prev, next, i_sym);
-    int64_t num_sub_runs = idx_dir.M_LF().num_intervals();
-
-    if (next[i_sym] > prev[i_sym] || prev[i_sym] >= num_sub_runs) [[unlikely]] {
-        return {search_context_t{}, false};
+        return apm_hamming{*this, params}.count_histogram(P_, scheme);
     }
 
-    search_context_t ctx;
-    ctx.idx = idx;
-    const auto& [b_old, e_old, b_R_old, e_R_old, b__old, e__old, b_R__old, e_R__old, s_old] = const_vars<dir>();
-    auto&& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = ctx.vars<dir>();
+template <move_r_support support>
+template <cigar_mode_t mode>
+std::vector<cigar_t<uint8_t>> move_rb<support>::locate_apm(
+    const std::vector<uint8_t>& P, const search_scheme_t& scheme, distance_metric_t dist_metr,
+    std::vector<aprx_occ_t<mode>>& occ, apm_params_t params) const
+    requires(supports_multiple_locate)
+    {
+        assert(dist_metr == HAMMING_DISTANCE || dist_metr == EDIT_DISTANCE);
 
-    b_ = next[i_sym];
-    e_ = prev[i_sym];
+        auto collect = [&occ](aprx_occ_t<mode> o) { occ.emplace_back(o); };
 
-    if (b_ != b__old) {
-        b = idx_dir.M_LF().p(b_);
-    } else {
-        b = b_old;
+        if (dist_metr == HAMMING_DISTANCE)
+            return apm_hamming<move_rb>{*this, params}.template locate<mode>(P, scheme, collect);
+
+        return apm_edit<move_rb>{*this, params}.template locate<mode>(P, scheme, collect);
     }
 
-    if (e_ != e__old) {
-        e = idx_dir.M_LF().p(e_ + 1) - 1;
-    } else {
-        e = e_old;
-    }
-
-    prime_tuple_t prime{b, e, b_, e_};
-    b_R = b_R_old + (next[0] <= prev[0] && prev[0] < num_sub_runs);
-
-    for (i_sym_t i = 1; i < i_sym; i++) {
-        if (next[i] <= prev[i] && prev[i] < num_sub_runs) {
-            pos_t x = next[i];
-            pos_t y = prev[i];
-
-            b_R += idx_dir.M_LF().p(y + 1) - idx_dir.M_LF().p(y);
-
-            if (x < y) [[likely]] {
-                b_R += idx_dir.M_LF().q(y) - idx_dir.M_LF().q(x);
-            }
-        }
-    }
-
-    if (idx_dir.L_(b__old) < i_sym) {
-        b_R -= b_old - idx_dir.M_LF().p(b__old);
-    }
-
-    if (idx_dir.L_(e__old) < i_sym) {
-        b_R -= idx_dir.M_LF().p(e__old + 1) - e_old - 1;
-    }
-
-    if (b_ == e_) {
-        if (b == e) {
-            idx_dir.M_LF().move(b, b_);
-            e = b;
-            e_ = b_;
-        } else {
-            pos_t diff_eb = e - b;
-            idx_dir.M_LF().move(b, b_);
-            e = b + diff_eb;
-            e_ = b_;
-
-            while (e >= idx_dir.M_LF().p(e_ + 1)) {
-                e_++;
-            }
-        }
-    } else {
-        idx_dir.M_LF().move(b, b_);
-        idx_dir.M_LF().move(e, e_);
-    }
-
-    e_R = b_R + (e - b);
-
-    b_R_ = b_R__old;
-    e_R_ = e_R__old;
-
-    if constexpr (query_support == LOCATE) {
-        update_sample<dir>(ctx, prime);
-    }
-
-    ctx.dir_lst = dir;
-    ctx.sym_lst = sym;
-    ctx.m = m + 1;
-    ctx.err = 0;
-
-    return {ctx, true};
-}
-
-// ############################# extend_context_t METHODS #############################
-
-template <move_r_support support, typename sym_t, typename pos_t>
-template <query_support_t query_support>
-auto move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::prepare_extend_all(
-    direction_t dir) -> extend_context_t&
-{
-    this->dir = dir;
-
-    if (dir == LEFT) {
-        prepare_extend_all<LEFT>();
-    } else {
-        prepare_extend_all<RIGHT>();
-    }
-
-    return *this;
-}
-
-template <move_r_support support, typename sym_t, typename pos_t>
-template <query_support_t query_support>
-template <direction_t dir>
-void move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::prepare_extend_all()
-{
-    const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = ctx->template const_vars<dir>();
-
-    ctx->template update_input_intervals<dir>();
-    ctx->template build_prev_next<dir>(prev, next, idx->sigma);
-
-    int64_t num_sub_runs = idx->template index<dir>().M_LF().num_intervals();
-    b_R_nxt = b_R + (next[0] <= prev[0] && prev[0] < num_sub_runs);
-
-    sym_nxt = 0;
-    this->template advance_symbol<dir>();
-}
-
-template <move_r_support support, typename sym_t, typename pos_t>
-template <query_support_t query_support>
-auto move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::extend_next() -> search_context_t<query_support>
-{
-    if (dir == LEFT) {
-        return extend_next<LEFT>();
-    } else {
-        return extend_next<RIGHT>();
-    }
-}
-
-template <move_r_support support, typename sym_t, typename pos_t>
-template <query_support_t query_support>
-template <direction_t dir>
-auto move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::extend_next() -> search_context_t<query_support>
-{
-    const auto& idx_dir = idx->template index<dir>();
-    i_sym_t i_sym = sym_nxt;
-    search_context_t<query_support> new_ctx;
-    new_ctx.idx = idx;
-
-    const auto& [b_old, e_old, b_R_old, e_R_old, b__old, e__old, b_R__old, e_R__old, s_old] = ctx->template const_vars<dir>();
-    auto&& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = new_ctx.template vars<dir>();
-
-    b_ = next[i_sym];
-    e_ = prev[i_sym];
-
-    if (b_ != b__old) {
-        b = idx_dir.M_LF().p(b_);
-    } else {
-        b = b_old;
-    }
-
-    if (e_ != e__old) {
-        e = idx_dir.M_LF().p(e_ + 1) - 1;
-    } else {
-        e = e_old;
-    }
-    
-    prime_tuple_t prime{b, e, b_, e_};
-
-    if (b_ == e_) {
-        if (b == e) {
-            idx_dir.M_LF().move(b, b_);
-            e = b;
-            e_ = b_;
-        } else {
-            pos_t diff_eb = e - b;
-            idx_dir.M_LF().move(b, b_);
-            e = b + diff_eb;
-            e_ = b_;
-
-            while (e >= idx_dir.M_LF().p(e_ + 1)) {
-                e_++;
-            }
-        }
-    } else {
-        idx_dir.M_LF().move(b, b_);
-        idx_dir.M_LF().move(e, e_);
-    }
-
-    b_R = b_R_nxt;
-    e_R = b_R_nxt + (e - b);
-
-    b_R_ = b_R__old;
-    e_R_ = e_R__old;
-
-    if constexpr (query_support == LOCATE) {
-        ctx->template update_sample<dir>(new_ctx, prime);
-    }
-
-    new_ctx.sym_lst = idx->unmap_symbol(i_sym);
-    new_ctx.dir_lst = dir;
-    new_ctx.m = ctx->m + 1;
-    new_ctx.err = 0;
-
-    b_R_nxt = e_R + 1;
-    this->template advance_symbol<dir>();
-
-    return new_ctx;
-}
-
-// ############################# locate_context_t METHODS #############################
-
-template <move_r_support support, typename sym_t, typename pos_t>
-inline pos_t move_rb<support, sym_t, pos_t>::locate_context_t::compute_center()
-{
-    const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = ctx->template const_vars<LEFT>();
-
-    if (s.d == LEFT) {
-        c = b + s.o;
-    } else /* if (s.d == RIGHT) */ {
-        c = s.t == BEG ? idx->_SA_s_pos[s.x] : idx->_SA_e_pos[s.x];
-        pos_t c_ = input_interval(c, idx->_S_MLF_p_fwd, [&](pos_t x){return idx->idx_fwd.M_LF().p(x);});
-        assert(idx->idx_fwd.M_LF().p(c_) <= c && c < idx->idx_fwd.M_LF().p(c_ + 1));
-
-        for (pos_t j = 0; j < ctx->m - s.i; j++) {
-            idx->idx_fwd.M_LF().move(c, c_);
-        }
-    }
-
-    assert(b <= c && c <= e);
-    return c;
-}
-
-template <move_r_support support, typename sym_t, typename pos_t>
-inline pos_t move_rb<support, sym_t, pos_t>::locate_context_t::first_occ()
-{
-    if (dir == NO_DIR) {
-        compute_center();
-    }
-
-    const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = ctx->template const_vars<LEFT>();
-    i = c;
-
-    if (s.d == LEFT) {
-        SA_i = s.t == BEG ? idx->idx_fwd.SA_s(s.x) : idx->idx_fwd.SA_e(s.x);
-        SA_i -= s.i;
-    } else /* if (s.d == RIGHT) */ {
-        SA_i = s.t == BEG ? idx->idx_bwd.SA_s(s.x) : idx->idx_bwd.SA_e(s.x);
-        SA_i = idx->n - SA_i - (ctx->m - s.i + 1);
-    }
-
-    SA_c = SA_i;
-
-    if (occ_rem > 1) [[likely]] {
-        dir = i > b ? LEFT : RIGHT;
-
-        if constexpr (support == _locate_move) {
-            if (dir == LEFT) {
-                s_ = input_interval(SA_i, idx->_S_MPhi_p, [&](pos_t x){return idx->idx_fwd.M_Phi().p(x);});
-            } else {
-                s_ = input_interval(SA_i, idx->_S_MPhi_m1_p, [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
-            }
-        } else if constexpr (support == _locate_rlzsa) {
-            if (dir == LEFT) {
-                rlz_l = idx->idx_fwd.rlzsa().decode();
-                rlz_l.set_value(SA_i);
-                rlz_l.init_left(c);
-            }
-
-            if (c < e) [[likely]] {
-                rlz_r = idx->idx_fwd.rlzsa().decode();
-                rlz_r.set_value(SA_i);
-                rlz_r.init_right(c + 1);
-            }
-        }
-    }
-
-    occ_rem--;
-    return SA_i;
-}
-
-template <move_r_support support, typename sym_t, typename pos_t>
-inline pos_t move_rb<support, sym_t, pos_t>::locate_context_t::next_occ()
-{
-    if (dir == NO_DIR) [[unlikely]] {
-        return first_occ();
-    }
-
-    const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = ctx->template const_vars<LEFT>();
-    pos_t occ;
-
-    if constexpr (support == _locate_move) {
-        if (dir == LEFT) {
-            idx->idx_fwd.M_Phi().move(SA_i, s_);
-            occ = SA_i;
-            i--;
-
-            if (i == b) [[unlikely]] {
-                i = c;
-                SA_i = SA_c;
-                dir = RIGHT;
-                s_ = input_interval(SA_i, idx->_S_MPhi_m1_p, [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
-            }
-        } else /* if (dir == RIGHT) */ {
-            idx->idx_fwd.M_Phi_m1().move(SA_i, s_);
-            occ = SA_i;
-            i++;
-        }
-    } else if constexpr (support == _locate_rlzsa) {
-        if (dir == LEFT) {
-            rlz_l.prev();
-            occ = rlz_l.value();
-
-            if (rlz_l.pos() == b && c < e) [[unlikely]] {
-                dir = RIGHT;
-                rlz_r.set_value(SA_c);
-            }
-        } else /* if (dir == RIGHT) */ {
-            rlz_r.next();
-            occ = rlz_r.value();
-        }
-    }
-
-    occ_rem--;
-    return occ;
-}
-
-template <move_r_support support, typename sym_t, typename pos_t>
-template <typename report_fnc_t>
-inline void move_rb<support, sym_t, pos_t>::locate_context_t::locate(report_fnc_t report)
-{
-    static constexpr bool report_pos = function_traits<report_fnc_t>::arity > 1;
-    const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = ctx->template const_vars<LEFT>();
-
-    if (occ_rem == ctx->num_occ()) {
-        first_occ();
-        if constexpr (report_pos) report(c, SA_c); else report(SA_c);
-    }
-
-    if constexpr (support == _locate_move) {
-        if (dir == LEFT) {
-            while (i > b) {
-                idx->idx_fwd.M_Phi().move(SA_i, s_);
-                i--;
-                if constexpr (report_pos) report(i, SA_i); else report(SA_i);
-            }
-
-            if (c < e) {
-                i = c;
-                SA_i = SA_c;
-                s_ = input_interval(SA_i, idx->_S_MPhi_m1_p, [&](pos_t x){return idx->idx_fwd.M_Phi_m1().p(x);});
-            }
-        }
-
-        if (c < e) {
-            while (i < e) {
-                idx->idx_fwd.M_Phi_m1().move(SA_i, s_);
-                i++;
-                if constexpr (report_pos) report(i, SA_i); else report(SA_i);
-            }
-        }
-    } else if constexpr (support == _locate_rlzsa) {
-        if (dir == LEFT) {
-            rlz_l.report_left(b, report);
-
-            if (c < e) [[likely]] {
-                dir = RIGHT;
-                rlz_r.set_value(SA_c);
-            }
-        }
-
-        if (c < e) [[likely]] {
-            rlz_r.report_right(e, report);
-        }
-    }
-
-    occ_rem = 0;
-}
-
-template <move_r_support support, typename sym_t, typename pos_t>
-template <query_support_t query_support>
-template <direction_t dir>
-void move_rb<support, sym_t, pos_t>::extend_context_t<query_support>::advance_symbol()
-{
-    int64_t num_sub_runs = idx->template index<dir>().M_LF().num_intervals();
-
-    do {
-        sym_nxt++;
-    } while (sym_nxt < idx->sigma && (
-             next[sym_nxt] > prev[sym_nxt] ||
-             prev[sym_nxt] == num_sub_runs));
-}
+#endif // MOVE_R_MOVE_RB_QUERIES_TPP

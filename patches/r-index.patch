@@ -1,0 +1,347 @@
+diff --git a/internal/bwt_scan.hpp b/internal/bwt_scan.hpp
+index 992947f..1426c80 100644
+--- a/internal/bwt_scan.hpp
++++ b/internal/bwt_scan.hpp
+@@ -12,8 +12,6 @@ using std::cerr;
+ using std::cout;
+ using std::endl;
+ 
+-static const uint8_t TERMINATOR = 1; // assuming this is some very low number
+-
+ /* note: pfbwt uses 0x0 for end of string, 0x1 for end of word */
+ /* r-index uses 1 for end of string (we can change this, nbd?) */
+ 
+@@ -23,6 +21,8 @@ static const uint8_t TERMINATOR = 1; // assuming this is some very low number
+ * TODO: make this less ugly.
+ */
+ std::tuple<uint64_t, uint64_t> bwt_scan_ssa(std::string bwt_fname, std::vector<std::pair<uint64_t, uint64_t>>& samples_first, std::vector<uint64_t>& samples_last, std::vector<uint64_t>& F, uint64_t* term_pos=nullptr) {
++    static const uint8_t TERMINATOR = 1; // assuming this is some very low number
++    
+     sdsl::wt_huff<> bwt;
+     sdsl::construct(bwt, bwt_fname, 1);
+     uint64_t n = bwt.size();
+diff --git a/internal/r_index.hpp b/internal/r_index.hpp
+index be6bfc0..405e2ed 100644
+--- a/internal/r_index.hpp
++++ b/internal/r_index.hpp
+@@ -11,15 +11,15 @@
+ #ifndef R_INDEX_S_H_
+ #define R_INDEX_S_H_
+ 
+-#include <definitions.hpp>
+-#include <rle_string.hpp>
++#include "definitions.hpp"
++#include "rle_string.hpp"
+ #include "sparse_sd_vector.hpp"
+ #include "sparse_hyb_vector.hpp"
+ #include "utils.hpp"
+ #include "bwt_scan.hpp"
+ #include <zlib.h>
+ #include "klib/kseq.h"
+-KSEQ_INIT(gzFile, gzread);
++//KSEQ_INIT(gzFile, gzread);
+ 
+ using namespace sdsl;
+ 
+@@ -35,9 +35,9 @@ public:
+      * Build index
+      */
+     r_index(){} // empty constructor. Should call one of init_sais, init_bigbwt, or init_frombwt
+-    r_index(std::string fname, std::string method="bigbwt", uint32_t nthreads=1) {
++    r_index(std::string fname, std::string method="bigbwt", uint32_t nthreads=1, uint64_t* time_build_override = NULL) {
+         if (method == "bigbwt") { 
+-            init_bigbwt(fname, nthreads);
++            init_bigbwt(fname, nthreads, time_build_override);
+         }
+     }
+ 
+@@ -114,11 +114,14 @@ public:
+      * idx = r_index();
+      * idx.init(fname);
+      */
+-    void init_bigbwt(std::string fname, uint32_t nthreads=1) {
++    void init_bigbwt(std::string fname, uint32_t nthreads=1, uint64_t* time_build_override = NULL) {
+         std::vector<std::pair<ulint, ulint>> samples_first_vec;
+         std::vector<ulint> samples_last_vec;
+         cout << "(1/3) Building BWT..." << endl;
+-        std::string bwt_fname = bigbwt(fname, true, nthreads);
++        std::string bwt_fname = bigbwt(fname, false, nthreads);
++        
++        auto t1 = now();
++
+         /* make sure we only read fname+".*" after this, NOT fname itself */
+         cout << "done.\n(2/3) RLE encoding BWT and computing SA samples... " << endl;
+         std::ifstream ifs(bwt_fname);
+@@ -131,7 +134,7 @@ public:
+         cout << "Rate n/r = " << double(bwt.size())/r << endl;
+         cout << "log2(r) = " << log2(double(r)) << endl;
+         cout << "log2(n/r) = " << log2(double(bwt.size())/r) << endl << endl;
+-        // bwt_scan_ssa(fname + ".bwt", samples_first_vec, samples_last_vec, F, &terminator_position);
++        //bwt_scan_ssa(fname + ".bwt", samples_first_vec, samples_last_vec, F, &terminator_position);
+         ifs.seekg(0);
+         build_F(ifs);
+         read_run_starts(fname + ".ssa", n, samples_first_vec);
+@@ -142,6 +145,12 @@ public:
+         cout << "(3/3) Building phi function ..." << flush;
+         build_phi(samples_first_vec, samples_last_vec); //
+         cout << " done. " << endl<<endl;
++        std::filesystem::remove(fname + ".bwt");
++        std::filesystem::remove(fname + ".ssa");
++        std::filesystem::remove(fname + ".esa");
++
++        auto t2 = now();
++        if (time_build_override != NULL) *time_build_override = time_diff_ns(t1,t2);
+     }
+ 
+     void from_bwt(std::string fname) {
+@@ -330,7 +339,8 @@ public:
+         return OCC;
+     }
+ 
+-    vector<ulint>& locate_range(const ulint L, const ulint R, const ulint k, vector<ulint>& OCC) {
++    template<typename uint_t>
++    vector<uint_t>& locate_range(const ulint L, const ulint R, const ulint k, vector<uint_t>& OCC) {
+         ulint n_occ = R>=L ? (R-L)+1 : 0;
+         ulint k1 = k;
+         if(n_occ>0){
+@@ -348,14 +358,15 @@ public:
+      * (space consuming if result is big).
+      * TODO: add max-hits option
+      */
+-    range_t locate_all(string& P, ulint max_hits, vector<ulint>& OCC){
++    template<typename uint_t>
++    range_t locate_all(string& P, vector<uint_t>& OCC){ // , ulint max_hits
+         //vector<ulint> OCC;
+         OCC.clear();
+         pair<range_t, ulint> res = count_and_get_occ(P);
+         ulint L = std::get<0>(res).first;
+         ulint R = std::get<0>(res).second;
+         ulint k = std::get<1>(res);    //SA[R]
+-        locate_range(L, R, k, max_hits, OCC);
++        locate_range<uint_t>(L, R, k, OCC); // max_hits
+         return std::get<0>(res);
+     }
+ 
+@@ -471,6 +482,14 @@ public:
+         return (samples_last[r-1]+1) % bwt.size();
+     }
+ 
++    void revert(string &text) {
++		ulint pos = 0;
++		for (int64_t i=bwt.size()-2; i>=0; i--) {
++			text[i] = bwt[pos];
++			pos = F[*reinterpret_cast<uchar*>(&text[i])] + bwt.rank(pos,text[i]);
++		}
++	}
++
+ private:
+ 
+     /*
+@@ -480,47 +499,66 @@ private:
+      *
+      */
+     pair<range_t, ulint> count_and_get_occ(const string &P) {
+-        ulint k = 0;
+-        range_t range = full_range();
+-        assert(r-1 < samples_last.size());
+-        k = (samples_last[r-1]+1) % bwt.size();
+-        range_t range1;
+-        ulint m = P.size();
+-        bool cur_good = (bwt[range.second] == P[m-1]);
+-        bool next_good;
+-        for(ulint i=0;i<m and range.second>=range.first;++i){
+-            uchar c = P[m-i-1];
+-            range1 = LF(range,c);
+-            next_good = ((i == m-1) ? 1 : (bwt[range1.second] == P[m-i-2]));
+-            if(range1.first <= range1.second) {
+-                if(cur_good) { 
+-                    // last c is at the end of range. Then, we have this sample by induction!
+-                    assert(k>0);
+-                    k--;
+-                } else if (next_good) { // this condition can be ommitted, it's more useful for smaller n/r
+-                    //find last c in range (there must be one because range1 is not empty)
+-                    //and get its sample (must be sampled because it is at the end of a run)
+-                    //note: by previous check, bwt[range.second] != c, so we can use argument range.second
+-                    ulint rnk = bwt.rank(range.second,c);
+-                    //there must be at least one c before range.second
+-                    assert(rnk>0);
+-                    //this is the rank of the last c
+-                    rnk--;
+-                    //jump to the corresponding BWT position
+-                    ulint j = bwt.select(rnk,c);
+-                    //the c must be in the range
+-                    assert(j>=range.first and j < range.second);
+-                    //run of position j
+-                    ulint run_of_j = bwt.run_of_position(j);
+-                    k = samples_last[run_of_j];
+-                }
+-            } else {
+-                return {{1,0}, 0};
+-            }
+-            cur_good = next_good;
+-            range = range1;
+-        }
+-        return {range, k};
++        //k = SA[r]
++		ulint k = 0;
++
++		range_t range = full_range();
++		assert(r-1 < samples_last.size());
++		k = (samples_last[r-1]+1) % bwt.size();
++
++		range_t range1;
++
++		ulint m = P.size();
++
++		for(ulint i=0;i<m and range.second>=range.first;++i){
++
++			uchar c = P[m-i-1];
++
++			range1 = LF(range,c);
++
++			//if suffix can be left-extended with char
++			if(range1.first <= range1.second){
++
++
++				if(bwt[range.second] == c){
++
++					// last c is at the end of range. Then, we have this sample by induction!
++					assert(k>0);
++					k--;
++
++				}else{
++
++					//find last c in range (there must be one because range1 is not empty)
++					//and get its sample (must be sampled because it is at the end of a run)
++					//note: by previous check, bwt[range.second] != c, so we can use argument range.second
++					ulint rnk = bwt.rank(range.second,c);
++
++					//there must be at least one c before range.second
++					assert(rnk>0);
++
++					//this is the rank of the last c
++					rnk--;
++
++					//jump to the corresponding BWT position
++					ulint j = bwt.select(rnk,c);
++
++					//the c must be in the range
++					assert(j>=range.first and j < range.second);
++
++					//run of position j
++					ulint run_of_j = bwt.run_of_position(j);
++
++					k = samples_last[run_of_j];
++
++				}
++
++			}
++
++			range = range1;
++
++		}
++
++		return {range, k};
+     }
+ 
+     /*
+@@ -586,10 +624,11 @@ private:
+         // BWT CONSTRUCTION
+         std::string command = "bigbwt " + fname;
+         if (fasta) command += " -f"; // tell bigbwt to process fasta file
+-        command += " -t " + std::to_string(nthreads);
+-        command += " -e -s";
++        if (nthreads > 1) command += " -t " + std::to_string(nthreads);
++        command += " -e -s >nul 2>nul";
+         cout << "executing command: " << command << endl;
+         system(command.c_str());
++        std::filesystem::remove("nul");
+         // file saved to ${fname}.bwt
+         return fname + ".bwt";
+     }
+@@ -622,7 +661,8 @@ private:
+         F = vector<ulint>(256,0);
+         uchar c;
+         ulint i = 0;
+-        while (ifs >> c) {
++        while (i < bwt.size()) {
++            ifs.read((char*)&c,1);
+             if (c>TERMINATOR) F[c]++;
+             else {
+                 F[TERMINATOR]++;
+@@ -707,6 +747,7 @@ private:
+ };
+ 
+ // function for building a sequence index out of input fasta, according to specified parameters
++/*
+ void build_seqidx(const char* infn, const char* outfn) {
+     gzFile read_fp(gzopen(infn, "r"));
+     if (read_fp == nullptr) {
+@@ -724,6 +765,7 @@ void build_seqidx(const char* infn, const char* outfn) {
+     kseq_destroy(seq);
+     gzclose(read_fp);
+ }
++*/
+ 
+ }
+ 
+diff --git a/internal/rle_string.hpp b/internal/rle_string.hpp
+index 9ea7912..cad8359 100644
+--- a/internal/rle_string.hpp
++++ b/internal/rle_string.hpp
+@@ -88,8 +88,9 @@ public:
+     }
+ 
+     rle_string(std::ifstream& ifs, ulint B = 2) {
+-        ifs.clear();
+-        ifs.seekg(0);
++        ifs.seekg(0,std::ios::end);
++        uint64_t siz = ifs.tellg();
++        ifs.seekg(0,std::ios::beg);
+         // assert(not contains0(input)); // We're hacking the 0 away :)
+         this->B = B;
+         // n = input.size();
+@@ -100,10 +101,11 @@ public:
+         string run_heads_s;
+         // uchar last_c = input[0];
+         uchar last_c, c;
+-        ifs >> last_c;
++        ifs.read((char*)&last_c,1);
+         last_c = last_c>TERMINATOR ? last_c : TERMINATOR; // 0->1 :D
+         n = 1;
+-        while(ifs >> c) {
++        for (uint64_t i=1; i<siz; i++) {
++            ifs.read((char*)&c,1);
+             c = c>TERMINATOR ? c : TERMINATOR; // 0->1 :D
+             if(c != last_c){
+                 run_heads_s.push_back(last_c);
+@@ -123,7 +125,7 @@ public:
+         runs_bv.push_back(false);
+         R++;
+         assert(run_heads_s.size()==R);
+-        // assert(R==count_runs(input));
++        //assert(R==count_runs(input));
+         //cout << "runs in BWT(input) = " << count_runs(input) << endl;
+         //cout << "runs in rle bwt = " << R << endl << endl;
+         //now compact structures
+diff --git a/internal/utils.hpp b/internal/utils.hpp
+index ef460a8..905e82a 100644
+--- a/internal/utils.hpp
++++ b/internal/utils.hpp
+@@ -5,6 +5,8 @@ using namespace std;
+ #ifndef UTILS_RI_HPP_
+ #define UTILS_RI_HPP_
+ 
++namespace ri{
++
+ using ulint = uint64_t;
+ 
+ string get_time(uint64_t time){
+@@ -99,6 +101,6 @@ public:
+ 	void rename(const char *name) {name_ = name;}
+ };
+ 
+-
++}
+ 
+ #endif /* UTILS_RI_HPP_ */

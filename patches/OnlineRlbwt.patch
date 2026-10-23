@@ -1,0 +1,31 @@
+diff --git a/OnlineRindex.hpp b/OnlineRindex.hpp
+index 23263c7..4adbd9a 100644
+--- a/OnlineRindex.hpp
++++ b/OnlineRindex.hpp
+@@ -57,7 +57,7 @@ namespace itmmti
+   public:
+     OnlineRlbwtIndex
+     (
+-     const size_t initNumBtms, //!< Initial size of DynRle to reserve.
++     const size_t initNumBtms = 1, //!< Initial size of DynRle to reserve.
+      const uint64_t initSampleUb = 256, //!< Initial upper bound (excluding) of sample positions.
+      CharT em = 0 //!< End marker (default 0).
+      ) :
+@@ -474,6 +474,17 @@ namespace itmmti
+       }
+     }
+ 
++    void revert(std::string& T) const noexcept {
++      uint64_t pos = 0;
++      for (uint64_t i = 0; i < this->getLenWithEndmarker() - 1; ++i) {
++        pos -= (pos > emPos_);
++        const uint64_t idxM = drle_.searchPosM(pos);
++        const auto ch = drle_.getCharFromIdxM(idxM);
++        T[i] = static_cast<unsigned char>(ch);
++        pos = drle_.rank(ch, idxM, pos, true);
++      }
++    }
++
+ 
+     /*!
+      * @brief Get initial patter tracker based on current rindex.

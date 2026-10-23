@@ -24,8 +24,10 @@
  * SOFTWARE.
  */
 
-#pragma once
+#ifndef MOVE_R_MISC_APM_HPP
+#define MOVE_R_MISC_APM_HPP
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <ranges>
@@ -38,14 +40,13 @@
 #include <tsl/sparse_set.h>
 
 #include <misc/utils.hpp>
+#include <misc/portable_layout.hpp>
 #include <misc/hash.hpp>
 #include <misc/log.hpp>
 #include <misc/files.hpp>
 #include <misc/search.hpp>
-#include <misc/strings.hpp>
 #include <misc/search_schemes.hpp>
-#include <misc/directional_substring.hpp>
-#include <misc/edit_distance_matrix.hpp>
+#include <data_structures/edit_distance_matrix.hpp>
 #include <misc/cigar.hpp>
 
 /** @brief whether an approximate-pattern-matching query only counts occurrences or also locates them */
@@ -54,68 +55,105 @@ enum query_support_t : uint8_t {
     LOCATE = 1
 };
 
-/** @brief bit-field widths of a packed aprx_occ_t: position, length and error count (must sum to <= 64) */
-static constexpr uint32_t aprx_occ_pos_bits = 40; // positions up to 2^40 - 1 (a 1 TiB text)
-static constexpr uint32_t aprx_occ_len_bits = 16; // occurrence lengths up to 2^16 - 1 (i.e. m + k)
+/**
+ * @brief whether an enumeration of the right extensions of a pattern reports the terminator symbol; a left
+ *        extension with the terminator is never reported
+ */
+enum extension_scope_t : uint8_t {
+    NO_TERM = 0, // all symbols of the text except the terminator
+    TERM = 1     // all symbols of the text and the terminator (as the smallest symbol, reported as TERMINATOR_SYMBOL)
+};
+
+// bit-field widths of a packed aprx_occ_t: position, length and error count (10 bytes together)
+static constexpr uint32_t aprx_occ_pos_bits = 48; // positions up to 2^48 - 1 (see uint48_t)
+static constexpr uint32_t aprx_occ_len_bits = 24; // occurrence lengths up to 2^24 - 1 (i.e. m + k)
 static constexpr uint32_t aprx_occ_err_bits = 8;  // error counts up to 2^8 - 1 (i.e. k)
 
 /**
- * @brief an approximate occurrence: its starting position, length and error count, packed into a single 64-bit
- *        word via bit-fields (occ.pos, occ.len, occ.err are accessed like plain members). The widths cap the
- *        position at 2^40 (a 1 TiB text), the length at 2^16 (m + k) and the error count at 2^8 (k).
- *
- *        In CIGAR mode the occurrence carries a uint32 index cig_idx into the vector of CIGARs returned by locate()
- *        (one CIGAR per SA-interval), so all occurrences of an SA-interval share one CIGAR.
- * @tparam pos_t unsigned integer position type
+ * @brief an approximate occurrence: its starting position, length and error count in bit-fields; with a CIGAR, also
+ *        the index cig_idx of its CIGAR in the vector of CIGARs returned by locate (one CIGAR per SA interval, which
+ *        all occurrences of the SA interval share); 10 bytes without and 14 bytes with a CIGAR index. The bit-fields
+ *        have the layout of a packed struct of GCC (see packed_bit_fields).
  * @tparam mode whether the occurrence also carries a CIGAR alignment
  */
-template <typename pos_t, cigar_mode_t mode = NO_CIGAR>
-struct aprx_occ_t {
-    uint64_t pos : aprx_occ_pos_bits;
-    uint64_t len : aprx_occ_len_bits;
-    uint64_t err : aprx_occ_err_bits;
-    [[no_unique_address]] std::conditional_t<mode == CIGAR, uint32_t, std::monostate> cig_idx = {};
+template <cigar_mode_t mode = NO_CIGAR>
+struct __attribute__((packed)) aprx_occ_t {
+    using pos_field = next_bit_field_t<void, aprx_occ_pos_bits>;
+    using len_field = next_bit_field_t<pos_field, aprx_occ_len_bits>;
+    using err_field = next_bit_field_t<len_field, aprx_occ_err_bits>;
+
+    packed_bit_fields<bytes_of_bit_fields<err_field>> bits; // pos, len and err
+    STRING_UTILS_NO_UNIQUE_ADDRESS std::conditional_t<mode == CIGAR, uint32_t, std::monostate> cig_idx = {};
+
+    aprx_occ_t() = default;
+
+    aprx_occ_t(uint64_t pos, uint64_t len, uint64_t err)
+    { bits.template assign<pos_field, len_field, err_field>(pos, len, err); }
+
+    aprx_occ_t(uint64_t pos, uint64_t len, uint64_t err, uint32_t cigar_idx) requires(mode == CIGAR)
+        : aprx_occ_t(pos, len, err)
+    { cig_idx = cigar_idx; }
+
+    uint64_t pos() const { return bits.template get<pos_field>(); } // the starting position
+    uint64_t len() const { return bits.template get<len_field>(); } // the length
+    uint64_t err() const { return bits.template get<err_field>(); } // the error count
+
+    void set_pos(uint64_t value) { bits.template set<pos_field>(value); }
+    void set_len(uint64_t value) { bits.template set<len_field>(value); }
+    void set_err(uint64_t value) { bits.template set<err_field>(value); }
 
     /** @brief orders occurrences by position, then by error count, then by length (the CIGAR is ignored) */
     bool operator<(const aprx_occ_t& other) const
     {
-        return pos != other.pos ? pos < other.pos :
-              (err != other.err ? err < other.err :
-                                  len < other.len);
+        return pos() != other.pos() ? pos() < other.pos() :
+              (err() != other.err() ? err() < other.err() :
+                                      len() < other.len());
     }
 
     bool operator==(const aprx_occ_t& other) const
     {
-        return pos == other.pos &&
-               len == other.len &&
-               err == other.err;
+        return pos() == other.pos() &&
+               len() == other.len() &&
+               err() == other.err();
     }
 
     /** @brief writes an occurrence to an output stream as "(pos, len, err)" */
     friend std::ostream& operator<<(std::ostream& os, const aprx_occ_t& occ) {
-        return os << "(" << occ.pos << ", " << occ.len << ", " << occ.err << ")";
+        return os << "(" << occ.pos() << ", " << occ.len() << ", " << occ.err() << ")";
     }
+};
+
+// IntelliSense (EDG) lays out empty [[no_unique_address]] members of packed structs differently than GCC and clang, so
+// the size check is only done by the compiler
+#ifndef __INTELLISENSE__
+static_assert(sizeof(aprx_occ_t<NO_CIGAR>) == (aprx_occ_pos_bits + aprx_occ_len_bits + aprx_occ_err_bits) / 8);
+#endif
+static_assert(sizeof(aprx_occ_t<CIGAR>) == sizeof(aprx_occ_t<NO_CIGAR>) + sizeof(uint32_t));
+
+// key function for radix_sort: returns the starting position of an occurrence (see aprx_occ_t)
+struct key_of_pos {
+    template <typename occ_t>
+    inline auto operator()(const occ_t& occurrence) const { return occurrence.pos(); }
 };
 
 /**
  * @brief computes the hamming distance of two equally long sequences, stopping early once it exceeds k
- * @tparam pos_t unsigned integer type for the distance
  * @tparam inp_t contiguous range type of the sequences (e.g. std::string, std::vector, std::span)
  * @param str_1 the first sequence
  * @param str_2 the second sequence (must have the same length as str_1)
  * @param k the distance threshold
  * @return the hamming distance of str_1 and str_2 (or a value > k if it exceeds k)
  */
-template <typename pos_t, std::ranges::contiguous_range inp_t>
-static pos_t hamming_dist_bounded(const inp_t& str_1, const inp_t& str_2, pos_t k)
+template <std::ranges::contiguous_range inp_t>
+static uint64_t hamming_dist_bounded(const inp_t& str_1, const inp_t& str_2, uint64_t k)
 {
     using sym_t = std::ranges::range_value_t<inp_t>;
     assert(str_1.size() == str_2.size());
     const uint64_t n = str_1.size();
-    pos_t dist = 0;
+    uint64_t dist = 0;
 
-    // for a byte alphabet, compare eight symbols per step: XOR two 8-byte words, then count the
-    // mismatching (nonzero bytes by OR-reducing each byte's bits into its low bit and popcounting
+    /* for a byte alphabet, compare eight symbols per step: XOR two 8-byte words, then count the mismatching (nonzero)
+       bytes by OR-reducing the bits of each byte into its low bit and popcounting */
     if constexpr (sizeof(sym_t) == 1) {
         const auto* b1 = reinterpret_cast<const uint8_t*>(std::ranges::data(str_1));
         const auto* b2 = reinterpret_cast<const uint8_t*>(std::ranges::data(str_2));
@@ -146,67 +184,40 @@ static pos_t hamming_dist_bounded(const inp_t& str_1, const inp_t& str_2, pos_t 
 
 /**
  * @brief naively locates all occurrences of P in T with at most k mismatches (w.r.t. hamming distance)
- * @tparam pos_t unsigned integer position type
  * @tparam inp_t contiguous range type of the text and pattern
  * @param T the text
  * @param P the pattern
  * @param k the maximum number of mismatches
  * @return the occurrences of P in T with at most k mismatches
  */
-template <typename pos_t, std::ranges::contiguous_range inp_t>
-static std::vector<aprx_occ_t<pos_t>> locate_hamming_dist(const inp_t& T, const inp_t& P, pos_t k)
+template <std::ranges::contiguous_range inp_t>
+static std::vector<aprx_occ_t<>> locate_hamming_dist(const inp_t& T, const inp_t& P, uint64_t k)
 {
     using sym_t = std::ranges::range_value_t<inp_t>;
     std::span<const sym_t> Ts(T), Ps(P); // read-only views for the windowed distance calls
-    pos_t m = Ps.size();
-    pos_t n = Ts.size();
+    uint64_t m = Ps.size();
+    uint64_t n = Ts.size();
 
-    std::vector<aprx_occ_t<pos_t>> Occ;
+    std::vector<aprx_occ_t<>> Occ;
 
-    for (pos_t i = 0; i + m <= n; i++) {
-        pos_t dist = hamming_dist_bounded<pos_t>(Ts.subspan(i, m), Ps, k);
-        if (dist <= k) Occ.emplace_back(aprx_occ_t<pos_t>{.pos = i, .len = m, .err = dist});
+    for (uint64_t i = 0; i + m <= n; i++) {
+        uint64_t dist = hamming_dist_bounded(Ts.subspan(i, m), Ps, k);
+        if (dist <= k) Occ.emplace_back(aprx_occ_t<>(i, m, dist));
     }
 
     return Occ;
 }
 
-template <std::ranges::contiguous_range ref_t>
-static uint16_t build_alph_map(const ref_t& R, int64_t nR, std::vector<uint8_t>& alph_map)
-{
-    alph_map.assign(256, 0);
-    uint16_t sigma = 0;
-
-    for (int64_t j = 0; j < nR; j++) {
-        uint8_t b = sym_to_uchar(R[j]);
-        if (alph_map[b] == 0) alph_map[b] = ++sigma;
-    }
-
-    return sigma;
-}
-
-template <typename word_t, std::ranges::contiguous_range ref_t, std::ranges::contiguous_range qry_t>
-static void setup_edit_matrix(edit_distance_matrix<word_t>& mat, const ref_t& R, int64_t nR, const qry_t& Q, int64_t nQ, int64_t k)
-{
-    std::vector<uint8_t> alph_map;
-    uint16_t sigma = build_alph_map(R, nR, alph_map);
-    directional_substring<int64_t, ref_t> R_col(R, 0, nR - 1, RIGHT);
-    mat.set_input(R_col, sigma, alph_map);
-    mat.init(k);
-    for (int64_t i = 1; i <= nQ; i++) mat.compute_row(i, Q[i - 1]);
-}
-
 /**
  * @brief computes the edit distance of two sequences with a banded bit-parallel dynamic program (Myers), capped at
- *        k + 1. Requires k <= bp_k_limit_128 and the longer sequence to be at most bp_max_ref_len long.
- * @tparam pos_t unsigned integer type for the distance
+ *        k + 1. Requires k <= edit_distance_max_errors_128 and the longer sequence to be at most edit_distance_max_length long.
  * @tparam inp_t contiguous range type of the sequences (a byte alphabet, since the matrix indexes symbols by byte)
  * @param T the first sequence
  * @param P the second sequence
  * @param k the distance threshold
  * @return the edit distance of T and P, or k + 1 if it exceeds k
  */
-template <typename pos_t, std::ranges::contiguous_range inp_t>
+template <std::ranges::contiguous_range inp_t>
 static int64_t edit_dist_bounded(const inp_t& T, const inp_t& P, int64_t k)
 {
     const int64_t nT = T.size(), nP = P.size();
@@ -214,8 +225,8 @@ static int64_t edit_dist_bounded(const inp_t& T, const inp_t& P, int64_t k)
     const bool p_longer = nP > nT;
     const int64_t nR = p_longer ? nP : nT, nQ = p_longer ? nT : nP;
     if (nQ == 0) return nR;
-    assert(k <= bp_k_limit_128);
-    assert(nR <= bp_max_ref_len);
+    assert(k <= edit_distance_max_errors_128);
+    assert(nR <= edit_distance_max_length);
 
     auto run = [&]<typename word_t>() -> int64_t {
         edit_distance_matrix<word_t> mat;
@@ -224,14 +235,13 @@ static int64_t edit_dist_bounded(const inp_t& T, const inp_t& P, int64_t k)
         return std::min<int64_t>(mat(nQ, nR), k + 1);
     };
 
-    return k <= bp_k_limit_64 ?
+    return k <= edit_distance_max_errors_64 ?
         run.template operator()<uint64_t>() :
         run.template operator()<uint128_t>();
 }
 
 /**
  * @brief over all prefixes M[0..len) of M (len in the band [m-k, m+k]), finds the one minimizing ed(P, M[0..len))
- * @tparam pos_t unsigned integer type for the distance / length
  * @tparam word_t word type of the edit-distance matrix (chosen by the caller to fit k)
  * @tparam inp_t contiguous range type of the matched string (a byte alphabet, since the matrix indexes symbols by byte)
  * @param mat the banded edit-distance matrix, with the pattern P already set as its input (columns)
@@ -240,21 +250,21 @@ static int64_t edit_dist_bounded(const inp_t& T, const inp_t& P, int64_t k)
  * @param k the error threshold
  * @return (minimum error, shortest length achieving it), or (k + 1, 0) if no prefix stays within k errors
  */
-template <typename pos_t, typename word_t, std::ranges::contiguous_range inp_t>
-std::pair<pos_t, pos_t> edit_dist_prefix(
-    edit_distance_matrix<word_t>& mat, const inp_t& M, pos_t m, pos_t k)
+template <typename word_t, std::ranges::contiguous_range inp_t>
+std::pair<uint64_t, uint64_t> edit_dist_prefix(
+    edit_distance_matrix<word_t>& mat, const inp_t& M, uint64_t m, uint64_t k)
 {
     mat.init(k);
-    const pos_t n2 = M.size();
-    const pos_t l_min = m > k ? m - k : 0;
-    const pos_t i_max = std::min<pos_t>(n2, m + k);
+    const uint64_t n2 = M.size();
+    const uint64_t l_min = m > k ? m - k : 0;
+    const uint64_t i_max = std::min<uint64_t>(n2, m + k);
     const uint16_t final_col = mat.num_cols() - 1;
-    pos_t best_err = k + 1, best_len = 0;
+    uint64_t best_err = k + 1, best_len = 0;
 
-    for (pos_t i = 1; i <= i_max; i++) {
+    for (uint64_t i = 1; i <= i_max; i++) {
         bool alive = mat.compute_row(i, M[i - 1]);
         if (i >= l_min) {
-            pos_t err = mat(i, final_col);
+            uint64_t err = mat(i, final_col);
             if (err < best_err) { best_err = err; best_len = i; }
         }
         if (!alive) break;
@@ -267,34 +277,33 @@ std::pair<pos_t, pos_t> edit_dist_prefix(
  * @brief locates all occurrences of P in T with at most k errors (w.r.t. edit distance) by running the banded
  *        bit-parallel matrix (Myers; columns = P, set up once) over every starting position of T, keeping for
  *        each starting position the shortest minimum-error occurrence
- * @tparam pos_t unsigned integer position type
  * @tparam inp_t contiguous range type of the text and pattern (a byte alphabet, since the matrix indexes symbols by byte)
  * @param T the text
- * @param P the pattern (1 <= |P| <= bp_max_ref_len)
- * @param k the maximum number of errors (k <= bp_k_limit_128)
+ * @param P the pattern (1 <= |P| <= edit_distance_max_length)
+ * @param k the maximum number of errors (k <= edit_distance_max_errors_128)
  * @return the occurrences of P in T with at most k errors
  */
-template <typename pos_t, std::ranges::contiguous_range inp_t>
-static std::vector<aprx_occ_t<pos_t>> locate_edit_dist(const inp_t& T, const inp_t& P, pos_t k)
+template <std::ranges::contiguous_range inp_t>
+static std::vector<aprx_occ_t<>> locate_edit_dist(const inp_t& T, const inp_t& P, uint64_t k)
 {
     static_assert(sizeof(std::ranges::range_value_t<inp_t>) == 1);
     const int64_t n = T.size(), m = P.size();
-    assert(m > 0 && m <= bp_max_ref_len && int64_t(k) <= bp_k_limit_128);
+    assert(m > 0 && m <= edit_distance_max_length && int64_t(k) <= edit_distance_max_errors_128);
     const int64_t l_min = std::max<int64_t>(1, m - int64_t(k)); // occurrences have positive length (no empty window)
     const int64_t l_max = m + k;
 
     auto run = [&]<typename word_t>() {
         edit_distance_matrix<word_t> mat;
         std::vector<uint8_t> alph_map;
-        uint16_t sigma = build_alph_map(P, m, alph_map);
-        directional_substring<int64_t, inp_t> P_col(P, 0, m - 1, RIGHT);
+        uint16_t sigma = build_alphabet_map(P, m, alph_map);
+        directional_substring<inp_t> P_col(P, 0, m - 1, RIGHT);
         mat.set_input(P_col, sigma, alph_map);
 
-        std::vector<aprx_occ_t<pos_t>> Occ;
+        std::vector<aprx_occ_t<>> Occ;
 
         for (int64_t i = 0; i < n; i++) {
             mat.init(k);
-            aprx_occ_t<pos_t> occ{.pos = pos_t(i), .len = 0, .err = pos_t(k + 1)};
+            aprx_occ_t<> occ(uint64_t(i), 0, uint64_t(k + 1));
             const int64_t j_max = std::min(l_max, n - i);
 
             for (int64_t j = 1; j <= j_max; j++) {
@@ -305,50 +314,51 @@ static std::vector<aprx_occ_t<pos_t>> locate_edit_dist(const inp_t& T, const inp
                 if (j >= l_min && mat.is_in_final_column(j)) {
                     int64_t err = mat(j, m);
 
-                    if (err <= int64_t(k) && (err < int64_t(occ.err) ||
-                       (err == int64_t(occ.err) && j < int64_t(occ.len)))
+                    if (err <= int64_t(k) && (err < int64_t(occ.err()) ||
+                       (err == int64_t(occ.err()) && j < int64_t(occ.len())))
                     ) {
-                        occ.err = err;
-                        occ.len = j;
+                        occ.set_err(err);
+                        occ.set_len(j);
                     }
                 }
             }
 
-            if (occ.err <= k) Occ.emplace_back(occ);
+            if (occ.err() <= k) Occ.emplace_back(occ);
         }
 
         return Occ;
     };
 
-    return int64_t(k) <= bp_k_limit_64 ?
+    return int64_t(k) <= edit_distance_max_errors_64 ?
         run.template operator()<uint64_t>() :
         run.template operator()<uint128_t>();
 }
 
 /**
- * @brief removes redundant approximate occurrences in place: an occurrence is dropped when a nearby occurrence
- *        (within 4k+3 positions) on each side has an equal or smaller error count
- * @tparam pos_t unsigned integer position type
- * @tparam mode whether the occurrences carry a CIGAR alignment (moved along with the surviving occurrences)
+ * @brief removes redundant approximate occurrences in place: an occurrence is dropped if the previous kept occurrence
+ *        and the next occurrence both have an error count at most its own and their positions differ by at most
+ *        2k + 3
+ * @tparam mode whether the occurrences carry a CIGAR alignment (moved along with the kept occurrences)
  * @param Occ the occurrences (sorted by position); filtered in place
  * @param k the maximum number of errors
  */
-template <typename pos_t, cigar_mode_t mode = NO_CIGAR>
-static void filter_edit_distance_occurrences(std::vector<aprx_occ_t<pos_t, mode>>& Occ, pos_t k)
+template <cigar_mode_t mode = NO_CIGAR>
+static void filter_edit_distance_occurrences(std::vector<aprx_occ_t<mode>>& Occ, uint64_t k)
 {
     if (Occ.size() <= 2) return;
-    pos_t write_idx = 0;
+    uint64_t write_idx = 0;
 
-    for (pos_t read_idx = 0; read_idx < Occ.size(); read_idx++) {
+    for (uint64_t read_idx = 0; read_idx < Occ.size(); read_idx++) {
         auto occ = std::move(Occ[read_idx]);
 
+        // drop the last kept occurrence (mid) while it lies between two occurrences that cover it
         while (write_idx >= 2) {
-            const auto& left = Occ[write_idx - 1];
-            const auto& right = Occ[write_idx - 2];
+            const auto& mid = Occ[write_idx - 1];
+            const auto& prev = Occ[write_idx - 2];
 
-            if (occ.pos - right.pos <= 2 * k + 3 &&
-                right.err <= left.err &&
-                occ.err <= left.err
+            if (occ.pos() - prev.pos() <= 2 * k + 3 &&
+                prev.err() <= mid.err() &&
+                occ.err() <= mid.err()
             ) {
                 write_idx--;
             } else {
@@ -365,29 +375,27 @@ static void filter_edit_distance_occurrences(std::vector<aprx_occ_t<pos_t, mode>
 /**
  * @brief verifies that every occurrence in occ_all is covered by an occurrence in occ_filtered with an equal or
  *        smaller error count within 2k+1 positions (i.e. filtering did not drop any required occurrence)
- * @tparam pos_t unsigned integer position type
  * @param occ_filtered the filtered occurrences (sorted by position)
  * @param occ_all all occurrences (sorted by position)
  * @param k the maximum number of errors
  * @return whether occ_filtered covers all occurrences in occ_all
  */
-template <typename pos_t>
-bool verify_edit_distance_coverage(
-    const std::vector<aprx_occ_t<pos_t>>& occ_filtered,
-    const std::vector<aprx_occ_t<pos_t>>& occ_all,
-    pos_t k
+inline bool verify_edit_distance_coverage(
+    const std::vector<aprx_occ_t<>>& occ_filtered,
+    const std::vector<aprx_occ_t<>>& occ_all,
+    uint64_t k
 ) {
-    pos_t max_dist = 2 * k + 1;
-    pos_t left = 0, right = 0;
+    uint64_t max_dist = 2 * k + 1;
+    uint64_t left = 0, right = 0;
 
     for (const auto& o : occ_all) {
-        while (right < occ_filtered.size() && occ_filtered[right].pos <= o.pos + max_dist) right++;
-        while (left < right && occ_filtered[left].pos + max_dist < o.pos) left++;
+        while (right < occ_filtered.size() && occ_filtered[right].pos() <= o.pos() + max_dist) right++;
+        while (left < right && occ_filtered[left].pos() + max_dist < o.pos()) left++;
         if (left == right) return false;
         bool valid = false;
 
-        for (pos_t i = left; i < right; i++) {
-            if (occ_filtered[i].err <= o.err) {
+        for (uint64_t i = left; i < right; i++) {
+            if (occ_filtered[i].err() <= o.err()) {
                 valid = true;
                 break;
             }
@@ -399,26 +407,147 @@ bool verify_edit_distance_coverage(
     return true;
 }
 
+/**
+ * @brief keeps a subset of the occurrences such that every occurrence has a kept one with an equal or smaller error
+ *        count within max_dist positions: the error counts are processed in increasing order, and the leftmost
+ *        occurrence of the current error count that is not covered yet is covered by keeping the rightmost occurrence
+ *        at most max_dist positions after it whose error count is at most its own
+ * @tparam mode whether the occurrences carry a CIGAR alignment (moved along with the kept occurrences)
+ * @param Occ the occurrences (sorted by position); filtered in place
+ * @param max_dist the maximum distance between an occurrence and a kept occurrence covering it
+ */
+template <cigar_mode_t mode = NO_CIGAR>
+static void select_covering_occurrences(std::vector<aprx_occ_t<mode>>& Occ, uint64_t max_dist)
+{
+    enum : uint8_t { UNCOVERED, COVERED, KEPT };
+    constexpr uint64_t num_errs = uint64_t(1) << aprx_occ_err_bits;
+    const uint64_t n = Occ.size();
+    std::vector<uint8_t> state(n, UNCOVERED);
+
+    // by_err: the occurrences in increasing order of their error counts, then of their positions; the ones with error
+    // count err are by_err[level_beg[err], level_beg[err + 1])
+    std::array<uint64_t, num_errs + 1> level_beg {};
+    for (const auto& occ : Occ) level_beg[occ.err() + 1]++;
+    for (uint64_t err = 0; err < num_errs; err++) level_beg[err + 1] += level_beg[err];
+    std::array<uint64_t, num_errs + 1> level_end = level_beg;
+    std::vector<uint64_t> by_err(n);
+    for (uint64_t i = 0; i < n; i++) by_err[level_end[Occ[i].err()]++] = i;
+
+    for (uint64_t err = 0; err < num_errs; err++) {
+        uint64_t hi = 0;
+
+        for (uint64_t x = level_beg[err]; x < level_beg[err + 1]; x++) {
+            const uint64_t i = by_err[x];
+            if (state[i] != UNCOVERED) continue;
+            hi = std::max(hi, i);
+            while (hi + 1 < n && Occ[hi + 1].pos() <= Occ[i].pos() + max_dist) hi++;
+            uint64_t j = hi;
+            while (Occ[j].err() > err) j--;
+            state[j] = KEPT;
+
+            for (uint64_t t = j; t-- > 0 && Occ[j].pos() - Occ[t].pos() <= max_dist;) {
+                if (state[t] == UNCOVERED && Occ[t].err() >= Occ[j].err()) state[t] = COVERED;
+            }
+
+            for (uint64_t t = j + 1; t < n && Occ[t].pos() - Occ[j].pos() <= max_dist; t++) {
+                if (state[t] == UNCOVERED && Occ[t].err() >= Occ[j].err()) state[t] = COVERED;
+            }
+        }
+    }
+
+    uint64_t write_idx = 0;
+    for (uint64_t i = 0; i < n; i++) if (state[i] == KEPT) Occ[write_idx++] = std::move(Occ[i]);
+    Occ.resize(write_idx);
+}
+
 /** @brief the distance metric used for approximate pattern matching */
 enum distance_metric_t : int8_t {
-    NO_METRIC = -1,
     HAMMING_DISTANCE = 0,
     EDIT_DISTANCE = 1
 };
 
 /**
  * @brief locates all occurrences of P in T with at most k errors w.r.t. the given distance metric
- * @tparam pos_t unsigned integer position type
- * @tparam dist_metr the distance metric (HAMMING_DISTANCE or EDIT_DISTANCE)
  * @tparam inp_t contiguous range type of the text and pattern
  * @param T the text
  * @param P the pattern
  * @param k the maximum number of errors
+ * @param metric the distance metric
  * @return the occurrences of P in T with at most k errors
  */
-template <typename pos_t, distance_metric_t dist_metr, std::ranges::contiguous_range inp_t>
-static std::vector<aprx_occ_t<pos_t>> locate(const inp_t& T, const inp_t& P, pos_t k)
+template <std::ranges::contiguous_range inp_t>
+static std::vector<aprx_occ_t<>> locate_naive(const inp_t& T, const inp_t& P, uint64_t k,
+    distance_metric_t metric)
 {
-    if constexpr (dist_metr == HAMMING_DISTANCE) return locate_hamming_dist<pos_t>(T, P, k);
-    if constexpr (dist_metr == EDIT_DISTANCE) return locate_edit_dist<pos_t>(T, P, k);
+    assert(metric == HAMMING_DISTANCE || metric == EDIT_DISTANCE);
+    if (metric == HAMMING_DISTANCE) return locate_hamming_dist(T, P, k);
+    return locate_edit_dist(T, P, k);
 }
+
+// ############################# PARTITIONING #############################
+
+/** @brief strategy for partitioning a pattern into the parts of a search scheme */
+enum partitioning_t : uint8_t {
+    _partition_uniform = 0, // p parts of equal length
+    _partition_dynamic = 1  // part boundaries chosen per pattern, s.t. each part has few exact occurrences
+};
+
+class apm_costs_t;
+
+/** @brief the options of an approximate-pattern-matching query that are not part of the search scheme */
+struct apm_params_t {
+    // strategy for partitioning the pattern
+    partitioning_t partitioning = _partition_dynamic;
+
+    /* true <=> a search starts with the search context of the exact match of its first part computed by the
+       partitioning; false <=> it matches its first part symbol by symbol */
+    bool start_at_part_contexts = true;
+
+    /* the error model compiled for the pattern (see apm_costs_t); nullptr: every error costs 1 and the bound is the k
+       of the search scheme. With a model, the k of the search scheme must be at least costs->max_errors(), and an
+       occurrence is reported with its cost as its error count, in increasing order of the positions; for edit distance,
+       every alignment within the bound that starts at a position i has a reported occurrence at most
+       2 * costs->max_errors() + 1 positions away from i whose cost is at most its own */
+    const apm_costs_t* costs = nullptr;
+};
+
+/**
+ * @brief locates the occurrences of a pattern with at most best + x errors, where best is the minimum number
+ *        of errors of an occurrence with at most max_k errors (all-best mapping)
+ *
+ * locate_k is called with increasing error bounds k, starting with k = 0, until it reports an occurrence;
+ * k is increased by x + 2 for k < 5 and by x + 4 for k >= 5 (the steps of Columba, Renders et al.). If then
+ * best + x > k, locate_k is called once more with k = min(best + x, max_k).
+ *
+ * @tparam mode whether the occurrences carry a CIGAR alignment
+ * @tparam locate_fnc_t type of locate_k
+ * @param max_k the maximum number of errors
+ * @param x the number of error counts above best that are also reported
+ * @param occ (output) the occurrences; the vector is cleared before each call of locate_k
+ * @param locate_k function called as locate_k(k, occ), which appends all occurrences with at most k errors to occ
+ * @return best, or max_k + 1 if there is no occurrence with at most max_k errors
+ */
+template <cigar_mode_t mode = NO_CIGAR, typename locate_fnc_t>
+uint64_t locate_best(uint64_t max_k, uint64_t x, std::vector<aprx_occ_t<mode>>& occ, locate_fnc_t locate_k)
+{
+    for (uint64_t k = 0;;) {
+        occ.clear();
+        locate_k(k, occ);
+
+        if (!occ.empty()) {
+            uint64_t best = occ.front().err();
+            for (const aprx_occ_t<mode>& o : occ) best = std::min<uint64_t>(best, o.err());
+
+            // the occurrences with more than k and at most best + x errors have not been located yet
+            if (best + x > k && k < max_k) { k = std::min(best + x, max_k); continue; }
+
+            std::erase_if(occ, [&](const aprx_occ_t<mode>& o) { return o.err() > best + x; });
+            return best;
+        }
+
+        if (k >= max_k) return max_k + 1;
+        k = std::min(max_k, k + x + (k < 5 ? 2 : 4));
+    }
+}
+
+#endif // MOVE_R_MISC_APM_HPP

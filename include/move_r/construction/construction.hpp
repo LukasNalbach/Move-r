@@ -23,1063 +23,730 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+#ifndef MOVE_R_MOVE_R_CONSTRUCTION_CONSTRUCTION_HPP
+#define MOVE_R_MOVE_R_CONSTRUCTION_CONSTRUCTION_HPP
 
-#pragma once
+#include <optional>
+#include <misc/utils.hpp>
 
-#include <sdsl/int_vector_buffer.hpp>
-#include <gtl/btree.hpp>
-#include <hash_table5.hpp>
+#include <misc/sort.hpp>
 #include <move_r/move_r.hpp>
-#include <misc/strings.hpp>
-#include <lzendsa/lzendsa_construction.hpp>
+#include <data_structures/interleaved_bit_aligned_vectors.hpp>
+#include <move_data_structure/move_data_structure.hpp>
+#include <move_r/construction/pfp_output.hpp>
+#include <move_r/construction/text_alphabet.hpp>
+#include <misc/files.hpp>
+#include <misc/log.hpp>
+#include <misc/temp_files.hpp>
+#include <omp.h>
 
-enum rlbwt_build_mode {
-    _sa, // the BWT is read by L[i] = T[(SA[i]-1) mod n]
-    _bwt, // the BWT is read by accessing L[i]
-    _bwt_file // the BWT is read from files output by Big-BWT
-};
+// minimum number of symbols of T$ per thread of a construction (see limit_num_threads)
+inline constexpr uint64_t move_r_min_symbols_per_thread = 1000;
 
-template <move_r_support support, typename sym_t, typename pos_t, move_pos_encoding_t mlf_enc>
-class move_r<support, sym_t, pos_t, mlf_enc>::construction {
+// storing, loading or deleting fewer bytes of a data structure is not logged (one sector of O_DIRECT)
+inline constexpr uint64_t min_logged_spill_bytes = direct_io_alignment;
+
+/**
+ * @brief ends a phase that stores a data structure to disk, loads it from disk or deletes it, started with
+ *        log_phase_start(log, time, ""): logs "<message>: <size>, in ~ <time>" if bytes >= min_logged_spill_bytes,
+ *        else nothing; the measurement keys of log_phase_end are written in both cases
+ * @param log whether logging is enabled
+ * @param time the phase timer
+ * @param message the message of the phase, e.g. "storing M_Phi to disk"
+ * @param bytes the number of bytes stored, loaded or deleted
+ * @param mf the measurement file (nullptr: none)
+ * @param mf_key the measurement key of the phase (empty: none)
+ */
+inline void log_spill_phase_end(bool log, std::chrono::steady_clock::time_point& time, const std::string& message,
+    uint64_t bytes, std::ostream* mf, const std::string& mf_key)
+{
+    if (!log) return;
+
+    if (bytes >= min_logged_spill_bytes) {
+        log_out() << message << ": " << format_size(bytes);
+        log_phase_end(log, time, mf, mf_key);
+    } else {
+        if (mf != nullptr && !mf_key.empty()) {
+            *mf << " " << mf_key << "=" << time_diff_ns(time, now()) << " peak_" << mf_key << "=" << phase_peak()
+                << " held_" << mf_key << "=" << phase_allocated();
+        }
+
+        note_peak();
+    }
+}
+
+/**
+ * @brief construction of a move-r index; stores the input, the intermediate data structures and the
+ *        index to build, and implements the construction phases
+ *
+ * The phases (see build_index):
+ * 1. the RLBWT of T$ and the C-array, from the suffix array (modes _suffix_array and _suffix_array_space) or from
+ *    the output of the prefix-free parsing (mode _pfp, see build_rlbwt_pfp);
+ * 2. I_LF and M_LF;
+ * 3. the suffix array samples at the run boundaries and I_Phi^{-1} (and I_Phi);
+ * 4. M_Phi^{-1}, M_Phi or the rlz of the differential suffix array, depending on the support;
+ * 5. the data structures over L'.
+ * The sections of the threads in the phases 1-3 are ranges of consecutive BWT runs (see n_p and r_p).
+ */
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+class move_r<support, mlf_enc>::construction {
 public:
     construction() = delete;
     construction(construction&&) = delete;
     construction(const construction&) = delete;
     construction& operator=(construction&&) = delete;
     construction& operator=(const construction&) = delete;
-    ~construction() { }
 
-    // ############################# MISC VARIABLES #############################
+    // ############################# TYPES AND CONSTANTS #############################
 
-    std::string T_str_tmp;
-    std::vector<sym_t> T_vec_tmp;
-    std::string L_tmp;
-    std::vector<int32_t> SA_32_tmp;
-    std::vector<int64_t> SA_64_tmp;
-    uint16_t p = 1; // the number of threads to use
-    move_r_construction_mode mode = _suffix_array;
-    /* true <=> Big-BWT has to compute the full suffix array (option -S); if false, it only computes the run-sampled
-     * suffix array (options -s -e), from which I_Phi^{-1} and SA_s are built (this is cheaper, but the bidirectional
-     * index and the rlzsa need the full suffix array for other data structures) */
-    static constexpr bool bigbwt_full_sa = is_bidirectional || has_rlzsa;
-    /* the number of threads to use during the construction of the L,C and I_LF,I_Phi^{-1},L' and SA_s; when building move-r for an
-     * integer alphabet, this needs (p+1)*sigma = O(p*n) words of space, so we limit the number of threads to p' to 1 to ensure
-     * that we use O(sigma) = O(n) words of space; */
-    uint16_t p_ = 1;
-    bool build_sa_and_l = false; // controls whether the index should be built from the suffix array and the bwt
-    bool delete_T = false; // controls whether T should be deleted when not needed anymore
-    bool log = false; // controls, whether to print log messages
-    std::ostream* mf_idx = nullptr; // file to write measurement data of the index construction to
-    std::ostream* mf_mds = nullptr; // file to write measurement data of the move data structure construction to
-    std::string mf_suffix = ""; // suffix appended to every mf_idx measurement key (e.g. "_fwd"/"_bwd" for the two move_rb sub-indexes)
-    std::string name_text_file = ""; // name of the text file (only for measurement output)
-    std::string prefix_tmp_files = ""; // prefix of temporary files
-    std::chrono::steady_clock::time_point time; // time of the start of the last build phase
-    std::chrono::steady_clock::time_point time_start; // time of the start of the whole build phase
-    uint64_t baseline_mem_usage = 0; // memory allocation at the start of the construction
-    uint64_t bigbwt_peak_mem_usage = 0; // peak memory usage during the execution of Big-BWT
-    uint8_t min_valid_char = 0; // the minimum valid character that is allowed to occur in T
-    void* sa_vector; // pointer to the suffix array (used only for bidirectional forward indexes)
-    std::string* sa_file_name; // name of the suffix array file (used only for bidirectional forward indexes)
+    // type of the suffix array entries
+    using sa_t = uint40_t;
 
-    // ############################# INDEX VARIABLES #############################
+    /* an open descriptor of the cache file; the cache is read through a path that names the opened file, as long as
+       the descriptor is open (Linux: /proc/self/fd/<fd>; see platform::open_pinned and pfp_cache_file) */
+    struct cache_descriptor_t {
+        int fd = -1;
+        std::string file; // the path the file was opened with
 
-    pos_t n = 0; // the length of T
-    pos_t r = 0; // r, the number of runs in L
-    pos_t r_ = 0; // r', the number of input/output intervals in M_LF
-    pos_t r__ = 0; // r'', the number of input/output intervals in M_Phi^{-1}
-    pos_t r___ = 0; // r''', the number of input/output intervals in M_Phi
+        cache_descriptor_t() = default;
+        cache_descriptor_t(const cache_descriptor_t&) = delete;
+        cache_descriptor_t& operator=(const cache_descriptor_t&) = delete;
+        ~cache_descriptor_t() { if (fd >= 0) platform::close(fd); }
 
-    // ############################# CONSTRUCTION DATA STRUCTURE VARIABLES #############################
+        // opens a file; the descriptor is kept only if the file can be reopened through it (see path)
+        void open(const std::string& path_to_open)
+        {
+            if (fd >= 0) platform::close(fd);
+            file = path_to_open;
+            fd = platform::open_pinned(file);
+            if (fd >= 0 && !std::filesystem::exists(path())) { platform::close(fd); fd = -1; }
+        }
 
-    /** the string containing T */
-    std::string& T_str;
-    /** the vector containing T */
-    std::vector<sym_t>& T_vec;
-    /** The move-r index to construct */
-    move_r<support, sym_t, pos_t, mlf_enc>& idx;
-    /** [0..n-1] The suffix array (32-bit) */
-    std::vector<int32_t>& SA_32;
-    /** [0..n-1] The suffix array (64-bit) */
-    std::vector<int64_t>& SA_64;
-    /** [0..n-1] The BWT */
-    std::string& L;
-    /** [0..p-1] file buffers (of each thread) for reading the BWT file output by bigbwt */
-    std::vector<sdsl::int_vector_buffer<8>> BWT_file_bufs;
-    /** [0..p-1] vectors that contain the RLBWT concatenated */
-    std::vector<interleaved_byte_aligned_vectors<uint32_t, uint32_t>> RLBWT;
-    /** [0..p] n_p[0] < n_p[1] < ... < n_p[p] = n; n_p[i] = start position of thread i's section in L and SA */
-    std::vector<pos_t> n_p;
-    /** [0..p] r_p[0] < r_p[1] < ... < r_p[p] = r; r_p[i] = index of the first run in L starting in
-     * [n_p[i]..n_p[i+1]-1]; there is a run starting at n_p[i] */
-    std::vector<pos_t> r_p;
-    /** [0..p][0..255] see the code to see how this variable is used */
-    std::vector<std::vector<pos_t>> C;
-    /** The disjoint interval sequence for LF */
-    std::vector<std::pair<pos_t, pos_t>> I_LF;
-    /** The disjoint interval sequence for Phi */
-    std::vector<std::pair<pos_t, pos_t>> I_Phi;
-    /** The disjoint interval sequence for Phi^{-1} */
-    std::vector<std::pair<pos_t, pos_t>> I_Phi_m1;
-    /** [0..r'-1] SA_s[x] = SA[M_LF.p[x]]; if the starting position of the
-     * x-th input interval of M_LF is not starting position of a BWT run, then SA_s[x] = n */
-    std::vector<pos_t> SA_s;
-    /** [0..r'-1] Permutation storing the order of the values in SA_s */
-    std::vector<pos_t> pi_;
-    /** [0..r''-1] Permutation storing the order of the output interval starting positions of M_Phi^{-1} */
-    std::vector<pos_t> pi_mphi;
-    /** [0..p-1] file buffers (of each thread) for reading the suffix array file output by bigbwt */
-    std::vector<sdsl::int_vector_buffer<40>> SA_file_bufs;
+        // returns the path that reopens the file of the descriptor
+        std::string path() const { return platform::reopen_path(fd, file); }
+    };
 
     /**
-     * @brief builds the rlzsa; the construction is embedded in the rlzsa data structure (see
-     *        rlzsa_opt/construction.hpp) and does not depend on this construction object: it receives the data
-     *        it needs through parameters (a function SAd(i_p, i) returning SA^d[i] for the in-memory case, a
-     *        reference to I_Phi^{-1}, n, r, and the optional rlzsa_construction_params). For the bigbwt case
-     *        it reads SA^d itself from the suffix-array file (sa_file_path). It builds idx._rlzsa.
-     * @tparam bigbwt true <=> read suffix array values from the file output by bigbwt
-     * @tparam sa_sint_t signed integer type to use for the suffix array entries
+     * @brief reader of the values of the differential suffix array SA^d (for the RLZ construction) that does not
+     *        need the suffix array
+     *
+     * A reader starts at the SA sample at the start of a run and computes the following SA values with M_Phi^{-1}.
+     * Reading consecutive values takes one Phi^{-1} step per value; other positions are reached with seek().
+     * Each thread uses its own reader.
      */
-    template <bool bigbwt, typename sa_sint_t>
-    void construct_rlzsa()
-    {
-        // SA^d[i] = SA[i] - SA[i-1] + n (with SA[-1] := -1, i.e. SA^d[0] = n - 1) read from the in-memory
-        // suffix array; only used for the in-memory case (for bigbwt the construction reads the SA file)
-        auto SAd = [this](uint16_t /*i_p*/, pos_t i) -> uint64_t {
-            if (i == 0) [[unlikely]] return uint64_t { n } - 1;
-            return (get_sa<sa_sint_t>()[i] + n) - get_sa<sa_sint_t>()[i - 1];
-        };
+    struct alignas(cache_line_bytes) SA_rlz_reader {
+        construction* build = nullptr; // the construction
+        // marks the starting positions of the input intervals of M_LF (and position n)
+        const elias_fano_bit_vector* starts = nullptr;
+        // marks the starting positions of the input intervals of M_Phi^{-1} (and position n)
+        const elias_fano_bit_vector* phi_starts = nullptr;
+        /* [0..(n-1) >> sampled_shift] sampled[j] = SA[j << sampled_shift]; only set for positions inside runs
+           longer than 2^sampled_shift (see build_SA_rlz) */
+        const uint64_t* sampled = nullptr;
+        uint8_t sampled_shift = 0; // log_2 of the distance of the sampled positions
 
-        typename rlzsa_opt<pos_t>::template construction<decltype(SAd)> rlzsa_construction(
-            idx._rlzsa, SAd, I_Phi_m1, n, r,
-            { .num_threads = p, .mode = mode, .log = log,
-              .sa_file_path = bigbwt ? (prefix_tmp_files + ".sa") : std::string() });
-        rlzsa_construction.build();
+        bool has_pos = false; // true <=> pos and value are set
+        bool has_prev_value = false; // true <=> prev_value = SA[pos - 1] is set
+        uint64_t pos = 0; // the current position in the suffix array
+        uint64_t value = 0; // SA[pos]
+        uint64_t prev_value = 0; // SA[pos - 1]
+        uint64_t phi_interval = 0; // the input interval of M_Phi^{-1} containing value
+
+        SA_rlz_reader() = default;
+
+        /**
+         * @brief constructs a reader
+         * @param build the construction
+         * @param starts marks the starting positions of the input intervals of M_LF
+         * @param phi_starts marks the starting positions of the input intervals of M_Phi^{-1}
+         * @param sampled [0..(n-1) >> sampled_shift] the sampled SA values (see sampled), or null
+         * @param sampled_shift log_2 of the sample distance
+         */
+        SA_rlz_reader(construction& build, const elias_fano_bit_vector& starts,
+            const elias_fano_bit_vector& phi_starts, const uint64_t* sampled, uint8_t sampled_shift)
+            : build(&build), starts(&starts), phi_starts(&phi_starts), sampled(sampled), sampled_shift(sampled_shift)
+        { }
+
+        // sets phi_interval to the input interval of M_Phi^{-1} containing value
+        void locate_phi_interval()
+        {
+            auto& phi_inv = build->idx._M_Phi_inv;
+            phi_interval = std::max<uint64_t>(1, phi_starts->rank_1(value)) - 1;
+            while (value >= phi_inv.p(phi_interval + 1)) phi_interval++;
+        }
+
+        // advances to the next suffix array position (one Phi^{-1} step)
+        void step_right();
+
+        /**
+         * @brief returns the first input interval of M_LF of the run containing a suffix array position
+         * @param target [0..n-1] position in the suffix array
+         */
+        uint64_t first_interval_of_run_at(uint64_t target) const
+        {
+            const auto& mlf = build->idx._M_LF;
+            uint64_t x = std::max<uint64_t>(1, starts->rank_1(target)) - 1;
+            while (target >= mlf.p(x + 1)) x++;
+            return build->idx.first_interval_of_run(x);
+        }
+
+        /**
+         * @brief moves the reader to the start of a run (where its SA sample is stored)
+         * @param x index of the input interval of M_LF at which the run starts
+         */
+        void enter_run(uint64_t x)
+        {
+            has_prev_value = false;
+            pos = build->idx._M_LF.p(x);
+            // with an rlz, the samples are always stored in _SA_run (see choose_sa_samples_layout)
+            value = build->idx._SA_run.template get<0, uint64_t>(build->idx._SA_run_pos.start_sample_index(x));
+        }
+
+        /**
+         * @brief moves the reader to a suffix array position; starts at the start of the run containing it or at
+         *        the last sampled position before it in the run (see sampled)
+         * @param target [0..n-1] position in the suffix array
+         */
+        void seek(uint64_t target);
+
+        /**
+         * @brief returns SA^d[i] = SA[i] - SA[i-1] + n (SA[0] for i = 0)
+         * @param i [0..n-1] position in SA^d
+         */
+        uint64_t SAd(uint64_t i);
+    };
+
+    // ############################# DATA MEMBERS #############################
+
+    const uint8_t inp_width; // width of an input symbol in bytes
+    const bool byte_alphabet; // true <=> the input uses a byte alphabet
+
+    move_r_input_view& T_inp; // view of the container storing T
+    move_r<support, mlf_enc>& idx; // the index to build
+    // maps the symbols of an integer-alphabet input to the internal symbols (freed once T has been mapped)
+    std::unique_ptr<move_r_int_alphabet> int_alphabet;
+    uint64_t int_alphabet_bytes = 0; // size of int_alphabet in bytes
+
+    move_r_params params; // construction parameters
+    uint64_t p = 1; // the number of threads to use
+    // p', the number of threads that build the RLBWT, C, I_LF and I_Phi^{-1} (1 for an integer alphabet)
+    uint64_t p_ = 1;
+    bool delete_T = false; // controls whether T should be deleted when not needed anymore
+    std::string prefix_tmp_files = ""; // prefix of temporary files
+    std::chrono::steady_clock::time_point time; // time of the start of the current construction phase
+    std::chrono::steady_clock::time_point time_start; // time of the start of the construction
+    uint64_t baseline_mem_usage = 0; // memory allocation at the start of the construction
+    // measures the peak memory usage of this construction (only if logging is enabled, see peak_scope)
+    std::optional<peak_scope> peak_measurement;
+    /* with a pfp cache, the path of the cache file (see move_r::pfp_cache_path); else the prefix of the files the
+       prefix-free parsing writes (prefix_tmp_files) */
+    std::string pfp_prefix = "";
+    // true <=> the output of the prefix-free parsing is stored in a pfp cache (see move_r::pfp_cache_path)
+    bool pfp_cache = false;
+    /* the table of contents of the runs file written by the prefix-free parsing: the cache file, or without a
+       cache, pfp_prefix + pfp_rlbwt::ext_runs (see pfp_output_file) */
+    pfp_rlbwt::run_data_file pfp_output;
+    /* the number of construction steps that still read pfp_output; after the last one, the file is removed without a
+       cache (see release_pfp_output) */
+    uint8_t pfp_output_readers = 0;
+    // true <=> the existing cache stores the SA samples (the LCP samples); a rebuilt cache stores them, too
+    bool pfp_cache_sa_samples = false, pfp_cache_lcp_samples = false;
+    cache_descriptor_t pfp_cache_descriptor; // the descriptor through which the cache file is read
+
+    // true <=> the RLBWT and the SA samples are read from the output of the prefix-free parsing (mode _pfp)
+    bool rlbwt_from_pfp = false;
+
+    uint64_t n = 0; // the length of T$
+    // true <=> the index is built for the reversed input (see move_r_params::reversed)
+    bool reversed = false;
+    uint64_t r = 0; // r, the number of runs in L
+    uint64_t r_ = 0; // r', the number of input/output intervals in M_LF
+    uint64_t r__ = 0; // r'', the number of input/output intervals in M_Phi^{-1}
+    uint64_t r___ = 0; // r''', the number of input/output intervals in M_Phi
+
+    // [0..n-1] SA, the suffix array of T$ (modes _suffix_array and _suffix_array_space)
+    no_init_vector<sa_t> sa;
+    /* the runs of L, section by section: [0..p'-1] RLBWT[i_p] stores the runs of L[n_p[i_p]..n_p[i_p+1]-1] in order;
+       field 0: the symbol, field 1: the length */
+    std::vector<interleaved_bit_aligned_vectors> RLBWT;
+    // [0..p'] n_p[i_p] = start position of thread i_p's section of L, which is the start of a run; n_p[p'] = n
+    std::vector<uint64_t> n_p;
+    /* [0..p'] the runs of the sections: while the RLBWT is built (see build_rlbwt_c), r_p[i_p] = the number of runs of
+       section i_p; afterwards r_p[i_p] = index of the first run of section i_p, and r_p[p'] = r */
+    std::vector<uint64_t> r_p;
+
+    /* [0..p'][0..s-1] with s = num_symbol_values(): until compute_C, C[i_p][c] = the number of occurrences of c in
+       section i_p of L; afterwards C[i_p][c] = the number of occurrences of c in L[0..n_p[i_p]-1] for i_p < p' (advanced
+       run by run by build_ilf), and C[p'][c] = the number of occurrences of the symbols smaller than c in L (the
+       C-array) */
+    std::vector<std::vector<uint64_t>> C;
+    // [0..r-1] I_LF, the disjoint interval sequence for LF: pair x = (i, LF(i)), where i is the start of the x-th run
+    mds_pairs I_LF;
+    // [0..r-1] I_LF_sym[x] = the symbol of the x-th run (8 bits if sigma <= 256, else bit_width(sigma) bits)
+    interleaved_bit_aligned_vectors I_LF_sym;
+    /* [0..r-1] I_Phi, the disjoint interval sequence for Phi: pair = (SA[i], SA[i-1]), where i is the start of a run;
+       while LCP_run is not empty, the second component of pair x is x (see build_iphi); sorted by the first
+       component by sort_iphi */
+    mds_pairs I_Phi;
+    /* [0..r-1] I_Phi^{-1}, the disjoint interval sequence for Phi^{-1}: pair x = (SA[i-1], SA[i]), where i is the
+       start of the x-th run (pair 0: (SA[n-1], SA[0])); sorted by the first component by sort_iphi_inv */
+    mds_pairs I_Phi_inv;
+    // [0..r-1] LCP_run[x] = LCP[i], where i is the start of the x-th run; bit_width(n) bits each
+    interleaved_bit_aligned_vectors LCP_run;
+    /* [0..r-1] the values of LCP_run, sorted by the text positions SA[i] of the run starts i (the order of I_Phi after
+       sort_iphi), i.e., the PLCP values at the starts of the output intervals of I_Phi^{-1}; _plcp_row_width bits
+       each */
+    interleaved_bit_aligned_vectors plcp_pair;
+
+    // layout of the suffix array samples at the run boundaries (see sa_samples_layout_t and choose_sa_samples_layout)
+    sa_samples_layout_t samples_layout = _at_run_boundaries;
+    /* [0..r-1] run_ranks[x] = the index of the pair of the x-th run in I_Phi^{-1} sorted by the first component;
+       bytes_per_value(r) bytes each; stored in the file prefix_tmp_files + ".run_ranks" if run_ranks_on_disk */
+    uint_bytes_array<1> run_ranks;
+    bool run_ranks_on_disk = false; // true <=> the run ranks are stored in a temporary file (see store_run_ranks)
+    /* marks the first input interval of M_Phi^{-1} of each pair of I_Phi^{-1} (sorted by the first component):
+       select(i) = index of the first input interval of M_Phi^{-1} of the i-th pair */
+    mds_piece_marks phi_inv_first_intervals;
+
+    // ############################# INTERNAL METHODS #############################
+
+    // returns whether the output of the prefix-free parsing is stored in a pfp cache
+    bool uses_pfp_cache() const { return pfp_cache; }
+
+    // returns the path through which the cache file is read (see pfp_cache_descriptor)
+    std::string pfp_cache_file() const
+    { return pfp_cache_descriptor.fd >= 0 ? pfp_cache_descriptor.path() : pfp_prefix; }
+
+    // returns whether the input is read from a file
+    bool file_input() const { return !params.input_file.empty(); }
+
+    // returns whether the input is stored in memory (always, except if the prefix-free parsing reads it from the file)
+    bool input_in_memory() const { return params.mode != _pfp || !file_input(); }
+
+    // returns whether the SA is also sampled at the ends of the runs (see move_r_params::sample_run_ends)
+    bool samples_at_run_ends() const
+    {
+        if constexpr (!has_run_end_samples) return false;
+        else return !rlbwt_from_pfp || params.sample_run_ends;
     }
 
-    // ############################# COMMON MISC METHODS #############################
+    /* returns the smallest internal symbol a byte is mapped to before the BWT is built: move_r_min_mapped_symbol_pfp
+       with _pfp (the symbols in the RLBWT read from the output of the prefix-free parsing are decreased to
+       move_r_min_mapped_symbol and above, see build_rlbwt_c), else move_r_min_mapped_symbol */
+    uint8_t min_mapped_symbol() const
+    { return params.mode == _pfp ? move_r_min_mapped_symbol_pfp : move_r_min_mapped_symbol; }
+
+    // returns the number of entries in a row of C (256 for a byte alphabet, else sigma)
+    uint64_t num_symbol_values() const { return byte_alphabet ? 256 : idx.sigma; }
 
     /**
      * @brief returns T at index i interpreted as type
-     * @tparam type type to reinterpret the symbol at index i as
+     * @tparam type the type to read the symbol at index i as; it must be the input's own symbol type
      * @param i an index into T
      * @return T at index i
      */
     template <typename type>
-    inline type& T(pos_t i)
+    inline type& T(uint64_t i)
     {
-        if constexpr (str_input) {
-            return *reinterpret_cast<type*>(&T_str[i]);
-        } else {
-            return *reinterpret_cast<type*>(&T_vec[i]);
-        }
+        return T_inp.template at<type>(i);
     }
 
     /**
-     * @brief returns the suffix array
-     * @tparam sa_sint_t suffix array signed integer type
-     * @return the suffix array
-     */
-    template <typename sa_sint_t>
-    constexpr std::vector<sa_sint_t>& get_sa()
-    {
-        if constexpr (std::is_same_v<sa_sint_t, int32_t>) {
-            return SA_32;
-        } else {
-            return SA_64;
-        }
-    }
-
-    /**
-     * @brief sets the run length of the i-th BWT run in thread i_p's section to len
-     * @param i_p [0..p-1] thread index
-     * @param i [0..r-1] run index
+     * @brief sets the length of the i-th run of thread i_p's section to len
+     * @param i_p [0..p'-1] thread index
+     * @param i [0..r_p[i_p]-1] index of the run in the section
      * @param len run length
      */
-    inline void set_run_len(uint16_t i_p, pos_t i, pos_t len) { RLBWT[i_p].set_unsafe<1, uint32_t>(i, len); }
+    inline void set_run_len(uint64_t i_p, uint64_t i, uint64_t len)
+    {
+        RLBWT[i_p].template set<1, uint64_t>(i, len);
+    }
 
     /**
-     * @brief returns the length of the i-th BWT run in thread i_p's section
-     * @param i_p [0..p-1] thread index
-     * @param i [0..r-1] run index
+     * @brief returns the length of the i-th run of thread i_p's section
+     * @param i_p [0..p'-1] thread index
+     * @param i [0..r_p[i_p]-1] index of the run in the section
      * @return run length
      */
-    inline pos_t run_len(uint16_t i_p, pos_t i) { return RLBWT[i_p].get_unsafe<1, uint32_t>(i); }
-
-    /**
-     * @brief sets the character of the i-th BWT run in thread i_p's section to c
-     * @param i_p [0..p-1] thread index
-     * @param i [0..r-1] run index
-     * @param c character
-     */
-    inline void set_run_sym(uint16_t i_p, pos_t i, i_sym_t c)
+    inline uint64_t run_len(uint64_t i_p, uint64_t i)
     {
-        if constexpr (byte_alphabet) {
-            RLBWT[i_p].set_unsafe<0, i_sym_t>(i, c);
-        } else {
-            RLBWT[i_p].set_parallel<0, i_sym_t>(i, c);
-        }
+        return RLBWT[i_p].template get<1, uint64_t>(i);
     }
 
     /**
-     * @brief returns the character of the i-th BWT run in thread i_p's section
-     * @param i_p [0..p-1] thread index
-     * @param i [0..r-1] run index
-     * @return character
+     * @brief returns the symbol of the i-th run of thread i_p's section
+     * @param i_p [0..p'-1] thread index
+     * @param i [0..r_p[i_p]-1] index of the run in the section
+     * @return symbol
      */
-    inline i_sym_t run_sym(uint16_t i_p, pos_t i)
+    inline uint64_t run_sym(uint64_t i_p, uint64_t i)
     {
-        if constexpr (byte_alphabet) {
-            return RLBWT[i_p].get_unsafe<0, i_sym_t>(i);
-        } else {
-            return RLBWT[i_p].get<0, i_sym_t>(i);
-        }
+        return RLBWT[i_p].template get<0, uint64_t>(i);
     }
 
     /**
-     * @brief adds a bwt run of length len with the symbol sym to the end of thread i_p's section of the RLBWT
-     * @param i_p [0..p-1] thread index
+     * @brief appends a run of length len with the symbol sym to thread i_p's section of the RLBWT
+     * @param i_p [0..p'-1] thread index
      * @param sym run symbol
      * @param len run length
      */
-    inline void add_run(uint16_t i_p, i_sym_t sym, pos_t len)
+    inline void add_run(uint64_t i_p, uint64_t sym, uint64_t len)
     {
-        if constexpr (byte_alphabet) {
-            RLBWT[i_p].emplace_back_unsafe<i_sym_t, uint32_t>({ sym, len });
-        } else {
-            RLBWT[i_p].emplace_back<i_sym_t>({ sym });
-            set_run_len(i_p, RLBWT[i_p].size() - 1, len);
-        }
-    }
-
-    // ############################# SUFFIX ARRAY ACCESS #############################
-
-    /**
-     * @brief returns SA[i]
-     * @tparam bigbwt true <=> read SA[i] from SA_file
-     * @tparam sa_sint_t suffix array signed integer type
-     * @param i_p [0..p-1] thread index
-     * @param i [0..n-1] suffix array index
-     * @return SA[i]
-     */
-    template <bool bigbwt, typename sa_sint_t>
-    inline pos_t SA(uint16_t i_p, pos_t i)
-    {
-        if constexpr (bigbwt) {
-            if (i == 0) [[unlikely]] return n - 1;
-            return (pos_t)(SA_file_bufs[i_p][i - 1]);
-        } else {
-            return get_sa<sa_sint_t>()[i];
-        }
-    }
-
-    // ############################# COMMON MISC METHODS #############################
-
-    /**
-     * @brief sets some variables and logs
-     */
-    void prepare_phase_1()
-    {
-        time = now();
-        time_start = time;
-        omp_set_num_threads(p);
-        prefix_tmp_files = "move-r_" + random_alphanumeric_string(10);
-        baseline_mem_usage = malloc_count_current();
-        if (log) malloc_count_reset_peak();
+        std::array<uint64_t, interleaved_bit_aligned_vectors::num_vectors> values {};
+        values[0] = uint64_t(sym);
+        values[1] = len;
+        RLBWT[i_p].emplace_back(values);
     }
 
     /**
-     * @brief sets some variables
+     * @brief builds _SA_run_pos and allocates _SA_run (see run_sample_positions)
+     * @param with_ends true <=> the SA is also sampled at the ends of the runs (see samples_at_run_ends)
      */
-    void prepare_phase_2()
+    void prepare_sa_run(bool with_ends)
     {
-        if (p > 1 && 1000 * p > n) {
-            p = std::max<pos_t>(1, n / 1000);
-            p_ = std::min<uint16_t>(p_, p);
-            log_message(log, "warning: p > n/1000, setting p to n/1000 ~ " + std::to_string(p) + "\n");
-        }
+        idx._SA_run_pos = run_sample_positions(r_, [&](uint64_t x) { return idx.run_starts_at(x); },
+            [&](uint64_t x) { return idx.M_LF().len(x); }, p, with_ends);
+        idx._SA_run = interleaved_bit_aligned_vectors({ uint8_t(std::bit_width(n)) });
+        idx._SA_run.resize_no_init(idx._SA_run_pos.num_samples(), p);
     }
+
+    // ############################# LOGGING #############################
+
+    /** @brief starts the construction: resets the timers and the memory baseline */
+    void start_construction();
+
+    /** @brief limits the number of threads to n / move_r_min_symbols_per_thread */
+    void limit_num_threads();
 
     /**
      * @brief starts a construction phase: resets the phase timer and prints msg (if logging)
      * @param msg message describing the phase
      */
-    void log_phase_start(const std::string& msg) { ::log_phase_start(log, time, msg); }
+    void log_phase_start(const std::string& msg) { ::log_phase_start(params.log, time, msg); }
 
     /**
-     * @brief ends a construction phase: writes the elapsed time to mf_idx under the key mf_key
-     *        (if mf_key is non-empty) and logs the runtime (if logging)
+     * @brief ends a construction phase: writes the elapsed time to measurement_file under the key mf_key and the
+     *        current size of the index under the key live_<mf_key> (if mf_key is non-empty), and logs the
+     *        runtime (if logging)
      * @param mf_key measurement-file key for the elapsed time (empty => not written)
      */
-    void log_phase_end(const std::string& mf_key = "") { ::log_phase_end(log, time, mf_idx, mf_key.empty() ? mf_key : mf_key + mf_suffix); }
+    void log_phase_end(const std::string& mf_key = "");
+
+    // ends a construction phase whose steps log themselves: like log_phase_end, but prints nothing
+    void log_phase_end_quiet(const std::string& mf_key);
 
     /**
-     * @brief ends a move-data-structure construction phase: closes the mf_mds RESULT line,
-     *        writes the elapsed time and the resulting interval count to mf_idx, and prints a newline.
-     *        The move data structure itself logs its own progress, so no runtime is logged here.
+     * @brief ends a phase that stores a data structure to disk or loads it, started with log_phase_start(""): like
+     *        log_phase_end, after logging "<message>: <size>", if bytes >= min_logged_spill_bytes, else like
+     *        log_phase_end_quiet
+     * @param message the message of the phase, e.g. "storing M_Phi to disk"
+     * @param bytes the number of bytes stored or loaded
+     * @param mf_key measurement-file key of the phase
+     */
+    void end_spill_phase(const std::string& message, uint64_t bytes, const std::string& mf_key)
+    {
+        if (params.log && bytes >= min_logged_spill_bytes) {
+            std::cout << message << ": " << format_size(bytes);
+            log_phase_end(mf_key);
+        } else {
+            log_phase_end_quiet(mf_key);
+        }
+    }
+
+    // writes the start of the RESULT line of a move data structure construction to mf_mds (see log_mds_phase_end)
+    void begin_mds_result(const std::string& algo)
+    {
+        if (params.log && params.mf_mds != nullptr) {
+            *params.mf_mds << "RESULT"
+                           << " algo=" << algo
+                           << " text=" << params.text_name
+                           << " num_threads=" << p
+                           << " a=" << idx.a;
+        }
+    }
+
+    /**
+     * @brief ends a move-data-structure construction phase: ends the RESULT line in mf_mds (see begin_mds_result),
+     *        writes the elapsed time, the peak memory usage and the number of intervals to measurement_file, and prints a
+     *        newline
      * @param time_key measurement-file key for the elapsed time
-     * @param count_key measurement-file key for the interval count
+     * @param count_key measurement-file key for the number of intervals
      * @param count number of intervals in the built move data structure
      */
-    void log_mds_phase_end(const std::string& time_key, const std::string& count_key, pos_t count)
-    {
-        if (log) {
-            if (mf_mds != nullptr) *mf_mds << std::endl;
-            if (mf_idx != nullptr)
-                *mf_idx << " " << time_key << mf_suffix << "=" << time_diff_ns(time, now()) << " " << count_key << mf_suffix << "=" << count;
-            std::cout << std::endl;
-        }
-    }
+    void log_mds_phase_end(const std::string& time_key, const std::string& count_key, uint64_t count);
+
+    /** @brief logs the peak memory usage until now, unless this index is part of a larger construction */
+    void log_peak_mem_usage();
+
+    /** @brief logs a construction summary */
+    void log_finished();
+
+    /** @brief logs statistics of T */
+    void log_statistics();
+
+    // ############################# STORING TO / LOADING FROM DISK #############################
 
     /**
-     * @brief logs the current memory usage
+     * @brief writes data structures to the temporary file prefix_tmp_files + ext in a phase of its own
+     * @tparam fnc_t type of write
+     * @param name name of the data structures (for the log message)
+     * @param ext extension of the file
+     * @param mf_key measurement-file key of the phase
+     * @param write called as write(file) with a direct_ofstream; writes the data structures and frees them
      */
-    void log_mem_usage()
+    template <typename fnc_t>
+    void store_to_tmp_file(const std::string& name, const std::string& ext, const std::string& mf_key, fnc_t write)
     {
-        if (!MOVE_R_USE_MALLOC_COUNT) return;
-        std::cout << "current memory allocation: "
-                  << format_size(malloc_count_current() - baseline_mem_usage)
-                  << std::endl;
+        log_phase_start("");
+        const std::string file_name = prefix_tmp_files + ext;
+        direct_ofstream file(file_name);
+        write(file);
+        file.close();
+        drop_from_page_cache(file_name);
+        end_spill_phase("storing " + name + " to disk", std::filesystem::file_size(file_name), mf_key);
     }
 
     /**
-     * @brief logs the peak memory usage until now
+     * @brief reads data structures from the temporary file prefix_tmp_files + ext in a phase of its own (see
+     *        store_to_tmp_file)
+     * @tparam fnc_t type of read
+     * @param name name of the data structures (for the log message)
+     * @param ext extension of the file
+     * @param mf_key measurement-file key of the phase
+     * @param remove_file true <=> the file is deleted afterwards
+     * @param read called as read(file) with a direct_ifstream; reads the data structures
      */
-    void log_peak_mem_usage()
+    template <typename fnc_t>
+    void load_from_tmp_file(const std::string& name, const std::string& ext, const std::string& mf_key,
+        bool remove_file, fnc_t read)
     {
-        if (!MOVE_R_USE_MALLOC_COUNT) return;
-        std::cout << "peak memory allocation until now: "
-                  << format_size(std::max(malloc_count_peak() - baseline_mem_usage, bigbwt_peak_mem_usage))
-                  << std::endl;
+        log_phase_start("");
+        const std::string file_name = prefix_tmp_files + ext;
+        direct_ifstream file(file_name);
+        read(file);
+        file.close();
+        const uint64_t bytes = std::filesystem::file_size(file_name);
+        if (remove_file) std::filesystem::remove(file_name);
+        end_spill_phase("loading " + name + " from disk", bytes, mf_key);
     }
 
     /**
-     * @brief logs a construction summary
+     * @brief stores a data structure to disk or loads it from disk in a separate phase, and logs the number of
+     *        bytes written or read (see end_spill_phase)
+     * @param verb "storing" or "loading"
+     * @param name name of the data structure
+     * @param stream the stream to write to or read from (see direct_ofstream)
+     * @param fnc function that stores or loads the data structure
      */
-    void log_finished()
-    {
-        if (!log) return;
-        uint64_t time_construction = time_diff_ns(time_start, now());
-        uint64_t peak_mem_usage = std::max(malloc_count_peak() - baseline_mem_usage, bigbwt_peak_mem_usage);
+    template <typename stream_t, typename fnc_t>
+    void log_store_or_load(const char* verb, const char* name, stream_t& stream, fnc_t fnc);
 
-        std::cout << std::endl;
-        std::cout << "construction time: " << format_time(time_construction) << std::endl;
-        if (MOVE_R_USE_MALLOC_COUNT)
-            std::cout << "peak memory usage: " << format_size(peak_mem_usage) << std::endl;
-        if (!is_bidirectional) {
-            std::cout << "construction throughput: " << format_construction_throughput(n, time_construction) << std::endl;
-            idx.log_data_structure_sizes();
-        }
+    /** @brief writes the RLBWT to a temporary file and frees it */
+    void store_rlbwt();
 
-        if (mf_idx != nullptr) {
-            *mf_idx << " time_construction" << mf_suffix << "=" << time_construction;
-            *mf_idx << " construction_throughput_mb_per_s" << mf_suffix << "=" << construction_throughput_mb_per_s(n, time_construction);
-            *mf_idx << " peak_mem_usage" << mf_suffix << "=" << peak_mem_usage;
-            idx.log_data_structure_sizes(*mf_idx, mf_suffix);
-        }
-    }
+    /** @brief reads the RLBWT from its temporary file and deletes the file */
+    void load_rlbwt();
+
+    /** @brief writes I_Phi^{-1} to a temporary file and frees it */
+    void store_iphi_inv();
 
     /**
-     * @brief logs statistics of T
+     * @brief reads I_Phi^{-1} from its temporary file
+     * @param remove_file true <=> the file is deleted afterwards
      */
-    void log_statistics()
+    void load_iphi_inv(bool remove_file = true);
+
+    /** @brief writes the run ranks to a temporary file and frees them (see run_ranks) */
+    void store_run_ranks();
+
+    /** @brief writes M_LF to a temporary file and frees it */
+    void store_mlf();
+    /** @brief reads M_LF from its temporary file and deletes the file */
+    void load_mlf();
+    /** @brief writes PSB_L', PSO_L' and L_prev_min to a temporary file and frees them */
+    void store_data_structures_over_l_();
+    /** @brief reads PSB_L', PSO_L' and L_prev_min from their temporary file and deletes the file */
+    void load_data_structures_over_l_();
+
+    // ############################# PREFIX-FREE PARSING #############################
+
+    // returns the path through which the runs file written by the prefix-free parsing is read
+    std::string pfp_output_file() const
     {
-        if (!log) return;
-        double n_r = std::round(100.0 * (n / (double)r)) / 100.0;
-        if (mf_idx != nullptr) {
-            *mf_idx << " n" << mf_suffix << "=" << n;
-            *mf_idx << " sigma" << mf_suffix << "=" << std::to_string(idx.sigma);
-            *mf_idx << " r" << mf_suffix << "=" << r;
-        }
-        std::cout << "n = " << n << ", sigma = " << std::to_string(idx.sigma) << ", r = " << r << ", n/r = " << n_r << std::endl;
+        return uses_pfp_cache() ? pfp_cache_file() : pfp_prefix + pfp_rlbwt::ext_runs;
     }
 
-    // ############################# CONSTRUCTORS #############################
+    /* returns the number of threads that read the SA or the LCP samples of the r runs from the runs file written by
+       the prefix-free parsing: at most one per MiB (2^23 bits) of bit_width(n)-bit samples */
+    uint64_t pfp_reader_threads() const { return std::clamp<uint64_t>((r * uint64_t(std::bit_width(n))) >> 23, 1, p); }
 
-    void read_parameters(move_r_params& params)
-    {
-        idx.sigma = params.alphabet_size;
-        this->p = params.num_threads;
-        this->mode = params.mode;
-        idx.a = params.a;
-        this->log = params.log;
-        this->mf_idx = params.mf_idx;
-        this->mf_mds = params.mf_mds;
-        this->mf_suffix = params.mf_idx_suffix;
-        this->name_text_file = params.name_text_file;
-        this->sa_vector = params.sa_vector;
-        this->sa_file_name = params.sa_file_name;
-    }
+    // returns whether this construction reads the SA samples written by the prefix-free parsing
+    bool reads_pfp_sa_samples() const { return chooses_revert_starts() || builds_SA_samples; }
+
+    // returns whether this construction reads the LCP samples written by the prefix-free parsing
+    bool reads_pfp_lcp_samples() const { return has_mphi; }
 
     /**
-     * @brief constructs a move_r index of the string input
-     * @param index The move-r index to construct
-     * @param T the string containing T
+     * @brief called by each construction step that reads the runs file of the prefix-free parsing, when it has
+     *        read it: after the last one, the file is removed (without a cache)
+     */
+    void release_pfp_output();
+
+    /**
+     * @brief reads the alphabet map that is applied to the bytes of the input file while the prefix-free parsing
+     *        reads it (see move_r_params::pfp_alphabet_map_file)
+     * @return [0..255] the symbol each byte is mapped to (all zero, if there is no map file)
+     */
+    std::array<uint8_t, 256> pfp_alphabet_map() const;
+
+    /**
+     * @brief computes the RLBWT, the SA samples at the run boundaries and the LCP values at the run starts with the
+     *        prefix-free parsing (pfp-rlbwt), or uses the pfp cache
+     */
+    void build_rlbwt_pfp();
+
+    /** @brief builds I_Phi^{-1} from the SA samples written by the prefix-free parsing */
+    void read_iphi_inv_pfp();
+
+    /** @brief reads the LCP values at the run starts written by the prefix-free parsing into LCP_run */
+    void read_lcp_run_pfp();
+
+    /**
+     * @brief reads the table of contents of the cache file and checks that the cache was built for the alphabet map
+     *        of this construction
+     * @return whether the cache can be used (it must store every section this construction reads)
+     */
+    bool read_pfp_cache();
+
+    /**
+     * @brief renames the runs file written by the prefix-free parsing to the cache file
+     * @param output_file the runs file
+     */
+    void write_pfp_cache(const std::string& output_file);
+
+    // ############################# CONSTRUCTOR #############################
+
+    /**
+     * @brief constructs a move_r index of the input
+     * @param index the index to build
+     * @param T view of the container storing T
      * @param delete_T controls whether T should be deleted once it is not needed anymore
-     * @param params construction parameters
+     * @param params_ construction parameters
      */
-    construction(move_r<support, sym_t, pos_t, mlf_enc>& index, std::string& T, bool delete_T, move_r_params params)
-        requires(str_input)
-        : T_str(T)
-        , T_vec(T_vec_tmp)
-        , idx(index)
-        , SA_32(SA_32_tmp)
-        , SA_64(SA_64_tmp)
-        , L(L_tmp)
-    {
-        this->delete_T = delete_T;
-        read_parameters(params);
-        prepare_phase_1();
-        
-        if (params.file_input) {
-            n = std::filesystem::file_size(T) + 1;
-        } else {
-            n = T.size() + 1;
-        }
+    construction(move_r<support, mlf_enc>& index, move_r_input_view& T, bool delete_T,
+        move_r_params params_);
 
-        idx.n = n;
+    // ############################# CONSTRUCTION PHASES #############################
 
-        if (mode == _suffix_array || mode == _suffix_array_space) {
-            min_valid_char = 1;
+    /** @brief builds the index (runs the construction phases in the order of the construction mode) */
+    void build_index();
 
-            if (params.file_input) {
-                read_t_from_file(T);
-            } else {
-                T.push_back(0);
-            }
-            
-            if (idx.sigma == 0) preprocess_t(true, false, T);
-            construct_from_sa();
-
-            if (!delete_T && !params.file_input) {
-                T.resize(n - 1);
-
-                if (!is_bidirectional) {
-                    unmap_t(true);
-                }
-            }
-        } else {
-            min_valid_char = 3;
-            if (params.file_input) prefix_tmp_files = T;
-            if (idx.sigma == 0) preprocess_t(!params.file_input, true, T);
-            if (!params.file_input) store_t_in_file();
-            try {
-                construct_from_bigbwt(!params.file_input);
-            } catch (...) {
-                if (!is_bidirectional && !params.file_input && !delete_T) unmap_t(true);
-                throw;
-            }
-            if (!is_bidirectional) {
-                if (params.file_input) unmap_t(false);
-                else if (!delete_T) unmap_t(true);
-            }
-        }
-
-        log_finished();
-        
-        if (params.peak_memory_usage != nullptr) {
-            *params.peak_memory_usage = std::max({
-                *params.peak_memory_usage,
-                bigbwt_peak_mem_usage,
-                malloc_count_peak() - baseline_mem_usage});
-        }
-    }
+    // sets samples_layout (see sa_samples_layout_t)
+    void choose_sa_samples_layout();
 
     /**
-     * @brief constructs a move_r index of the vector input
-     * @param index The move-r index to construct
-     * @param T the vector containing T
-     * @param alphabet_size alphabet size of the input vector (= maximum value in the input vector)
-     * @param delete_T controls whether T should be deleted once it is not needed anymore
-     * @param params construction parameters
+     * @brief computes the alphabet of T and maps T to the internal symbols
+     * @param T_file_name name of the file containing T (if T is not in memory)
      */
-    construction(move_r<support, sym_t, pos_t, mlf_enc>& index, std::vector<sym_t>& T, bool delete_T, move_r_params params)
-        requires(int_input)
-        : T_str(T_str_tmp)
-        , T_vec(T)
-        , idx(index)
-        , SA_32(SA_32_tmp)
-        , SA_64(SA_64_tmp)
-        , L(L_tmp)
-    {
-        this->delete_T = delete_T;
-        read_parameters(params);
-        prepare_phase_1();
-        // reserve 0 for the suffix-array sentinel: for a byte alphabet preprocess_t remaps the symbols starting
-        // at min_valid_char, so this keeps the smallest input symbol distinct from the sentinel (for an integer
-        // alphabet the symbols are remapped to [1, sigma) regardless, so min_valid_char is not used)
-        min_valid_char = 1;
-        T.push_back(0);
-        n = T.size();
-        idx.n = n;
-        if (idx.sigma == 0) preprocess_t(true, false, "");
-        construct_from_sa();
+    void preprocess_t(const std::string& T_file_name);
 
-        if (!delete_T) {
-            T.resize(n - 1);
-            if (idx.symbols_remapped && !delete_T) unmap_t(true);
-        }
+    /** @brief reads T from a file */
+    void read_t_from_file(const std::string& T_file_name);
 
-        log_finished();
-        
-        if (params.peak_memory_usage != nullptr) {
-            *params.peak_memory_usage = std::max({
-                *params.peak_memory_usage,
-                bigbwt_peak_mem_usage,
-                malloc_count_peak() - baseline_mem_usage});
-        }
-    }
+    /** @brief maps the internal symbols of T back to the input symbols */
+    void unmap_t();
 
-    /**
-     * @brief constructs a move_r index from an input file
-     * @param index The move-r index to construct
-     * @param suffix_array vector containing the suffix array of the input
-     * @param bwt string containing the bwt of the input
-     * @param params construction parameters
-     */
-    construction(move_r<support, sym_t, pos_t, mlf_enc>& index, std::vector<int32_t>& suffix_array, std::string& bwt, move_r_params params)
-        requires(str_input)
-        : T_str(T_str_tmp)
-        , T_vec(T_vec_tmp)
-        , idx(index)
-        , SA_32(suffix_array)
-        , SA_64(SA_64_tmp)
-        , L(bwt)
-    {
-        read_parameters(params);
-        construct_from_sa_and_l<int32_t>();
-    }
+    /** @brief frees int_alphabet */
+    void release_int_alphabet() { int_alphabet.reset(); }
 
-    /**
-     * @brief constructs a move_r index from an input file
-     * @param index The move-r index to construct
-     * @param suffix_array vector containing the suffix array of the input
-     * @param bwt string containing the bwt of the input
-     * @param params construction parameters
-     */
-    construction(move_r<support, sym_t, pos_t, mlf_enc>& index, std::vector<int64_t>& suffix_array, std::string& bwt, move_r_params params)
-        requires(str_input)
-        : T_str(T_str_tmp)
-        , T_vec(T_vec_tmp)
-        , idx(index)
-        , SA_32(SA_32_tmp)
-        , SA_64(suffix_array)
-        , L(bwt)
-    {
-        read_parameters(params);
-        construct_from_sa_and_l<int64_t>();
-    }
+    /** @brief builds the suffix array (uses libsais40) */
+    void build_sa();
 
-    // ############################# CONSTRUCTION #############################
-
-    /**
-     * @brief constructs the index from a suffix array and a bwt
-     * @tparam sa_sint_t signed integer type of the suffix array entries
-     */
-    template <typename sa_sint_t>
-    void construct_from_sa_and_l()
-    {
-        build_sa_and_l = true;
-        min_valid_char = 1;
-        n = L.size();
-        idx.n = n;
-
-        prepare_phase_1();
-        prepare_phase_2();
-
-        if constexpr (byte_alphabet) {
-            if (idx.sigma == 0) {
-                uint8_t max_sym = 0;
-                for (pos_t i = 0; i < n; i++) max_sym = std::max(max_sym, char_to_uchar(L[i]));
-                idx.sigma = (pos_t) max_sym + 1;
-            }
-
-            idx._map_int.resize(256, 0);
-            idx._map_ext.resize(256, 0);
-            for (uint16_t c = 0; c < 256; c++) {
-                idx._map_int[c] = c;
-                idx._map_ext[c] = c;
-            }
-        }
-
-        build_rlbwt_c<_bwt, sa_sint_t>();
-        log_statistics();
-
-        build_ilf();
-        build_mlf();
-
-        if constexpr (supports_locate) {
-            build_iphim1_sas_from_sa<false, sa_sint_t>();
-            build_l__sas();
-        } else {
-            build_l__sas();
-        }
-
-        if constexpr (supports_multiple_locate) {
-            if constexpr (has_locate_move) {
-                if constexpr (support == _locate_move_bi_fwd) {
-                    build_iphi();
-                    sort_iphi();
-                    build_mphi();
-                }
-
-                sort_iphim1();
-                build_mphim1();
-                if constexpr (support == _locate_move) build_saphim1();
-                build_de();
-            } else if constexpr (has_rlzsa) {
-                construct_rlzsa<false, sa_sint_t>();
-            }
-        }
-
-        build_pred_succ_l_();
-
-        log_finished();
-    }
-
-    /**
-     * @brief constructs the index in memory (uses libsais)
-     */
-    void construct_from_sa()
-    {
-        if constexpr (std::is_same_v<pos_t, uint64_t>) {
-            construct_from_sa<int64_t>();
-        } else if (n <= INT_MAX) {
-            construct_from_sa<int32_t>();
-        } else {
-            construct_from_sa<int64_t>();
-        }
-    }
-
-    /**
-     * @brief constructs the index using the suffix array
-     * @tparam sa_sint_t signed integer type to use for the suffix array entries
-     */
-    template <typename sa_sint_t>
-    void construct_from_sa()
-    {
-        bool _space = mode == _suffix_array_space;
-
-        prepare_phase_2();
-        build_sa<sa_sint_t>();
-        build_rlbwt_c<_sa, sa_sint_t>();
-        log_statistics();
-
-        build_ilf();
-        if (_space) store_rlbwt();
-        build_mlf();
-        if (_space) load_rlbwt();
-
-        if constexpr (supports_locate) {
-            if (support == _locate_bi_bwd) {
-                build_sas_from_sa<false, sa_sint_t>();
-            } else {
-                build_iphim1_sas_from_sa<false, sa_sint_t>();
-            }
-
-            build_l__sas();
-
-            if constexpr (supports_multiple_locate) {
-                if constexpr (has_locate_move) {
-                    if (_space) store_sas();
-                    build_pred_succ_l_();
-                    if (_space) {
-                        if constexpr (byte_alphabet) store_pred_succ_l_();
-                        else store_rsl_();
-                    }
-                    if (_space) store_mlf();
-                    if constexpr (support == _locate_move_bi_fwd) {
-                        build_iphi();
-                        if (_space) store_iphim1();
-                        sort_iphi();
-                        build_mphi();
-                        if (_space) store_mphi();
-                        if (_space) load_iphim1();
-                    }
-                    sort_iphim1();
-                    build_mphim1();
-                    if (_space) load_sas();
-                    if (!is_bidirectional) build_saphim1();
-                    build_de();
-                    if (_space) {
-                        load_mlf();
-                        if constexpr (support == _locate_move_bi_fwd) load_mphi();
-                        if constexpr (byte_alphabet) load_pred_succ_l_();
-                        else load_rsl_();
-                    }
-                } else if constexpr (has_rlzsa) {
-                    if (_space && support != _locate_bi_bwd) {
-                        store_sas_idx();
-                        if (is_bidirectional) store_sas__idx();
-                    }
-                    build_pred_succ_l_();
-                    if (_space) {
-                        if constexpr (byte_alphabet) store_pred_succ_l_();
-                        else store_rsl_();
-                    }
-                    if (_space) store_mlf();
-
-                    sort_iphim1();
-                    construct_rlzsa<false, sa_sint_t>();
-
-                    if (_space) {
-                        load_sas_idx();
-                        if (is_bidirectional) load_sas__idx();
-                    }
-                    if (_space) load_mlf();
-                    if (_space) {
-                        if constexpr (byte_alphabet) load_pred_succ_l_();
-                        else load_rsl_();
-                    }
-                } else if constexpr (support == _locate_bi_bwd) {
-                    build_pred_succ_l_();
-                }
-
-                if constexpr (support == _locate_move_bi_fwd || support == _locate_rlzsa_bi_fwd) {
-                    *reinterpret_cast<std::vector<sa_sint_t>*>(sa_vector) = std::move(get_sa<sa_sint_t>());
-                }
-            } else {
-                build_pred_succ_l_();
-            }
-        } else {
-            build_l__sas();
-            build_pred_succ_l_();
-        }
-
-        if constexpr (int_alphabet) {
-            if (idx.symbols_remapped && mode == _suffix_array_space)
-                load_mapintext();
-        }
-    }
-
-    /**
-     * @brief constructs the index from a file using Big-BWT
-     * @param delete_T delete T file
-     */
-    void construct_from_bigbwt(bool delete_T)
-    {
-        prepare_phase_2();
-        bigbwt(delete_T);
-        build_rlbwt_c<_bwt_file, int32_t>();
-        log_statistics();
-
-        build_ilf();
-        store_rlbwt();
-        build_mlf();
-        load_rlbwt();
-
-        if constexpr (supports_locate) {
-            if constexpr (bigbwt_full_sa) {
-                if (support == _locate_bi_bwd) {
-                    build_sas_from_sa<true, int32_t>();
-                } else {
-                    build_iphim1_sas_from_sa<true, int32_t>();
-                }
-            } else {
-                read_iphim1_bigbwt();
-            }
-
-            build_l__sas();
-
-            if constexpr (supports_multiple_locate) {
-                if constexpr (has_locate_move) {
-                    store_sas();
-                    build_pred_succ_l_();
-                    store_mlf();
-                    store_pred_succ_l_();
-
-                    if constexpr (support == _locate_move_bi_fwd) {
-                        build_iphi();
-                        store_iphim1();
-                        sort_iphi();
-                        build_mphi();
-                        store_mphi();
-                        load_iphim1();
-                    }
-
-                    sort_iphim1();
-                    build_mphim1();
-                    load_sas();
-                    if constexpr (support == _locate_move) build_saphim1();
-                    build_de();
-                    load_mlf();
-                    if constexpr (support == _locate_move_bi_fwd) load_mphi();
-                    load_pred_succ_l_();
-                } else if constexpr (has_rlzsa) {
-                    store_sas_idx();
-                    if (is_bidirectional) store_sas__idx();
-                    build_pred_succ_l_();
-                    store_pred_succ_l_();
-                    store_mlf();
-
-                    sort_iphim1();
-                    construct_rlzsa<true, int32_t>();
-
-                    load_mlf();
-                    load_pred_succ_l_();
-                    load_sas_idx();
-                    if (is_bidirectional) load_sas__idx();
-                } else if constexpr (support == _locate_bi_bwd) {
-                    build_pred_succ_l_();
-                }
-            } else {
-                build_pred_succ_l_();
-            }
-
-            if (has_rlzsa || p > 1 || is_bidirectional) {
-                SA_file_bufs.clear();
-                SA_file_bufs.shrink_to_fit();
-
-                if constexpr (support == _locate_move_bi_fwd || support == _locate_rlzsa_bi_fwd) {
-                    *sa_file_name = prefix_tmp_files + ".sa";
-                } else {
-                    std::filesystem::remove(prefix_tmp_files + ".sa");
-                }
-            }
-        } else {
-            build_l__sas();
-            build_pred_succ_l_();
-        }
-    };
-
-    // ############################# COMMON CONSTRUCTION METHODS #############################
-
-    /**
-     * @brief reads the input T and possibly remaps it to an internal alphabet, if it contains an invalid character
-     * @param in_memory controls, whether the input should be processed in memory or read buffered from a file
-     * @param bigbwt true <=> remap to a dense alphabet and make sure '\n' does not occur in the input
-     * @param T_file_name name of the file containing T (for in_memory = false)
-     */
-    void preprocess_t(bool in_memory, bool bigbwt, const std::string& T_file_name);
-
-    /**
-     * @brief builds the RLBWT and C
-     * @tparam mode determines how the BWT is read
-     * @tparam sa_sint_t suffix array signed integer type
-     */
-    template <rlbwt_build_mode mode, typename sa_sint_t>
+    /** @brief builds the RLBWT and C */
     void build_rlbwt_c();
 
-    /**
-     * @brief processes the C-array
-     */
-    void process_c();
+    /** @brief turns the numbers of occurrences of the symbols in the sections in C into the ranks and the C-array (see C) */
+    void compute_C();
 
-    /**
-     * @brief builds I_LF
-     */
+    /** @brief frees the RLBWT */
+    void release_rlbwt()
+    {
+        RLBWT.clear();
+        RLBWT.shrink_to_fit();
+    }
+
+    /** @brief builds I_LF and I_LF_sym from the RLBWT */
     void build_ilf();
 
+    // returns whether the index stores revert starts (see move_r::_revert_starts)
+    bool chooses_revert_starts() const { return params.revert_start_samples != 0; }
+
     /**
-     * @brief builds M_LF
+     * @brief chooses the revert starts (see move_r::_revert_starts) from I_LF and the SA values at the run starts
+     *        (from sa or from the output of the prefix-free parsing)
      */
+    void choose_revert_starts();
+
+    /** @brief builds M_LF */
     void build_mlf();
 
-    /**
-     * @brief builds SA_s and SA_e from SA
-     * @tparam bigbwt true <=> read I_Phi from the SA file output by Big-BWT
-     * @tparam sa_sint_t suffix array signed integer type
-     */
-    template <bool bigbwt, typename sa_sint_t>
-    void build_sas_from_sa();
+    /** @brief builds SA_run from the suffix array */
+    void build_sa_run_from_sa();
+
+    /** @brief builds I_Phi^{-1} (and SA_run) from the suffix array */
+    void build_iphi_inv_from_sa();
+
+    /** @brief builds SA_run from I_Phi^{-1} (if the RLBWT was read from a file) and frees the RLBWT */
+    void build_SA_run_from_iphi_inv();
+
+    /** @brief computes the LCP values at the run starts by comparing suffixes of T (see LCP_run) */
+    void build_plcp_run();
 
     /**
-     * @brief builds I_Phi^{m1} and SA_s and SA_e from SA
-     * @tparam bigbwt true <=> read I_Phi from the SA file output by Big-BWT
-     * @tparam sa_sint_t suffix array signed integer type
-     */
-    template <bool bigbwt, typename sa_sint_t>
-    void build_iphim1_sas_from_sa();
-
-    /**
-     * @brief builds L' in M_LF (and SA_s)
-     */
-    void build_l__sas();
-
-    /**
-     * @brief builds I_Phi
+     * @brief builds I_Phi from I_Phi^{-1}; if LCP_run is not empty, the second component of each pair is the
+     *        index of its run (sort_iphi replaces it)
      */
     void build_iphi();
 
-    /**
-     * @brief sorts I_Phi^{-1}
-     */
-    void sort_iphim1();
-
-    /**
-     * @brief sorts I_Phi
-     */
+    /** @brief sorts I_Phi by the first components and builds plcp_pair from LCP_run (if LCP_run is not empty) */
     void sort_iphi();
 
     /**
-     * @brief builds M_Phi^{-1}
+     * @brief sorts I_Phi^{-1} by the first components, and computes the run ranks, if the samples are stored as
+     *        input intervals of M_Phi^{-1} (see run_ranks)
      */
-    void build_mphim1();
+    void sort_iphi_inv();
 
-    /**
-     * @brief builds M_Phi
-     */
+    /** @brief builds M_Phi^{-1} */
+    void build_mphi_inv();
+
+    /** @brief builds M_Phi */
     void build_mphi();
 
-    /**
-     * @brief builds SA_Phi^{-1}
-     */
-    void build_saphim1();
+    /** @brief builds SA_Phi^{-1} from the run ranks and phi_inv_first_intervals (see run_ranks) */
+    void build_SA_Phi_inv();
 
     /**
-     * @brief builds D_e
+     * @brief builds the rlz of the differential suffix array; unless SA is in memory, it builds a temporary
+     *        M_Phi^{-1} first (see SA_rlz_reader)
      */
-    void build_de();
+    void build_SA_rlz() requires(has_SA_rlz);
 
-    // builds the character predecessor/successor support _RS_L_ over L'
-    void build_pred_succ_l_();
-
-    /**
-     * @brief stores the RLBWT to disk
-     */
-    void store_rlbwt();
-
-    /**
-     * @brief loads the RLBWT from disk
-     */
-    void load_rlbwt();
-
-    /**
-     * @brief stores M_LF to disk
-     */
-    void store_mlf();
-
-    /**
-     * @brief loads M_LF from disk
-     */
-    void load_mlf();
-
-    /**
-     * @brief stores I_Phi^{-1} to disk
-     */
-    void store_iphim1();
-
-    /**
-     * @brief loads I_Phi^{-1} from disk
-     */
-    void load_iphim1();
-
-    /**
-     * @brief stores M_LF to disk
-     */
-    void store_mphi();
-
-    /**
-     * @brief loads M_LF from disk
-     */
-    void load_mphi();
-
-    /**
-     * @brief stores SA_s to disk
-     */
-    void store_sas();
-
-    /**
-     * @brief loads SA_s from disk
-     */
-    void load_sas();
-
-    /**
-     * @brief stores SA_s to disk
-     */
-    void store_sas_idx();
-
-    /**
-     * @brief loads SA_s from disk
-     */
-    void load_sas_idx();
-
-    /**
-     * @brief stores SA_e to disk
-     */
-    void store_sas__idx();
-
-    /**
-     * @brief loads SA_e from disk
-     */
-    void load_sas__idx();
-
-    /**
-     * @brief stores RS_L' to disk
-     */
-    void store_rsl_();
-
-    /**
-     * @brief stores L_prev and L_next to disk
-     */
-    void store_pred_succ_l_();
-
-    /**
-     * @brief loads RS_L' from disk
-     */
-    void load_rsl_();
-
-    /**
-     * @brief loads RS_L' from disk
-     */
-    void load_pred_succ_l_();
-    
-    /**
-     * @brief reads I_Phi^{-1}
-     */
-    void read_iphim1_bigbwt();
-
-    // ############################# IN-MEMORY CONSTRUCTION METHODS #############################
-
-    /**
-     * @brief reads T from t_file
-     * @param T_file_name name of the file containing T
-     */
-    void read_t_from_file(std::string& T_file_name);
-
-    /**
-     * @brief builds the suffix array
-     * @tparam sa_sint_t suffix array signed integer type
-     */
-    template <typename sa_sint_t>
-    void build_sa();
-
-    /**
-     * @brief unmaps T from the internal alphabet
-     * @param in_memory unmaps T in memory
-     */
-    void unmap_t(bool in_memory);
-
-    /**
-     * @brief stores map_int and map_ext to disk
-     */
-    void store_mapintext();
-
-    /**
-     * @brief loads map_int and map_ext from disk
-     */
-    void load_mapintext();
-
-    // ############################# Big-BWT CONSTRUCTION METHODS #############################
-
-    /**
-     * @brief preprocesses T and stores it in a file
-     */
-    void store_t_in_file();
-
-    /**
-     * @brief computes the BWT (and suffix array samples) using Big-BWT
-     * @param delete_T delete T file
-     */
-    void bigbwt(bool delete_T);
+    /** @brief builds the data structures over L' (depending on the supported queries and on sigma) */
+    void build_data_structures_over_l_();
 };
 
-#include "common.tpp"
-#include "bigbwt.tpp"
+// the definitions are omitted in translation units that only need the declarations (see instantiations.hpp)
+#ifndef MOVE_R_DECLARATIONS_ONLY
+#include "build_index.tpp"
+#include "preprocess.tpp"
+#include "pfp.tpp"
 #include "rlbwt.tpp"
 #include "move_lf.tpp"
 #include "move_phi.tpp"
-#include <rlzsa_opt/construction.hpp>
-#include <rlzsa_opt/construction.tpp>
-#include "suffix_array.tpp"
+#include <rlz_ref/construction/construction.hpp>
+#include "sa_rlz.tpp"
 #include "load_store.tpp"
+#endif
+
+#endif // MOVE_R_MOVE_R_CONSTRUCTION_CONSTRUCTION_HPP

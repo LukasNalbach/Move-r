@@ -1,0 +1,59 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b0aaadb..e2cf0a0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-cmake_minimum_required(VERSION 3.7)
++cmake_minimum_required(VERSION 3.10)
+ 
+ project(grlBWT)
+ set(CMAKE_CXX_STANDARD 17)
+diff --git a/main.cpp b/main.cpp
+index 71511f9..fefdf1e 100644
+--- a/main.cpp
++++ b/main.cpp
+@@ -3,7 +3,7 @@
+ #include "CLI11.hpp"
+ #include "utils.h"
+ #include "grl_bwt.hpp"
+-//#include "fastx_handler.h"
++#include "fastx_handler.h"
+ 
+ struct arguments{
+     std::string input_file;
+@@ -59,9 +59,10 @@ static void parse_app(CLI::App& app, struct arguments& args){
+     app.add_option("-t,--threads",
+                       args.n_threads,
+                       "Maximum number of working threads")->default_val(1);
+-    app.add_option("-f,--hbuff",
++    /*app.add_option("-f,--hbuff",
+                       args.hbuff_frac,
+-                      "Hashing step will use at most INPUT_SIZE*f bytes. O means no limit (def. 0.5)")->check(CLI::Range(0.0,1.0))->default_val(0.15);
++                      "Hashing step will use at most INPUT_SIZE*f bytes. O means no limit (def. 0.5)")->
++            check(CLI::Range(0.0,1.0))->default_val(0.15);*/
+     app.add_option("-b,--run-len-bytes",
+                    args.b_f_r,
+                    "Max. number of bytes to encode the run lengths in the recursive BWTs (def. 1)")->
+@@ -74,7 +75,8 @@ static void parse_app(CLI::App& app, struct arguments& args){
+                  args.ver, "Print the software version and exit");
+     //app.add_flag("-R,--rev-comp", args.rev_comp, "Also consider the DNA reverse complements of the strings in TEXT");
+     //app.add_flag("-m,--min-bwt", args.opt_bwt, "Produce the optimal BCR BWT instead of the regular one");
+-    //app.footer("Report bugs to <diego.diaz@helsinki.fi>");
++
++    app.footer("Report bugs to <diego.diaz@helsinki.fi>");
+ }
+ 
+ template<class sym_type>
+diff --git a/scripts/grlbwt2rle.cpp b/scripts/grlbwt2rle.cpp
+index b115166..cd39580 100644
+--- a/scripts/grlbwt2rle.cpp
++++ b/scripts/grlbwt2rle.cpp
+@@ -5,6 +5,8 @@
+ #include<bwt_io.h>
+ #include<file_streams.hpp>
+ 
++#include "malloc_count.h"
++
+ int main(int argc, char** argv) {
+ 
+     if (argc != 3) {
