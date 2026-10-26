@@ -62,23 +62,23 @@ void print_help(std::ostream& out)
     h.intro("move-rb build: builds a bidirectional index of a text, which extends a pattern in both directions.",
         "move-rb build [options] <input_file>...");
     h.group("arguments");
-    h.option("<input_file>...", "", "the text; with -f one or more FASTA files, which are concatenated");
+    h.option("<input_file>...", "", "the text; in the FASTA mode one or more FASTA files, which are concatenated");
+    h.group("input");
+    print_fasta_options(h, "FASTA mode: strip the header lines, replace each run of symbols outside the alphabet of "
+        "-A with one separator symbol, which cannot be matched, and store the names and boundaries of the sequences "
+        "(for SAM and PAF output)");
+    h.option("-keep-order", "", "map the symbols in their order in the input (default: by decreasing frequency); "
+        "then the extract modes write the suffix arrays and BWTs in the lexicographic order of the input");
     h.group("what is stored");
     h.option("-s <support>", "count | locate-one | locate-move | locate-rlzsa (default: locate-move)",
         "count: counting\n"
         "locate-one: one occurrence of a pattern\n"
         "locate-move: all occurrences, with the suffix array in move data structures\n"
         "locate-rlzsa: all occurrences, with the suffix array compressed with relative Lempel-Ziv");
-    h.option("-context-table <share>", "real >= 0 (default: " + help_value(move_r_params().context_table_share) + ")",
+    h.option("-context-table <share>", "number >= 0 (default: " + help_value(move_r_params().context_table_share) + ")",
         "the maximum size of the table of the suffix-array intervals of short patterns, as a share of the size of "
         "the index file; 0: no table");
     h.option("-context-table-one-length", "", "store the table for one pattern length only");
-    h.group("input");
-    print_fasta_options(h, "FASTA mode: strip the headers, replace each run of bases not in the alphabet of -A with "
-        "one separator symbol, which cannot be matched, and store the names and boundaries of the sequences (for SAM "
-        "and PAF output)");
-    h.option("-keep-order", "", "map the symbols in their order in the input (default: by decreasing frequency); "
-        "then the extract modes write the suffix arrays and BWTs in the lexicographic order of the input");
     h.group("output");
     h.option("-o <base_name>", "a path (default: <input_file>)", "the index is written to "
         "<base_name>.move-rb-<support>, with <support> = count, locate-one, locate (for -s locate-move) or rlzsa");
@@ -120,7 +120,7 @@ template <move_r_support support>
 void build()
 {
     fasta_cli_t fasta(cli);
-    fasta.scan();
+    fasta.scan(true);
 
     move_rb<support> index = build_with_fallback(cli.mode, cli.construction_mode_given, fasta.input_length(),
         [&](move_r_construction_mode construction_mode) {
@@ -144,6 +144,8 @@ void build()
         });
     });
 
+    fasta.finish_scan();
+
     if (cli.fasta_mode) {
         // stores the names and the boundaries of the FASTA sequences (for SAM, BED and PAF output)
         index.set_fasta_sequence_data(std::move(fasta.data));
@@ -163,7 +165,7 @@ int move_rb_build(int argc, char** argv)
         read_input_files(args, cli);
 
         cli.path_index_file = move_rb_index_file_name(cli.index_base_name, cli.support);
-        begin_build(cli, "the move-rb index", "support " + move_r_support_option_name(cli.support) + ", a = "
+        begin_build(cli, "the move-rb index", "s = " + move_r_support_option_name(cli.support) + ", balance = "
             + std::to_string(cli.balancing_parameter));
 
         // the RESULT line of the measurement file; the construction appends its measurements to it

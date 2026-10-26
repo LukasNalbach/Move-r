@@ -139,6 +139,10 @@ enum move_r_construction_mode {
     _suffix_array_space // builds the suffix array and stores some data structures on disk
 };
 
+// returns whether a construction mode builds the RLBWT and the samples into a runs file (see pfp_rlbwt::ext_runs)
+// instead of from the suffix array
+inline constexpr bool move_r_builds_runs_file(move_r_construction_mode mode) { return mode == _pfp; }
+
 // ############################# PARAMETERS OF THE DATA STRUCTURES OVER L' #############################
 
 // maximum alphabet size for which the smaller symbols in a range of L' are counted with PSB_L', the byte alphabet; for
@@ -180,12 +184,15 @@ inline uint64_t L_prev_min_max_symbols(uint64_t sigma, uint64_t width)
     return std::min<uint64_t>(width / 2, sigma / 128);
 }
 
+// the result of a scan of FASTA files (see misc/fasta.hpp)
+struct fasta_scan_t;
+
 /**
  * @brief parameters for building the index of the text described by a FASTA file; each header line and each
  *        run of symbols outside the allowed alphabet is replaced by one separator (see pfp_rlbwt::fasta_transform)
  */
 struct fasta_input_t {
-    uint64_t text_len = 0; // length of the text (0 <=> the input is not a FASTA file)
+    uint64_t text_len = 0; // length of the text (0 <=> the input is not a FASTA file or it is read once, see read_once)
     // [0..255] number of occurrences of each byte in the text (nullptr: they are read from the pfp cache,
     // which then stores the sequences, see pfp_cache_fasta_section)
     const uint64_t* byte_freqs = nullptr;
@@ -197,6 +204,10 @@ struct fasta_input_t {
     uint64_t num_index_samples = 0; // number of samples in index_samples
     // the sequences of the FASTA file; stored in a pfp cache (see pfp_cache_fasta_section)
     const fasta_sequence_data* sequences = nullptr;
+    /* if not nullptr, the FASTA file has not been scanned: the prefix-free parsing reads it once (see
+       pfp_rlbwt::fasta_ranges; only the mode pfp) and stores the length, the symbol frequencies, the samples and the
+       sequences of its text here, and text_len, byte_freqs, index_samples and sequences are set from them */
+    fasta_scan_t* read_once = nullptr;
 };
 
 // log_data_structures of move_r and move_rb prints the arrays only for inputs up to this length (debugging)
@@ -592,13 +603,13 @@ public:
      * @param input_file file the index is built from
      * @param mode construction mode
      * @param reversed whether the index of the reversed input is built (see move_r_params)
-     * @return input_file + ".bwt-runs" (or ".bwt-runs-rev" if reversed); empty if mode != _pfp or
+     * @return input_file + ".bwt-runs" (or ".bwt-runs-rev" if reversed); empty if the mode writes no runs file or
      *         input_file is empty
      */
     static std::string pfp_cache_path(const std::string& input_file, move_r_construction_mode mode,
         bool reversed = false)
     {
-        if (mode != _pfp || input_file.empty()) return "";
+        if (!move_r_builds_runs_file(mode) || input_file.empty()) return "";
         return input_file + pfp_rlbwt::ext_runs + (reversed ? "-rev" : "");
     }
 

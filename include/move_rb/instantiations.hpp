@@ -58,6 +58,8 @@
     MOVE_R_MOVE_RB_BUILD_STEP(prefix, build_byte_alphabet, __VA_ARGS__) \
     MOVE_R_MOVE_RB_BUILD_STEP(prefix, build_integer_alphabet, __VA_ARGS__) \
     MOVE_R_MOVE_RB_BUILD_STEP(prefix, build_sub_indexes, __VA_ARGS__) \
+    prefix template void move_rb<__VA_ARGS__>::take_fasta_read_once(move_rb<__VA_ARGS__>::build_state_t&, \
+        move_r_params&); \
     MOVE_R_MOVE_RB_BUILD_STEP(prefix, load_forward_index, __VA_ARGS__) \
     MOVE_R_MOVE_RB_BUILD_STEP(prefix, build_SA_pos, __VA_ARGS__) \
     MOVE_R_MOVE_RB_BUILD_STEP(prefix, restore_input, __VA_ARGS__) \

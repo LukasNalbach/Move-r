@@ -77,7 +77,7 @@ void print_info(const move_rb<support>& index, uint64_t index_bytes)
     facts.add("support: " + move_r_support_option_name(support));
     index.add_parameters(facts);
     facts.add(alphabet_description(index.forward_index().byte_alphabet, index.forward_index().alphabet_in_input_order()));
-    print_index_info(facts, "index", index_bytes, index.input_size() + 1, [&] { index.log_data_structure_sizes(); },
+    print_index_info(facts, "index", index_bytes, index.input_size(), [&] { index.log_data_structure_sizes(); },
         modes);
 }
 

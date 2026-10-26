@@ -105,7 +105,7 @@ void print_help(std::ostream& out)
         + std::to_string(defaults.a) + ")", "the balancing parameter of the move data structures");
     h.option("-rlz-ref <len>", "integer >= 0 (default: " + std::to_string(defaults.rlz_max_reference_len)
         + ", chosen by the construction)", "sa_rlz: the number of values of SA^d in the reference");
-    h.option("-context-table <share>", "real >= 0 (default: " + help_value(defaults.context_table_share) + ")",
+    h.option("-context-table <share>", "number >= 0 (default: " + help_value(defaults.context_table_share) + ")",
         "move-rb and context_tables: the maximum size of the context tables as a share of the size of the index");
     h.option("-context-table-one-length", "", "move-rb and context_tables: store the context tables for one pattern "
         "length only");
@@ -193,7 +193,7 @@ void print_fact(const std::string& name, uint64_t value) { std::cout << name << 
 void print_sa_rlz()
 {
     move_r<_locate_rlzsa> index(cli.input, index_params());
-    print_fact("n", index.input_size() + 1);
+    print_fact("n", index.input_size());
     index.SA_rlz().log_data_structures();
 }
 
@@ -202,7 +202,7 @@ void print_mds()
 {
     const std::vector<std::pair<uint64_t, uint64_t>> intervals = parse_intervals(cli.input);
     if (intervals.empty()) throw std::runtime_error("the interval sequence is empty");
-    if (cli.mds_n == 0) throw usage_error("mds requires -n <n>");
+    if (cli.mds_n == 0) throw usage_error("mds needs -n <n>");
     uint64_t max_value = cli.mds_n;
     for (const auto& [p_i, q_i] : intervals) max_value = std::max({ max_value, p_i, q_i });
     mds_pairs pairs(intervals.size(), max_value);

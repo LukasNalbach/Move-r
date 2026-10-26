@@ -46,7 +46,8 @@ move_rb<support>::move_rb(inp_t_& input, move_r_params params, bool log_summary)
             throw std::invalid_argument(
                 "move_rb: an alphabet wider than a byte has to be constructed from memory");
         }
-        // for a FASTA file, the length of the text was computed by scan_fasta
+        /* for a FASTA file, the length of the text was computed by scan_fasta; a FASTA file read once is at most as long
+           as the file until the forward index has been built (see take_fasta_read_once) */
         n = params.fasta.text_len != 0 ? params.fasta.text_len + 1
                                         : std::filesystem::file_size(params.input_file) + 1;
 

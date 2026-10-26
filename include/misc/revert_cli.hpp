@@ -178,7 +178,7 @@ void revert_index(direct_ifstream& index_file, direct_ofstream& output_file, rev
                 ("text", cli.text_name)
                 ("n", length)
                 ("num_threads", cli.num_threads)
-                ("reversed", int(cli.reversed))
+                ("reversed", cli.reversed)
                 ("time_revert", time_revert);
             index.log_data_structure_sizes(cli.mf);
         }

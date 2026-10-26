@@ -395,6 +395,9 @@ protected:
     void build_integer_alphabet(build_state_t& st);
     // builds idx_fwd and idx_bwd; idx_fwd is stored on disk meanwhile in the modes _pfp and _suffix_array_space
     void build_sub_indexes(build_state_t& st);
+    /* takes the length of the text and the alphabet map of a FASTA file that the forward index has read once (see
+       fasta_input_t::read_once) and sets the parameters of the backward index (sub_params) to read T^R with them */
+    void take_fasta_read_once(build_state_t& st, move_r_params& sub_params);
     // builds the sd-arrays sampling the input interval starting positions of the move data structures of a direction
     template <direction_t dir> void build_samplings(build_state_t& st);
     // loads idx_fwd from disk, if it is stored there

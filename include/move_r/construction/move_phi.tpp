@@ -294,6 +294,7 @@ void move_r<support, mlf_enc>::construction::build_plcp_run()
     LCP_run = interleaved_bit_aligned_vectors({ uint8_t(std::bit_width(n)) });
     LCP_run.resize_no_init(r, p);
     uint64_t max_val = 0;
+    phase_progress prog(params.log, r);
 
     #pragma omp parallel for num_threads(p) schedule(dynamic, 1024) reduction(max : max_val)
     for (uint64_t x = 0; x < r; x++) {
@@ -302,7 +303,10 @@ void move_r<support, mlf_enc>::construction::build_plcp_run()
         const uint64_t value = text_lce<RIGHT>(text, sym_width, i, j, (n - 1) - std::max(i, j));
         LCP_run.template set_parallel<0, uint64_t>(x, value);
         max_val = std::max(max_val, value);
+        prog.at(x);
     }
+
+    prog.finish();
 
     // the maximum value in LCP_run is the maximum PLCP value, which determines the width of the PLCP rows
     idx._plcp_row_width = std::max<uint8_t>(1, std::bit_width(max_val));

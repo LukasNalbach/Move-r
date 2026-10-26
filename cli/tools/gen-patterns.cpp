@@ -70,7 +70,7 @@ void print_help(std::ostream& out)
     h.option("<number>", "integer >= 1", "the number of patterns");
     h.option("<patterns_file>", "", "the file the patterns are written to");
     h.option("<forbidden>", "a string (default: empty)", "the bytes no pattern contains");
-    h.group("options");
+    h.group("what is computed");
     h.option("-seed <seed>", "integer in [0, " + std::to_string(std::numeric_limits<uint32_t>::max()) + "] (default: "
         + std::to_string(defaults.seed) + ")", "the seed of the random number generator (0: a random seed)");
     h.text("The patterns file starts with the line \"# number=<number> length=<length> file=<file> "

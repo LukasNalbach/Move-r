@@ -57,7 +57,7 @@ namespace {
 struct query_cli_t {
     bool locate = false; // true <=> move-r locate
     std::string query_name; // count or locate
-    query_options_t options; // -p, -o, -m; options.reverse_complements is cleared by -no-rc
+    query_options_t options; // -p, -o, -m; options.reverse_complements is set by -rc
     std::string path_index_file;
     std::string path_patterns_file; // empty <=> the patterns are read from stdin interactively
     std::string path_sam_file; // -sam
@@ -92,8 +92,8 @@ void print_help(std::ostream& out)
 
     if (cli.locate) {
         h.group("input");
-        h.option("-no-rc", "", "with -sam or -bed: do not search the reverse complement of each pattern (by default it "
-            "is searched, and its occurrences get the strand '-')");
+        print_reverse_complements_option(h, true, "with -sam or -bed: also search the reverse complement of each "
+            "pattern; its occurrences get the strand '-'");
     }
 
     h.group("output");
@@ -101,8 +101,8 @@ void print_help(std::ostream& out)
         (cli.locate ? ", followed by the occurrences in ascending order" : ""));
 
     if (cli.locate) {
-        h.option("-sam <file>", "a path", "write the occurrences in SAM format (index built from FASTA with move-r "
-            "build -f); each occurrence is an exact alignment (CIGAR <m>=)");
+        h.option("-sam <file>", "a path", "write the occurrences in SAM format (index built with move-r build in "
+            "the FASTA mode); each occurrence is an exact alignment (CIGAR <m>=)");
         h.option("-bed <file>", "a path", "write the occurrences in BED format (0-based half-open intervals; index "
             "built from FASTA)");
     }
@@ -151,7 +151,7 @@ void run_queries(const move_r<support>& index)
     const fasta_sequence_data& sequences = index.seq_data();
 
     if ((sam_output || bed_output) && !sequences.has_sequences())
-        throw std::runtime_error("-sam and -bed require an index built from FASTA with move-r build -f");
+        throw std::runtime_error("-sam and -bed need an index built with move-r build in the FASTA mode");
 
     pattern_reader patterns(cli.path_patterns_file);
     require_readable(patterns, cli.path_patterns_file);
@@ -276,8 +276,8 @@ void run_queries(const move_r<support>& index)
                 ("pattern_length", num_symbols / num_patterns)
                 ("num_patterns", num_patterns)
                 ("num_occurrences", num_occurrences)
-                (cli.locate ? "time_locate" : "time_count", time_query)
-                ("threads", cli.options.threads)
+                ("time_query", time_query)
+                ("num_threads", cli.options.threads)
                 ("time_wall", totals.time_wall);
             index.log_data_structure_sizes(measurement_file);
         }
@@ -294,7 +294,7 @@ void run_queries(const move_r<support>& index)
 template <move_r_support support>
 void run_interactive_queries(const move_r<support>& index)
 {
-    const std::string intro = "n = " + format_number(index.input_size() + 1) + ", r = "
+    const std::string intro = "n = " + format_number(index.input_size()) + ", r = "
         + format_number(index.num_bwt_runs()) + ", index size " + format_size(index.size_in_bytes())
         + "; enter one pattern per line ('quit' exits"
         + (cli.locate ? ", 'limit <n>' prints at most n occurrences per pattern)" : ")");
@@ -348,8 +348,8 @@ int run_query(int argc, char** argv, bool locate)
                 cli.path_sam_file = args.value(s);
             } else if (s == "-bed" && locate) {
                 cli.path_bed_file = args.value(s);
-            } else if (s == "-no-rc" && locate) {
-                cli.options.reverse_complements = false;
+            } else if (s == "-rc" && locate) {
+                cli.options.reverse_complements = read_on_off(args, s);
             } else {
                 throw unknown_option(s);
             }

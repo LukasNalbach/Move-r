@@ -94,8 +94,10 @@ which is copied next to them. Blocks of at least 4 MiB are allocated in large pa
 
 `move-r` and `move-rb` have one mode per operation: `<tool>` lists the modes, `<tool> <mode> -h` prints the options of
 a mode. A build mode writes the index to `<input_file>.<tool>[-<support>]` (`-o` sets another base
-name); with `-f`, the input is read as FASTA (one or more files). Patterns are read in the Pizza&Chili format, as FASTA,
-FASTQ or one per line, or from stdin. The query modes run on all available threads (`-p` sets their number).
+name); with `-fasta on` (or `auto`, the default, for files that start like FASTA files), the input is read as FASTA
+(one or more files). Patterns are read in the Pizza&Chili format, as FASTA, FASTQ or one per line, or from stdin. The
+query modes run on all available threads (`-p` sets their number); `-m <file> <name>` appends `RESULT key=value ...`
+lines to a file.
 Temporary files are written to the directory `MOVE_R_TMPDIR` (default: the temporary directory of the system).
 
 ### move-r
@@ -114,7 +116,7 @@ Temporary files are written to the directory `MOVE_R_TMPDIR` (default: the tempo
 
 - **build**: builds a move-rb index; `-s` selects the support (`count`, `locate-one`, `locate-move` or
   `locate-rlzsa`), `-context-table` the share of the index size used for the search contexts of short patterns.
-  `move-rb build -f -s locate-move genome.fa`
+  `move-rb build -s locate-move genome.fa`
 - **count**, **locate**: count or locate the occurrences of patterns with at most `-k` errors (`-d hamming` or
   `-d edit`, with a search scheme `-scheme`); `locate -sam` and `-paf` align reads against a FASTA index. Without a
   patterns file, the patterns are read interactively.
@@ -128,7 +130,7 @@ Temporary files are written to the directory `MOVE_R_TMPDIR` (default: the tempo
 - **gen-patterns**: extracts random substrings of a file as a Pizza&Chili patterns file.
   `gen-patterns text.txt 16 10000 patterns.txt`
 - **gen-repetitive**: generates a repetitive text. `gen-repetitive -kind versioned -n 1000000 -sigma 4 text.txt`
-- **fasta-to-text**: writes the text that `build -f` indexes for a FASTA file. `fasta-to-text genome.fa genome.txt`
+- **fasta-to-text**: writes the text that `build` indexes for a FASTA file. `fasta-to-text -o genome.txt genome.fa`
 - **print-data-structures**: builds a data structure of a small input and prints it.
   `print-data-structures move-r -t abracadabra`
 
