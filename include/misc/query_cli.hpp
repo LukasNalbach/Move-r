@@ -93,6 +93,17 @@ inline void set_default_query_threads(query_options_t& options)
     if (options.threads == 0) options.threads = default_query_threads();
 }
 
+/**
+ * @brief prints the option -rc <b>
+ * @param h the help printer
+ * @param default_on whether the reverse complements are searched by default
+ * @param explanation what is done with the reverse complements
+ */
+inline void print_reverse_complements_option(help_printer& h, bool default_on, const std::string& explanation)
+{
+    h.option("-rc <b>", std::string("on | off (default: ") + (default_on ? "on" : "off") + ")", explanation);
+}
+
 // ############################# SAM #############################
 
 /**

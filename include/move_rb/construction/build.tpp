@@ -101,18 +101,18 @@ struct move_rb<support>::build_state_t {
     uint64_t* caller_peak = nullptr; // the peak memory usage variable of the caller (see move_r_params)
     uint64_t peak_memory_usage = 0; // peak memory usage of the sub-indexes and of build in bytes
 
-    // ends the current phase (see log_phase_end) and writes live_<key>, the size of the index in bytes at the
-    // end of the phase, to the measurement file
+    // ends the current phase (see log_phase_end) and writes live_<phase> (see measurement_phase), the size of the
+    // index in bytes at the end of the phase, to the measurement file
     void finish_phase(const std::string& key)
     {
         ::log_phase_end(log, time, params.measurement_file, key);
-        if (log && params.measurement_file != nullptr) *params.measurement_file << " live_" << key << "=" << idx.size_in_bytes();
+        if (log && params.measurement_file != nullptr) *params.measurement_file << " live_" << measurement_phase(key) << "=" << idx.size_in_bytes();
     }
 
     /**
      * @brief ends a phase that stores a data structure to disk, loads it or deletes it, started with
      *        log_phase_start(log, time, "") (see ::log_spill_phase_end), and writes the size of the index under the
-     *        key live_<key>
+     *        key live_<phase> (see measurement_phase)
      * @param message the message of the phase, e.g. "storing M_Phi"
      * @param bytes the number of bytes stored, loaded or deleted
      * @param stored whether the phase stores the data structure (only then its size is logged)
@@ -121,7 +121,7 @@ struct move_rb<support>::build_state_t {
     void finish_spill_phase(const std::string& message, uint64_t bytes, bool stored, const std::string& key)
     {
         log_spill_phase_end(log, time, message, bytes, stored, params.measurement_file, key);
-        if (log && params.measurement_file != nullptr) *params.measurement_file << " live_" << key << "=" << idx.size_in_bytes();
+        if (log && params.measurement_file != nullptr) *params.measurement_file << " live_" << measurement_phase(key) << "=" << idx.size_in_bytes();
     }
 };
 
@@ -134,7 +134,7 @@ void move_rb<support>::build(
     st.time = now();
     const auto time_start = st.time;
     st.log = st.params.log;
-    st.pfp = st.params.mode == _pfp;
+    st.pfp = move_r_builds_runs_file(st.params.mode);
     st.reads_input_file = st.pfp && st.byte_input;
     st.sa_space = !st.pfp && st.params.mode == _suffix_array_space;
     const uint64_t baseline_mem_usage = malloc_count_current();
@@ -249,6 +249,13 @@ void move_rb<support>::prepare_input(build_state_t& st)
 template <move_r_support support>
 void move_rb<support>::build_byte_alphabet(build_state_t& st)
 {
+    // a FASTA file read once: the forward index computes the alphabet map after its parsing (see build_sub_indexes)
+    if (st.params.fasta.read_once != nullptr && st.params.fasta.text_len == 0) {
+        st.params.alphabet_size = 0;
+        st.finish_phase("time_preprocess_t_outer");
+        return;
+    }
+
     move_r_input_view& input = st.input;
     const uint64_t p = st.p;
     // [0..p-1][0..255] the frequency of each byte in the part of the input counted by each thread
@@ -301,7 +308,7 @@ void move_rb<support>::build_byte_alphabet(build_state_t& st)
 
     // smallest symbol of the effective alphabet; 0 is the terminator, 1 and 2 are reserved in the mode _pfp
     // (see min_mapped_symbol in move_r)
-    const uint64_t min_symbol = st.params.mode == _pfp ? 3 : 1;
+    const uint64_t min_symbol = move_r_builds_runs_file(st.params.mode) ? 3 : 1;
     // the alphabet size includes the terminator
     st.params.alphabet_size
         = 1 + compute_byte_alphabet_map(freq_thr, min_symbol, st.params.reorder_alphabet, st.map_int);
@@ -339,7 +346,7 @@ void move_rb<support>::build_byte_alphabet(build_state_t& st)
     }
 
     // in the mode _pfp, the symbols of the BWT are 2 smaller than in the alphabet map (see min_mapped_symbol)
-    if (st.params.mode == _pfp) {
+    if (move_r_builds_runs_file(st.params.mode)) {
         for (uint16_t c = 0; c < 256; c++) {
             if (st.map_int[c] != 0) st.map_int[c] -= 2;
         }
@@ -383,6 +390,34 @@ void move_rb<support>::build_integer_alphabet(build_state_t& st)
 }
 
 template <move_r_support support>
+void move_rb<support>::take_fasta_read_once(build_state_t& st, move_r_params& sub_params)
+{
+    // the length of the text and the alphabet map, which the forward index has computed after its parsing
+    const fasta_scan_t& scan = *sub_params.fasta.read_once;
+    n = scan.text_size + 1;
+    sigma = idx_fwd.alphabet_size() + 1;
+    st.params.alphabet_size = sigma;
+    st.map_int = idx_fwd.map_int();
+    invert_byte_alphabet_map(st.map_int, st.map_ext);
+
+    // the backward index reads T^R through the map of the bytes, whose symbols are 2 larger than in the BWT (see
+    // build_byte_alphabet), with the samples of the forward parsing
+    std::vector<uint8_t> map(st.map_int);
+    for (uint8_t& c : map) if (c != 0) c += 2;
+    st.map_file_name = st.prefix_tmp_files + ".map";
+    direct_ofstream map_ofile(st.map_file_name, std::ios::binary);
+    write_in_chunks(map_ofile, (char*) map.data(), map.size());
+    map_ofile.close();
+    sub_params.pfp_alphabet_map_file = st.map_file_name;
+    sub_params.alphabet_size = sigma;
+    sub_params.fasta.text_len = scan.text_size;
+    sub_params.fasta.byte_freqs = scan.freq.data();
+    sub_params.fasta.index_samples = scan.samples.data();
+    sub_params.fasta.num_index_samples = scan.samples.size();
+    sub_params.fasta.sequences = &scan.data;
+}
+
+template <move_r_support support>
 void move_rb<support>::build_sub_indexes(build_state_t& st)
 {
     move_r_input_view& input = st.input;
@@ -402,8 +437,10 @@ void move_rb<support>::build_sub_indexes(build_state_t& st)
 
     try {
         log_message(st.log, "building the forward index:\n");
+        const bool fasta_once = sub_params.fasta.read_once != nullptr && sub_params.fasta.text_len == 0;
         idx_fwd = move_r_fwd_t(input, sub_params);
         _pfp_cached_texts = idx_fwd.rlbwt_from_cache() ? 1 : 0;
+        if (fasta_once) take_fasta_read_once(st, sub_params);
         if (st.byte_input) idx_fwd.set_alphabet_maps(st.map_int, st.map_ext); else idx_fwd.set_alphabet(st.symbols, st.order);
 
         // store the forward index on disk while the backward index is built

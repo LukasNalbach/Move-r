@@ -144,6 +144,7 @@ struct pattern_block_t {
     std::vector<uint64_t> chunk_starts; // the first pattern of each chunk, followed by size
     uint64_t size = 0; // the number of patterns of the block
     uint64_t symbols = 0; // the number of symbols of the patterns of the block
+    uint64_t end_byte = 0; // the number of bytes of the input read after the block (see pattern_reader::bytes_read)
 };
 
 /**
@@ -195,15 +196,19 @@ inline void read_pattern_block(pattern_reader& reader, const pattern_processing_
     }
 
     if (block.chunk_starts.back() != block.size) block.chunk_starts.push_back(block.size);
+    block.end_byte = reader.bytes_read();
 }
 
 /**
  * @brief writes the outputs of the patterns of a block in their order and frees them
  * @param options the options of process_patterns
  * @param block the block
- * @param progress the progress of the search phase, which is advanced by the number of patterns of the block
+ * @param progress the progress of the search phase, which is advanced by the number of patterns of the block or,
+ *        if counts_bytes, set to the number of bytes of the input read after the block
+ * @param counts_bytes true <=> the progress counts the bytes of the input
  */
-inline void write_pattern_block(const pattern_processing_t& options, pattern_block_t& block, phase_progress& progress)
+inline void write_pattern_block(const pattern_processing_t& options, pattern_block_t& block, phase_progress& progress,
+    bool counts_bytes)
 {
     const uint64_t num_outputs = options.outputs.size();
 
@@ -215,13 +220,18 @@ inline void write_pattern_block(const pattern_processing_t& options, pattern_blo
         }
     }
 
-    progress.advance(block.size);
+    if (counts_bytes) {
+        if (block.size != 0) progress.reached(block.end_byte);
+    } else {
+        progress.advance(block.size);
+    }
 }
 
 /**
  * @brief processes the patterns of a reader with several threads (see the file comment); the outputs are written in
  *        the order of the patterns; with options.log, an empty line and the phase "searching <number> patterns using
- *        <p> threads" are printed, with the progress if the reader knows the number of patterns
+ *        <p> threads" are printed, with the progress over the patterns, if the reader knows their number, and else
+ *        over the bytes of the input, if it is a file
  * @tparam process_fnc_t type of process
  * @param reader the reader of the patterns
  * @param options the options
@@ -240,7 +250,8 @@ pattern_totals_t process_patterns(pattern_reader& reader, const pattern_processi
     auto time = now();
     log_phase_start(options.log, time, "searching " + (num_patterns == 0 ? std::string("the") : format_number(num_patterns))
         + " patterns with " + format_threads(threads));
-    phase_progress progress(options.log, num_patterns);
+    const bool counts_bytes = num_patterns == 0;
+    phase_progress progress(options.log, counts_bytes ? reader.file_bytes() : num_patterns);
     // block b is held in blocks[b % 3]: while block b is processed, block b - 1 is written and block b + 1 is read
     std::array<pattern_block_t, 3> blocks;
     auto start = now();
@@ -261,7 +272,7 @@ pattern_totals_t process_patterns(pattern_reader& reader, const pattern_processi
 
         run_on_threads(threads, [&](uint64_t thread, uint64_t) {
             if (thread == 0) {
-                write_pattern_block(options, blocks[(b + 2) % 3], progress);
+                write_pattern_block(options, blocks[(b + 2) % 3], progress, counts_bytes);
                 blocks[(b + 2) % 3].size = 0;
                 read(blocks[(b + 1) % 3], false);
             }
@@ -274,7 +285,7 @@ pattern_totals_t process_patterns(pattern_reader& reader, const pattern_processi
         });
     }
 
-    write_pattern_block(options, blocks[(b + 2) % 3], progress);
+    write_pattern_block(options, blocks[(b + 2) % 3], progress, counts_bytes);
     progress.finish();
     totals.time_wall = time_diff_ns(start, now());
     log_phase_end(options.log, time);

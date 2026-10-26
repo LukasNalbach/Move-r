@@ -96,6 +96,8 @@ uint64_t move_r<support, mlf_enc>::input_length(const move_r_input_view& T, cons
     if (params.input_file.empty()) return T.size() + 1;
     // the length of the text of a FASTA file (without headers and line breaks, see fasta_input_t)
     if (params.fasta.text_len != 0) return params.fasta.text_len + 1;
+    // a FASTA file that is read once yields at most one symbol per byte (its length is set after the parsing)
+    if (params.fasta.read_once != nullptr) return std::filesystem::file_size(params.input_file) + 1;
     const uint64_t bytes = std::filesystem::file_size(params.input_file);
     if (bytes % T.symbol_width() != 0)
         throw std::runtime_error("move_r: input-file size is not a multiple of its symbol width");
@@ -285,9 +287,9 @@ void move_r<support, mlf_enc>::log_data_structure_sizes() const
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::add_parameters(index_facts& facts, const std::string& suffix) const
 {
-    if (suffix.empty()) facts.add("n", n);
+    if (suffix.empty()) facts.add("n", n - 1);
     facts.add("r" + suffix, r);
-    facts.add("n/r" + suffix + " = " + format_ratio(r == 0 ? 0.0 : double(n) / double(r)));
+    facts.add("n/r" + suffix + " = " + format_ratio(r == 0 ? 0.0 : double(n - 1) / double(r)));
     if (suffix.empty()) facts.add("sigma", sigma);
     facts.add("k' (M_LF" + suffix + ")", _M_LF.num_intervals());
     if (!_M_Phi.empty()) facts.add("k' (M_Phi" + suffix + ")", _M_Phi.num_intervals());

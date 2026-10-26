@@ -86,6 +86,8 @@
 // the input, the prefix-free parsing and the run-length encoded BWT (preprocess.tpp, pfp.tpp, rlbwt.tpp)
 #define MOVE_R_CONSTRUCTION_TEXT_MEMBERS(prefix, supp, enc) \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::preprocess_t(const std::string&); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::map_byte_alphabet(std::vector<std::vector<uint64_t>>&); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::finish_byte_alphabet(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::read_t_from_file(const std::string&); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::unmap_t(); \
     prefix template std::array<uint8_t, 256> MOVE_R_CONSTRUCTION_OF(supp, enc)::pfp_alphabet_map() const; \
@@ -93,6 +95,8 @@
     prefix template bool MOVE_R_CONSTRUCTION_OF(supp, enc)::read_pfp_cache(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::write_pfp_cache(const std::string&); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_rlbwt_pfp(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_rlbwt_pfp_fasta_once(const std::string&, \
+        const pfp_rlbwt::params&, std::array<uint8_t, 256>&); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::read_lcp_run_pfp(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::read_iphi_inv_pfp(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_sa(); \

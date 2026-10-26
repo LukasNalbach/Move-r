@@ -34,6 +34,28 @@
 #include <move_r/construction/construction.hpp>
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::map_byte_alphabet(std::vector<std::vector<uint64_t>>& freq_thr)
+{
+    // sigma includes the terminator
+    idx.sigma = 1 + compute_byte_alphabet_map(freq_thr, min_mapped_symbol(), params.reorder_alphabet, idx._map_int);
+    idx.symbols_remapped = true;
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::finish_byte_alphabet()
+{
+    if (move_r_builds_runs_file(params.mode)) {
+        // the symbols in the RLBWT are the mapped bytes decreased by 2 (see build_rlbwt_c)
+        for (uint16_t i = 0; i < 256; i++) {
+            if (idx._map_int[i] != 0) idx._map_int[i] -= 2;
+        }
+    }
+
+    invert_byte_alphabet_map(idx._map_int, idx._map_ext);
+    p_ = p;
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_file_name)
 {
     log_phase_start("preprocessing T");
@@ -55,7 +77,7 @@ void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_f
             for (uint64_t i = 0; i < n - 1; i++) {
                 freq_thr[omp_get_thread_num()][T<uint8_t>(i)]++;
             }
-        } else if (params.mode == _pfp && uses_pfp_cache() && !params.ignore_pfp_cache &&
+        } else if (move_r_builds_runs_file(params.mode) && uses_pfp_cache() && !params.ignore_pfp_cache &&
                    std::filesystem::exists(pfp_cache_file()) &&
                    read_alphabet_from_pfp_cache(pfp_cache_file(), p, cache_freq, cache_map)) {
             // the frequencies have been computed from the run lengths of the cached BWT (see
@@ -70,9 +92,7 @@ void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_f
             prog.finish();
         }
 
-        // sigma includes the terminator
-        idx.sigma = 1 + compute_byte_alphabet_map(freq_thr, min_mapped_symbol(), params.reorder_alphabet, idx._map_int);
-        idx.symbols_remapped = true;
+        map_byte_alphabet(freq_thr);
 
         // a cache that has been written with a different alphabet map is not used
         if (alphabet_from_cache && !std::equal(cache_map.begin(), cache_map.end(), idx._map_int.begin())) {
@@ -95,16 +115,7 @@ void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_f
             map_ofile.close();
         }
 
-        if (params.mode == _pfp) {
-            // the symbols in the RLBWT are the mapped bytes decreased by 2 (see build_rlbwt_c)
-            for (uint16_t i = 0; i < 256; i++) {
-                if (idx._map_int[i] != 0) idx._map_int[i] -= 2;
-            }
-        }
-
-        invert_byte_alphabet_map(idx._map_int, idx._map_ext);
-
-        p_ = p;
+        finish_byte_alphabet();
     } else {
         idx.symbols_remapped = true;
         uint64_t alloc_before = malloc_count_current();
@@ -112,7 +123,7 @@ void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_f
         int_alphabet = move_r_int_alphabet::make(inp_width);
 
         // the prefix-free parsing reads a file input itself, so it is not read into memory (see build_index)
-        if (params.mode == _pfp && file_input()) int_alphabet->collect_file(T_file_name, n, p);
+        if (move_r_builds_runs_file(params.mode) && file_input()) int_alphabet->collect_file(T_file_name, n, p);
         else int_alphabet->collect(T_inp, n);
 
         idx.sigma = int_alphabet->num_symbols() + 1;
@@ -133,7 +144,7 @@ void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_f
         move_r_order_alphabet(freq, params.reorder_alphabet, effective, p);
 
         // the cache is used only if its symbol counts equal the counts of the effective symbols (offset min_mapped_symbol() - 1)
-        if (params.mode == _pfp && uses_pfp_cache() && !params.ignore_pfp_cache &&
+        if (move_r_builds_runs_file(params.mode) && uses_pfp_cache() && !params.ignore_pfp_cache &&
             std::filesystem::exists(pfp_cache_file())) {
             const uint64_t offset = min_mapped_symbol() - 1;
             std::vector<uint64_t> expected(idx.sigma + offset, 0);

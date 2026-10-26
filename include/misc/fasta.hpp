@@ -159,8 +159,33 @@ struct fasta_chunk_t : pfp_rlbwt::fasta_chunk {
 };
 
 /**
+ * @brief appends the start positions and the names of the sequences of the chunks of a FASTA file (see fasta_chunk_t),
+ *        which it receives in the order of the chunks
+ */
+struct fasta_sequence_collector {
+    uint64_t text_start; // the position in the text of the first symbol of the text of the file
+    // (appended) the positions in the text directly after the separators of the headers
+    std::vector<uint64_t>& seq_starts;
+    std::vector<std::string>& seq_names; // (appended) the names of the sequences
+    bool name_open = false; // the last name of seq_names continues in the next chunk
+
+    // appends the sequences of a chunk whose position 0 is at the position shift of the text of the file
+    void operator()(fasta_chunk_t& chunk, uint64_t shift)
+    {
+        if (name_open) {
+            seq_names.back() += chunk.continued_name;
+            name_open = !chunk.continued_name_ends;
+        }
+
+        for (uint64_t start : chunk.seq_starts) seq_starts.emplace_back(text_start + shift + start);
+        for (std::string& name : chunk.seq_names) seq_names.emplace_back(std::move(name));
+        if (!chunk.seq_names.empty()) name_open = chunk.last_name_open;
+    }
+};
+
+/**
  * @brief scans a FASTA file in parallel (see pfp_rlbwt::scan_fasta_lines) and appends the start positions and the names
- *        of its sequences (see fasta_chunk_t)
+ *        of its sequences (see fasta_sequence_collector)
  * @param path the FASTA file
  * @param transform the transformation; each header line has to yield a separator
  * @param prm the parameters of the scan
@@ -173,19 +198,10 @@ inline pfp_rlbwt::fasta_scan scan_fasta_file(const std::string& path, const pfp_
     const pfp_rlbwt::fasta_scan_params& prm, uint64_t text_start, std::vector<uint64_t>& seq_starts,
     std::vector<std::string>& seq_names)
 {
-    bool name_open = false; // the last name of seq_names continues in the next chunk
+    fasta_sequence_collector collect { text_start, seq_starts, seq_names };
 
     return pfp_rlbwt::scan_fasta_lines<fasta_chunk_t>([&] { return direct_reader(path); }, transform, prm,
-        [&](fasta_chunk_t& chunk, uint64_t shift) {
-            if (name_open) {
-                seq_names.back() += chunk.continued_name;
-                name_open = !chunk.continued_name_ends;
-            }
-
-            for (uint64_t start : chunk.seq_starts) seq_starts.emplace_back(text_start + shift + start);
-            for (std::string& name : chunk.seq_names) seq_names.emplace_back(std::move(name));
-            if (!chunk.seq_names.empty()) name_open = chunk.last_name_open;
-        });
+        [&](fasta_chunk_t& chunk, uint64_t shift) { collect(chunk, shift); });
 }
 
 /**

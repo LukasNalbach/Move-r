@@ -36,6 +36,7 @@
 #include <charconv>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -156,6 +157,9 @@ public:
             file = std::make_unique<std::ifstream>(path, std::ios::binary);
             failed = !file->good();
             in = file.get();
+            std::error_code ec;
+            if (!failed) size = std::filesystem::file_size(path, ec);
+            if (ec) size = 0;
         }
 
         if (failed) return;
@@ -187,6 +191,17 @@ public:
 
     // returns the length of the patterns, if the format states it (pizza&chili), else 0
     inline uint64_t pattern_length() const { return length; }
+
+    // returns the size of the input in bytes, if it is a file, else 0
+    inline uint64_t file_bytes() const { return size; }
+
+    // returns the number of bytes of the input read so far, if it is a file, else 0
+    inline uint64_t bytes_read()
+    {
+        if (file == nullptr) return 0;
+        const std::streamoff pos = file->tellg();
+        return pos < 0 ? size : uint64_t(pos);
+    }
 
     /**
      * @brief reads the next pattern
@@ -265,6 +280,7 @@ protected:
     bool failed = false; // true <=> the input could not be opened
     uint64_t count = 0; // the number of patterns (pizza&chili)
     uint64_t length = 0; // the length of the patterns (pizza&chili)
+    uint64_t size = 0; // the size of the input in bytes, if it is a file, else 0
     uint64_t index = 0; // the index of the next pattern
     std::string line; // the next line of a FASTA file (its header), if it has been read already
 };

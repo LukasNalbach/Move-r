@@ -77,7 +77,7 @@ void move_r<support, mlf_enc>::construction::log_phase_end(const std::string& mf
         mf_key.empty() ? mf_key : mf_key + params.measurement_key_suffix);
 
     if (params.log && params.measurement_file != nullptr && !mf_key.empty()) {
-        *params.measurement_file << " live_" << mf_key << params.measurement_key_suffix
+        *params.measurement_file << " live_" << measurement_phase(mf_key + params.measurement_key_suffix)
                        << "=" << idx.size_in_bytes();
     }
 }
@@ -87,10 +87,11 @@ void move_r<support, mlf_enc>::construction::log_phase_end_quiet(const std::stri
 {
     if (!params.log) return;
     const std::string key = mf_key + params.measurement_key_suffix;
+    const std::string phase = measurement_phase(key);
 
     if (params.measurement_file != nullptr) {
-        *params.measurement_file << " " << key << "=" << time_diff_ns(time, now()) << " peak_" << key << "=" << phase_peak()
-                       << " held_" << key << "=" << phase_allocated() << " live_" << key << "=" << idx.size_in_bytes();
+        *params.measurement_file << " " << key << "=" << time_diff_ns(time, now()) << " peak_" << phase << "=" << phase_peak()
+                       << " held_" << phase << "=" << phase_allocated() << " live_" << phase << "=" << idx.size_in_bytes();
     }
 
     note_peak();
@@ -103,7 +104,7 @@ void move_r<support, mlf_enc>::construction::log_mds_phase_end(const std::string
     if (params.mf_mds != nullptr) *params.mf_mds << std::endl;
     if (params.measurement_file != nullptr)
         *params.measurement_file << " " << time_key << params.measurement_key_suffix << "=" << time_diff_ns(time, now())
-                       << " peak_" << time_key << params.measurement_key_suffix << "=" << phase_peak()
+                       << " peak_" << measurement_phase(time_key + params.measurement_key_suffix) << "=" << phase_peak()
                        << " " << count_key << params.measurement_key_suffix << "=" << count;
 }
 
@@ -139,7 +140,7 @@ move_r<support, mlf_enc>::construction::construction(move_r<support, mlf_enc>& i
     n = move_r<support, mlf_enc>::input_length(T, params);
 
     // the suffix array modes build a suffix array with 40-bit entries (see move_r_max_input_length_sa)
-    if (params.mode != _pfp && n - 1 > move_r_max_input_length_sa) {
+    if (!move_r_builds_runs_file(params.mode) && n - 1 > move_r_max_input_length_sa) {
         throw std::runtime_error("the input is too long for the construction modes sa and sa-space (at most 2^"
             + std::to_string(std::bit_width(move_r_max_input_length_sa)) + " - 1 input symbols); use the "
             "construction mode pfp");
@@ -153,7 +154,7 @@ move_r<support, mlf_enc>::construction::construction(move_r<support, mlf_enc>& i
 
     idx.n = n;
 
-    if (params.mode != _pfp) {
+    if (!move_r_builds_runs_file(params.mode)) {
         if (file_input()) read_t_from_file(input_file);
         else T.push_back(0);
 
@@ -167,7 +168,8 @@ move_r<support, mlf_enc>::construction::construction(move_r<support, mlf_enc>& i
     } else {
         // without a cache, the RLBWT and its samples are written to files with the prefix prefix_tmp_files
         if (!uses_pfp_cache()) pfp_prefix = prefix_tmp_files;
-        if (idx.sigma == 0) preprocess_t(input_file);
+        // a FASTA file read once gets its alphabet map from the parsing (see build_rlbwt_pfp_fasta_once)
+        if (idx.sigma == 0 && !reads_fasta_once()) preprocess_t(input_file);
 
         try {
             build_index();
@@ -201,7 +203,7 @@ void move_r<support, mlf_enc>::construction::build_index()
     // true <=> data structures are stored on disk while they are not needed
     const bool spill = params.mode != _suffix_array;
 
-    if (params.mode == _pfp) {
+    if (move_r_builds_runs_file(params.mode)) {
         rlbwt_from_pfp = true;
         build_rlbwt_pfp();
     }
@@ -312,7 +314,7 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::log_statistics()
 {
     if (!params.log) return;
-    double n_r = std::round(100.0 * (n / (double)r)) / 100.0;
+    double n_r = std::round(100.0 * ((n - 1) / (double)r)) / 100.0;
 
     if (params.measurement_file != nullptr) {
         const std::string& sfx = params.measurement_key_suffix;
@@ -321,7 +323,7 @@ void move_r<support, mlf_enc>::construction::log_statistics()
         *params.measurement_file << " r" << sfx << "=" << r;
     }
 
-    std::cout << "n = " << format_number(n) << std::endl;
+    std::cout << "n = " << format_number(n - 1) << std::endl;
     std::cout << "r = " << format_number(r) << std::endl;
     std::cout << "n/r = " << format_ratio(n_r) << std::endl;
     std::cout << "sigma = " << format_number(idx.sigma) << std::endl;

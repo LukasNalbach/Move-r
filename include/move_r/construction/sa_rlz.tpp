@@ -118,16 +118,19 @@ void move_r<support, mlf_enc>::construction::build_SA_rlz() requires(has_SA_rlz)
         resize_no_init(sampled, ((n - 1) >> sampled_shift) + 1);
         std::vector<uint64_t> first_run(p + 1, idx.r_);
         for (uint64_t i_p = 0; i_p < p; i_p++) first_run[i_p] = readers[0].first_interval_of_run_at(i_p * (n / p));
+        phase_progress prog(params.log, n); // counts the BWT positions of the runs passed
 
         #pragma omp parallel for num_threads(p) schedule(static, 1)
         for (uint64_t i_p = 0; i_p < p; i_p++) {
             SA_rlz_reader& reader = readers[i_p];
+            uint64_t uncounted = 0; // the number of BWT positions passed and not yet counted by prog
 
             for (uint64_t x = first_run[i_p]; x < first_run[i_p + 1];) {
                 // next, the input interval of M_LF at which the next run starts
                 uint64_t next = x + 1;
                 while (next < idx.r_ && !idx.run_starts_at(next)) next++;
                 const uint64_t end = next < idx.r_ ? idx._M_LF.p(next) : n;
+                uncounted += end - idx._M_LF.p(x);
 
                 if (end - idx._M_LF.p(x) > spacing) {
                     const uint64_t last = ((end - 1) >> sampled_shift) << sampled_shift;
@@ -140,9 +143,18 @@ void move_r<support, mlf_enc>::construction::build_SA_rlz() requires(has_SA_rlz)
                     }
                 }
 
+                if (uncounted >= prog.grain()) {
+                    prog.advance(uncounted);
+                    uncounted = 0;
+                }
+
                 x = next;
             }
+
+            prog.advance(uncounted);
         }
+
+        prog.finish();
 
         for (SA_rlz_reader& reader : readers) {
             reader.sampled = sampled.data();

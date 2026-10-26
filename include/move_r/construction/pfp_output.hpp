@@ -36,7 +36,7 @@
 
 #include <data_structures/fasta_sequence_data.hpp>
 #include <misc/files.hpp>
-#include <pfp_rlbwt/output/readers.hpp>
+#include <rlbwt/readers.hpp>
 #include <pfp_rlbwt/pfp_rlbwt.hpp>
 
 /* a pfp cache is the runs file of pfp_rlbwt::build (see pfp_rlbwt::ext_runs) with two further sections: the

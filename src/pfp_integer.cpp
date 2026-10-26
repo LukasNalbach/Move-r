@@ -112,7 +112,7 @@ void build_rlbwt_pfp_integer(const pfp_integer_text_t& input, uint64_t offset, b
     // the symbol type of pfp-rlbwt with the fewest bytes that hold the largest symbol
     switch (byte_width(input.max_symbol + offset)) {
         #define MOVE_R_PFP_SYMBOL_CASE(sym_t) case sizeof(sym_t): build<sym_t>(input, offset, reverse, prefix, prm); break;
-        PFP_RLBWT_FOR_EACH_SYMBOL_TYPE(MOVE_R_PFP_SYMBOL_CASE)
+        STRING_UTILS_FOR_EACH_SYMBOL_TYPE(MOVE_R_PFP_SYMBOL_CASE)
         #undef MOVE_R_PFP_SYMBOL_CASE
     }
 }

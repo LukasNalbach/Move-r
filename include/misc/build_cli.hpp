@@ -67,11 +67,12 @@ struct build_cli_t {
     uint64_t num_threads = omp_get_max_threads(); // -p
     move_r_construction_mode mode = default_construction_mode; // -c
     bool construction_mode_given = false; // whether -c was given (see build_with_fallback)
-    bool fasta_mode = false; // -f
+    fasta_option fasta = fasta_option::detect; // -fasta
+    bool fasta_mode = false; // whether the input files are read in the FASTA mode (see read_input_files)
     std::string fasta_alphabet = std::string(default_fasta_alphabet); // -A
     bool reorder_alphabet = true; // false <=> -keep-order (see move_r_params::reorder_alphabet)
     std::string index_base_name; // -o (default: the first input file)
-    // the input files; more than one only in FASTA mode, then they are concatenated
+    // the input files; more than one only in the FASTA mode, then they are concatenated
     std::vector<std::string> path_input_files;
     std::string text_name; // the <name> of -m (default: the file name of the first input file)
     direct_ofstream measurement_file; // -m
@@ -101,7 +102,7 @@ inline double read_nonnegative_number(cli_arguments& args, const std::string& op
 }
 
 /**
- * @brief reads one of the options -o, -p, -balance, -c, -m, -m-mds, -f, -A and -keep-order
+ * @brief reads one of the options -o, -p, -balance, -c, -m, -m-mds, -fasta, -A and -keep-order
  * @param args the arguments, positioned after the option
  * @param option the option
  * @param cli the options
@@ -130,8 +131,8 @@ inline bool read_build_option(cli_arguments& args, const std::string& option, bu
         const std::string path = args.value(option);
         if (!open_measurement_file(cli.measurement_file_mds, path))
             throw std::runtime_error("cannot open or create " + path);
-    } else if (option == "-f") {
-        cli.fasta_mode = true;
+    } else if (option == "-fasta") {
+        cli.fasta = read_fasta_option(args);
     } else if (option == "-A") {
         cli.fasta_alphabet = args.value(option);
     } else if (option == "-keep-order") {
@@ -144,22 +145,27 @@ inline bool read_build_option(cli_arguments& args, const std::string& option, bu
 }
 
 /**
- * @brief reads the input files (the remaining arguments) and sets index_base_name (if -o is not given), text_name
- *        (if -m is not given) and input_bytes
+ * @brief reads the input files (the remaining arguments) and sets fasta_mode (with -fasta auto: whether all input files
+ *        start like FASTA files, see starts_like_fasta), index_base_name (if -o is not given), text_name (if -m is not
+ *        given) and input_bytes
  * @param args the arguments, positioned at the first input file
  * @param cli the options
- * @throws usage_error if there is no input file, or several without -f; std::runtime_error "cannot read <path>"
+ * @throws usage_error if there is no input file, or several outside the FASTA mode; std::runtime_error
+ *         "cannot read <path>"
  */
 inline void read_input_files(cli_arguments& args, build_cli_t& cli)
 {
     while (!args.empty()) cli.path_input_files.push_back(args.next());
     if (cli.path_input_files.empty()) throw usage_error("expected <input_file>");
-    if (!cli.fasta_mode && cli.path_input_files.size() > 1) throw usage_error("several input files need -f");
 
     for (const std::string& file : cli.path_input_files) {
         if (!std::filesystem::is_regular_file(file)) throw std::runtime_error("cannot read " + file);
         cli.input_bytes += std::filesystem::file_size(file);
     }
+
+    cli.fasta_mode = std::all_of(cli.path_input_files.begin(), cli.path_input_files.end(),
+        [&](const std::string& file) { return uses_fasta_mode(cli.fasta, file); });
+    if (!cli.fasta_mode && cli.path_input_files.size() > 1) throw usage_error("several input files need -fasta on");
 
     if (cli.index_base_name.empty()) cli.index_base_name = cli.path_input_files[0];
     if (cli.text_name.empty()) cli.text_name = std::filesystem::path(cli.path_input_files[0]).filename().string();
@@ -168,15 +174,15 @@ inline void read_input_files(cli_arguments& args, build_cli_t& cli)
 // ############################# HELP #############################
 
 /**
- * @brief prints the options -f and -A
+ * @brief prints the options -fasta and -A
  * @param h the help printer
- * @param fasta_explanation the explanation of -f
+ * @param fasta_explanation the explanation of -fasta
  */
 inline void print_fasta_options(help_printer& h, const std::string& fasta_explanation)
 {
-    h.option("-f", "", fasta_explanation);
+    h.option_fasta(fasta_explanation);
     h.option("-A <alphabet>", "a string of symbols (default: " + std::string(default_fasta_alphabet) + ")",
-        "with -f: the symbols kept verbatim");
+        "in the FASTA mode: the symbols kept verbatim");
 }
 
 /**
@@ -188,8 +194,8 @@ inline void print_execution_options(help_printer& h, const std::string& pfp_expl
 {
     // the limits of the modes in input symbols: 2^sa_bits - 1 for sa and sa-space, 2^48 - 2 for pfp
     const std::string sa_bits = std::to_string(std::bit_width(move_r_max_input_length_sa));
-    h.option("-c <mode>", "pfp | sa | sa-space (default: pfp)", "pfp: " + pfp_explanation + "; inputs of at most 2^"
-        + std::to_string(std::bit_width(move_r_max_input_length)) + " - 2 symbols\n"
+    h.option("-c <mode>", "pfp | sa | sa-space (default: pfp)", "pfp: " + pfp_explanation
+        + "; inputs of at most 2^" + std::to_string(std::bit_width(move_r_max_input_length)) + " - 2 symbols\n"
         "sa: in memory with the suffix array; inputs of at most 2^" + sa_bits + " - 1 symbols\n"
         "sa-space: like sa, with idle data structures written to disk\n"
         "without -c, a failed pfp construction is repeated with sa-space if the input has at most 2^" + sa_bits
@@ -219,11 +225,11 @@ inline void print_build_measurement_options(help_printer& h, bool with_mds_measu
 
 /**
  * @brief limits the number of threads to max(1, n / move_r_min_symbols_per_thread), opens the output file and logs
- *        the start of the build: "building <what> of <file> (<size>) with <p> threads, <parameters>" and
- *        "output: <path>"; n is not known before the construction, its upper bound input_bytes + 1 is used
+ *        the start of the build (see log_run_start); n is not known before the construction, its upper bound
+ *        input_bytes + 1 is used
  * @param cli the options; path_index_file must be set
  * @param what what is built, e.g. "the move-r index"
- * @param parameters the parameters of the build, e.g. "support locate-move, a = 8"
+ * @param parameters the parameters of the build, e.g. "s = locate-move, balance = 8"
  * @throws std::runtime_error "cannot create <path>"
  */
 inline void begin_build(build_cli_t& cli, const std::string& what, const std::string& parameters)
@@ -243,18 +249,16 @@ inline void begin_build(build_cli_t& cli, const std::string& what, const std::st
 
     // real numbers are logged with 4 significant digits
     log_out() << std::setprecision(4);
-    const std::string input_name = std::filesystem::path(cli.path_input_files[0]).filename().string();
     const uint64_t more_files = cli.path_input_files.size() - 1;
-    log_out() << "building " << what << " of " << input_name;
-    if (more_files > 0) log_out() << " and " << more_files << (more_files == 1 ? " more file" : " more files");
-    log_out() << " (" << format_size(cli.input_bytes) << ") with " << format_threads(cli.num_threads) << ", "
-              << parameters << std::endl
-              << "output: " << cli.path_index_file << std::endl;
+    const std::string input = cli.path_input_files[0] + (more_files == 0 ? "" : " and "
+        + format_number(more_files) + (more_files == 1 ? " more file" : " more files"));
+    log_run_start("building " + what + " of", input, cli.input_bytes, cli.num_threads,
+        parameters + (cli.fasta_mode ? ", fasta = on" : ""), cli.path_index_file);
 }
 
 /**
- * @brief writes the index to cli.path_index_file in a logged phase (its size is logged by the construction, before
- *        the sizes of its data structures)
+ * @brief writes the index to cli.path_index_file in a logged phase with its progress (its size is logged by the
+ *        construction, before the sizes of its data structures)
  * @tparam index_t type of the index
  * @param index the index
  * @param cli the options
@@ -265,7 +269,14 @@ void write_index(const index_t& index, build_cli_t& cli, const std::string& name
 {
     auto time = now();
     log_phase_start(true, time, "storing " + name);
-    index.serialize(cli.index_file);
+    phase_progress progress(true, index.size_in_bytes());
+
+    {
+        progress_ostream out(cli.index_file, progress);
+        index.serialize(out);
+    }
+
+    progress.finish();
     cli.index_file.close();
     log_phase_end(true, time, cli.measurement(), "time_serialize_index");
 }
@@ -313,16 +324,24 @@ struct fasta_cli_t {
     std::vector<pfp_rlbwt::fasta_sample> samples;
     std::string path_text; // path of the preprocessed text file (empty if none has been written)
     bool scanned = false; // false <=> freq and samples are not known (see scan)
+    // the construction reads the single FASTA file once and scans it (see scan and fasta_input_t::read_once)
+    bool reads_once = false;
+    fasta_scan_t read_once_scan; // the scan of the construction that reads the FASTA file once
 
     explicit fasta_cli_t(build_cli_t& cli) : cli(cli) {}
 
-    /* scans the FASTA file(s) (does nothing without -f); a single FASTA file whose cache of the pfp output stores its
-       sequences is not scanned (see pfp_cache_fasta_section) */
-    void scan()
+    /**
+     * @brief scans the FASTA file(s) (does nothing outside the FASTA mode); a single FASTA file whose cache of the pfp
+     *        output stores its sequences is not scanned (see pfp_cache_fasta_section), nor one that the construction
+     *        mode pfp reads once (see finish_scan)
+     * @param read_once whether the construction may read a single FASTA file once (the sequences are known only after
+     *        the construction)
+     */
+    void scan(bool read_once = false)
     {
         if (!cli.fasta_mode) return;
 
-        if (cli.mode == _pfp && cli.path_input_files.size() == 1) {
+        if (move_r_builds_runs_file(cli.mode) && cli.path_input_files.size() == 1) {
             const std::string cache = move_r<>::pfp_cache_path(cli.path_input_files[0], cli.mode);
 
             if (read_fasta_from_pfp_cache(cache, text_size, data)) {
@@ -330,8 +349,37 @@ struct fasta_cli_t {
                           << std::endl;
                 return;
             }
+
+            if (read_once && cli.mode == _pfp) {
+                reads_once = true;
+                return;
+            }
         }
 
+        scan_files();
+    }
+
+    // takes the scan from the construction that has read the FASTA file once, or scans it now if it has not (a
+    // construction with another mode, see build_with_fallback)
+    void finish_scan()
+    {
+        if (!reads_once || scanned) return;
+
+        if (read_once_scan.text_size == 0 && read_once_scan.data.num_sequences() == 0) {
+            scan_files();
+            return;
+        }
+
+        data = std::move(read_once_scan.data);
+        freq = read_once_scan.freq;
+        text_size = read_once_scan.text_size;
+        samples = std::move(read_once_scan.samples);
+        scanned = true;
+    }
+
+    // scans the FASTA file(s): the sequences, the symbol frequencies, the length and the samples of the text
+    void scan_files()
+    {
         auto time = now();
         log_phase_start(true, time, "scanning the FASTA file(s)");
         phase_progress progress(true, cli.input_bytes);
@@ -373,9 +421,17 @@ struct fasta_cli_t {
      * @brief returns the description of the FASTA input for the construction
      * @param direct whether the construction reads the FASTA file itself (else the result is empty)
      */
-    fasta_input_t fasta_input(bool direct) const
+    fasta_input_t fasta_input(bool direct)
     {
         if (!cli.fasta_mode || !direct) return fasta_input_t {};
+
+        if (reads_once && !scanned) {
+            return fasta_input_t {
+                .separator = (uint8_t) fasta_separator_symbol,
+                .alphabet = cli.fasta_alphabet,
+                .read_once = &read_once_scan };
+        }
+
         return fasta_input_t {
             .text_len = text_size,
             .byte_freqs = scanned ? freq.data() : nullptr,
@@ -386,9 +442,9 @@ struct fasta_cli_t {
             .sequences = &data };
     }
 
-    // returns the number of input symbols: the length of the FASTA text with -f (known after scan), else the size of
-    // the input file
-    uint64_t input_length() const { return cli.fasta_mode ? text_size : cli.input_bytes; }
+    /* returns the number of input symbols: the length of the FASTA text in the FASTA mode (known after scan, or until
+       finish_scan the size of the file if the construction reads it once), else the size of the input file */
+    uint64_t input_length() const { return cli.fasta_mode && !(reads_once && !scanned) ? text_size : cli.input_bytes; }
 
     // deletes the preprocessed text file (if one has been written)
     void remove_preprocessed_copy()

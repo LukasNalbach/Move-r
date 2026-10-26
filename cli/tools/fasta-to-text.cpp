@@ -26,7 +26,7 @@
 
 /**
  * @file fasta-to-text.cpp
- * @brief the tool fasta-to-text: converts a FASTA file to the text that move-r build -f indexes
+ * @brief the tool fasta-to-text: converts a FASTA file to the text that move-r build indexes in the FASTA mode
  */
 
 #include <filesystem>
@@ -45,7 +45,7 @@ namespace {
 struct fasta_to_text_cli_t {
     std::string alphabet = "ACGT"; // -A: the symbols that are kept as they are
     std::string path_fasta_file; // <fasta_file>
-    std::string path_output_file; // <output_file> or -o (default: <fasta_file>.txt)
+    std::string path_output_file; // -o (default: <fasta_file>.txt)
 };
 
 /**
@@ -56,15 +56,15 @@ void print_help(std::ostream& out)
 {
     const fasta_to_text_cli_t defaults;
     help_printer h(out);
-    h.intro("fasta-to-text: converts a FASTA file to the text that move-r build -f indexes: the line breaks are "
-        "removed, the bases are upper-cased, and each header and each run of bases outside the alphabet is replaced "
-        "with one separator symbol.", "fasta-to-text [options] <fasta_file> [<output_file>]");
+    h.intro("fasta-to-text: converts a FASTA file to the text that move-r build indexes in the FASTA mode: the line "
+        "breaks are removed, the letters are upper-cased, and each header line and each run of symbols outside the "
+        "alphabet is replaced with one separator symbol.", "fasta-to-text [options] <fasta_file>");
     h.group("arguments");
     h.option("<fasta_file>", "", "the FASTA file");
-    h.option("<output_file>", "a path (default: <fasta_file>.txt)", "the file the text is written to");
-    h.group("options");
+    h.group("input");
     h.option("-A <alphabet>", "a string (default: " + defaults.alphabet + ")", "the symbols that are kept as they are");
-    h.option("-o <output_file>", "a path", "the same as the argument <output_file>");
+    h.group("output");
+    h.option("-o <file>", "a path (default: <fasta_file>.txt)", "the file the text is written to");
 }
 
 } // namespace
@@ -89,8 +89,7 @@ int main(int argc, char** argv)
 
         if (args.empty()) throw usage_error("expected <fasta_file>");
         cli.path_fasta_file = args.next();
-        if (!args.empty() && cli.path_output_file.empty()) cli.path_output_file = args.next();
-        if (!args.empty()) throw usage_error("expected <fasta_file> and at most one <output_file>");
+        if (!args.empty()) throw usage_error("expected exactly one <fasta_file>");
         if (cli.path_output_file.empty()) cli.path_output_file = cli.path_fasta_file + ".txt";
 
         std::error_code error;

@@ -46,6 +46,13 @@ inline constexpr uint64_t move_r_min_symbols_per_thread = 1000;
 // storing, loading or deleting fewer bytes of a data structure is not logged (one sector of O_DIRECT)
 inline constexpr uint64_t min_logged_spill_bytes = direct_io_alignment;
 
+// returns the phase of a measurement key: the key without the prefix "time_" (see log_phase_end)
+inline std::string measurement_phase(const std::string& mf_key)
+{
+    constexpr std::string_view time_prefix = "time_";
+    return mf_key.starts_with(time_prefix) ? mf_key.substr(time_prefix.size()) : mf_key;
+}
+
 /**
  * @brief ends a phase that stores a data structure to disk, loads it from disk or deletes it, started with
  *        log_phase_start(log, time, ""): logs "<message>: <size>, in ~ <time>" (a stored data structure) or
@@ -70,8 +77,9 @@ inline void log_spill_phase_end(bool log, std::chrono::steady_clock::time_point&
         log_phase_end(log, time, mf, mf_key);
     } else {
         if (mf != nullptr && !mf_key.empty()) {
-            *mf << " " << mf_key << "=" << time_diff_ns(time, now()) << " peak_" << mf_key << "=" << phase_peak()
-                << " held_" << mf_key << "=" << phase_allocated();
+            const std::string phase = measurement_phase(mf_key);
+            *mf << " " << mf_key << "=" << time_diff_ns(time, now()) << " peak_" << phase << "=" << phase_peak()
+                << " held_" << phase << "=" << phase_allocated();
         }
 
         note_peak();
@@ -324,7 +332,10 @@ public:
     bool file_input() const { return !params.input_file.empty(); }
 
     // returns whether the input is stored in memory (always, except if the prefix-free parsing reads it from the file)
-    bool input_in_memory() const { return params.mode != _pfp || !file_input(); }
+    bool input_in_memory() const { return !move_r_builds_runs_file(params.mode) || !file_input(); }
+
+    // returns whether the prefix-free parsing reads the FASTA file once and scans it (see fasta_input_t::read_once)
+    bool reads_fasta_once() const { return params.fasta.read_once != nullptr && params.fasta.text_len == 0; }
 
     // returns whether the SA is also sampled at the ends of the runs (see move_r_params::sample_run_ends)
     bool samples_at_run_ends() const
@@ -337,7 +348,7 @@ public:
        with _pfp (the symbols in the RLBWT read from the output of the prefix-free parsing are decreased to
        move_r_min_mapped_symbol and above, see build_rlbwt_c), else move_r_min_mapped_symbol */
     uint8_t min_mapped_symbol() const
-    { return params.mode == _pfp ? move_r_min_mapped_symbol_pfp : move_r_min_mapped_symbol; }
+    { return move_r_builds_runs_file(params.mode) ? move_r_min_mapped_symbol_pfp : move_r_min_mapped_symbol; }
 
     // returns the number of entries in a row of C (256 for a byte alphabet, else sigma)
     uint64_t num_symbol_values() const { return byte_alphabet ? 256 : idx.sigma; }
@@ -609,6 +620,17 @@ public:
      */
     void build_rlbwt_pfp();
 
+    /**
+     * @brief computes the output of build_rlbwt_pfp from a FASTA file that is read once (see reads_fasta_once): the
+     *        alphabet map is computed from the frequencies of the symbols once the text has been parsed (see
+     *        preprocess_t), and n is set afterwards
+     * @param output_prefix the prefix of the output files
+     * @param prm the parameters of pfp_rlbwt::build
+     * @param map (output) [0..255] the map that the parsing reads the bytes through
+     */
+    void build_rlbwt_pfp_fasta_once(const std::string& output_prefix, const pfp_rlbwt::params& prm,
+        std::array<uint8_t, 256>& map);
+
     /** @brief builds I_Phi^{-1} from the SA samples written by the prefix-free parsing */
     void read_iphi_inv_pfp();
 
@@ -653,6 +675,16 @@ public:
      * @param T_file_name name of the file containing T (if T is not in memory)
      */
     void preprocess_t(const std::string& T_file_name);
+
+    /**
+     * @brief computes the alphabet map of the bytes from their frequencies (see preprocess_t): idx.sigma and
+     *        idx._map_int
+     * @param freq_thr [0..q-1][0..255] the frequencies of the bytes, counted by q threads
+     */
+    void map_byte_alphabet(std::vector<std::vector<uint64_t>>& freq_thr);
+
+    // completes the alphabet maps of the bytes once T is read through idx._map_int (see preprocess_t)
+    void finish_byte_alphabet();
 
     /** @brief reads T from a file */
     void read_t_from_file(const std::string& T_file_name);

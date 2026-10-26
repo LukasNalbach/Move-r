@@ -37,6 +37,7 @@
 
 #include <pfp_rlbwt/pfp_rlbwt.hpp>
 
+#include <misc/fasta.hpp>
 #include <pfp_rlbwt/fasta.hpp>
 #include <move_r/construction/pfp_integer.hpp>
 #include <move_r/move_r.hpp>
@@ -64,7 +65,7 @@ std::array<uint8_t, 256> move_r<support, mlf_enc>::construction::pfp_alphabet_ma
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 bool move_r<support, mlf_enc>::construction::read_pfp_cache()
 {
-    if (params.ignore_pfp_cache) return false;
+    if (params.ignore_pfp_cache || reads_fasta_once()) return false;
 
     // the file is a cache <=> it has a table of contents, the runs and the alphabet map (see open_pfp_cache); it is
     // assumed to have been built for this text
@@ -138,9 +139,11 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
         std::filesystem::remove(output_file, ec);
     };
 
-    // a file input is read through the alphabet map (see preprocess_t); an input in memory has been remapped
-    const std::array<uint8_t, 256> map = pfp_alphabet_map();
+    /* a file input is read through the alphabet map (see preprocess_t; a FASTA file read once through the map computed
+       after the parsing, see build_rlbwt_pfp_fasta_once); an input in memory has been remapped */
+    std::array<uint8_t, 256> map = pfp_alphabet_map();
     const std::array<uint8_t, 256>* map_ptr = params.pfp_alphabet_map_file.empty() ? nullptr : &map;
+    const bool fasta_once = reads_fasta_once();
 
     pfp_rlbwt::params prm;
     prm.num_threads = p;
@@ -156,7 +159,7 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
             out.write((const char*) map.data(), map.size());
         } });
 
-        if (params.fasta.text_len != 0 && params.fasta.sequences != nullptr) {
+        if (fasta_once || (params.fasta.text_len != 0 && params.fasta.sequences != nullptr)) {
             prm.extra_sections.push_back({ pfp_cache_fasta_section, [&](std::ostream& out) {
                 write_fasta_to_pfp_cache(out, params.fasta.text_len, *params.fasta.sequences);
             } });
@@ -176,12 +179,14 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
         text = std::make_unique<pfp_rlbwt::fasta_source<uint8_t>>(params.input_file, params.fasta.text_len,
             pfp_rlbwt::fasta_transform(params.fasta.alphabet, params.fasta.separator), params.fasta.index_samples,
             params.fasta.num_index_samples, reversed, map_ptr, p);
-    } else {
+    } else if (!fasta_once) {
         text = std::make_unique<pfp_rlbwt::file_source<uint8_t>>(params.input_file, reversed, map_ptr);
     }
 
     try {
-        if (!byte_alphabet) {
+        if (fasta_once) {
+            build_rlbwt_pfp_fasta_once(output_prefix, prm, map);
+        } else if (!byte_alphabet) {
             // the effective symbols are increased by min_mapped_symbol() - 1 (see build_rlbwt_c)
             build_rlbwt_pfp_integer({
                 .text = file_input() ? nullptr : T_inp.data(),
@@ -213,6 +218,43 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
     remove_map_file();
     log_phase_end_quiet("time_pfp");
     log_peak_mem_usage();
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::build_rlbwt_pfp_fasta_once(const std::string& output_prefix,
+    const pfp_rlbwt::params& prm, std::array<uint8_t, 256>& map)
+{
+    if (params.mode != _pfp)
+        throw std::invalid_argument("move_r: only the construction mode pfp reads a FASTA file once");
+    fasta_scan_t& scan = *params.fasta.read_once;
+    std::vector<uint64_t> seq_starts;
+    std::vector<std::string> seq_names;
+    fasta_sequence_collector collect { 0, seq_starts, seq_names };
+
+    pfp_rlbwt::fasta_ranges<fasta_chunk_t> text(params.input_file,
+        pfp_rlbwt::fasta_transform(params.fasta.alphabet, params.fasta.separator),
+        [&](const pfp_rlbwt::fasta_scan& text_scan) {
+            // the text has been parsed: its length, frequencies, samples and sequences, then the alphabet map
+            static_cast<pfp_rlbwt::fasta_scan&>(scan) = text_scan;
+            // the index appends one sentinel to the text, so its length is text_size + 1 (see scan_fasta)
+            scan.data.set_sequences(scan.text_size + 1, seq_starts, std::move(seq_names), char(params.fasta.separator));
+            params.fasta.text_len = scan.text_size;
+            params.fasta.byte_freqs = scan.freq.data();
+            params.fasta.index_samples = scan.samples.data();
+            params.fasta.num_index_samples = scan.samples.size();
+            params.fasta.sequences = &scan.data;
+            std::vector<std::vector<uint64_t>> freq_thr(1, std::vector<uint64_t>(scan.freq.begin(), scan.freq.end()));
+            map_byte_alphabet(freq_thr);
+            std::copy(idx._map_int.begin(), idx._map_int.end(), map.begin());
+            finish_byte_alphabet();
+            return map;
+        },
+        [&](fasta_chunk_t& chunk, uint64_t shift) { collect(chunk, shift); });
+
+    pfp_rlbwt::build(text, output_prefix, prm);
+    n = params.fasta.text_len + 1;
+    idx.n = n;
+    limit_num_threads();
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>

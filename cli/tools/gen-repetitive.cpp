@@ -85,7 +85,7 @@ void print_help(std::ostream& out)
     h.intro("gen-repetitive: generates a repetitive text.", "gen-repetitive [options] <output_file>");
     h.group("arguments");
     h.option("<output_file>", "", "the file the text is written to");
-    h.group("text");
+    h.group("what is computed");
     h.option("-kind <kind>", kind_names() + " (default: " + std::string(repetitiveness_kind_name(params.kind)) + ")",
         "the kind of repetitiveness");
     h.option("-n <length>", "integer >= 1 (default: " + std::to_string(params.size) + ")",

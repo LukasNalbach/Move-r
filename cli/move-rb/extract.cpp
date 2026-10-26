@@ -89,7 +89,7 @@ int move_rb_extract_sa(int argc, char** argv)
 {
     return run_move_rb_extract(argc, argv, move_rb_extract_mode("extract-sa", move_rb_extract_sa_description,
         "The output file holds the suffix array of the text with the terminator: " + std::string(positions_format)
-            + "; SA[0] = input size. It requires an index built with -s locate-move or locate-rlzsa. "
+            + "; SA[0] = input size. It needs an index built with -s locate-move or locate-rlzsa. "
             "The index of the reversed text stores only the samples at the BWT run boundaries (see extract-rlbwt).",
         ""),
         []<typename index_t>(const extract_cli_t&) {

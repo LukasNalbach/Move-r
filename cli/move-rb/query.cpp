@@ -85,7 +85,7 @@ struct query_cli_t {
     std::string path_sam_file; // -sam
     std::string path_paf_file; // -paf
     bool write_seq = false; // -seq: SEQ and QUAL are written in the primary SAM record of a read
-    bool reverse_complements = true; // with -sam or -paf, the reverse complement of each read is aligned too (-no-rc)
+    bool reverse_complements = true; // -rc: with -sam or -paf, the reverse complement of each pattern is searched too
     bool best_only = false; // -best: only the primary SAM record of a read is written
     bool no_cigar = false; // -no-cigar: no CIGAR is computed or written
     std::vector<std::string> options_given; // the options given, in their order (for the warning without patterns)
@@ -124,6 +124,13 @@ void print_help(std::ostream& out)
     h.option("<patterns_file>", "", std::string("the patterns, in pizza&chili, FASTA or FASTQ format or one per line")
         + (locate ? " (with -sam, the name of a pattern becomes QNAME and its FASTQ qualities become QUAL)" : "")
         + "; without it, the queries are read from stdin (see below)");
+
+    if (locate) {
+        h.group("input");
+        print_reverse_complements_option(h, true, "with -sam or -paf: also search the reverse complement of each "
+            "pattern; its occurrences are written with the SAM flag 0x10 and the PAF strand -");
+    }
+
     h.group("what is computed");
     h.option("-k <errors>", "integer in [0, " + std::to_string(max_scheme_errors) + "] (default: "
         + std::to_string(query_cli_t().max_errors) + ")", "the maximum number of errors");
@@ -167,21 +174,15 @@ void print_help(std::ostream& out)
         + (locate ? "; with -d edit, every valid alignment has a reported occurrence at most 2e + 1 positions away "
         "from its start whose cost is not higher, where e is the largest number of errors of a valid alignment." : "."));
 
-    if (locate) {
-        h.group("input");
-        h.option("-no-rc", "", "with -sam or -paf: do not also align the reverse complement of each read (by default, "
-            "its occurrences are written with the SAM flag 0x10 and the PAF strand -)");
-    }
-
     h.group("output");
     h.option("-o <file>", "a path", std::string("write one line \"<name>\\t<count>\" per pattern") +
         (locate ? ", followed by \"\\t<position>:<length>:<errors>\" per occurrence" : ""));
 
     if (locate) {
         h.option("-sam <file>", "a path", "write the occurrences in SAM format, with CIGAR and the tags NM and MD "
-            "(index built with move-rb build -f)");
+            "(index built with move-rb build in the FASTA mode)");
         h.option("-paf <file>", "a path", "write the occurrences in PAF format, one line per occurrence (index built "
-            "with move-rb build -f); can be combined with -sam");
+            "with move-rb build in the FASTA mode); can be combined with -sam");
         h.option("-seq", "", "with -sam: write the read (SEQ) and its qualities (QUAL) in the primary record");
         h.option("-best", "", "with -sam: write only the primary record of each read (an occurrence with the fewest "
             "errors)");
@@ -211,7 +212,7 @@ void print_help(std::ostream& out)
     h.option("help", "", "print the commands");
     h.option("quit, exit", "", "leave the program");
     h.text("Each approximate occurrence is printed with its CIGAR and its alignment (the pattern above the matched "
-        "text). For an index built with move-rb build -f, a position is printed as <sequence name>:<1-based "
+        "text). For an index built in the FASTA mode, a position is printed as <sequence name>:<1-based "
         "position in the sequence>. The approximate queries use the search scheme " + std::string(default_scheme_name)
         + "; <pattern> is the rest of the line and may contain spaces.");
 }
@@ -266,8 +267,8 @@ void read_option(cli_arguments& args, const std::string& option)
         cli.path_paf_file = args.value(option);
     } else if (option == "-seq" && cli.locate) {
         cli.write_seq = true;
-    } else if (option == "-no-rc" && cli.locate) {
-        cli.reverse_complements = false;
+    } else if (option == "-rc" && cli.locate) {
+        cli.reverse_complements = read_on_off(args, option);
     } else if (option == "-best" && cli.locate) {
         cli.best_only = true;
     } else if (option == "-no-cigar" && cli.locate) {
@@ -505,8 +506,8 @@ void run_count_queries(const move_rb<support>& index)
                 ("num_patterns", num_patterns)
                 ("max_mismatches", cli.max_errors)
                 ("num_occurrences", num_occurrences)
-                ("time_count", time_count)
-                ("threads", threads)
+                ("time_query", time_count)
+                ("num_threads", threads)
                 ("time_wall", totals.time_wall);
             index.log_data_structure_sizes(cli.options.measurement_file);
         }
@@ -570,7 +571,7 @@ void run_locate_queries(const move_rb<support>& index)
 
     if ((write_sam || write_paf) && !sequences.has_sequences()) {
         throw std::runtime_error(std::string(write_sam ? "-sam" : "-paf") + " needs an index built with move-rb build "
-            "-f (" + cli.path_index_file + " stores no sequences)");
+            "in the FASTA mode (" + cli.path_index_file + " stores no sequences)");
     }
 
     if (write_sam) write_sam_header(cli.sam_file, sequences, "move-rb", cli.command_line);
@@ -711,8 +712,8 @@ void run_locate_queries(const move_rb<support>& index)
                 ("num_patterns", num_patterns)
                 ("max_mismatches", cli.max_errors)
                 ("num_occurrences", num_occurrences)
-                ("time_locate", time_locate)
-                ("threads", threads)
+                ("time_query", time_locate)
+                ("num_threads", threads)
                 ("time_wall", totals.time_wall)
                 ("checksum", checksum);
             index.log_data_structure_sizes(cli.options.measurement_file);
@@ -1023,7 +1024,7 @@ void run_queries(direct_ifstream& index_file)
 
     if (cli.path_patterns_file.empty()) {
         const auto& fwd = index.forward_index();
-        run_interactive("n = " + format_number(fwd.input_size() + 1) + ", r = " + format_number(fwd.num_bwt_runs())
+        run_interactive("n = " + format_number(fwd.input_size()) + ", r = " + format_number(fwd.num_bwt_runs())
             + ", index size " + format_size(index.size_in_bytes())
             + (index_t::supports_multiple_locate ? "" : " (it cannot locate)") + "; " + commands_description(),
             [&](const std::string& line, uint64_t max_printed) { answer_query(index, line, max_printed); });

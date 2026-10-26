@@ -75,7 +75,7 @@ build_threads=()
 # ---------- 1. index (FASTA mode) ----------
 if [ ! -s "$index" ]; then
     echo ">>> [$name] building the move_rb index (FASTA mode)" >&2
-    "$BUILD/cli/move-rb" build -f -c pfp -s locate-move "${build_threads[@]}" \
+    "$BUILD/cli/move-rb" build -fasta on -c pfp -s locate-move "${build_threads[@]}" \
         -m "$results/results-build-$name.txt" "$name" "$fasta"
 else
     echo ">>> [$name] the index already exists ($index)" >&2
@@ -84,7 +84,7 @@ fi
 # ---------- 2. text of the index (searched by sassy, the patterns are sampled from it) ----------
 if [ ! -s "$text" ]; then
     echo ">>> [$name] writing the text file for sassy" >&2
-    "$BUILD/cli/fasta-to-text" "$fasta" "$text"
+    "$BUILD/cli/fasta-to-text" -o "$text" "$fasta"
 else
     echo ">>> [$name] the text file already exists ($text)" >&2
 fi
