@@ -239,7 +239,7 @@ struct naive_reference {
 
 // returns the naive references for an index built from input
 template <typename idx_t, typename inp_t>
-static naive_reference build_naive_reference(const idx_t& index, const inp_t& input)
+naive_reference build_naive_reference(const idx_t& index, const inp_t& input)
 {
     uint64_t n = input.size();
     naive_reference ref;
@@ -265,7 +265,7 @@ static naive_reference build_naive_reference(const idx_t& index, const inp_t& in
 
 // verifies the data structures of an index, the reverted text and the suffix array against the naive references
 template <typename inp_t, move_r_support support>
-static void verify_construction(
+void verify_construction(
     const move_rb<support>& index, const inp_t& input, const naive_reference& ref, const std::string& label)
 {
     using idx_t = move_rb<support>;
@@ -357,7 +357,7 @@ inline std::map<uint64_t, uint64_t> reference_extensions(
 // verifies the enumeration of the symbols a pattern can be extended with in the direction dir, with
 // for_each_extension() and with prepare_extend_all()/extend_next(); returns false <=> a check failed
 template <direction_t dir, typename ctx_t>
-static bool verify_extensions(
+bool verify_extensions(
     const naive_reference& ref, ctx_t& ctx, std::pair<int64_t, int64_t> interval, uint64_t len,
     const std::string& op, const std::string& label)
 {
@@ -417,7 +417,7 @@ static bool verify_extensions(
 // verifies the context tables: search() and context_of() must return the contexts that are reached by
 // extending symbol by symbol
 template <typename inp_t, move_r_support support>
-static void verify_context_tables(
+void verify_context_tables(
     const move_rb<support>& index, const inp_t& input, const std::string& label)
 {
     uint64_t n = input.size();
@@ -482,7 +482,7 @@ static void verify_context_tables(
  * @param thorough false <=> the index was loaded from a stream or built from a cache (fewer sequences are performed)
  */
 template <typename inp_t, move_r_support support>
-static void verify_extend(const move_rb<support>& index, const inp_t& input,
+void verify_extend(const move_rb<support>& index, const inp_t& input,
     const naive_reference& ref, sym_of<inp_t> absent, const std::string& label, bool thorough)
 {
     // the operations of a sequence
@@ -616,7 +616,7 @@ static void verify_extend(const move_rb<support>& index, const inp_t& input,
 
 // count_hamming_dist must return the number of naive occurrences with Hamming distance at most k
 template <typename inp_t, move_r_support support>
-static void verify_count_hamming(const move_rb<support>& index, const inp_t& pattern,
+void verify_count_hamming(const move_rb<support>& index, const inp_t& pattern,
     std::span<const sym_of<inp_t>> pattern_span, const search_scheme_t& scheme, uint64_t k,
     std::span<const sym_of<inp_t>> input_span, apm_params_t params)
 {
@@ -626,7 +626,7 @@ static void verify_count_hamming(const move_rb<support>& index, const inp_t& pat
 
 // locate with the Hamming distance must report the naive occurrences with Hamming distance at most k
 template <typename inp_t, move_r_support support>
-static void verify_locate_hamming(const move_rb<support>& index, const inp_t& pattern,
+void verify_locate_hamming(const move_rb<support>& index, const inp_t& pattern,
     std::span<const sym_of<inp_t>> pattern_span, const search_scheme_t& scheme, uint64_t k,
     std::span<const sym_of<inp_t>> input_span, apm_params_t params)
 {
@@ -645,7 +645,7 @@ static void verify_locate_hamming(const move_rb<support>& index, const inp_t& pa
  *         reported number of edits
  */
 template <bool with_cigar, typename inp_t, move_r_support support>
-static void verify_locate_edit(const move_rb<support>& index, const inp_t& pattern,
+void verify_locate_edit(const move_rb<support>& index, const inp_t& pattern,
     std::span<const sym_of<inp_t>> pattern_span, const search_scheme_t& scheme, uint64_t k,
     std::span<const sym_of<inp_t>> input_span, apm_params_t params)
 {
@@ -914,7 +914,7 @@ inline uint64_t model_cigar_cost(std::span<const uint8_t> text, std::span<const 
  * @param quality output: the random quality string of the pattern
  */
 template <typename idx_t>
-static std::optional<apm_costs_t> random_query_model(const idx_t& index, std::span<const uint8_t> input,
+std::optional<apm_costs_t> random_query_model(const idx_t& index, std::span<const uint8_t> input,
     std::span<const uint8_t> pattern, distance_metric_t metric, uint64_t max_errors, std::mt19937_64& gen_query,
     std::string& quality)
 {
@@ -933,7 +933,7 @@ static std::optional<apm_costs_t> random_query_model(const idx_t& index, std::sp
    and an error model: the count, the histogram and the occurrences must equal the reference, and every CIGAR must be an
    alignment with the reported cost */
 template <typename idx_t>
-static void verify_hamming_model(const idx_t& index, std::span<const uint8_t> pattern, std::span<const uint8_t> input,
+void verify_hamming_model(const idx_t& index, std::span<const uint8_t> pattern, std::span<const uint8_t> input,
     const apm_costs_t& costs, apm_params_t params, bool locate, std::mt19937_64& gen_query)
 {
     params.costs = &costs;
@@ -983,7 +983,7 @@ static void verify_hamming_model(const idx_t& index, std::span<const uint8_t> pa
 // CIGAR), each position is reported at most once, and every valid alignment starting at p has a reported occurrence in
 // [p - 2 * max_errors() - 1, p + 2 * max_errors() + 1] whose cost is at most its own
 template <typename idx_t>
-static void verify_edit_model(const idx_t& index, std::span<const uint8_t> pattern, std::span<const uint8_t> input,
+void verify_edit_model(const idx_t& index, std::span<const uint8_t> pattern, std::span<const uint8_t> input,
     const apm_costs_t& costs, apm_params_t params, std::mt19937_64& gen_query)
 {
     params.costs = &costs;
@@ -1042,7 +1042,7 @@ static void verify_edit_model(const idx_t& index, std::span<const uint8_t> patte
  * @param thorough false <=> the index was loaded from a stream or built from a cache (fewer queries are performed)
  */
 template <typename inp_t, move_r_support support>
-static void verify_algorithm(const move_rb<support>& index, const inp_t& input,
+void verify_algorithm(const move_rb<support>& index, const inp_t& input,
     move_rb_test_t test, sym_of<inp_t> absent, const std::string& label, bool thorough)
 {
     using idx_t = move_rb<support>;
@@ -1248,7 +1248,7 @@ void build_and_verify_move_rb(move_rb_test_t test, uint64_t min_n, uint64_t max_
    std::vector<int8_t> (byte alphabets), std::vector<uint32_t>, std::vector<int32_t> (integer alphabets); the
    approximate-matching tests use the three byte types only */
 template <move_r_support supp>
-static void cycle_input_types(uint64_t i, move_rb_test_t test,
+void cycle_input_types(uint64_t i, move_rb_test_t test,
     uint64_t min_n = min_input_size, uint64_t max_n = max_input_size)
 {
     // the number of input types, and of input types with a byte alphabet
@@ -1264,9 +1264,18 @@ static void cycle_input_types(uint64_t i, move_rb_test_t test,
     }
 }
 
+/* the instantiations of cycle_input_types, declared (prefix extern) or defined (empty prefix);
+   tests/test-move-rb-instantiations.cpp is compiled once per support */
+#define TEST_MOVE_RB_CYCLE_INPUT_TYPES(prefix, supp) \
+    prefix template void cycle_input_types<supp>(uint64_t, move_rb_test_t, uint64_t, uint64_t);
+TEST_MOVE_RB_CYCLE_INPUT_TYPES(extern, _locate_move)
+TEST_MOVE_RB_CYCLE_INPUT_TYPES(extern, _locate_rlzsa)
+TEST_MOVE_RB_CYCLE_INPUT_TYPES(extern, _count)
+TEST_MOVE_RB_CYCLE_INPUT_TYPES(extern, _locate_one)
+
 // runs cycle_input_types in the fuzz iteration i with one of the supports that locate all occurrences, which changes
 // every iterations_per_support iterations
-static void cycle_multiple_locate_supports(uint64_t i, move_rb_test_t test,
+inline void cycle_multiple_locate_supports(uint64_t i, move_rb_test_t test,
     uint64_t min_n = min_input_size, uint64_t max_n = max_input_size)
 {
     if ((i / iterations_per_support) % 2 == 0) cycle_input_types<_locate_move>(i, test, min_n, max_n);
@@ -1275,7 +1284,7 @@ static void cycle_multiple_locate_supports(uint64_t i, move_rb_test_t test,
 
 // runs cycle_input_types in the fuzz iteration i with one of the four supports, which changes every
 // iterations_per_support iterations
-static void cycle_supports(uint64_t i, move_rb_test_t test,
+inline void cycle_supports(uint64_t i, move_rb_test_t test,
     uint64_t min_n = min_input_size, uint64_t max_n = max_input_size)
 {
     constexpr uint64_t num_supports = 4;

@@ -490,11 +490,48 @@ if(MOVE_R_BUILD_TESTS)
   enable_testing()
   string_utils_add_components(tests)
 
+  # compiles tests/<src> with the definitions in ARGN into the object library <target> and appends its objects to the
+  # list <objects>
+  function(move_r_add_test_part objects target src)
+    add_library(${target} OBJECT "tests/${src}")
+    target_compile_definitions(${target} PRIVATE ${ARGN})
+    target_link_libraries(${target} PRIVATE move_r string_utils_test)
+    set(${objects} ${${objects}} $<TARGET_OBJECTS:${target}> PARENT_SCOPE)
+  endfunction()
+
+  # tests/test-move-r-instantiations.cpp is compiled once per input type (see TEST_MOVE_R_VERIFY_SUPPORT_OF_ITERATION
+  # in tests/test-move-r-common.hpp)
+  set(test_move_r_objects "")
+
+  foreach(sym char uint8_t int8_t uint32_t int32_t)
+    move_r_add_test_part(test_move_r_objects "test_move_r_instantiations_${sym}" test-move-r-instantiations.cpp
+      TEST_MOVE_R_SYMBOL=${sym})
+  endforeach()
+
+  # tests/test-move-rb-instantiations.cpp is compiled once per support (see TEST_MOVE_RB_CYCLE_INPUT_TYPES in
+  # tests/test-move-rb-common.hpp)
+  set(test_move_rb_objects "")
+
+  foreach(supp _locate_move _locate_rlzsa _count _locate_one)
+    move_r_add_test_part(test_move_rb_objects "test_move_rb_instantiations${supp}" test-move-rb-instantiations.cpp
+      TEST_MOVE_RB_SUPPORT=${supp})
+  endforeach()
+
+  # every object library also compiles the sources of the interface libraries (malloc_count); from a static library,
+  # the linker takes only the objects that define missing symbols
+  foreach(s move_r move_rb)
+    add_library(test_${s}_instantiations STATIC ${test_${s}_objects})
+    target_link_libraries(test_${s}_instantiations PRIVATE move_r string_utils_test)
+  endforeach()
+
   foreach(s move-r move-rb data-structures edit-distance-matrix)
     move_r_add_tool("test-${s}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-${s}.cpp"
       "${CMAKE_BINARY_DIR}/tests/" string_utils_test)
     gtest_discover_tests("test-${s}")
   endforeach()
+
+  target_link_libraries(test-move-r PRIVATE test_move_r_instantiations)
+  target_link_libraries(test-move-rb PRIVATE test_move_rb_instantiations)
 
   foreach(s move-r move-rb data-structures edit-distance-matrix)
     set_target_properties("test-${s}" PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
