@@ -536,7 +536,7 @@ void verify_extend(const move_rb<support>& index, const inp_t& input,
             if (!verify_extensions<RIGHT>(ref, ctx, { b_ref, e_ref }, len, op, label)) return false;
 
             // the pattern cannot be extended with a symbol that does not occur in the input
-            {
+            if (!ref.internal_symbol.contains(symbol_bit_pattern(absent))) {
                 auto [ctx_absent, occurs_absent] = ctx.template extend<LEFT>(absent);
                 EXPECT_FALSE(occurs_absent) << op << ": extend<LEFT> by a symbol that does not occur, "
                     << label;
@@ -1048,6 +1048,8 @@ void verify_algorithm(const move_rb<support>& index, const inp_t& input,
     using idx_t = move_rb<support>;
     // true <=> the index and the input type support the approximate-matching algorithms (byte alphabets only)
     static constexpr bool supports_apm = sizeof(sym_of<inp_t>) == 1;
+    // the edit distance and the error models need an index with a byte alphabet (see move_r::byte_alphabet)
+    if ((is_edit_distance_test(test) || is_model_test(test)) && !index.forward_index().byte_alphabet) return;
     uint64_t n = input.size();
     std::span<const sym_of<inp_t>> input_span(input);
 
@@ -1130,27 +1132,27 @@ void build_and_verify_move_rb(move_rb_test_t test, uint64_t min_n, uint64_t max_
     using idx_t = move_rb<support>;
     static constexpr bool byte_input = sizeof(sym_t) == 1;
 
-    // the number of distinct symbols the input may contain (log-uniform)
-    uint64_t span = random_log_uniform_size(min_random_alphabet_size,
-        byte_input ? max_byte_alphabet_size : max_integer_alphabet_size, gen);
-    sym_t min_sym, max_sym;
+    uint64_t input_seed = std::uniform_int_distribution<uint64_t>(1, ~uint64_t(0))(gen);
+    inp_t input;
+    uint64_t span; // the number of distinct symbols the input may contain
+    // a symbol that does not occur in the input (one that occurs, if a byte input may contain all 256 byte values)
+    sym_t absent;
 
     if constexpr (byte_input) {
-        min_sym = std::numeric_limits<sym_t>::min();
-        max_sym = sym_t(int64_t(min_sym) + int64_t(span) - 1);
+        const random_input_alphabet alphabet(gen);
+        span = alphabet.bytes.size();
+        input = alphabet.template input<inp_t>(min_n, max_n, input_seed);
+        absent = sym_t(alphabet.absent());
     } else {
-        // the symbol range starts at 1 or at the smallest value of sym_t (negative for a signed type)
-        if (gen() % 2 == 0) {
-            min_sym = sym_t(1); // 0 is the terminator
-            max_sym = sym_t(span);
-        } else {
-            min_sym = std::numeric_limits<sym_t>::min();
-            max_sym = sym_t(int64_t(min_sym) + int64_t(span) - 1);
-        }
+        // the number of distinct symbols (log-uniform); the symbol range starts at 1 or at the smallest value of sym_t
+        // (negative for a signed type)
+        span = random_log_uniform_size(min_random_alphabet_size, max_integer_alphabet_size, gen);
+        const sym_t min_sym = gen() % 2 == 0 ? sym_t(1) : std::numeric_limits<sym_t>::min();
+        const sym_t max_sym = sym_t(int64_t(min_sym) + int64_t(span) - 1);
+        input = random_repetitive_input<inp_t>(min_n, max_n, min_sym, max_sym, input_seed);
+        absent = sym_t(int64_t(max_sym) + 1);
     }
 
-    uint64_t input_seed = std::uniform_int_distribution<uint64_t>(1, ~uint64_t(0))(gen);
-    inp_t input = random_repetitive_input<inp_t>(min_n, max_n, min_sym, max_sym, input_seed);
     uint64_t n = input.size();
 
     double context_table_share = context_table_shares[
@@ -1210,8 +1212,6 @@ void build_and_verify_move_rb(move_rb_test_t test, uint64_t min_n, uint64_t max_
         + ", context share " + std::to_string(params.context_table_share)
         + (params.context_tables_single_length ? ", single length" : ", chained");
 
-    // a symbol that does not occur in the input (the symbols of the input are in [min_sym, max_sym])
-    const sym_t absent = sym_t(int64_t(max_sym) + 1);
 
     // verifies the part test of an index built from the input (thorough: see verify_extend)
     auto verify_functionality = [&](const idx_t& idx, bool thorough) {

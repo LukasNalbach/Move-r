@@ -38,9 +38,11 @@
 #include <string>
 
 #include <misc/cli_help.hpp>
+#include <misc/fasta.hpp>
 #include <misc/files.hpp>
 #include <misc/log.hpp>
 #include <misc/memory.hpp>
+#include <misc/temp_files.hpp>
 
 namespace {
 
@@ -52,6 +54,8 @@ struct gen_patterns_cli_t {
     std::string path_patterns_file; // <patterns_file>
     std::string forbidden; // <forbidden>: the bytes no pattern contains
     uint64_t seed = 0; // -seed: the seed of the random number generator (0: a random seed)
+    bool fasta = false; // -fasta: whether the patterns are drawn from the text of a FASTA file
+    std::string fasta_alphabet = std::string(fasta_default_alphabet); // -A
 };
 
 /**
@@ -70,6 +74,11 @@ void print_help(std::ostream& out)
     h.option("<number>", "integer >= 1", "the number of patterns");
     h.option("<patterns_file>", "", "the file the patterns are written to");
     h.option("<forbidden>", "a string (default: empty)", "the bytes no pattern contains");
+    h.group("input");
+    h.option("-fasta <mode>", "on | off (default: off)", "on: the patterns are drawn from the text that the build "
+        "modes index in their FASTA mode (the header lines removed, each run of symbols outside the alphabet of -A "
+        "replaced by one separator symbol) and contain no separator symbol");
+    h.option_fasta_alphabet();
     h.group("what is computed");
     h.option("-seed <seed>", "integer in [0, " + std::to_string(std::numeric_limits<uint32_t>::max()) + "] (default: "
         + std::to_string(defaults.seed) + ")", "the seed of the random number generator (0: a random seed)");
@@ -87,8 +96,19 @@ int main(int argc, char** argv)
 
         while (args.at_option()) {
             const std::string s = args.next();
-            if (s == "-seed") cli.seed = args.integer("-seed", 0, std::numeric_limits<uint32_t>::max());
-            else throw unknown_option(s);
+            if (s == "-seed") {
+                cli.seed = args.integer("-seed", 0, std::numeric_limits<uint32_t>::max());
+            } else if (s == "-fasta") {
+                const std::string mode = args.value(s);
+                if (mode != "on" && mode != "off") throw usage_error("-fasta expects on or off");
+                cli.fasta = mode == "on";
+            } else if (s == "-A") {
+                cli.fasta_alphabet = args.value(s);
+                if (cli.fasta_alphabet.find(fasta_separator_symbol) != std::string::npos)
+                    throw usage_error("-A must not contain the separator symbol");
+            } else {
+                throw unknown_option(s);
+            }
         }
 
         if (args.remaining() != 4 && args.remaining() != 5)
@@ -100,22 +120,36 @@ int main(int argc, char** argv)
         cli.path_patterns_file = args.next();
         if (!args.empty()) cli.forbidden = args.next();
 
-        direct_ifstream input_file(cli.path_input_file);
-        require_readable(input_file, cli.path_input_file);
+        // in the FASTA mode, the patterns are drawn from the text of the FASTA file, written to a temporary file
+        temporary_files temporary;
+        std::string path_text = cli.path_input_file;
+
+        if (cli.fasta) {
+            path_text = temporary_file_path("gen-patterns-fasta-");
+            temporary.paths.push_back(path_text);
+            auto time = now();
+            log_phase_start(true, time, "storing the FASTA text");
+            process_fasta({ cli.path_input_file }, path_text, cli.fasta_alphabet);
+            log_phase_end(true, time);
+        }
+
+        direct_ifstream input_file(path_text);
+        require_readable(input_file, path_text);
         input_file.seekg(0, std::ios::end);
         const uint64_t input_size = input_file.tellg();
 
         if (cli.pattern_length > input_size) {
-            throw std::runtime_error("<length> must be at most the size of " + cli.path_input_file + " ("
-                + format_number(input_size) + " bytes)");
+            throw std::runtime_error("<length> must be at most the size of " + std::string(cli.fasta ? "the text of " : "")
+                + cli.path_input_file + " (" + format_number(input_size) + " bytes)");
         }
 
         direct_ofstream patterns_file(cli.path_patterns_file);
         require_created(patterns_file, cli.path_patterns_file);
 
-        // is_forbidden[c] = true <=> the byte c occurs in <forbidden>
+        // is_forbidden[c] = true <=> the byte c occurs in <forbidden> or is the separator symbol of the FASTA mode
         std::array<bool, std::numeric_limits<uint8_t>::max() + 1> is_forbidden {};
         for (char c : cli.forbidden) is_forbidden[uint8_t(c)] = true;
+        if (cli.fasta) is_forbidden[uint8_t(fasta_separator_symbol)] = true;
 
         std::string file_name = cli.path_input_file;
         file_name = file_name.substr(file_name.find_last_of("/\\") + 1);
@@ -143,7 +177,7 @@ int main(int argc, char** argv)
                 read_in_chunks(input_file, pattern.data(), cli.pattern_length);
                 has_forbidden = false;
 
-                if (!cli.forbidden.empty()) {
+                if (!cli.forbidden.empty() || cli.fasta) {
                     for (char c : pattern) {
                         if (is_forbidden[uint8_t(c)]) {
                             has_forbidden = true;
@@ -161,7 +195,7 @@ int main(int argc, char** argv)
         log_phase_end(true, time);
         input_file.close();
         patterns_file.close();
-        drop_from_page_cache(cli.path_input_file, true);
+        if (!cli.fasta) drop_from_page_cache(cli.path_input_file, true);
         drop_from_page_cache(cli.path_patterns_file, true);
     });
 }

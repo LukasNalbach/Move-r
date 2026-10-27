@@ -88,6 +88,7 @@
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::preprocess_t(const std::string&); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::map_byte_alphabet(std::vector<std::vector<uint64_t>>&); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::finish_byte_alphabet(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::widen_t(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::read_t_from_file(const std::string&); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::unmap_t(); \
     prefix template std::array<uint8_t, 256> MOVE_R_CONSTRUCTION_OF(supp, enc)::pfp_alphabet_map() const; \

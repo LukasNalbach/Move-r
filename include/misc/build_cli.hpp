@@ -58,9 +58,6 @@
 // the construction mode of the build modes if -c is not given
 inline constexpr move_r_construction_mode default_construction_mode = _pfp;
 
-// the alphabet of -A if it is not given
-inline constexpr std::string_view default_fasta_alphabet = "ACGT";
-
 // the options shared by the build modes; a build mode derives its options from it
 struct build_cli_t {
     uint64_t balancing_parameter = move_r_params().a; // -balance
@@ -69,7 +66,7 @@ struct build_cli_t {
     bool construction_mode_given = false; // whether -c was given (see build_with_fallback)
     fasta_option fasta = fasta_option::detect; // -fasta
     bool fasta_mode = false; // whether the input files are read in the FASTA mode (see read_input_files)
-    std::string fasta_alphabet = std::string(default_fasta_alphabet); // -A
+    std::string fasta_alphabet = std::string(fasta_default_alphabet); // -A
     bool reorder_alphabet = true; // false <=> -keep-order (see move_r_params::reorder_alphabet)
     std::string index_base_name; // -o (default: the first input file)
     // the input files; more than one only in the FASTA mode, then they are concatenated
@@ -181,8 +178,7 @@ inline void read_input_files(cli_arguments& args, build_cli_t& cli)
 inline void print_fasta_options(help_printer& h, const std::string& fasta_explanation)
 {
     h.option_fasta(fasta_explanation);
-    h.option("-A <alphabet>", "a string of symbols (default: " + std::string(default_fasta_alphabet) + ")",
-        "in the FASTA mode: the symbols kept verbatim");
+    h.option_fasta_alphabet();
 }
 
 /**

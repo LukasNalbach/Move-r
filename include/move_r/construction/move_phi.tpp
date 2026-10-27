@@ -311,7 +311,7 @@ void move_r<support, mlf_enc>::construction::build_plcp_run()
     // the maximum value in LCP_run is the maximum PLCP value, which determines the width of the PLCP rows
     idx._plcp_row_width = std::max<uint8_t>(1, std::bit_width(max_val));
 
-    if (delete_T) {
+    if (deletes_T()) {
         T_inp.clear();
         T_inp.shrink_to_fit();
     }

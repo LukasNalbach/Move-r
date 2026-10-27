@@ -70,6 +70,11 @@ constexpr uint64_t max_edit_errors = edit_distance_max_errors_128;
 // the search scheme without -scheme and of the approximate queries of the interactive mode
 constexpr std::string_view default_scheme_name = "min-u";
 
+// the error of the edit distance and of the error models for an index without a byte alphabet (more distinct bytes
+// than internal symbols of one byte, see move_r::byte_alphabet)
+const std::string edit_distance_needs_byte_alphabet = "has more distinct bytes than internal symbols of one byte; "
+    "only the Hamming distance without an error model is supported";
+
 /** @brief the options of move-rb count and move-rb locate */
 struct query_cli_t {
     bool locate = true; // move-rb locate (else move-rb count)
@@ -121,7 +126,7 @@ void print_help(std::ostream& out)
     h.group("arguments");
     h.option("<index_file>", "", locate ? "an index built with move-rb build (not with -s count or locate-one)"
         : "an index built with move-rb build");
-    h.option("<patterns_file>", "", std::string("the patterns, in pizza&chili, FASTA or FASTQ format or one per line")
+    h.option("<patterns_file>", "", patterns_file_help
         + (locate ? " (with -sam, the name of a pattern becomes QNAME and its FASTQ qualities become QUAL)" : "")
         + "; without it, the queries are read from stdin (see below)");
 
@@ -961,6 +966,11 @@ void answer_query(const move_rb<support>& index, const std::string& line, uint64
             return;
         }
 
+        if (command == "edit-locate" && !index.forward_index().byte_alphabet) {
+            std::cout << "error: the index " << edit_distance_needs_byte_alphabet << std::endl;
+            return;
+        }
+
         const search_scheme_t scheme = min_u_scheme(max_errors);
 
         if (pattern.size() < scheme.p) {
@@ -1021,6 +1031,12 @@ void run_queries(direct_ifstream& index_file)
     load_index_with_progress(index, index_file, "bidirectional index");
     index_file.close();
     drop_from_page_cache(cli.path_index_file, true);
+
+    // the edit distance and the error models rank the symbols with the map of the bytes (see move_r::map_int)
+    if (!cli.path_patterns_file.empty() && !index.forward_index().byte_alphabet
+        && (cli.metric == EDIT_DISTANCE || !cli.apm_model.is_default())) {
+        throw std::runtime_error(cli.path_index_file + " " + edit_distance_needs_byte_alphabet);
+    }
 
     if (cli.path_patterns_file.empty()) {
         const auto& fwd = index.forward_index();

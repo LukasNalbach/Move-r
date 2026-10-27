@@ -113,6 +113,7 @@ public:
      * @param input the container
      */
     template <typename container_t>
+        requires(!std::is_same_v<std::remove_cvref_t<container_t>, move_r_input_view>)
     explicit move_r_input_view(container_t& input)
         : object(&input)
         , data_function([](void* ptr) {

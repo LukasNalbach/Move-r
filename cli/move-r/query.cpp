@@ -87,7 +87,7 @@ void print_help(std::ostream& out)
 
     h.group("arguments");
     h.option("<index_file>", "", "an index built with move-r build");
-    h.option("<patterns_file>", "", "the patterns, in pizza&chili, FASTA or FASTQ format or one per line; without it, "
+    h.option("<patterns_file>", "", patterns_file_help + "; without it, "
         "the patterns are read from stdin (one per line) and the results are printed");
 
     if (cli.locate) {

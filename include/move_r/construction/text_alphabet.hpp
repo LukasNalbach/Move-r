@@ -196,10 +196,28 @@ inline constexpr uint8_t move_r_min_mapped_symbol_pfp = 3;
 static_assert(move_r_min_mapped_symbol_pfp >= pfp_rlbwt::min_symbol);
 
 /**
+ * @brief returns whether the distinct bytes of an input can be mapped to the internal symbols [min_symbol..255] (see
+ *        compute_byte_alphabet_map); else the input is mapped like an integer input
+ * @param freq_thr [0..p-1][0..255] freq_thr[i_p][c] = number of occurrences of the byte c counted by thread i_p
+ * @param min_symbol the smallest symbol a byte is mapped to
+ */
+inline bool byte_alphabet_fits(const std::vector<std::vector<uint64_t>>& freq_thr, uint64_t min_symbol)
+{
+    uint64_t num_distinct = 0;
+
+    for (uint16_t c = 0; c < 256; c++) {
+        num_distinct += std::any_of(freq_thr.begin(), freq_thr.end(),
+            [c](const std::vector<uint64_t>& freq_of_thread) { return freq_of_thread[c] != 0; });
+    }
+
+    return num_distinct <= 256 - min_symbol;
+}
+
+/**
  * @brief computes the alphabet map of a byte input from the numbers of occurrences of its bytes: the bytes that occur
  *        are mapped to min_symbol, min_symbol + 1, ... in increasing order, or by decreasing frequency (bytes with
  *        equal frequency in increasing order) if reorder is set; throws std::runtime_error if more than
- *        256 - min_symbol distinct bytes occur
+ *        256 - min_symbol distinct bytes occur (see byte_alphabet_fits)
  * @param freq_thr [0..p-1][0..255] freq_thr[i_p][c] = number of occurrences of the byte c counted by thread i_p;
  *        freed
  * @param min_symbol the smallest symbol a byte is mapped to
