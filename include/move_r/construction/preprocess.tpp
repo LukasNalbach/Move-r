@@ -56,12 +56,28 @@ void move_r<support, mlf_enc>::construction::finish_byte_alphabet()
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::widen_t()
+{
+    move_r_widen_bytes(T_inp, T_wide, p);
+
+    if (delete_T) {
+        T_inp.clear();
+        T_inp.shrink_to_fit();
+    }
+
+    T_inp = move_r_input_view(T_wide);
+    inp_width = sizeof(uint16_t);
+    T_widened = true;
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_file_name)
 {
     log_phase_start("preprocessing T");
 
     /* a byte alphabet is mapped to [min_mapped_symbol()..min_mapped_symbol()+sigma-2] (by decreasing frequency, if
-       reorder_alphabet is set); an integer alphabet is mapped to [1..sigma-1] */
+       reorder_alphabet is set); an integer alphabet, and a byte input with more distinct bytes than that range holds,
+       is mapped to [1..sigma-1] */
     if (byte_alphabet) {
         // [0..p-1][0..255] freq_thr[i_p][c] = number of occurrences of c that thread i_p has counted in T[0..n-2]
         std::vector<std::vector<uint64_t>> freq_thr(p, std::vector<uint64_t>(256, 0));
@@ -92,31 +108,42 @@ void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_f
             prog.finish();
         }
 
-        map_byte_alphabet(freq_thr);
+        // the text of a FASTA file is read only through the map of the bytes (see build_rlbwt_pfp)
+        if (byte_alphabet_fits(freq_thr, min_mapped_symbol()) || params.fasta.text_len != 0) {
+            map_byte_alphabet(freq_thr);
 
-        // a cache that has been written with a different alphabet map is not used
-        if (alphabet_from_cache && !std::equal(cache_map.begin(), cache_map.end(), idx._map_int.begin())) {
-            params.ignore_pfp_cache = true;
+            // a cache that has been written with a different alphabet map is not used
+            if (alphabet_from_cache && !std::equal(cache_map.begin(), cache_map.end(), idx._map_int.begin())) {
+                params.ignore_pfp_cache = true;
 
-            log_note(params.log, "the cache " + pfp_prefix + " was written with a different alphabet map, rebuilding "
-                "it");
-        }
-
-        if (input_in_memory()) {
-            #pragma omp parallel for num_threads(p)
-            for (uint64_t i = 0; i < n - 1; i++) {
-                T<uint8_t>(i) = idx._map_int[T<uint8_t>(i)];
+                log_note(params.log, "the cache " + pfp_prefix + " was written with a different alphabet map, "
+                    "rebuilding it");
             }
-        } else {
-            // the input file is not modified; the alphabet map is applied while the prefix-free parsing reads it
-            params.pfp_alphabet_map_file = prefix_tmp_files + ".map";
-            direct_ofstream map_ofile(params.pfp_alphabet_map_file, std::ios::binary);
-            write_in_chunks(map_ofile, (char*) idx._map_int.data(), 256);
-            map_ofile.close();
-        }
 
-        finish_byte_alphabet();
-    } else {
+            if (input_in_memory()) {
+                #pragma omp parallel for num_threads(p)
+                for (uint64_t i = 0; i < n - 1; i++) {
+                    T<uint8_t>(i) = idx._map_int[T<uint8_t>(i)];
+                }
+            } else {
+                // the input file is not modified; the alphabet map is applied while the prefix-free parsing reads it
+                params.pfp_alphabet_map_file = prefix_tmp_files + ".map";
+                direct_ofstream map_ofile(params.pfp_alphabet_map_file, std::ios::binary);
+                write_in_chunks(map_ofile, (char*) idx._map_int.data(), 256);
+                map_ofile.close();
+            }
+
+            finish_byte_alphabet();
+        } else {
+            // a byte input with more distinct bytes than internal symbols of one byte is mapped like an integer input
+            byte_alphabet = false;
+            idx.byte_alphabet = false;
+            // the internal symbols [1..256] of an input in memory with all 256 bytes do not fit into its symbols
+            if (input_in_memory() && !byte_alphabet_fits(freq_thr, move_r_min_mapped_symbol)) widen_t();
+        }
+    }
+
+    if (!byte_alphabet) {
         idx.symbols_remapped = true;
         uint64_t alloc_before = malloc_count_current();
 
@@ -200,6 +227,8 @@ void move_r<support, mlf_enc>::construction::read_t_from_file(
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::unmap_t()
 {
+    // a widened copy of T has been mapped instead of the input
+    if (T_widened) return;
     log_phase_start("unmapping T");
 
     if (byte_alphabet) {

@@ -29,6 +29,7 @@
 #include <clocale>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <limits>
 #include <map>
 #include <random>
@@ -52,6 +53,8 @@
 #include <misc/portable_layout.hpp>
 #include "test-inputs.hpp"
 #include <misc/log.hpp>
+#include <misc/pattern_reader.hpp>
+#include <misc/temp_files.hpp>
 #include "test-fuzz.hpp"
 
 // one generator per thread (run_fuzz runs parallel functionalities on all threads)
@@ -670,6 +673,87 @@ static void verify_pred_succ_block(gen_t& gen, uint64_t max_size)
     verify_pred_succ_queries<uint8_t>(index_reloaded, input, sym_distrib, num_queries, "pred_succ_block (reloaded)", gen);
 }
 
+// writes random patterns in a random one of the four formats of pattern_reader to a file and checks that they are
+// read back with their names
+void verify_pattern_reader(uint64_t max_size)
+{
+    enum format_t : uint8_t { pizza_chili, fasta, fastq, lines, num_formats };
+    const format_t format = format_t(gen() % num_formats);
+    const uint64_t num = 1 + gen() % std::max<uint64_t>(1, max_size / 16);
+    const uint64_t max_length = 1 + gen() % 32;
+    const uint64_t pizza_chili_length = 1 + gen() % max_length;
+
+    // a random alphabet without the bytes the format cannot store in a pattern
+    std::vector<uint8_t> alphabet;
+    const uint64_t sigma = 1 + gen() % 256;
+    for (uint64_t c = 0; c < 256; c++) {
+        const bool storable = format == pizza_chili || (c != '\n' && c != '\r' && (format != fasta || c != '>'));
+        if (storable && alphabet.size() < sigma && gen() % 256 < sigma) alphabet.push_back(uint8_t(c));
+    }
+    if (alphabet.empty()) alphabet.push_back('A');
+
+    std::vector<pattern_reader::pattern_t> expected;
+    std::string file;
+
+    for (uint64_t i = 0; i < num; i++) {
+        pattern_reader::pattern_t p;
+        const uint64_t length = format == pizza_chili ? pizza_chili_length : (format == lines) + gen() % max_length;
+        for (uint64_t j = 0; j < length; j++) p.seq.push_back(char(alphabet[gen() % alphabet.size()]));
+        p.name = format == fasta || format == fastq ? "s" + std::to_string(gen() % 1000) : "pat" + std::to_string(i);
+        if (format == fastq) for (uint64_t j = 0; j < length; j++) p.quality.push_back(char('!' + gen() % 64));
+        expected.push_back(p);
+    }
+
+    if (format == pizza_chili) {
+        file = "# number=" + std::to_string(num) + " length=" + std::to_string(pizza_chili_length) + "\n";
+        for (const auto& p : expected) file += p.seq;
+    }
+
+    for (const auto& p : expected) {
+        if (format == fasta) {
+            const uint64_t width = 1 + gen() % 8;
+            file += ">" + p.name + " description\n";
+            for (uint64_t j = 0; j < p.seq.size(); j += width) file += p.seq.substr(j, width) + "\n";
+        } else if (format == fastq) {
+            file += "@" + p.name + "\n" + p.seq + "\n+\n" + p.quality + "\n";
+        } else if (format == lines) {
+            file += p.seq + (gen() % 2 ? "\n\n" : "\n");
+        }
+    }
+
+    // a file of one pattern per line whose first pattern starts with '>' is read as FASTA, and one that happens to
+    // look like a pizza&chili header or a FASTQ record is read as such; such inputs are not drawn
+    if (format == lines) {
+        // the first four lines of the file
+        std::vector<std::string> head;
+        for (uint64_t b = 0, e; head.size() < 4 && b < file.size(); b = e + 1) {
+            e = file.find('\n', b);
+            head.push_back(file.substr(b, e - b));
+        }
+
+        const std::string& first = head[0];
+        const bool fastq_like = head.size() == 4 && first[0] == '@' && !head[2].empty() && head[2][0] == '+'
+            && head[1].size() == head[3].size();
+        if (first[0] == '>' || (first[0] == '#' && header_value(first, "number=") >= 1) || fastq_like) return;
+    }
+
+    temporary_files temporary;
+    const std::string path = temporary_file_path("test-pattern-reader-");
+    temporary.paths.push_back(path);
+    std::ofstream(path, std::ios::binary) << file;
+    std::vector<pattern_reader::pattern_t> patterns;
+    ASSERT_TRUE(read_all_patterns(path, patterns));
+    ASSERT_EQ(patterns.size(), expected.size()) << "format " << int(format);
+
+    for (uint64_t i = 0; i < expected.size(); i++) {
+        ASSERT_EQ(patterns[i].seq, expected[i].seq) << "pattern " << i << ", format " << int(format);
+        ASSERT_EQ(patterns[i].name, expected[i].name) << "pattern " << i << ", format " << int(format);
+        ASSERT_EQ(patterns[i].quality, expected[i].quality) << "pattern " << i << ", format " << int(format);
+    }
+}
+
+// parse_double expects a point as the decimal separator, also under a locale with a comma (malloc_count sets
+// LC_NUMERIC to the locale of the user)
 TEST(test_data_structures, parse_double_ignores_locale)
 {
     const std::string before = std::setlocale(LC_NUMERIC, nullptr);
@@ -684,6 +768,13 @@ TEST(test_data_structures, parse_double_ignores_locale)
     EXPECT_FALSE(parse_double("", value));
     std::setlocale(LC_NUMERIC, before.c_str());
     if (!comma_locale) GTEST_SKIP() << "the locale de_DE.UTF-8 is not installed; only the C locale was tested";
+}
+
+TEST(test_data_structures, pattern_reader)
+{
+    run_fuzz("pattern-reader", {
+        { "verify", [](uint64_t) { verify_pattern_reader(max_input_size); }, false },
+    }, fuzz_iterations(), &max_input_size, min_fuzz_input_size);
 }
 
 TEST(test_data_structures, plain_bit_vector)

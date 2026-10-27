@@ -405,8 +405,9 @@ protected:
     bool symbols_remapped = false; // true <=> the symbols of the input are mapped to internal symbols
 
 public:
-    // true <=> the input uses a byte alphabet; the alphabet is then mapped with _map_int and _map_ext, else
-    // with _alphabet
+    /* true <=> the input uses a byte alphabet; the alphabet is then mapped with _map_int and _map_ext, else with
+       _alphabet (also for a byte input with more distinct bytes than the construction mode maps to internal symbols of
+       one byte, see move_r_min_mapped_symbol) */
     bool byte_alphabet = true;
 
 protected:
@@ -576,8 +577,8 @@ public:
      * @brief constructs a move_r index of the input (consumed during the construction if passed as an rvalue)
      * @tparam input_t container type of the input: a contiguous container of an integral symbol type (e.g.,
      *         std::string, std::vector<uint8_t> or std::vector<int32_t>); a symbol type of one byte
-     *         builds an index with a byte alphabet, a wider one an index with an integer alphabet (see
-     *         byte_alphabet); signed symbols are reinterpreted (see symbol_idx)
+     *         builds an index with a byte alphabet (unless too many distinct bytes occur), a wider one an index with an
+     *         integer alphabet (see byte_alphabet); signed symbols are reinterpreted (see symbol_idx)
      * @param input the input
      * @param params construction parameters
      */

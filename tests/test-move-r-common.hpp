@@ -51,9 +51,6 @@ inline uint64_t max_num_threads = omp_get_max_threads();
 inline uint64_t min_input_size = 1;
 inline uint64_t max_input_size = 16000;
 
-/* number of largest values of the symbol type that do not occur in the random inputs, so that a byte input has at most
-   max_byte_alphabet_size distinct symbols (as many as the construction with _pfp reserves) */
-inline constexpr uint64_t num_excluded_symbol_values = pfp_min_mapped_symbol;
 
 /* TEST(test_move_r, index) checks the same support and input type in iterations_per_combination consecutive iterations;
    the input type shifts by one after each round over the num_supports supports, so that every combination of a
@@ -127,7 +124,6 @@ inline void verify_count_and_locate(
  *
  * An adapter is a type with:
  *   - types index_t (the index) and inp_t (the container of the input and of the patterns)
- *   - static <sym> min_sym(), static <sym> max_sym(): the smallest and largest symbol of the random input
  *   - static uint64_t max_pattern_length(uint64_t n), static uint64_t num_queries(uint64_t n)
  *   - static index_t build(inp_t& input, gen_t&, uint64_t max_num_threads)
  *   - static uint64_t count(index_t&, inp_t& pattern), static <occurrences> locate(index_t&, inp_t& pattern)
@@ -148,10 +144,15 @@ inline void verify_index(
     using inp_t = typename adapter_t::inp_t;
     using index_t = typename adapter_t::index_t;
 
-    // seed of the input, drawn from gen (the input is reproduced with MOVE_R_TEST_SEED)
+    using sym_t = typename inp_t::value_type;
+
+    // seed of the input, drawn from gen (the input is reproduced with MOVE_R_TEST_SEED); a byte input has a random
+    // alphabet, an integer input symbols of the whole range of its type
     uint64_t input_seed = std::uniform_int_distribution<uint64_t>(1, ~uint64_t(0))(gen);
-    inp_t input = random_repetitive_input<inp_t>(
-        min_input_size, max_input_size, adapter_t::min_sym(), adapter_t::max_sym(), input_seed);
+    inp_t input = sizeof(sym_t) == 1
+        ? random_input_alphabet(gen).template input<inp_t>(min_input_size, max_input_size, input_seed)
+        : random_repetitive_input<inp_t>(min_input_size, max_input_size, std::numeric_limits<sym_t>::min(),
+            std::numeric_limits<sym_t>::max(), input_seed);
     uint64_t n = input.size();
 
     index_t index = adapter_t::build(input, gen, max_num_threads);
@@ -207,9 +208,6 @@ struct move_r_adapter {
 
     // parameters of the last built index, appended to the failure messages
     inline static std::string label;
-
-    static sym_t min_sym() { return std::numeric_limits<sym_t>::min(); }
-    static sym_t max_sym() { return std::numeric_limits<sym_t>::max() - num_excluded_symbol_values; }
 
     static uint64_t max_pattern_length(uint64_t n)
     {
@@ -380,14 +378,14 @@ struct move_r_adapter {
         if constexpr (index_t::supports_multiple_locate) {
             /* the input mapped to the internal symbols of the index (the index orders the suffixes by the internal
                symbols): [0..input_size-1] mapped[i] = map_symbol(input[i]) */
-            inp_t mapped;
+            std::vector<uint64_t> mapped;
             resize_for_overwrite(mapped, input_size);
 
             #pragma omp parallel for num_threads(max_num_threads)
-            for (uint64_t i = 0; i < input_size; i++) mapped[i] = sym_t(index.map_symbol(input[i]));
+            for (uint64_t i = 0; i < input_size; i++) mapped[i] = index.map_symbol(input[i]);
 
             // [0..input_size] the suffix array of mapped with the sentinel
-            std::vector<int64_t> suffix_array = compute_reference_sa<sym_t, inp_t>(mapped, input_size, max_num_threads);
+            std::vector<int64_t> suffix_array = compute_reference_sa<uint64_t>(mapped, input_size, max_num_threads);
             const no_init_vector<uint48_t> suffix_array_retrieved = index.SA_range({ .num_threads = max_num_threads });
 
             #pragma omp parallel for num_threads(max_num_threads)

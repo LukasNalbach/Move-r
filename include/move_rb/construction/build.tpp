@@ -58,7 +58,8 @@ inline void remove_temporary_input(const std::string& input_file)
 /**
  * @brief the state of the construction of a move_rb that its steps share. build calls the steps in this order:
  *        1. prepare_input: reads the input file into memory, or writes the input to a file for the pfp
- *        2. build_byte_alphabet or build_integer_alphabet: maps T to the effective alphabet
+ *        2. build_byte_alphabet and (for an integer input and for a byte input with more distinct bytes than
+ *           internal symbols of one byte) build_integer_alphabet: maps T to the effective alphabet
  *        3. build_sub_indexes: builds idx_fwd over T and idx_bwd over T^R
  *        4. build_samplings<RIGHT>: the data structures over T^R
  *        5. load_forward_index (modes _pfp and _suffix_array_space)
@@ -69,10 +70,17 @@ inline void remove_temporary_input(const std::string& input_file)
 template <move_r_support support>
 struct move_rb<support>::build_state_t {
     move_rb& idx; // the index that is built
-    move_r_input_view& input; // the input
+    move_r_input_view input; // the input, or wide_input
     move_r_params params; // construction parameters
 
-    bool byte_input = false; // true <=> the symbols of the input are bytes
+    // true <=> the input is mapped with a byte alphabet; false for an integer input and for a byte input with more
+    // distinct bytes than internal symbols of one byte in the in-memory modes (see build_byte_alphabet)
+    bool byte_input = false;
+    // [0..n-2] a byte input with two bytes per symbol, if all 256 bytes occur in the in-memory modes
+    no_init_vector<uint16_t> wide_input;
+    // true <=> each sub-index computes the integer alphabet of a byte input file with more distinct bytes than internal
+    // symbols of one byte (mode _pfp, see move_r::construction::preprocess_t)
+    bool sub_indexes_compute_alphabet = false;
     bool log = false; // true <=> print log messages
     bool pfp = false; // true <=> mode _pfp
     bool sa_space = false; // true <=> mode _suffix_array_space
@@ -176,7 +184,8 @@ void move_rb<support>::build(
     log_phase_start(st.log, st.time, "preprocessing T");
     st.p = st.params.num_threads;
 
-    if (st.byte_input) build_byte_alphabet(st); else build_integer_alphabet(st);
+    if (st.byte_input) build_byte_alphabet(st);
+    if (!st.byte_input) build_integer_alphabet(st);
     build_sub_indexes(st);
 
     // the data structures over T^R are built first (idx_fwd may be stored on disk meanwhile)
@@ -309,6 +318,34 @@ void move_rb<support>::build_byte_alphabet(build_state_t& st)
     // smallest symbol of the effective alphabet; 0 is the terminator, 1 and 2 are reserved in the mode _pfp
     // (see min_mapped_symbol in move_r)
     const uint64_t min_symbol = move_r_builds_runs_file(st.params.mode) ? 3 : 1;
+
+    // a byte input with more distinct bytes than internal symbols of one byte is mapped like an integer input
+    if (!byte_alphabet_fits(freq_thr, min_symbol)) {
+        if (st.pfp) {
+            // the sub-indexes read the input file and check their pfp caches themselves
+            st.sub_indexes_compute_alphabet = true;
+            st.params.alphabet_size = 0;
+            st.ignore_cache_fwd = false;
+            st.ignore_cache_bwd = false;
+            st.finish_phase("time_preprocess_t_outer");
+            return;
+        }
+
+        // the internal symbols [1..256] of all 256 bytes do not fit into a byte, so T gets two bytes per symbol (and
+        // space for the terminator that a sub-index appends)
+        st.wide_input.reserve(n);
+        move_r_widen_bytes(input, st.wide_input, p);
+
+        if (st.file_input) {
+            input.clear();
+            input.shrink_to_fit();
+        }
+
+        st.input = move_r_input_view(st.wide_input);
+        st.byte_input = false;
+        return;
+    }
+
     // the alphabet size includes the terminator
     st.params.alphabet_size
         = 1 + compute_byte_alphabet_map(freq_thr, min_symbol, st.params.reorder_alphabet, st.map_int);
@@ -441,7 +478,9 @@ void move_rb<support>::build_sub_indexes(build_state_t& st)
         idx_fwd = move_r_fwd_t(input, sub_params);
         _pfp_cached_texts = idx_fwd.rlbwt_from_cache() ? 1 : 0;
         if (fasta_once) take_fasta_read_once(st, sub_params);
-        if (st.byte_input) idx_fwd.set_alphabet_maps(st.map_int, st.map_ext); else idx_fwd.set_alphabet(st.symbols, st.order);
+        if (st.sub_indexes_compute_alphabet) sigma = idx_fwd.alphabet_size() + 1;
+        else if (st.byte_input) idx_fwd.set_alphabet_maps(st.map_int, st.map_ext);
+        else idx_fwd.set_alphabet(st.symbols, st.order);
 
         // store the forward index on disk while the backward index is built
         if (st.pfp || st.sa_space) {
@@ -467,7 +506,11 @@ void move_rb<support>::build_sub_indexes(build_state_t& st)
         sub_params.ignore_pfp_cache = st.ignore_cache_bwd;
         idx_bwd = move_r_bwd_t(input, sub_params);
         if (idx_bwd.rlbwt_from_cache()) _pfp_cached_texts++;
-        if (st.byte_input) idx_bwd.set_alphabet_maps(st.map_int, st.map_ext); else idx_bwd.set_alphabet(st.symbols, st.order);
+        // with sub_indexes_compute_alphabet, the backward index has computed the same alphabet as the forward index
+        if (!st.sub_indexes_compute_alphabet) {
+            if (st.byte_input) idx_bwd.set_alphabet_maps(st.map_int, st.map_ext);
+            else idx_bwd.set_alphabet(st.symbols, st.order);
+        }
 
         if (!st.pfp) reverse(input, st.p, st.log, st.params.measurement_file, "time_restore_t");
 
@@ -602,8 +645,8 @@ void move_rb<support>::restore_input(build_state_t& st)
 {
     move_r_input_view& input = st.input;
 
-    // the input is restored only if it was mapped in memory
-    if (st.reads_input_file || st.file_input) return;
+    // the input is restored only if it was mapped in memory (not a widened copy of it)
+    if (st.reads_input_file || st.file_input || !st.wide_input.empty()) return;
     log_phase_start(st.log, st.time, "unmapping T");
 
     if (st.byte_input) {

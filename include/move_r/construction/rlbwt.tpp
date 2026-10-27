@@ -143,7 +143,7 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_c()
     if (rlbwt_from_pfp) release_pfp_output();
 
     // build_plcp_run reads T
-    if (delete_T && !(has_mphi && !rlbwt_from_pfp)) {
+    if (deletes_T() && !(has_mphi && !rlbwt_from_pfp)) {
         T_inp.clear();
         T_inp.shrink_to_fit();
     }

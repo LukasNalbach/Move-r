@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <stdexcept>
 #include <tuple>
 #include <vector>
 
@@ -834,7 +835,12 @@ public:
      * @param index the index
      * @param params query parameters
      */
-    apm_edit(const idx_t& index, apm_params_t params = {}) : base_t(index, params) {}
+    apm_edit(const idx_t& index, apm_params_t params = {}) : base_t(index, params)
+    {
+        // the edit distance matrices rank the symbols with the map of the bytes (see move_r::map_int)
+        if (!index.forward_index().byte_alphabet)
+            throw std::invalid_argument("apm_edit: the index does not have a byte alphabet (see move_r::byte_alphabet)");
+    }
 
     // ############################# QUERY METHODS #############################
 

@@ -389,7 +389,9 @@ protected:
 
     // reads the input file into memory or writes the input to a temporary file for the prefix-free parsing
     void prepare_input(build_state_t& st);
-    // maps the bytes of the input to the effective alphabet (byte alphabet)
+    /* maps the bytes of the input to the effective alphabet (byte alphabet); with more distinct bytes than internal
+       symbols of one byte, it leaves the alphabet to build_integer_alphabet or to the sub-indexes (see
+       build_state_t::sub_indexes_compute_alphabet) */
     void build_byte_alphabet(build_state_t& st);
     // maps the symbols of the input to the effective alphabet (integer alphabet)
     void build_integer_alphabet(build_state_t& st);

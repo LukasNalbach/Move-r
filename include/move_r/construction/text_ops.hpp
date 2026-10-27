@@ -258,6 +258,22 @@ void move_r_reverse_text_of(move_r_input_view& T, uint64_t n, uint64_t p)
     }
 }
 
+/**
+ * @brief copies a byte input into a container with symbols of two bytes, which hold the internal symbols [1..256] of
+ *        an input in which all 256 bytes occur
+ * @param T the byte input
+ * @param T_wide stores T[0..|T|-1], each byte widened to two bytes (its capacity is kept)
+ * @param p the number of threads to use
+ */
+inline void move_r_widen_bytes(const move_r_input_view& T, no_init_vector<uint16_t>& T_wide, uint64_t p)
+{
+    resize_no_init(T_wide, T.size());
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(T.data());
+
+    #pragma omp parallel for num_threads(p)
+    for (uint64_t i = 0; i < T_wide.size(); i++) T_wide[i] = bytes[i];
+}
+
 // defines the function name, which calls name_of<sym_t> for the symbol type sym_t of the symbol width of T
 #define MOVE_R_TEXT_OP_DISPATCH(name, signature, arguments) \
     inline void name signature \

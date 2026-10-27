@@ -229,10 +229,15 @@ public:
 
     // ############################# DATA MEMBERS #############################
 
-    const uint8_t inp_width; // width of an input symbol in bytes
-    const bool byte_alphabet; // true <=> the input uses a byte alphabet
+    uint8_t inp_width; // width of a symbol of T_inp in bytes
+    // true <=> the input uses a byte alphabet; false for a byte input with more distinct bytes than internal symbols of
+    // one byte (see preprocess_t)
+    bool byte_alphabet;
 
-    move_r_input_view& T_inp; // view of the container storing T
+    move_r_input_view T_inp; // view of the container storing T, or of T_wide
+    // [0..|T|-1] T with two bytes per symbol, if its internal symbols do not fit into a byte (see widen_t)
+    no_init_vector<uint16_t> T_wide;
+    bool T_widened = false; // true <=> T_inp is a view of T_wide; then the input itself is not mapped
     move_r<support, mlf_enc>& idx; // the index to build
     // maps the symbols of an integer-alphabet input to the internal symbols (freed once T has been mapped)
     std::unique_ptr<move_r_int_alphabet> int_alphabet;
@@ -330,6 +335,9 @@ public:
 
     // returns whether the input is read from a file
     bool file_input() const { return !params.input_file.empty(); }
+
+    // returns whether T_inp is deleted once it is not needed anymore (see delete_T and T_widened)
+    bool deletes_T() const { return delete_T || T_widened; }
 
     // returns whether the input is stored in memory (always, except if the prefix-free parsing reads it from the file)
     bool input_in_memory() const { return !move_r_builds_runs_file(params.mode) || !file_input(); }
@@ -685,6 +693,9 @@ public:
 
     // completes the alphabet maps of the bytes once T is read through idx._map_int (see preprocess_t)
     void finish_byte_alphabet();
+
+    // replaces T_inp with a view of T_wide, which stores T with two bytes per symbol (see move_r_widen_bytes)
+    void widen_t();
 
     /** @brief reads T from a file */
     void read_t_from_file(const std::string& T_file_name);

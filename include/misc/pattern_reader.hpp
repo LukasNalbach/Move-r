@@ -33,6 +33,7 @@
 #ifndef MOVE_R_MISC_PATTERN_READER_HPP
 #define MOVE_R_MISC_PATTERN_READER_HPP
 
+#include <algorithm>
 #include <charconv>
 #include <cstdint>
 #include <cstdlib>
@@ -122,11 +123,17 @@ inline std::pair<uint64_t, uint64_t> read_patterns_header(std::istream& patterns
     return { num_patterns_from_header(header), pattern_length_from_header(header) };
 }
 
+// the description of a patterns file in the help texts of the command-line tools (see pattern_reader)
+inline const std::string patterns_file_help = "the patterns, in pizza&chili, FASTA or FASTQ format or one per line "
+    "(detected from the input; a file of one pattern per line whose first pattern starts with '>' is read as FASTA)";
+
 /**
- * @brief reads patterns in one of four formats, which is detected from the first byte of the input:
- *        pizza&chili ('#': a header "# number=<k> length=<m> ..." followed by k patterns of length m), FASTA ('>'),
- *        FASTQ ('@') or one pattern per line (otherwise; empty lines are skipped). A pattern without a name in its
- *        format is named pat<i>, where i is its index.
+ * @brief reads patterns in one of four formats, which is detected from the input: pizza&chili (a first line
+ *        "# number=<k> length=<m> ..." followed by k patterns of length m, which a file has to hold), FASTQ (a first
+ *        record of four lines: '@' and the name, the symbols, '+', as many qualities as symbols), FASTA (the input
+ *        starts with '>') or one pattern per line (otherwise; empty lines are skipped). The lines read to detect the
+ *        format are buffered, so the input may be stdin. A pattern without a name in its format is named pat<i>,
+ *        where i is its index.
  */
 class pattern_reader {
 public:
@@ -166,17 +173,32 @@ public:
         const int first = in->peek();
 
         if (first == '#') {
-            fmt = _pizza_chili;
             std::string header;
             std::getline(*in, header);
-            count = num_patterns_from_header(header);
-            length = pattern_length_from_header(header);
+            const int64_t num = header_value(header, "number=");
+            const int64_t len = header_value(header, "length=");
+            // the bytes the header line and the patterns take in a file
+            const uint64_t pattern_bytes = header.size() + 1
+                + uint64_t(std::max<int64_t>(num, 0)) * uint64_t(std::max<int64_t>(len, 0));
+
+            if (num >= 1 && len >= 1 && (file == nullptr || size >= pattern_bytes)) {
+                fmt = _pizza_chili;
+                count = num;
+                length = len;
+            } else {
+                buffered.push_back(header);
+            }
         } else if (first == '>') {
             fmt = _fasta;
         } else if (first == '@') {
-            fmt = _fastq;
-        } else {
-            fmt = _lines;
+            // the four lines of a FASTQ record: header, symbols, separator, qualities
+            constexpr uint64_t record_lines = 4;
+            std::string l;
+            while (buffered.size() < record_lines && std::getline(*in, l)) buffered.push_back(l);
+            for (std::string& b : buffered) chomp(b);
+            const bool fastq = buffered.size() == record_lines && !buffered[2].empty() && buffered[2][0] == '+'
+                && buffered[1].size() == buffered[3].size();
+            if (fastq) fmt = _fastq;
         }
     }
 
@@ -218,9 +240,6 @@ public:
             return header.substr(1, end == std::string::npos ? std::string::npos : end - 1);
         };
 
-        // removes a trailing carriage return
-        auto chomp = [](std::string& s) { if (!s.empty() && s.back() == '\r') s.pop_back(); };
-
         if (fmt == _pizza_chili) {
             if (index == count) return false;
             p.seq.resize(length);
@@ -231,13 +250,13 @@ public:
         }
 
         if (fmt == _fasta) {
-            if (line.empty() && !std::getline(*in, line)) return false;
+            if (line.empty() && !read_line(line)) return false;
             chomp(line);
             p.name = name_of(line);
             p.seq.clear();
             line.clear();
 
-            while (std::getline(*in, line)) {
+            while (read_line(line)) {
                 chomp(line);
                 if (!line.empty() && line[0] == '>') break;
                 p.seq += line;
@@ -250,20 +269,20 @@ public:
 
         if (fmt == _fastq) {
             std::string header, plus;
-            if (!std::getline(*in, header)) return false;
+            if (!read_line(header)) return false;
             chomp(header);
             if (header.empty()) return false;
             p.name = name_of(header);
-            std::getline(*in, p.seq);
-            std::getline(*in, plus);
-            std::getline(*in, p.quality);
+            read_line(p.seq);
+            read_line(plus);
+            read_line(p.quality);
             chomp(p.seq);
             chomp(p.quality);
             index++;
             return true;
         }
 
-        while (std::getline(*in, p.seq)) {
+        while (read_line(p.seq)) {
             chomp(p.seq);
             if (p.seq.empty()) continue;
             p.name = "pat" + std::to_string(index++);
@@ -274,6 +293,23 @@ public:
     }
 
 protected:
+    // removes a trailing carriage return
+    static void chomp(std::string& s)
+    {
+        if (!s.empty() && s.back() == '\r') s.pop_back();
+    }
+
+    // reads the next line: first the buffered lines, then from the input; returns false at the end of the input
+    bool read_line(std::string& l)
+    {
+        if (next_buffered < buffered.size()) {
+            l = std::move(buffered[next_buffered++]);
+            return true;
+        }
+
+        return bool(std::getline(*in, l));
+    }
+
     std::unique_ptr<std::ifstream> file; // the file, unless the input is stdin
     std::istream* in = nullptr; // the input
     format_t fmt = _lines;
@@ -283,6 +319,8 @@ protected:
     uint64_t size = 0; // the size of the input in bytes, if it is a file, else 0
     uint64_t index = 0; // the index of the next pattern
     std::string line; // the next line of a FASTA file (its header), if it has been read already
+    std::vector<std::string> buffered; // the lines read to detect the format, which are read again by next()
+    uint64_t next_buffered = 0; // the index in buffered of the next line read by next()
 };
 
 /**

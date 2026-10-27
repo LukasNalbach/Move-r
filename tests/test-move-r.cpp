@@ -104,7 +104,7 @@ TEST(test_move_r, pfp_integer_alphabet)
                of the parsing are often wider than a byte), starting at 1 or close to the largest value of sym_t */
             const uint64_t span = random_log_uniform_size(min_random_alphabet_size, max_input_size, gen);
             const uint64_t first = gen() % 2 == 0 ? 1
-                : uint64_t(std::numeric_limits<sym_t>::max()) - num_excluded_symbol_values - span;
+                : uint64_t(std::numeric_limits<sym_t>::max()) - span;
             std::vector<sym_t> input = random_repetitive_input<std::vector<sym_t>>(min_pfp_input_size,
                 max_input_size, sym_t(first), sym_t(first + span - 1), gen() | 1);
 
@@ -151,7 +151,7 @@ TEST(test_move_r, input_widths)
             if constexpr (sizeof(sym_t) > sizeof(uint8_t) && sizeof(sym_t) < sizeof(uint64_t)) {
                 // the symbols are drawn from span consecutive values, starting at 1 or close to the largest value
                 const uint64_t span = random_log_uniform_size(min_random_alphabet_size, max_input_size, gen);
-                const uint64_t first = gen() % 2 == 0 ? 1 : max_value_of<sym_t>() - num_excluded_symbol_values - span;
+                const uint64_t first = gen() % 2 == 0 ? 1 : max_value_of<sym_t>() - span;
                 std::vector<uint64_t> values = random_repetitive_input<std::vector<uint64_t>>(min_pfp_input_size,
                     max_input_size, first, first + span - 1, gen() | 1);
                 std::vector<sym_t> input(values.begin(), values.end());

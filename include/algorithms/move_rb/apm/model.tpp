@@ -163,6 +163,7 @@ void apm_costs_t::compile(const apm_model_t& model, const pat_t& P, std::string_
     _affine = false;
 
     if (bound >= apm_forbidden) throw std::invalid_argument("bound too large");
+    if (alph_map.empty()) throw std::invalid_argument("an error model needs an index with a byte alphabet (see move_r::map_int)");
     if (model.quality && quality.size() != _m) throw std::invalid_argument("the model needs one quality per symbol");
     if (model.counters.size() > apm_max_counters)
         throw std::invalid_argument("at most " + std::to_string(apm_max_counters) + " counters");
