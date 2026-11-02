@@ -46,7 +46,8 @@
 #include "test-parameters.hpp"
 #include "test-revert.hpp"
 
-inline std::mt19937 gen(test_seed());
+// one generator per thread (run_fuzz runs parallel functionalities on all threads)
+inline thread_local std::mt19937 gen(test_seed() + omp_get_thread_num());
 inline uint64_t max_num_threads = omp_get_max_threads();
 inline uint64_t min_input_size = 1;
 inline uint64_t max_input_size = 16000;
@@ -167,9 +168,12 @@ inline void verify_index(
     auto verify_everything = [&](index_t& idx) {
         adapter_t::verify_retrieval(idx, input, gen, max_num_threads);
         uint64_t queries_per_thread = std::max<uint64_t>(1, num_queries / max_num_threads);
+        const std::string& index_label = adapter_t::label;
 
         #pragma omp parallel num_threads(max_num_threads)
         {
+            // the failure messages of every thread of the team name the index
+            if (&adapter_t::label != &index_label) adapter_t::label = index_label;
             std::mt19937_64 gen_thr(query_seed + omp_get_thread_num());
 
             for (uint64_t q = 0; q < queries_per_thread; q++) {
@@ -206,8 +210,8 @@ struct move_r_adapter {
     // container type of the symbols reported by the index (unsigned symbols of the width of sym_t)
     using out_t = std::vector<std::make_unsigned_t<sym_t_>>;
 
-    // parameters of the last built index, appended to the failure messages
-    inline static std::string label;
+    // parameters of the last index built by the thread, appended to the failure messages
+    inline static thread_local std::string label;
 
     static uint64_t max_pattern_length(uint64_t n)
     {
@@ -235,7 +239,8 @@ struct move_r_adapter {
 
         move_r_params params {
             .mode = _suffix_array,
-            .num_threads = std::uniform_int_distribution<uint64_t>(1, max_num_threads)(gen),
+            // one thread in a parallel functionality (run_fuzz runs it on all threads)
+            .num_threads = omp_in_parallel() ? 1 : std::uniform_int_distribution<uint64_t>(1, max_num_threads)(gen),
             .a = min_balancing_parameter
                 + uint64_t(std::min(a_distrib(gen), double(max_balancing_parameter - min_balancing_parameter))),
             .reorder_alphabet = gen() % 2 == 0,
@@ -387,15 +392,17 @@ struct move_r_adapter {
             // [0..input_size] the suffix array of mapped with the sentinel
             std::vector<int64_t> suffix_array = compute_reference_sa<uint64_t>(mapped, input_size, max_num_threads);
             const no_init_vector<uint48_t> suffix_array_retrieved = index.SA_range({ .num_threads = max_num_threads });
+            // the label of the calling thread (label is per thread)
+            const std::string& index_label = label;
 
             #pragma omp parallel for num_threads(max_num_threads)
             for (uint64_t i = 0; i <= input_size; i++)
-                EXPECT_EQ(suffix_array[i], suffix_array_retrieved[i]) << "SA[" << i << "], " << label;
+                EXPECT_EQ(suffix_array[i], suffix_array_retrieved[i]) << "SA[" << i << "], " << index_label;
 
             if constexpr (index_t::has_SA_access) {
                 #pragma omp parallel for num_threads(max_num_threads)
                 for (uint64_t i = 0; i <= input_size; i++)
-                    EXPECT_EQ(index.SA(i), suffix_array[i]) << "SA(" << i << "), " << label;
+                    EXPECT_EQ(index.SA(i), suffix_array[i]) << "SA(" << i << "), " << index_label;
             }
 
             // the BWT of the input: [0..input_size] bwt[i] = input[SA[i] - 1], 0 if SA[i] = 0

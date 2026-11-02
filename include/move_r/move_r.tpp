@@ -169,9 +169,9 @@ void move_r<support, mlf_enc>::log_data_structures() const
         return;
     }
 
-    std::cout << "n = " << format_number(n) << std::endl;
-    std::cout << "sigma = " << sigma << std::endl;
-    if (M_LF().num_intervals() != 0) std::cout << "a = " << a << std::endl;
+    std::cout << "n = " << format_number(n) << ", sigma = " << sigma;
+    if (M_LF().num_intervals() != 0) std::cout << ", a = " << a;
+    std::cout << std::endl;
 
     // formats an external symbol, printing the terminator (0) as '$' and a symbol of a byte alphabet as a character
     auto external_sym = [&](uint64_t sym) {
@@ -219,11 +219,11 @@ void move_r<support, mlf_enc>::log_data_structures() const
         log.print();
     }
 
-    // M_Phi^{-1} and M_Phi are empty, if they have been released (see move_rb::release_phi_fwd)
+    // M_Phi_inv and M_Phi are empty, if they have been released (see move_rb::release_phi_fwd)
     if constexpr (has_locate_move) {
         if (!_M_Phi_inv.empty()) {
             std::cout << std::endl;
-            std::cout << "M_Phi^{-1}: " << "r'' = " << r__ << std::endl;
+            std::cout << "M_Phi_inv: " << "r'' = " << r__ << std::endl;
             M_Phi_inv().log_data_structures();
         }
     }
@@ -247,7 +247,7 @@ void move_r<support, mlf_enc>::log_data_structures() const
 
     if (!_SA_Phi_inv.empty()) {
         std::cout << std::endl;
-        log_indexed("SA_Phi^{-1}:", _SA_Phi_inv);
+        log_indexed("SA_Phi_inv:", _SA_Phi_inv);
     }
 
     if (!_SA_rlz.empty()) {
@@ -260,6 +260,14 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::log_data_structure_sizes() const
 {
     const bool owner = begin_listing(size_in_bytes());
+    log_main_structure_sizes();
+    log_auxiliary_structure_sizes();
+    if (owner) end_listing();
+}
+
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::log_main_structure_sizes() const
+{
     uint64_t size_l_ = (_M_LF.template row_width<0>() * (r_ + 1)) / 8;
     log_component("M_LF", _M_LF.size_in_bytes() - size_l_);
     log_component("L'", size_l_);
@@ -267,36 +275,45 @@ void move_r<support, mlf_enc>::log_data_structure_sizes() const
     if (!_PSO_L_.empty()) log_component("PSO_L'", _PSO_L_.size_in_bytes());
     if (!_WTPS_L_.empty()) log_component("WTPS_L'", _WTPS_L_.size_in_bytes());
     if (!_L_prev_min.empty()) log_component("L_prev_min", _L_prev_min.size_in_bytes());
+    if (!_M_Phi.empty()) log_component("M_Phi", _M_Phi.size_in_bytes());
+    if (!_M_Phi_inv.empty()) log_component("M_Phi_inv", _M_Phi_inv.size_in_bytes());
+    if (!_SA_Phi_inv.empty()) log_component("SA_Phi_inv", _SA_Phi_inv.size_in_bytes());
+    if (!_SA_run.empty()) log_component("SA_run", _SA_run.size_in_bytes());
+    if (!_SA_run_pos.empty()) log_component("SA_run_pos", _SA_run_pos.size_in_bytes());
+    if (!_SA_rlz.empty()) _SA_rlz.log_data_structure_sizes();
+}
 
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::log_auxiliary_structure_sizes() const
+{
     if (!byte_alphabet && symbols_remapped) {
         log_component("alphabet", _alphabet.size_in_bytes() + _alphabet_order.size_in_bytes()
             + _alphabet_order_inv.size_in_bytes());
     }
 
-    if (!_M_Phi.empty()) log_component("M_Phi", _M_Phi.size_in_bytes());
-    if (!_M_Phi_inv.empty()) log_component("M_Phi^{-1}", _M_Phi_inv.size_in_bytes());
-    if (!_SA_Phi_inv.empty()) log_component("SA_Phi^{-1}", _SA_Phi_inv.size_in_bytes());
-    if (!_SA_run.empty()) log_component("SA_run", _SA_run.size_in_bytes());
-    if (!_SA_run_pos.empty()) log_component("SA_run_pos", _SA_run_pos.size_in_bytes());
-    if (!_SA_rlz.empty()) _SA_rlz.log_data_structure_sizes();
     if (_seq_data.has_sequences()) log_component("FASTA sequences", _seq_data.size_in_bytes());
     if (!_revert_starts.empty()) log_component("revert starts", _revert_starts.size_in_bytes());
-    if (owner) end_listing();
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::add_parameters(index_facts& facts, const std::string& suffix) const
 {
+    // n, r, n/r and sigma; then k' of the move data structures in a line of their own
+    facts.new_line();
     if (suffix.empty()) facts.add("n", n - 1);
     facts.add("r" + suffix, r);
     facts.add("n/r" + suffix + " = " + format_ratio(r == 0 ? 0.0 : double(n - 1) / double(r)));
     if (suffix.empty()) facts.add("sigma", sigma);
-    facts.add("k' (M_LF" + suffix + ")", _M_LF.num_intervals());
-    if (!_M_Phi.empty()) facts.add("k' (M_Phi" + suffix + ")", _M_Phi.num_intervals());
-    if (!_M_Phi_inv.empty()) facts.add("k' (M_Phi^{-1}" + suffix + ")", _M_Phi_inv.num_intervals());
+    facts.new_line();
+    facts.add("k'(M_LF" + suffix + ")", _M_LF.num_intervals());
+    if (!_M_Phi.empty()) facts.add("k'(M_Phi" + suffix + ")", _M_Phi.num_intervals());
+    if (!_M_Phi_inv.empty()) facts.add("k'(M_Phi_inv" + suffix + ")", _M_Phi_inv.num_intervals());
     if (!_SA_rlz.empty()) facts.add("z(SA_rlz" + suffix + ")", _SA_rlz.num_phrases());
 
-    if (_seq_data.has_sequences()) facts.add("FASTA sequences", _seq_data.num_sequences());
+    if (_seq_data.has_sequences()) {
+        facts.new_line();
+        facts.add(format_count(_seq_data.num_sequences(), "FASTA sequence"));
+    }
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
@@ -375,7 +392,7 @@ inline uint64_t move_r<support, mlf_enc>::SA_run_start(uint64_t x) const
     if constexpr (support == _locate_move) {
         return M_Phi_inv().q(SA_Phi_inv(x));
     } else {
-        // the samples are stored in SA_Phi^{-1}, if SA_run_pos is empty
+        // the samples are stored in SA_Phi_inv, if SA_run_pos is empty
         if constexpr (has_locate_move) {
             if (_SA_run_pos.empty()) return M_Phi_inv().q(_SA_Phi_inv.template get<0, uint64_t>(x));
         }
@@ -395,7 +412,7 @@ inline uint64_t move_r<support, mlf_enc>::SA_run_end(uint64_t x) const
             return M_Phi_inv().p(SA_Phi_inv(x + 1));
         }
     } else {
-        // the input interval SA_Phi^{-1}[(x + 1) mod r'] of M_Phi^{-1} starts with SA[M_LF.p[x + 1] - 1]
+        // the input interval SA_Phi_inv[(x + 1) mod r'] of M_Phi_inv starts with SA[M_LF.p[x + 1] - 1]
         if constexpr (has_locate_move) {
             if (_SA_run_pos.empty())
                 return M_Phi_inv().p(_SA_Phi_inv.template get<0, uint64_t>(x + 1 == r_ ? 0 : x + 1));

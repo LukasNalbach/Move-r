@@ -62,7 +62,7 @@ inline uint64_t move_rb<support>::locate_context_t<output>::compute_center()
     if (s.d() == LEFT || (stores_SA_pos && s.d() == NO_DIR)) {
         c = b + s.o();
     } else if constexpr (!stores_SA_pos) {
-        /* the position of the sample is not stored; apply Phi^{-1} to SA_c until the LCP value is
+        /* the position of the sample is not stored; apply Phi_inv to SA_c until the LCP value is
            smaller than m, i.e., until e is reached; the decoded occurrences are stored in buf
            (if reports_sa_positions) */
         const auto& M_Phi_inv = idx->idx_fwd.M_Phi_inv();
@@ -125,7 +125,7 @@ inline uint64_t move_rb<support>::locate_context_t<output>::first_occ()
     const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = ctx->template const_vars<LEFT>();
 
     if constexpr (!stores_SA_pos) {
-        // start at the SA-sample; the occurrences after it are decoded with Phi^{-1} (see next_occ)
+        // start at the SA-sample; the occurrences after it are decoded with Phi_inv (see next_occ)
         SA_c = sampled_occ();
         SA_i = SA_c;
         scan_dir = RIGHT;
@@ -150,7 +150,7 @@ template <locate_output_t output>
 inline bool move_rb<support>::locate_context_t<output>::is_right_limit() const
     requires(supports_multiple_locate && !stores_SA_pos)
 {
-    // PLCP[Phi^{-1}(SA_i)] = LCP[i + 1] < m <=> i = e
+    // PLCP[Phi_inv(SA_i)] = LCP[i + 1] < m <=> i = e
     return idx->plcp_at_phi_inv(SA_i, x_phi) < ctx->m;
 }
 
@@ -225,7 +225,7 @@ inline void move_rb<support>::locate_context_t<output>::locate_from_sample(
         else report(occurrence);
     };
 
-    /* without positions: report the SA-sample, then the occurrences to the right of it with Phi^{-1} (until
+    /* without positions: report the SA-sample, then the occurrences to the right of it with Phi_inv (until
        the LCP value is smaller than m), then the remaining occ_rem occurrences to the left of it with Phi */
     if constexpr (!reports_sa_positions && !stores_SA_pos) {
         if (occ_rem == ctx->num_occ()) {
@@ -278,7 +278,7 @@ inline void move_rb<support>::locate_context_t<output>::locate_from_sample(
             }
         }
 
-        // report SA[c+1..e] from buf (if compute_center stored it there), else with Phi^{-1}
+        // report SA[c+1..e] from buf (if compute_center stored it there), else with Phi_inv
         bool from_buffer = false;
 
         if constexpr (reports_sa_positions) {

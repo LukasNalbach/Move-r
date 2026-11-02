@@ -76,7 +76,7 @@ int run_move_rb_extract(int argc, char** argv, const extract_mode_t& mode, missi
 {
     return run_extract_mode(argc, argv, mode, [&](direct_ifstream& index_file, const extract_cli_t& cli) {
         const bool known = dispatch_move_rb_index(read_move_rb_support(index_file), [&]<move_r_support support>() {
-            extract_from_index<move_rb<support>>(index_file, cli, "bidirectional index", missing, write);
+            extract_from_index<move_rb<support>>(index_file, cli, "move-rb", missing, write);
         });
 
         if (!known) throw std::runtime_error(cli.path_index_file + " is not an index built with move-rb build");

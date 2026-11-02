@@ -39,6 +39,7 @@
 #include <streambuf>
 #include <string>
 
+#include <misc/cli_help.hpp>
 #include <misc/files.hpp>
 #include <misc/index_facts.hpp>
 #include <misc/log.hpp>
@@ -101,16 +102,16 @@ public:
 };
 
 /**
- * @brief loads an index as a logged phase: prints "loading the <name>", the progress of reading its bytes with the
+ * @brief loads an index as a logged phase: prints "loading <name>", the progress of reading its bytes with the
  *        elapsed and the remaining time, and the time it took
  * @tparam index_t type of the index
  * @param index the index to load
  * @param in input stream, positioned at the beginning of the serialized index
- * @param name name of the index, e.g. "index"
+ * @param name name of the index, e.g. "move-r" or "move-rb"
  * @return the size of the serialized index in bytes (from the position of in to the end of the stream)
  */
 template <typename index_t>
-uint64_t load_index_with_progress(index_t& index, std::istream& in, const std::string& name = "index")
+uint64_t load_index_with_progress(index_t& index, std::istream& in, const std::string& name = "move-r")
 {
     std::streampos begin = in.tellg();
     in.seekg(0, std::ios::end);
@@ -122,7 +123,7 @@ uint64_t load_index_with_progress(index_t& index, std::istream& in, const std::s
         ? static_cast<uint64_t>(end - begin) : 0;
 
     auto time = now();
-    log_phase_start(true, time, "loading the " + name);
+    log_phase_start(true, time, "loading " + name);
     index_load_progress_streambuf buffer(in.rdbuf(), total);
     std::istream monitored(&buffer);
 
@@ -151,9 +152,9 @@ inline std::string alphabet_description(bool byte_alphabet, bool input_order)
 }
 
 /**
- * @brief prints the information about an index (the output of the info modes) after its loading line: the facts,
- *        one per line, the size of the index ("<name> size: ..."), the sizes of its data structures and the modes that
- *        support it
+ * @brief prints the information about an index (the output of the info modes) after its loading line, as blocks
+ *        separated by empty lines: the facts (see index_facts), the size of the index ("<name> size: ...") with the
+ *        sizes of its data structures, and the modes that support it
  * @tparam log_sizes_fnc_t type of log_sizes
  * @param facts the facts
  * @param name the name of the index in the size line, e.g. "index"
@@ -167,9 +168,24 @@ void print_index_info(const index_facts& facts, const std::string& name, uint64_
     log_sizes_fnc_t log_sizes, const std::string& modes)
 {
     facts.print(std::cout);
+    log_empty_line(true);
     log_output_size(name, index_bytes, input_bytes);
     log_sizes();
+    log_empty_line(true);
     std::cout << "modes: " << modes << std::endl;
+}
+
+/**
+ * @brief opens an output file, if its path is not empty
+ * @param file the stream to open
+ * @param path the path of the file
+ * @throws std::runtime_error if the file cannot be created
+ */
+inline void open_output_file(direct_ofstream& file, const std::string& path)
+{
+    if (path.empty()) return;
+    file.open(path);
+    require_created(file, path);
 }
 
 /**

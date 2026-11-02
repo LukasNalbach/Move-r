@@ -96,7 +96,7 @@ class move_rb {
     // ############################# TYPES, CONSTANTS AND PARAMETERS #############################
 
     // true <=> the positions of the SA-samples of the backward index in the forward suffix array are stored
-    // (see _SA_pos); else, they are computed with Phi^{-1} (see compute_center)
+    // (see _SA_pos); else, they are computed with Phi_inv (see compute_center)
     static constexpr bool stores_SA_pos = support == _locate_rlzsa;
 
     // type of idx_fwd; its M_LF uses the POS encoding (absolute input interval starting positions)
@@ -114,9 +114,9 @@ class move_rb {
     // true <=> the index supports locating all occurrences
     static constexpr bool supports_multiple_locate = move_r_fwd_t::supports_multiple_locate;
     static constexpr bool has_SA_rlz = move_r_fwd_t::has_SA_rlz; // true <=> the index has an rlz of SA^d
-    static constexpr bool has_locate_move = move_r_fwd_t::has_locate_move; // true <=> Phi and Phi^{-1} use move data structures
+    static constexpr bool has_locate_move = move_r_fwd_t::has_locate_move; // true <=> Phi and Phi_inv use move data structures
 
-    // true <=> M_Phi and M_Phi^{-1} of the forward index are stored in the index
+    // true <=> M_Phi and M_Phi_inv of the forward index are stored in the index
     static constexpr bool has_mphi = move_r_fwd_t::has_mphi;
 
     // true <=> _SA_pos is stored
@@ -267,7 +267,7 @@ protected:
     elias_fano_bit_vector _S_MLF_p_fwd;
     elias_fano_bit_vector _S_MLF_p_bwd;
 
-    // samples the input interval starting positions of M_Phi resp. M_Phi^{-1} of idx_fwd (as _S_MLF_p_fwd); empty
+    // samples the input interval starting positions of M_Phi resp. M_Phi_inv of idx_fwd (as _S_MLF_p_fwd); empty
     // unless has_mphi
     elias_fano_bit_vector _S_MPhi_p_fwd;
     elias_fano_bit_vector _S_MPhi_inv_p_fwd;
@@ -333,8 +333,8 @@ protected:
         if constexpr (dir == LEFT) return _S_MLF_p_fwd; else return _S_MLF_p_bwd;
     }
 
-    // returns PLCP[Phi^{-1}(pos)], i.e., LCP[j + 1] for SA[j] = pos, where x is the index of the input interval of
-    // M_Phi^{-1} containing pos
+    // returns PLCP[Phi_inv(pos)], i.e., LCP[j + 1] for SA[j] = pos, where x is the index of the input interval of
+    // M_Phi_inv containing pos
     inline uint64_t plcp_at_phi_inv(uint64_t pos, uint64_t x) const requires(has_mphi)
     {
         const auto& M = idx_fwd.M_Phi_inv();
@@ -368,7 +368,7 @@ protected:
         return input_interval(pos, _S_MPhi_p_fwd, [&](uint64_t y) { return M_Phi.p(y); });
     }
 
-    // returns the index of the input interval of M_Phi^{-1} containing pos
+    // returns the index of the input interval of M_Phi_inv containing pos
     inline uint64_t phi_inv_interval(uint64_t pos) const requires(has_mphi)
     {
         const auto& M_Phi_inv = idx_fwd.M_Phi_inv();
@@ -590,26 +590,32 @@ public:
      * @param time_construction construction time in nanoseconds
      * @param peak_mem_usage not used (the overall peak is logged)
      * @param mf measurement file to write the throughput to (or nullptr)
+     * @param name what was built (see ::log_construction_summary)
      */
     void log_construction_summary(uint64_t time_construction, uint64_t peak_mem_usage,
-        std::ostream* mf = nullptr) const;
+        std::ostream* mf = nullptr, const std::string& name = "move-rb") const;
 
     /**
-     * @brief logs the sizes of the data structures of one direction (the move_r index and the samplings of the
-     *        input intervals) indented under the heading "forward index:" or "backward index:"
+     * @brief logs the sizes of the data structures of one direction indented under the heading "forward index:" or
+     *        "backward index:": the main data structures of the move_r index, the context tables, then the auxiliary
+     *        data structures of the move_r index and the samplings of the input intervals
      * @tparam dir the direction
      */
     template <direction_t dir>
     void log_direction_sizes() const;
 
-    // logs the size of the context tables, if the index has any (see log_component)
+    // logs the size of the part of the context tables of the index of T (dir = LEFT) or of T^R (dir = RIGHT), if the
+    // index has any (see log_component)
+    template <direction_t dir>
     void log_context_tables_size() const
     {
-        if (!_context_tables.empty()) log_component("context tables", _context_tables.size_in_bytes());
+        if (!_context_tables.empty())
+            log_component("context tables", _context_tables.size_in_bytes(dir == LEFT ? _forward_order : _reverse_order));
     }
 
-    // logs the lengths of the built context tables and the number of bits per context
-    void log_built_context_tables() const;
+    // returns the lengths of the built context tables and the number of bits per context, e.g. "up to length 10, 68.75
+    // bits/ctx"
+    std::string context_tables_summary() const;
 
     /**
      * @brief logs the sizes of the data structures with their shares of the index size, one per line (see
@@ -874,6 +880,7 @@ public:
 #include <move_rb/search_context.hpp>
 #include <move_rb/locate_context.hpp>
 #include <move_rb/extend_context.hpp>
+#include <move_rb/construction/temporary_input.hpp>
 // build and build_context_tables are compiled only in the instantiation library (see move_rb/instantiations.hpp)
 #ifndef MOVE_R_DECLARATIONS_ONLY
 #include <move_rb/construction/build.tpp>

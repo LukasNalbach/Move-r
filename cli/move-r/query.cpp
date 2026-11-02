@@ -57,16 +57,13 @@ namespace {
 struct query_cli_t {
     bool locate = false; // true <=> move-r locate
     std::string query_name; // count or locate
-    query_options_t options; // -p, -o, -m; options.reverse_complements is set by -rc
+    query_options_t options; // -p, -o, -m
+    exact_alignment_cli_t exact; // -sam, -bed, -rc
     std::string path_index_file;
     std::string path_patterns_file; // empty <=> the patterns are read from stdin interactively
-    std::string path_sam_file; // -sam
-    std::string path_bed_file; // -bed
     std::string command_line; // the command line, for the program line of the SAM header
     direct_ifstream index_file;
     direct_ofstream output_file;
-    direct_ofstream sam_file;
-    direct_ofstream bed_file;
 } cli;
 
 /**
@@ -92,20 +89,14 @@ void print_help(std::ostream& out)
 
     if (cli.locate) {
         h.group("input");
-        print_reverse_complements_option(h, true, "with -sam or -bed: also search the reverse complement of each "
-            "pattern; its occurrences get the strand '-'");
+        print_exact_alignment_input_option(h);
     }
 
     h.group("output");
     h.option("-o <file>", "a path", std::string("write one line \"<name>\\t<count>\" per pattern") +
         (cli.locate ? ", followed by the occurrences in ascending order" : ""));
 
-    if (cli.locate) {
-        h.option("-sam <file>", "a path", "write the occurrences in SAM format (index built with move-r build in "
-            "the FASTA mode); each occurrence is an exact alignment (CIGAR <m>=)");
-        h.option("-bed <file>", "a path", "write the occurrences in BED format (0-based half-open intervals; index "
-            "built from FASTA)");
-    }
+    if (cli.locate) print_exact_alignment_output_options(h, "move-r build in the FASTA mode");
 
     h.group("execution");
     h.option_threads();
@@ -146,8 +137,8 @@ uint64_t locate_pattern(const move_r<support>& index, const std::string& pattern
 template <move_r_support support>
 void run_queries(const move_r<support>& index)
 {
-    const bool sam_output = !cli.path_sam_file.empty();
-    const bool bed_output = !cli.path_bed_file.empty();
+    const bool sam_output = cli.exact.sam_file.is_open();
+    const bool bed_output = cli.exact.bed_file.is_open();
     const fasta_sequence_data& sequences = index.seq_data();
 
     if ((sam_output || bed_output) && !sequences.has_sequences())
@@ -155,8 +146,8 @@ void run_queries(const move_r<support>& index)
 
     pattern_reader patterns(cli.path_patterns_file);
     require_readable(patterns, cli.path_patterns_file);
-    if (sam_output) write_sam_header(cli.sam_file, sequences, "move-r", cli.command_line);
-    const bool search_reverse_complements = (sam_output || bed_output) && cli.options.reverse_complements;
+    if (sam_output) write_sam_header(cli.exact.sam_file, sequences, "move-r", cli.command_line);
+    const bool search_reverse_complements = (sam_output || bed_output) && cli.exact.reverse_complements;
 
     // the counters and buffers of a thread
     struct alignas(cache_line_bytes) thread_state_t {
@@ -174,8 +165,8 @@ void run_queries(const move_r<support>& index)
     enum output_t : uint64_t { occurrences_out, sam_out, bed_out }; // the order of processing.outputs
     pattern_processing_t processing { .threads = cli.options.threads, .outputs = {
         cli.output_file.is_open() ? &cli.output_file : nullptr,
-        sam_output ? &cli.sam_file : nullptr,
-        bed_output ? &cli.bed_file : nullptr } };
+        sam_output ? &cli.exact.sam_file : nullptr,
+        bed_output ? &cli.exact.bed_file : nullptr } };
 
     const pattern_totals_t totals = process_patterns(patterns, processing, [&](const pattern_chunk& chunk, uint64_t thread) {
         thread_state_t& st = states[thread];
@@ -211,35 +202,10 @@ void run_queries(const move_r<support>& index)
             }
 
             if (sam_output || bed_output) {
-                // each occurrence is an exact match (CIGAR <m>=), on strand '+' for the pattern and '-' for its reverse
-                // complement
-                const uint16_t mapq = count == 1 ? unique_mapq : 0;
-                bool primary = true;
                 string_appender sam(chunk.out(j, sam_out));
                 string_appender bed(chunk.out(j, bed_out));
-
-                // writes the SAM and BED records of the occurrences of one strand
-                auto write_records = [&](const std::vector<uint48_t>& occurrences, bool reverse) {
-                    for (uint64_t occ : occurrences) {
-                        const uint64_t sequence = sequences.sequence_index(occ, st.last_sequence);
-                        const uint64_t pos_in_sequence = occ - sequences.sequence_start(sequence);
-
-                        if (bed_output)
-                            bed << sequences.sequence_name(sequence) << '\t' << pos_in_sequence << '\t'
-                                << (pos_in_sequence + m) << '\t' << pattern.name << "\t0\t" << (reverse ? '-' : '+') << '\n';
-
-                        if (sam_output) {
-                            const uint16_t flag = (primary ? 0 : sam_flag_secondary) | (reverse ? sam_flag_reverse : 0);
-                            sam << pattern.name << '\t' << flag << '\t' << sequences.sequence_name(sequence) << '\t'
-                                << (pos_in_sequence + 1) << '\t' << (primary ? mapq : 0) << '\t' << m << "=\t*\t0\t0\t*\t*\n";
-                        }
-
-                        primary = false;
-                    }
-                };
-
-                write_records(st.occurrences, false);
-                if (search_reverse_complements) write_records(st.rc_occurrences, true);
+                write_exact_records(sam_output ? &sam : nullptr, bed_output ? &bed : nullptr, sequences,
+                    st.last_sequence, pattern.name, m, count, st.occurrences, st.rc_occurrences);
             }
 
             st.occurrences.clear();
@@ -335,7 +301,6 @@ int run_query(int argc, char** argv, bool locate)
 {
     cli.locate = locate;
     cli.query_name = locate ? "locate" : "count";
-    cli.options.reverse_complements = locate;
 
     return run_cli(argc, argv, print_help, [&] {
         cli_arguments args(argc, argv);
@@ -343,16 +308,7 @@ int run_query(int argc, char** argv, bool locate)
         while (args.at_option()) {
             const std::string s = args.next();
             if (read_query_option(args, s, cli.options, _option_threads | _option_output | _option_measurement)) continue;
-
-            if (s == "-sam" && locate) {
-                cli.path_sam_file = args.value(s);
-            } else if (s == "-bed" && locate) {
-                cli.path_bed_file = args.value(s);
-            } else if (s == "-rc" && locate) {
-                cli.options.reverse_complements = read_on_off(args, s);
-            } else {
-                throw unknown_option(s);
-            }
+            if (!locate || !read_exact_alignment_option(args, s, cli.exact)) throw unknown_option(s);
         }
 
         if (args.empty() || args.remaining() > 2) throw usage_error("expected <index_file> and at most one <patterns_file>");
@@ -366,16 +322,8 @@ int run_query(int argc, char** argv, bool locate)
         if (!cli.path_patterns_file.empty() && cli.path_patterns_file != "-")
             require_readable(std::ifstream(cli.path_patterns_file), cli.path_patterns_file);
 
-        // creates the output file at path, if path is not empty
-        auto create = [](direct_ofstream& file, const std::string& path) {
-            if (path.empty()) return;
-            file.open(path, std::ios::binary);
-            require_created(file, path);
-        };
-
-        create(cli.output_file, cli.options.path_output_file);
-        create(cli.sam_file, cli.path_sam_file);
-        create(cli.bed_file, cli.path_bed_file);
+        open_output_file(cli.output_file, cli.options.path_output_file);
+        open_exact_alignment_files(cli.exact);
         const move_r_support support = move_r<>::peek_support(cli.index_file);
 
         const bool known = dispatch_move_r_index(support, [&]<move_r_support supp>() {
@@ -392,6 +340,8 @@ int run_query(int argc, char** argv, bool locate)
         });
 
         if (!known) throw std::runtime_error(cli.path_index_file + " is not an index built with move-r build");
+        close_output_file(cli.output_file, cli.options.path_output_file);
+        close_exact_alignment_files(cli.exact);
     });
 }
 

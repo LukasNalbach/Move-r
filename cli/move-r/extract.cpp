@@ -70,7 +70,7 @@ int run_move_r_extract(int argc, char** argv, const extract_mode_t& mode, missin
 {
     return run_extract_mode(argc, argv, mode, [&](direct_ifstream& index_file, const extract_cli_t& cli) {
         const bool known = dispatch_move_r_index(move_r<>::peek_support(index_file), [&]<move_r_support support>() {
-            extract_from_index<move_r<support>>(index_file, cli, "index", missing, write);
+            extract_from_index<move_r<support>>(index_file, cli, "move-r", missing, write);
         });
 
         if (!known) throw std::runtime_error(cli.path_index_file + " is not an index built with move-r build");

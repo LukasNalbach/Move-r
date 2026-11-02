@@ -47,7 +47,7 @@ int move_rb_revert(int argc, char** argv)
     return run_revert_mode(argc, argv, mode,
         [](direct_ifstream& index_file, direct_ofstream& output_file, revert_cli_t& cli) {
             const bool known = dispatch_move_rb_index(read_move_rb_support(index_file), [&]<move_r_support support>() {
-                revert_index<move_rb<support>>(index_file, output_file, cli, "bidirectional index",
+                revert_index<move_rb<support>>(index_file, output_file, cli, "move-rb",
                     "revert_move_rb_" + std::string(move_r_support_name(support)));
             });
 

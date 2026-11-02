@@ -49,8 +49,16 @@
 #include "test-parameters.hpp"
 #include "test-revert.hpp"
 
-inline std::mt19937_64 gen(test_seed());
+// one generator per thread (run_fuzz runs parallel functionalities on all threads)
+inline thread_local std::mt19937_64 gen(test_seed() + omp_get_thread_num());
 inline uint64_t max_num_threads = omp_get_max_threads();
+
+// returns the number of threads of a construction: 1 in a parallel functionality (run_fuzz runs it on all threads),
+// else a random number in [1..max_num_threads]
+inline uint64_t random_num_threads()
+{
+    return omp_in_parallel() ? 1 : std::uniform_int_distribution<uint64_t>(1, max_num_threads)(gen);
+}
 
 // the smallest and the largest length of a random input (run_fuzz reduces max_input_size)
 inline uint64_t min_input_size = 1;
@@ -61,7 +69,8 @@ inline constexpr uint64_t min_fuzz_input_size = 256;
 inline constexpr uint64_t max_integer_alphabet_size = uint64_t(std::numeric_limits<int32_t>::max()) + 1;
 // the balancing parameter a of a random index is min_balancing_parameter + a value drawn from a_distrib, at most
 // max_balancing_parameter
-inline std::lognormal_distribution<double> a_distrib(balancing_parameter_log_mean, balancing_parameter_log_deviation);
+inline thread_local std::lognormal_distribution<double> a_distrib(balancing_parameter_log_mean,
+    balancing_parameter_log_deviation);
 
 // the largest length of a random pattern
 inline uint64_t max_pattern_length = 100;
@@ -271,7 +280,7 @@ void verify_construction(
     using idx_t = move_rb<support>;
     uint64_t n = input.size();
 
-    // the index of T^R stores no M_Phi, no M_Phi^{-1} and no rlz encoding of SA^d
+    // the index of T^R stores no M_Phi, no M_Phi_inv and no rlz encoding of SA^d
     using bwd_t = std::remove_cvref_t<decltype(index.backward_index())>;
     static_assert(!bwd_t::has_mphi);
     static_assert(!bwd_t::has_locate_move);
@@ -1160,7 +1169,7 @@ void build_and_verify_move_rb(move_rb_test_t test, uint64_t min_n, uint64_t max_
 
     move_r_params params {
         .mode = _suffix_array,
-        .num_threads = std::uniform_int_distribution<uint64_t>(1, max_num_threads)(gen),
+        .num_threads = random_num_threads(),
         .a = min_balancing_parameter
             + uint64_t(std::min(a_distrib(gen), double(max_balancing_parameter - min_balancing_parameter))),
         .reorder_alphabet = gen() % 2 == 0,

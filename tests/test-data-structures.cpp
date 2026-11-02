@@ -773,7 +773,7 @@ TEST(test_data_structures, parse_double_ignores_locale)
 TEST(test_data_structures, pattern_reader)
 {
     run_fuzz("pattern-reader", {
-        { "verify", [](uint64_t) { verify_pattern_reader(max_input_size); }, false },
+        { "verify", [](uint64_t) { verify_pattern_reader(max_input_size); }, true },
     }, fuzz_iterations(), &max_input_size, min_fuzz_input_size);
 }
 

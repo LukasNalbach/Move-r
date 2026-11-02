@@ -150,7 +150,7 @@ int move_r_build(int argc, char** argv)
         read_input_files(args, cli);
 
         cli.path_index_file = move_r_index_file_name(cli.index_base_name, cli.support);
-        begin_build(cli, "the move-r index", "s = " + move_r_support_option_name(cli.support) + ", balance = "
+        begin_build(cli, "move-r", "s = " + move_r_support_option_name(cli.support) + ", a = "
             + std::to_string(cli.balancing_parameter));
 
         // the RESULT line of the measurement file; the construction appends its measurements to it

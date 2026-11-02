@@ -4,11 +4,11 @@ This repository contains Move-r, an optimized and parallelized r-index [1, 2], a
 [7] with approximate pattern matching, together with command-line tools, tests and benchmarks.
 
 - **Move-r** (`move_r`) counts and locates the occurrences of a pattern, gives access to the BWT and the suffix
-  array and reconstructs the text. It locates with a move data structure for Phi^{-1} or with an RLZ of the
+  array and reconstructs the text. It locates with a move data structure for Phi_inv or with an RLZ of the
   differential suffix array (RLZSA [3, 4]). It works over byte alphabets and over integer alphabets.
 - **Move-rb** (`move_rb`) extends a pattern on both sides. It counts and locates the occurrences of a pattern and finds
   the occurrences of a pattern with at most k errors (Hamming or edit distance, with search schemes [5, 6]), locating
-  with a move data structure for Phi^{-1} or with the RLZSA.
+  with a move data structure for Phi_inv or with the RLZSA.
 
 The standalone RLZSA and LZEndSA indexes of [3, 4] are part of earlier releases of Move-r, e.g.
 [ALENEX-2027](https://github.com/LukasNalbach/Move-r/tree/ALENEX-2027).
@@ -49,16 +49,16 @@ sorting, bit vectors; it includes sdsl-lite, libsais, ips4o, ips2ra, gtl, emhash
 
 ### CMake options
 
-The `MOVE_R_BUILD_*_CLI` options and `MOVE_R_BUILD_TESTS` are `ON` if Move-r is the top-level project and `OFF` if it is
-added by another project. The benchmark options are always `OFF` unless they are switched on; only then are the
-submodules of the indexes they compare with downloaded and built.
+The `MOVE_R_BUILD_*_CLI` options are `ON` if Move-r is the top-level project and `OFF` if it is added by another
+project. The tests and the benchmark options are always `OFF` unless they are switched on; only with a benchmark option
+are the submodules of the indexes it compares with downloaded and built.
 
 | Option | Description |
 | --- | --- |
 | `MOVE_R_BUILD_MOVE_R_CLI`, `MOVE_R_BUILD_MOVE_RB_CLI` | build `move-r` and `move-rb` |
 | `MOVE_R_BUILD_TOOLS_CLI` | build `gen-patterns`, `gen-repetitive`, `fasta-to-text`, `print-data-structures` |
 | `MOVE_R_BUILD_MOVE_R_BENCH`, `MOVE_R_BUILD_MOVE_RB_BENCH` | build the benchmarks and the indexes they compare with (`OFF`) |
-| `MOVE_R_BUILD_TESTS` | build the tests |
+| `MOVE_R_BUILD_TESTS` | build the tests (`OFF`) |
 | `MOVE_R_USE_MALLOC_COUNT` | measure the peak memory usage with malloc_count |
 | `MOVE_R_MARCH_NATIVE` | compile with `-march=native` (`ON`) |
 | `MOVE_R_ENABLE_LTO` | link-time optimization (`OFF`) |
@@ -136,12 +136,18 @@ Temporary files are written to the directory `MOVE_R_TMPDIR` (default: the tempo
 
 ## C++ usage
 
-Add Move-r to a CMake project and link the target `move_r`:
+Add Move-r to a CMake project and link the targets of the components it uses (only their compiled parts are built):
 
 ```cmake
 add_subdirectory(Move-r/ EXCLUDE_FROM_ALL)
 target_link_libraries(<target> PRIVATE move_r)
 ```
+
+| Target | Component |
+| --- | --- |
+| `move_r` | `move_r` and its construction |
+| `move_rb` | `move_rb` and its construction |
+| `move_rb_apm` | the approximate pattern matching of `move_rb` |
 
 The use of each data structure, with complete example programs for all of its functions, is described in:
 
@@ -152,8 +158,12 @@ The use of each data structure, with complete example programs for all of its fu
 
 ## Tests
 
+The tests are built with `-DMOVE_R_BUILD_TESTS=ON`:
+
 ```shell
 cd build
+cmake -DMOVE_R_BUILD_TESTS=ON ..
+make
 ctest
 ```
 

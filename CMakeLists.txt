@@ -33,7 +33,7 @@ endif()
 option(MOVE_R_BUILD_MOVE_R_CLI     "Build the move-r command line tools" ${PROJECT_IS_TOP_LEVEL})
 option(MOVE_R_BUILD_MOVE_RB_CLI    "Build the move-rb command line tools" ${PROJECT_IS_TOP_LEVEL})
 option(MOVE_R_BUILD_TOOLS_CLI      "Build the shared command line tools (gen-patterns, gen-repetitive, print-data-structures)" ${PROJECT_IS_TOP_LEVEL})
-option(MOVE_R_BUILD_TESTS "Build tests" ${PROJECT_IS_TOP_LEVEL})
+option(MOVE_R_BUILD_TESTS "Build tests" OFF)
 
 # benchmarks
 option(MOVE_R_BUILD_MOVE_R_BENCH    "Build move-r-bench, move-r-bench-ops and the external indexes they measure against" OFF)
@@ -99,11 +99,15 @@ endif()
 
 ############################# move-r #############################
 
+# the headers of Move-r without its compiled parts (for programs that only use include/misc and include/data_structures)
+add_library(move_r_headers INTERFACE)
+target_include_directories(move_r_headers INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include/")
+target_link_libraries(move_r_headers INTERFACE string_utils pfp_rlbwt)
+
 # move-r
 add_library(move_r INTERFACE)
-target_include_directories(move_r INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include/")
-target_link_libraries(move_r INTERFACE string_utils libsais libsais40 gtl emhash move_data_structure rlz_ref
-  sparse_map pfp_rlbwt)
+target_link_libraries(move_r INTERFACE move_r_headers libsais libsais40 gtl emhash move_data_structure rlz_ref
+  sparse_map)
 
 # the prefix-free parsing of a text with an integer alphabet (see include/move_r/construction/pfp_integer.hpp)
 add_library(move_r_pfp_integer STATIC src/pfp_integer.cpp)
@@ -111,61 +115,87 @@ target_include_directories(move_r_pfp_integer PRIVATE "${CMAKE_CURRENT_SOURCE_DI
 target_link_libraries(move_r_pfp_integer PRIVATE string_utils sparse_map pfp_rlbwt)
 target_link_libraries(move_r INTERFACE move_r_pfp_integer)
 
+# the components of the library, each an interface target that a program links if it uses it: move_r (move_r and its
+# construction), move_rb (move_rb and its construction) and move_rb_apm (the approximate pattern matching of move_rb)
+add_library(move_rb INTERFACE)
+target_link_libraries(move_rb INTERFACE move_r)
+add_library(move_rb_apm INTERFACE)
+target_link_libraries(move_rb_apm INTERFACE move_rb)
+set(move_r_components move_r move_rb move_rb_apm)
+
 # explicit instantiations of all profiles of the indexes (the option MOVE_R_EXTERN_TEMPLATES, whose value string-utils
 # stores in STRING_UTILS_EXTERN_TEMPLATES); each translation unit instantiates one group of members for all index
-# types (see src/instantiations.cpp)
+# types (see src/instantiations.cpp), and each component has a library of the translation units of its groups, which
+# is only built if a program links the component
 if(STRING_UTILS_EXTERN_TEMPLATES)
-  # src/instantiations.cpp is compiled once per part
-  set(move_r_instantiation_parts
-    MOVE_R MOVE_R_CONSTRUCTION_TEXT MOVE_R_CONSTRUCTION_MOVE MOVE_R_CONSTRUCTION_SA_RLZ
-    MOVE_RB_1 MOVE_RB_2 MOVE_RB_BUILD_1 MOVE_RB_BUILD_2 MOVE_RB_APM_1 MOVE_RB_APM_2
-    SORT TEXT_OPS)
-  set(move_r_instantiation_objects "")
+  # adds the library <component>_instantiations of src/instantiations.cpp compiled once per part in ARGN; it is linked
+  # by the component and links the instantiations of the components in deps
+  function(move_r_add_instantiations component deps)
+    set(objects "")
 
-  foreach(part IN LISTS move_r_instantiation_parts)
-    string(TOLOWER "move_r_instantiations_${part}" part_target)
-    add_library(${part_target} OBJECT src/instantiations.cpp)
-    target_compile_definitions(${part_target} PRIVATE MOVE_R_INSTANTIATION_PART_${part})
-    target_include_directories(${part_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include/")
-    target_link_libraries(${part_target} PRIVATE string_utils libsais libsais40 gtl emhash move_data_structure
-      rlz_ref sparse_map pfp_rlbwt)
-    list(APPEND move_r_instantiation_objects $<TARGET_OBJECTS:${part_target}>)
-  endforeach()
+    foreach(part IN LISTS ARGN)
+      string(TOLOWER "move_r_instantiations_${part}" part_target)
+      add_library(${part_target} OBJECT EXCLUDE_FROM_ALL src/instantiations.cpp)
+      target_compile_definitions(${part_target} PRIVATE MOVE_R_INSTANTIATION_PART_${part})
+      target_include_directories(${part_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include/")
+      target_link_libraries(${part_target} PRIVATE string_utils libsais libsais40 gtl emhash move_data_structure
+        rlz_ref sparse_map pfp_rlbwt)
+      list(APPEND objects $<TARGET_OBJECTS:${part_target}>)
+    endforeach()
 
-  add_library(move_r_instantiations STATIC ${move_r_instantiation_objects})
-  target_link_libraries(move_r_instantiations PRIVATE string_utils move_data_structure rlz_ref sparse_map
-    move_r_pfp_integer pfp_rlbwt)
-  target_link_libraries(move_r INTERFACE move_r_instantiations)
+    add_library(${component}_instantiations STATIC EXCLUDE_FROM_ALL ${objects})
+    target_link_libraries(${component}_instantiations PRIVATE string_utils move_data_structure rlz_ref sparse_map
+      move_r_pfp_integer pfp_rlbwt ${deps})
+    target_link_libraries(${component} INTERFACE ${component}_instantiations)
+  endfunction()
+
+  # the programs only need the declarations of the members compiled in the instantiation libraries
+  target_compile_definitions(move_r INTERFACE MOVE_R_DECLARATIONS_ONLY)
+
+  move_r_add_instantiations(move_r ""
+    MOVE_R MOVE_R_CONSTRUCTION_TEXT MOVE_R_CONSTRUCTION_MOVE MOVE_R_CONSTRUCTION_SA_RLZ SORT TEXT_OPS)
+  move_r_add_instantiations(move_rb move_r_instantiations MOVE_RB_1 MOVE_RB_2 MOVE_RB_BUILD_1 MOVE_RB_BUILD_2)
+  move_r_add_instantiations(move_rb_apm move_rb_instantiations MOVE_RB_APM_1 MOVE_RB_APM_2)
 endif()
 
-# adds an executable (see string_utils_add_executable) that is linked against move_r and the libraries in ARGN
+# adds an executable (see string_utils_add_executable) that is linked against move_r and the libraries in ARGN (e.g.,
+# further components, see move_r_components)
 function(move_r_add_tool name src outdir)
   string_utils_add_executable(${name} "${src}" "${outdir}" move_r ${ARGN})
+endfunction()
+
+# adds a benchmark (see move_r_add_tool) that is linked against all components and the libraries in ARGN
+function(move_r_add_bench name src outdir)
+  move_r_add_tool(${name} "${src}" "${outdir}" ${move_r_components} ${ARGN})
 endfunction()
 
 ############################# move-r cli #############################
 
 # a command-line tool whose modes are implemented in translation units in cli/<dir>/ that are compiled in parallel
 # (see cli/<dir>/modes.hpp)
-function(move_r_add_cli name dir)
+# (components: the components it links besides move_r, see move_r_components)
+function(move_r_add_cli name dir components)
   list(TRANSFORM ARGN PREPEND "cli/${dir}/" OUTPUT_VARIABLE sources)
   list(TRANSFORM sources APPEND ".cpp")
-  move_r_add_tool(${name} "${sources}" "${CMAKE_BINARY_DIR}/cli/")
+  move_r_add_tool(${name} "${sources}" "${CMAKE_BINARY_DIR}/cli/" ${components})
 endfunction()
 
 if(MOVE_R_BUILD_MOVE_R_CLI)
-  move_r_add_cli(move-r move-r main build query revert extract info)
+  move_r_add_cli(move-r move-r "" main build query revert extract info)
 endif()
 
 if(MOVE_R_BUILD_MOVE_RB_CLI)
-  move_r_add_cli(move-rb move-rb main build query revert extract info)
+  move_r_add_cli(move-rb move-rb "move_rb;move_rb_apm" main build query revert extract info)
 endif()
 
 if(MOVE_R_BUILD_TOOLS_CLI)
-  move_r_add_tool(gen-patterns cli/tools/gen-patterns.cpp "${CMAKE_BINARY_DIR}/cli/")
-  move_r_add_tool(gen-repetitive cli/tools/gen-repetitive.cpp "${CMAKE_BINARY_DIR}/cli/")
-  move_r_add_tool(fasta-to-text cli/tools/fasta-to-text.cpp "${CMAKE_BINARY_DIR}/cli/")
-  move_r_add_tool(print-data-structures cli/tools/print-data-structures.cpp "${CMAKE_BINARY_DIR}/cli/")
+  # these tools use only the headers of Move-r (see move_r_headers)
+  foreach(tool gen-patterns gen-repetitive fasta-to-text)
+    string_utils_add_executable(${tool} cli/tools/${tool}.cpp "${CMAKE_BINARY_DIR}/cli/" move_r_headers)
+  endforeach()
+
+  move_r_add_tool(print-data-structures cli/tools/print-data-structures.cpp "${CMAKE_BINARY_DIR}/cli/"
+    ${move_r_components})
   # compiled without optimization
   target_compile_options(print-data-structures PRIVATE -O0)
 endif()
@@ -173,12 +203,12 @@ endif()
 ############################# internal benchmarks #############################
 
 if(MOVE_R_BUILD_MOVE_R_BENCH)
-  move_r_add_tool(move-r-bench-ops bench/move-r-bench-ops/move-r-bench-ops.cpp
+  move_r_add_bench(move-r-bench-ops bench/move-r-bench-ops/move-r-bench-ops.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
 if(MOVE_R_BUILD_MOVE_RB_BENCH)
-  move_r_add_tool(move-rb-bench-ops bench/move-rb-bench-ops/move-rb-bench-ops.cpp
+  move_r_add_bench(move-rb-bench-ops bench/move-rb-bench-ops/move-rb-bench-ops.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
@@ -267,7 +297,7 @@ if(MOVE_R_BUILD_MOVE_R_BENCH AND move_r_external_benches)
 
   ############################# move-r #############################
 
-  move_r_add_tool(move-r-bench bench/move-r-bench/move-r-bench.cpp
+  move_r_add_bench(move-r-bench bench/move-r-bench/move-r-bench.cpp
     "${CMAKE_BINARY_DIR}/bench/" rcomp r-index-f r-index OnlineRlbwt)
 endif()
 
@@ -464,21 +494,21 @@ if(MOVE_R_BUILD_MOVE_RB_BENCH AND move_r_external_benches)
                    "move-rb-bench-apm's --sassy will be unavailable")
   endif()
 
-  move_r_add_tool(move-rb-bench-apm bench/move-rb-bench/move-rb-bench-apm.cpp
+  move_r_add_bench(move-rb-bench-apm bench/move-rb-bench/move-rb-bench-apm.cpp
     "${CMAKE_BINARY_DIR}/bench/" br_index ${CMAKE_DL_LIBS})
   target_link_options(move-rb-bench-apm PRIVATE -rdynamic)
   add_dependencies(move-rb-bench-apm ${columba_plugins})
   if(TARGET sassy-capi)
     add_dependencies(move-rb-bench-apm sassy-capi)
   endif()
-  move_r_add_tool(move-rb-gen-apm-queries bench/move-rb-bench/move-rb-gen-apm-queries.cpp
+  move_r_add_bench(move-rb-gen-apm-queries bench/move-rb-bench/move-rb-gen-apm-queries.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 
-  move_r_add_tool(move-rb-bench-ext bench/move-rb-bench/move-rb-bench-ext.cpp
+  move_r_add_bench(move-rb-bench-ext bench/move-rb-bench/move-rb-bench-ext.cpp
     "${CMAKE_BINARY_DIR}/bench/" br_index ${CMAKE_DL_LIBS})
   target_link_options(move-rb-bench-ext PRIVATE -rdynamic)
   add_dependencies(move-rb-bench-ext ${columba_plugins})
-  move_r_add_tool(move-rb-gen-ext-queries bench/move-rb-bench/move-rb-gen-ext-queries.cpp
+  move_r_add_bench(move-rb-gen-ext-queries bench/move-rb-bench/move-rb-gen-ext-queries.cpp
     "${CMAKE_BINARY_DIR}/bench/")
 endif()
 
@@ -531,7 +561,7 @@ if(MOVE_R_BUILD_TESTS)
   endforeach()
 
   target_link_libraries(test-move-r PRIVATE test_move_r_instantiations)
-  target_link_libraries(test-move-rb PRIVATE test_move_rb_instantiations)
+  target_link_libraries(test-move-rb PRIVATE test_move_rb_instantiations move_rb move_rb_apm)
 
   foreach(s move-r move-rb data-structures edit-distance-matrix)
     set_target_properties("test-${s}" PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)

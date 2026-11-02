@@ -38,14 +38,14 @@ inline void move_r<support, mlf_enc>::init_phi_inv_at_run_start(uint64_t x, uint
     requires(has_locate_move)
 {
     if constexpr (support == _locate_move) {
-        // the input interval of M_Phi^{-1} whose output interval starts with s = SA[M_LF.p[x]]
+        // the input interval of M_Phi_inv whose output interval starts with s = SA[M_LF.p[x]]
         uint64_t x_s_ = SA_Phi_inv(x);
 
-        // s_ = the input interval of M_Phi^{-1} containing s
+        // s_ = the input interval of M_Phi_inv containing s
         s_ = M_Phi_inv().idx(x_s_);
         s = M_Phi_inv().p(s_) + M_Phi_inv().offs(x_s_);
     } else {
-        // if the samples are stored in SA_Phi^{-1}, compute s and s_ as for _locate_move
+        // if the samples are stored in SA_Phi_inv, compute s and s_ as for _locate_move
         if (!_SA_Phi_inv.empty()) {
             uint64_t x_s_ = _SA_Phi_inv.template get<0, uint64_t>(x);
             s_ = M_Phi_inv().idx(x_s_);
@@ -53,7 +53,7 @@ inline void move_r<support, mlf_enc>::init_phi_inv_at_run_start(uint64_t x, uint
             return;
         }
 
-        // else, find s_ with a binary search over the starting positions of the input intervals of M_Phi^{-1}
+        // else, find s_ with a binary search over the starting positions of the input intervals of M_Phi_inv
         s = SA_run_start(x);
         s_ = bin_search_max_leq(s, 0, r__ - 1, [&](uint64_t y) { return M_Phi_inv().p(y); });
     }
@@ -70,7 +70,7 @@ inline void move_r<support, mlf_enc>::init_phi_inv(
     init_phi_inv_at_run_start(hat_b_ap_y, s, s_);
     s -= y + 1;
 
-    // if b < e and s < M_Phi^{-1}.p[s_], an input interval before the s_-th one contains s; find it with an
+    // if b < e and s < M_Phi_inv.p[s_], an input interval before the s_-th one contains s; find it with an
     // exponential search to the left
     if (b < e && s < M_Phi_inv().p(s_)) {
         s_ = exp_search_max_leq<LEFT>(s, 0, s_, [&](uint64_t x) { return M_Phi_inv().p(x); });
@@ -425,12 +425,10 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 template <typename fnc_t>
 inline void move_r<support, mlf_enc>::run_parallel_threads(uint64_t p, fnc_t&& fnc)
 {
-    if (p > 1) {
-        #pragma omp parallel num_threads(p)
-        fnc(uint64_t(omp_get_thread_num()));
-    } else {
-        fnc(uint64_t(0));
-    }
+    // the team can have fewer than p threads (e.g., inside another parallel region); it is also opened for p = 1, so
+    // that omp_get_thread_num() is the number of the thread in it
+    #pragma omp parallel num_threads(p)
+    for (uint64_t i_p = omp_get_thread_num(); i_p < p; i_p += omp_get_num_threads()) fnc(i_p);
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
@@ -670,7 +668,7 @@ void move_r<support, mlf_enc>::SA_range_in_pieces(report_fnc_t report, retrieve_
     starts.push_back(r + 1);
 
     if constexpr (has_locate_move) {
-        // a piece decoded with Phi^{-1}-steps: s = SA[i], and s_ is the input interval of M_Phi^{-1} containing s
+        // a piece decoded with Phi_inv-steps: s = SA[i], and s_ is the input interval of M_Phi_inv containing s
         struct strand_t {
             uint64_t i; // the position of the next value to report
             uint64_t e; // the last position of the piece

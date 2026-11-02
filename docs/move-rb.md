@@ -20,7 +20,7 @@ shows the line the statement prints, `// ~> x` an output that depends on the bui
 ## Construction
 
 The template parameter `support` is `_count`, `_locate_one` (one occurrence per pattern), `_locate_move` (default;
-locate with M_Phi^{-1}) or `_locate_rlzsa` (locate with an RLZ of the differential suffix array).
+locate with M_Phi_inv) or `_locate_rlzsa` (locate with an RLZ of the differential suffix array).
 
 The construction takes the parameters of move-r (`move_r_params`, see [move-r.md](move-r.md#construction)) and these:
 

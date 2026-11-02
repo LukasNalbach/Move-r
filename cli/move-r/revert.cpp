@@ -48,7 +48,7 @@ int move_r_revert(int argc, char** argv)
             const move_r_support support = move_r<>::peek_support(index_file);
 
             const bool known = dispatch_move_r_index(support, [&]<move_r_support supp>() {
-                revert_index<move_r<supp>>(index_file, output_file, cli, "index",
+                revert_index<move_r<supp>>(index_file, output_file, cli, "move-r",
                     "revert_move_r_" + std::string(move_r_support_name(supp)));
             });
 

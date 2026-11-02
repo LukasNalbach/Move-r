@@ -54,7 +54,7 @@ protected:
     using base_t::next_is_separator;
 
     template <query_support_t query_support>
-    using search_context_t = typename idx_t::template search_context_t<query_support>;
+    using search_context_t = typename base_t::template search_context_t<query_support>;
 
     // marks a search state that added no mismatch; the largest value of search_state_t::added_pos
     static constexpr uint64_t no_mismatch = std::numeric_limits<uint32_t>::max();
@@ -69,25 +69,13 @@ protected:
 
         located_context_t() = default;
         located_context_t(const search_context_t<LOCATE>& c, uint32_t ci = no_cigar) : ctx(c), cigar_idx(ci) {}
-
-        // two located contexts are equal if their suffix array intervals in T start at the same position
-        bool operator==(const located_context_t& o) const {
-            return std::get<0>(ctx.forward_sa_interval()) ==
-                   std::get<0>(o.ctx.forward_sa_interval());
-        }
-
-        struct hash {
-            uint64_t operator()(const located_context_t& node) const {
-                return hash_64(std::get<0>(node.ctx.forward_sa_interval()));
-            }
-        };
     };
 
-    // the result of a search: a set of located contexts (LOCATE) or of search contexts (COUNT)
+    /* the result of a search: the located contexts (LOCATE) or the search contexts (COUNT), by the starts of their
+       suffix array intervals in T (their strings have the length of P, so the intervals are disjoint or equal) */
     template <query_support_t query_support>
-    using search_context_set_t = std::conditional_t<query_support == LOCATE,
-        tsl::sparse_set<located_context_t, typename located_context_t::hash>,
-        tsl::sparse_set<search_context_t<query_support>, typename search_context_t<query_support>::hash>>;
+    using search_context_set_t = apm_context_set<
+        std::conditional_t<query_support == LOCATE, located_context_t, search_context_t<COUNT>>, uint64_t>;
 
     // a position of P in the order in which a search matches P (see search_positions)
     struct search_position_t {
@@ -95,6 +83,17 @@ protected:
         direction_t dir; // the direction of the step
         uint64_t pos; // the position in P
         uint64_t num_left; // the number of positions after pos that the step of the next position matches
+    };
+
+    // an entry of the stack of the depth-first search of search
+    template <query_support_t query_support>
+    struct search_state_t {
+        search_context_t<query_support> ctx;
+        uint32_t position_idx; // index in positions of the next position to match
+        uint32_t added_pos; // the position of the mismatch this state added to its path, or no_mismatch (CIGAR mode)
+        uint8_t num_errors; // number of mismatches so far (at most k)
+        uint8_t num_path_mismatches; // number of mismatches on the path of this state (CIGAR mode)
+        uint8_t added_sym; // the text symbol of the added mismatch (CIGAR mode)
     };
 
     // ############################# DATA MEMBERS #############################
@@ -186,7 +185,7 @@ public:
      * @brief locates the occurrences of P with at most k mismatches (with an error model: of cost at most its bound)
      * @tparam mode whether each occurrence is reported with a CIGAR index
      * @tparam report_fnc_t type of the report function
-     * @param P the pattern (P.size() < 2^aprx_occ_len_bits)
+     * @param P the pattern; throws std::invalid_argument if P.size() > aprx_occ_max_len
      * @param scheme the search scheme (provides k)
      * @param report called as report({pos, len, err}) or, in CIGAR mode, report({pos, len, err, cigar index}) for
      *        each occurrence

@@ -146,7 +146,8 @@ concept index_adapter =
         { idx.locate(P, scheme, EDIT_DISTANCE) }
             -> std::convertible_to<std::vector<aprx_occ_t<>>>;
     } &&
-    // nested query-context types
+    // nested query-context types; approximate pattern matching uses apm_context_t (see move_rb::apm_context_t)
+    requires { typename T::template apm_context_t<COUNT>; typename T::template apm_context_t<LOCATE>; } &&
     search_context<typename T::template search_context_t<COUNT>> &&
     locate_search_context<typename T::template search_context_t<LOCATE>> &&
     extend_context<typename T::template extend_context_t<LOCATE>, typename T::template search_context_t<LOCATE>> &&

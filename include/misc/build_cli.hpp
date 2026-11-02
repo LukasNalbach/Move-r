@@ -224,7 +224,7 @@ inline void print_build_measurement_options(help_printer& h, bool with_mds_measu
  *        the start of the build (see log_run_start); n is not known before the construction, its upper bound
  *        input_bytes + 1 is used
  * @param cli the options; path_index_file must be set
- * @param what what is built, e.g. "the move-r index"
+ * @param what what is built, e.g. "move-r"
  * @param parameters the parameters of the build, e.g. "s = locate-move, balance = 8"
  * @throws std::runtime_error "cannot create <path>"
  */
@@ -264,6 +264,8 @@ template <typename index_t>
 void write_index(const index_t& index, build_cli_t& cli, const std::string& name = "the index")
 {
     auto time = now();
+    // separated from the summary of the construction (see log_empty_line)
+    log_empty_line(true);
     log_phase_start(true, time, "storing " + name);
     phase_progress progress(true, index.size_in_bytes());
 
@@ -341,8 +343,7 @@ struct fasta_cli_t {
             const std::string cache = move_r<>::pfp_cache_path(cli.path_input_files[0], cli.mode);
 
             if (read_fasta_from_pfp_cache(cache, text_size, data)) {
-                log_out() << "read " << format_number(data.num_sequences()) << " sequence(s) from " << cache
-                          << std::endl;
+                log_out() << format_count(data.num_sequences(), "sequence") << " from the PFP cache" << std::endl;
                 return;
             }
 
@@ -377,7 +378,7 @@ struct fasta_cli_t {
     void scan_files()
     {
         auto time = now();
-        log_phase_start(true, time, "scanning the FASTA file(s)");
+        log_phase_start(true, time, cli.path_input_files.size() == 1 ? "scanning the FASTA file" : "scanning the FASTA files");
         phase_progress progress(true, cli.input_bytes);
         fasta_scan_t scan = scan_fasta(cli.path_input_files, cli.fasta_alphabet, fasta_separator_symbol, true,
             cli.num_threads, &progress);
@@ -388,8 +389,8 @@ struct fasta_cli_t {
         text_size = scan.text_size;
         samples = std::move(scan.samples);
         scanned = true;
-        log_out() << "read " << format_number(data.num_sequences()) << " sequence(s) from "
-                  << format_number(cli.path_input_files.size()) << " file(s)" << std::endl;
+        log_out() << format_count(data.num_sequences(), "sequence") << " in "
+                  << format_count(cli.path_input_files.size(), "file") << std::endl;
     }
 
     /**

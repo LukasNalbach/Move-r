@@ -166,7 +166,7 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate_model(const inp_t& P, cons
 
     if (uniform) {
         node_set_t found = search(P, scheme);
-        nodes.assign(found.begin(), found.end());
+        nodes = std::move(found.contexts());
     } else {
         nodes = costs.max_errors() <= edit_distance_matrix<uint64_t>::max_supported_errors
             ? search_model<uint64_t>(P, scheme) : search_model<uint128_t>(P, scheme);
@@ -293,7 +293,7 @@ auto apm_edit<idx_t>::search_model(const inp_t& P, const search_scheme_t& scheme
         const std::vector<direction_t> dirs = apm_step_directions(S);
         for (uint64_t p_idx = 0; p_idx < p; p_idx++) parts[S[p_idx].part].set_direction(dirs[p_idx]);
 
-        node_t root(_index.template empty_context<LOCATE>());
+        node_t root { search_context_t<LOCATE>(_index) };
         root.ctx.set_errors(0);
         uint64_t p_idx = 0;
 
@@ -440,38 +440,48 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
     // [0..stack.size()-1] 1 <=> the path of stack[y] has restarted (see the restart below)
     std::vector<uint8_t> stack_restarted;
 
-    auto push_children = [&](node_t& node, uint32_t list, bool restarted) {
-        auto ext_ctx = node.ctx.extend_phase();
-        ext_ctx.template prepare_extend_all<NO_TERM>(dir);
-
-        while (ext_ctx.can_extend()) {
-            if (next_is_separator(ext_ctx)) { ext_ctx.extend_next(); continue; }
-            stack.emplace_back(ext_ctx.extend_next());
-            stack.back().set_match_len(node.match_len() + 1);
-            copy_matched_string(stack.back(), node);
-            stack_member_list.emplace_back(list);
-            stack_restarted.emplace_back(restarted);
-        }
-    };
-
     // no further error: the part is matched by free symbols only, which cost what their substitutions cost (the
     // cost bounds the search only with the dynamic program over it)
     if (err_in == k_max) {
         if (err_in < k_min && root_list == no_list) return;
-        std::vector<uint16_t> path_costs { entry.cost };
-        std::vector<uint64_t> path_counters { entry.counters };
-        stack.emplace_back(std::move(start));
 
-        while (!stack.empty()) {
-            node_t node = std::move(stack.back());
-            uint16_t cost = path_costs.back();
-            uint64_t counters = path_counters.back();
-            stack.pop_back();
-            path_costs.pop_back();
-            path_counters.pop_back();
+        // an extension by a free symbol with the cost and the counters of its path
+        struct free_extension_t {
+            search_context_t<LOCATE> ctx;
+            uint16_t cost;
+            uint64_t counters;
+        };
+
+        // the current node with the cost and the counters of its path; a node with one extension continues with it
+        // (see apm_dfs_children)
+        node_t node = std::move(start);
+        uint16_t cost = entry.cost;
+        uint64_t counters = entry.counters;
+        bool has_node = true;
+        std::vector<uint16_t> path_costs;
+        std::vector<uint64_t> path_counters;
+
+        auto push = [&](free_extension_t&& ext) {
+            stack.emplace_back(child_of(node, ext.ctx));
+            path_costs.emplace_back(ext.cost);
+            path_counters.emplace_back(ext.counters);
+        };
+
+        while (has_node || !stack.empty()) {
+            if (!has_node) {
+                node = std::move(stack.back());
+                cost = path_costs.back();
+                counters = path_counters.back();
+                stack.pop_back();
+                path_costs.pop_back();
+                path_counters.pop_back();
+            }
+
+            has_node = false;
             if (node.match_len() > 0) append_last_symbol(node, part, dir);
             if (node.match_len() == part.size()) { insert_cell(node, root_list, err_in, cost, counters); continue; }
             uint64_t pos = part.pos(node.match_len());
+            apm_dfs_children<free_extension_t> children;
 
             for (uint8_t c : costs.free_symbols(pos)) {
                 uint64_t r = costs.rank(c);
@@ -480,13 +490,17 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
                 if (band != nullptr && next_cost > costs.bound()) continue;
                 auto [next_ctx, ok] = node.ctx.extend(c, dir);
                 if (!ok) continue;
-                node_t child(next_ctx);
-                child.set_match_len(node.match_len() + 1);
-                copy_matched_string(child, node);
-                stack.emplace_back(std::move(child));
-                path_costs.emplace_back(uint16_t(std::min<uint64_t>(next_cost, apm_forbidden)));
-                path_counters.emplace_back(counters + (accepted ? 0 : costs.sub_count(pos)));
+                children.add(free_extension_t{next_ctx, uint16_t(std::min<uint64_t>(next_cost, apm_forbidden)),
+                    counters + (accepted ? 0 : costs.sub_count(pos))}, push);
             }
+
+            if (!children.has_one()) continue;
+            free_extension_t& ext = children.only();
+            node.ctx = std::move(ext.ctx);
+            descend(node);
+            cost = ext.cost;
+            counters = ext.counters;
+            has_node = true;
         }
 
         return;
@@ -558,15 +572,32 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
     };
 
     if (matrix.is_in_final_column(0)) insert_final(start, root_list, false, 0);
-    push_children(start, root_list, false);
 
-    while (!stack.empty()) {
-        node_t node = std::move(stack.back());
-        uint32_t list = stack_member_list.back();
-        bool restarted = stack_restarted.back();
-        stack.pop_back();
-        stack_member_list.pop_back();
-        stack_restarted.pop_back();
+    // the current node with the list of members and the restart flag of its path; a node with one extension continues
+    // with it (see extend_node)
+    node_t node = std::move(start);
+    uint32_t list = root_list;
+    bool restarted = false;
+
+    auto push = [&](node_t&& child) {
+        stack.emplace_back(std::move(child));
+        stack_member_list.emplace_back(list);
+        stack_restarted.emplace_back(restarted);
+    };
+
+    bool has_node = extend_node(node, dir, push);
+
+    while (has_node || !stack.empty()) {
+        if (!has_node) {
+            node = std::move(stack.back());
+            list = stack_member_list.back();
+            restarted = stack_restarted.back();
+            stack.pop_back();
+            stack_member_list.pop_back();
+            stack_restarted.pop_back();
+        }
+
+        has_node = false;
         append_last_symbol(node, part, dir);
         uint64_t row = node.match_len();
         if (row >= matrix.num_rows()) continue;
@@ -616,7 +647,7 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
                 || is_pruned(row, list, restarted);
         }
 
-        if (!terminal && row + 1 < matrix.num_rows()) push_children(node, list, restarted);
+        if (!terminal && row + 1 < matrix.num_rows()) has_node = extend_node(node, dir, push);
     }
 }
 

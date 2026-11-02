@@ -76,6 +76,7 @@ void print_info(const move_rb<support>& index, uint64_t index_bytes)
     index_facts facts;
     facts.add("support: " + move_r_support_option_name(support));
     index.add_parameters(facts);
+    facts.new_line();
     facts.add(alphabet_description(index.forward_index().byte_alphabet, index.forward_index().alphabet_in_input_order()));
     print_index_info(facts, "index", index_bytes, index.input_size(), [&] { index.log_data_structure_sizes(); },
         modes);
@@ -93,7 +94,7 @@ int move_rb_info(int argc, char** argv)
         const bool known = dispatch_move_rb_index(read_move_rb_support(index_file),
             [&]<move_r_support support>() {
                 move_rb<support> index;
-                print_info(index, load_index_with_progress(index, index_file, "bidirectional index"));
+                print_info(index, load_index_with_progress(index, index_file, "move-rb"));
             });
 
         if (!known) throw std::runtime_error(path_index_file + " is not an index built with move-rb build");

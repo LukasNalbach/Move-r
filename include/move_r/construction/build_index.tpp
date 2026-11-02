@@ -35,7 +35,7 @@ void move_r<support, mlf_enc>::construction::choose_sa_samples_layout()
 {
     samples_layout = _at_run_boundaries;
 
-    /* if the index stores M_Phi^{-1}, the samples are stored as its input intervals (in a bidirectional index
+    /* if the index stores M_Phi_inv, the samples are stored as its input intervals (in a bidirectional index
        only if SA is sampled at both ends of each run) */
     if constexpr (support == _locate_move) {
         samples_layout = _as_phi_inv_intervals;
@@ -49,7 +49,7 @@ void move_r<support, mlf_enc>::construction::start_construction()
 {
     time = now();
     time_start = time;
-    omp_set_num_threads(p);
+    threads_scope.emplace(p);
     prefix_tmp_files = temporary_file_path("move-r_", tmp_files_beside(params));
     baseline_mem_usage = malloc_count_current();
 
@@ -106,6 +106,7 @@ void move_r<support, mlf_enc>::construction::log_mds_phase_end(const std::string
         *params.measurement_file << " " << time_key << params.measurement_key_suffix << "=" << time_diff_ns(time, now())
                        << " peak_" << measurement_phase(time_key + params.measurement_key_suffix) << "=" << phase_peak()
                        << " " << count_key << params.measurement_key_suffix << "=" << count;
+    log_block_end(true);
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
@@ -127,8 +128,7 @@ move_r<support, mlf_enc>::construction::construction(move_r<support, mlf_enc>& i
     this->delete_T = delete_T;
     p = params.num_threads;
     reversed = params.reversed;
-    pfp_prefix = params.pfp_cache ? move_r<support, mlf_enc>::pfp_cache_path(
-        params.input_file, params.mode, reversed) : "";
+    pfp_prefix = params.pfp_cache ? move_r<support, mlf_enc>::pfp_cache_path(params, reversed) : "";
     pfp_cache = !pfp_prefix.empty();
     if (pfp_cache && std::filesystem::exists(pfp_prefix)) pfp_cache_descriptor.open(pfp_prefix);
     idx.byte_alphabet = byte_alphabet;
@@ -200,9 +200,6 @@ void move_r<support, mlf_enc>::construction::build_index()
             " distinct symbols, but at most 2^32 - 2 are supported");
     }
 
-    // true <=> data structures are stored on disk while they are not needed
-    const bool spill = params.mode != _suffix_array;
-
     if (move_r_builds_runs_file(params.mode)) {
         rlbwt_from_pfp = true;
         build_rlbwt_pfp();
@@ -213,7 +210,13 @@ void move_r<support, mlf_enc>::construction::build_index()
     log_statistics();
     choose_sa_samples_layout();
 
-    // after I_LF has been built, the RLBWT is only read to build I_Phi^{-1} from the suffix array
+    /* true <=> data structures are stored on disk while they are not needed; they take O(r) words, and if I_Phi_inv,
+       the largest of them with its 2r values, fits into the buffer of a file written with O_DIRECT, storing them does
+       not lower the peak memory usage */
+    const bool spill = params.mode != _suffix_array
+        && 2 * r * sizeof(uint64_t) >= direct_filebuf_base::buffer_length;
+
+    // after I_LF has been built, the RLBWT is only read to build I_Phi_inv from the suffix array
     const bool rlbwt_read_later = !rlbwt_from_pfp;
     const bool spill_rlbwt = spill && rlbwt_read_later;
 
@@ -241,7 +244,7 @@ void move_r<support, mlf_enc>::construction::build_index()
         build_SA_run_from_iphi_inv();
 
         if constexpr (has_locate_move) {
-            // M_LF and the data structures over L' stay in memory while M_Phi and M_Phi^{-1} are built, if M_Phi is
+            // M_LF and the data structures over L' stay in memory while M_Phi and M_Phi_inv are built, if M_Phi is
             // built
             const bool spill_lf = spill && !has_mphi;
 
@@ -253,7 +256,7 @@ void move_r<support, mlf_enc>::construction::build_index()
 
             if constexpr (has_mphi) {
                 build_iphi();
-                // sort_iphi reads I_Phi^{-1}, if LCP_run is not empty
+                // sort_iphi reads I_Phi_inv, if LCP_run is not empty
                 sort_iphi();
                 build_mphi();
             }
@@ -293,12 +296,14 @@ void move_r<support, mlf_enc>::construction::log_finished()
 
     // a sub-index of a larger construction writes its summary only to the measurement file
     if (!is_bidirectional && params.peak_memory_usage == nullptr) {
+        // the sizes are a block of their own (see log_empty_line)
+        log_empty_line(true);
         log_output_size("index", idx.size_in_bytes(), n);
         idx.log_data_structure_sizes();
         // if the pfp output was read from a cache, the construction time does not include the BWT construction, so
         // no throughput is printed
-        log_construction_summary(time_construction, n,
-            is_malloc_count_linked ? peak_mem_usage : peak_not_measured, !idx._rlbwt_from_cache);
+        log_construction_summary("move-r", time_construction, n, is_malloc_count_linked ? peak_mem_usage : peak_not_measured,
+            !idx._rlbwt_from_cache, idx._rlbwt_from_cache ? "the RLBWT" : "");
     }
 
     if (params.measurement_file != nullptr) {
@@ -323,10 +328,8 @@ void move_r<support, mlf_enc>::construction::log_statistics()
         *params.measurement_file << " r" << sfx << "=" << r;
     }
 
-    std::cout << "n = " << format_number(n - 1) << std::endl;
-    std::cout << "r = " << format_number(r) << std::endl;
-    std::cout << "n/r = " << format_ratio(n_r) << std::endl;
-    std::cout << "sigma = " << format_number(idx.sigma) << std::endl;
+    log_message("n = " + format_number(n - 1) + ", r = " + format_number(r) + ", n/r = " + format_ratio(n_r)
+        + ", sigma = " + format_number(idx.sigma) + "\n");
 }
 
 #endif // MOVE_R_MOVE_R_CONSTRUCTION_BUILD_INDEX_TPP

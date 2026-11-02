@@ -56,9 +56,9 @@ void move_r<support, mlf_enc>::construction::build_sa_run_from_sa()
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_iphi_inv_from_sa()
 {
-    // true <=> SA_run is built (else the samples are stored as input intervals of M_Phi^{-1}, see sa_samples_layout_t)
+    // true <=> SA_run is built (else the samples are stored as input intervals of M_Phi_inv, see sa_samples_layout_t)
     const bool at_run_boundaries = builds_SA_samples && samples_layout == _at_run_boundaries;
-    log_phase_start(at_run_boundaries ? "building I_Phi^{-1} and SA_run" : "building I_Phi^{-1}");
+    log_phase_start(at_run_boundaries ? "building I_Phi_inv, SA_run" : "building I_Phi_inv");
 
     I_Phi_inv.reset(r, n);
     const bool with_ends = samples_at_run_ends();
@@ -109,7 +109,7 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_mphi_inv()
 {
     begin_mds_result("build_mphi_inv");
-    log_phase_start("building M_Phi^{-1}:");
+    log_mds_phase_start("M_Phi_inv");
 
     /* the PLCP row stores the PLCP value at the start of the output interval of each input interval; plcp_pair is
        sorted by the starting positions of the output intervals of the pairs (see plcp_pair) */
@@ -123,6 +123,7 @@ void move_r<support, mlf_enc>::construction::build_mphi_inv()
             .first_pieces = samples_layout == _as_phi_inv_intervals ? &phi_inv_first_intervals : nullptr,
             .log = params.log,
             .mf = params.mf_mds,
+            .name = "M_Phi_inv",
         },
         idx.mphi_inv_row_widths(n), {}, nullptr);
 
@@ -146,9 +147,9 @@ void move_r<support, mlf_enc>::construction::store_run_ranks()
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_SA_Phi_inv()
 {
-    log_phase_start("building SA_Phi^{-1}");
+    log_phase_start("building SA_Phi_inv");
 
-    /* SA_Phi^{-1}[x] = index of the first input interval of M_Phi^{-1} of the pair of the run starting at the x-th
+    /* SA_Phi_inv[x] = index of the first input interval of M_Phi_inv of the pair of the run starting at the x-th
        input interval of M_LF, or r'', if no run starts there (see move_r::_SA_Phi_inv). The pair of a run with rank
        i (see run_ranks) starts at the i-th interval marked in phi_inv_first_intervals. */
     idx.omega_idx = idx._M_Phi_inv.width_idx();
@@ -220,7 +221,7 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_mphi()
 {
     begin_mds_result("build_mphi");
-    log_phase_start("building M_Phi:");
+    log_mds_phase_start("M_Phi");
 
     idx._M_Phi = mphi_t(
         std::move(I_Phi), n, {
@@ -228,6 +229,7 @@ void move_r<support, mlf_enc>::construction::build_mphi()
             .a = idx.a,
             .log = params.log,
             .mf = params.mf_mds,
+            .name = "M_Phi",
         },
         {}, {}, nullptr);
 
@@ -240,7 +242,7 @@ void move_r<support, mlf_enc>::construction::build_mphi()
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::store_iphi_inv()
 {
-    store_to_tmp_file("I_Phi^{-1}", ".iphi_inv", "time_store_iphi_inv", [&](direct_ofstream& file) {
+    store_to_tmp_file("I_Phi_inv", ".iphi_inv", "time_store_iphi_inv", [&](direct_ofstream& file) {
         const uint64_t iphi_inv_bytes = I_Phi_inv.size_in_bytes();
         phase_progress prog(params.log, iphi_inv_bytes);
         write_in_chunks(file, I_Phi_inv.data(), iphi_inv_bytes, &prog);
@@ -252,7 +254,7 @@ void move_r<support, mlf_enc>::construction::store_iphi_inv()
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::load_iphi_inv(bool remove_file)
 {
-    load_from_tmp_file("I_Phi^{-1}", ".iphi_inv", "time_load_iphi_inv", remove_file, [&](direct_ifstream& file) {
+    load_from_tmp_file("I_Phi_inv", ".iphi_inv", "time_load_iphi_inv", remove_file, [&](direct_ifstream& file) {
         I_Phi_inv.reset(r, n);
         const uint64_t iphi_inv_bytes = I_Phi_inv.size_in_bytes();
         phase_progress prog(params.log, iphi_inv_bytes);
@@ -322,12 +324,12 @@ void move_r<support, mlf_enc>::construction::build_plcp_run()
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::sort_iphi_inv()
 {
-    log_phase_start("sorting I_Phi^{-1}");
+    log_phase_start("sorting I_Phi_inv");
 
     if (samples_layout == _as_phi_inv_intervals) {
         /* the pairs (p, x), where p is the starting position of the input interval of the x-th run, are sorted by p;
            then the rank of each pair is stored in the run ranks (see run_ranks), and x is replaced by the starting
-           position q of the output interval, which is read from I_Phi^{-1} (still in the order of the runs) */
+           position q of the output interval, which is read from I_Phi_inv (still in the order of the runs) */
         mds_pairs sorted(r, n);
 
         #pragma omp parallel for num_threads(p)
@@ -364,7 +366,7 @@ void move_r<support, mlf_enc>::construction::sort_iphi()
     I_Phi.sort_by<0>(p);
 
     /* the second component of each pair is the index x of its run (see build_iphi); it is replaced by the first
-       component of the x-th pair in I_Phi^{-1}, and LCP_run[x] is written to plcp_pair */
+       component of the x-th pair in I_Phi_inv, and LCP_run[x] is written to plcp_pair */
     if (!LCP_run.empty()) {
         plcp_pair = interleaved_bit_aligned_vectors({ idx._plcp_row_width });
         plcp_pair.resize_no_init(r, p);

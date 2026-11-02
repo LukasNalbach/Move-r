@@ -270,9 +270,32 @@ inline fasta_scan_t scan_fasta(const std::vector<std::string>& in_paths,
 }
 
 /**
+ * @brief writes the text that FASTA files describe with a transformation to a buffer; each file is scanned in
+ *        parallel (see pfp_rlbwt::scan_fasta_lines), then its text is written in parallel (see read_fasta_text)
+ * @param in_paths the FASTA files; they are concatenated into one text
+ * @param dst the buffer
+ * @param transform the transformation
+ * @param num_threads the maximum number of threads to use
+ * @return the number of symbols written
+ */
+inline uint64_t read_fasta_into(const std::vector<std::string>& in_paths, uint8_t* dst,
+    const pfp_rlbwt::fasta_transform& transform, uint64_t num_threads)
+{
+    uint64_t written = 0;
+
+    for (const std::string& in_path : in_paths) {
+        const pfp_rlbwt::fasta_scan file = pfp_rlbwt::scan_fasta_lines<pfp_rlbwt::fasta_chunk>(
+            [&] { return direct_reader(in_path); }, transform, { .num_threads = num_threads }, [](auto&&...) { });
+        read_fasta_text(in_path, transform, file, dst + written, num_threads);
+        written += file.text_size;
+    }
+
+    return written;
+}
+
+/**
  * @brief writes the text that FASTA files describe (see pfp_rlbwt::fasta_transform) to a buffer; the result is the
- *        text process_fasta writes to a file. Each file is scanned in parallel (see pfp_rlbwt::scan_fasta_lines), then
- *        its text is written in parallel (see read_fasta_text).
+ *        text process_fasta writes to a file
  * @param in_paths the FASTA files; they are concatenated into one text
  * @param dst the buffer; its size has to be at least the text size computed by scan_fasta for the same files
  * @param alphabet the bytes that are kept verbatim; a run of other bytes becomes one @p separator
@@ -285,17 +308,8 @@ inline uint64_t read_fasta_into(const std::vector<std::string>& in_paths, uint8_
     const std::string& alphabet = "ACGT", char separator = fasta_separator_symbol,
     bool to_upper = true, uint64_t num_threads = omp_get_max_threads())
 {
-    const pfp_rlbwt::fasta_transform transform(alphabet, (uint8_t) separator, to_upper);
-    uint64_t written = 0;
-
-    for (const std::string& in_path : in_paths) {
-        const pfp_rlbwt::fasta_scan file = pfp_rlbwt::scan_fasta_lines<pfp_rlbwt::fasta_chunk>(
-            [&] { return direct_reader(in_path); }, transform, { .num_threads = num_threads }, [](auto&&...) { });
-        read_fasta_text(in_path, transform, file, dst + written, num_threads);
-        written += file.text_size;
-    }
-
-    return written;
+    return read_fasta_into(in_paths, dst, pfp_rlbwt::fasta_transform(alphabet, (uint8_t) separator, to_upper),
+        num_threads);
 }
 
 /**

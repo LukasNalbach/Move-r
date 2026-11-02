@@ -73,7 +73,7 @@ void move_r<support, mlf_enc>::construction::widen_t()
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_file_name)
 {
-    log_phase_start("preprocessing T");
+    log_phase_start("computing the alphabet of T");
 
     /* a byte alphabet is mapped to [min_mapped_symbol()..min_mapped_symbol()+sigma-2] (by decreasing frequency, if
        reorder_alphabet is set); an integer alphabet, and a byte input with more distinct bytes than that range holds,
@@ -109,7 +109,10 @@ void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_f
         }
 
         // the text of a FASTA file is read only through the map of the bytes (see build_rlbwt_pfp)
-        if (byte_alphabet_fits(freq_thr, min_mapped_symbol()) || params.fasta.text_len != 0) {
+        if (params.fasta.text_len != 0 && !byte_alphabet_fits(freq_thr, min_mapped_symbol()))
+            throw std::runtime_error("move_r: the text of the FASTA file has too many distinct bytes");
+
+        if (byte_alphabet_fits(freq_thr, min_mapped_symbol())) {
             map_byte_alphabet(freq_thr);
 
             // a cache that has been written with a different alphabet map is not used
@@ -197,11 +200,8 @@ void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_f
         idx.assign_alphabet(symbols, effective);
     }
 
+    if (!byte_alphabet) log_phase_detail(params.log, " (" + format_size(int_alphabet_bytes) + " alphabet map)");
     log_phase_end("time_preprocess_t");
-
-    if (!byte_alphabet) {
-        if (params.log) std::cout << "alphabet map: " << format_size(int_alphabet_bytes) << std::endl;
-    }
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>

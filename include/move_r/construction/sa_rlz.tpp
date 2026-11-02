@@ -82,15 +82,16 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_SA_rlz() requires(has_SA_rlz)
 {
     std::vector<SA_rlz_reader> readers; // [0..p-1] the reader of each thread
+    std::chrono::steady_clock::time_point time_SA_rlz; // the start of the block "building SA_rlz"
     elias_fano_bit_vector mlf_starts; // marks the starting positions of the input intervals of M_LF and position n
-    elias_fano_bit_vector phi_inv_starts; // marks the starting positions of the input intervals of M_Phi^{-1} and position n
+    elias_fano_bit_vector phi_inv_starts; // marks the starting positions of the input intervals of M_Phi_inv and position n
     no_init_vector<uint64_t> sampled; // the sampled SA values (see SA_rlz_reader::sampled)
 
-    // true <=> SA^d is read from the suffix array (else it is decoded with a temporary M_Phi^{-1}, see SA_rlz_reader)
+    // true <=> SA^d is read from the suffix array (else it is decoded with a temporary M_Phi_inv, see SA_rlz_reader)
     const bool sa_in_memory = params.mode == _suffix_array && !sa.empty();
 
     if (!sa_in_memory) {
-        // build_mphi_inv and the rlz construction both consume I_Phi^{-1}
+        // build_mphi_inv and the rlz construction both consume I_Phi_inv
         store_iphi_inv();
         load_iphi_inv(false);
         build_mphi_inv();
@@ -108,7 +109,10 @@ void move_r<support, mlf_enc>::construction::build_SA_rlz() requires(has_SA_rlz)
         for (uint64_t i_p = 0; i_p < p; i_p++)
             readers.emplace_back(*this, mlf_starts, phi_inv_starts, nullptr, 0);
 
-        log_phase_start("sampling SA for RLZ");
+        // the sampling and the phases of the rlz construction are a block (see log_block_begin)
+        log_block_begin(params.log, "building SA_rlz");
+        time_SA_rlz = now();
+        log_phase_start("sampling SA");
 
         /* SA is sampled at every 2^sampled_shift-th position inside the runs longer than 2^sampled_shift, where
            sampled_shift = max(10, floor(log_2(n/r))). Each of those runs is decoded once from its start to its last
@@ -170,6 +174,11 @@ void move_r<support, mlf_enc>::construction::build_SA_rlz() requires(has_SA_rlz)
         return i == 0 ? n - 1 : (uint64_t(sa[i]) + n) - uint64_t(sa[i - 1]);
     };
 
+    if (sa_in_memory) {
+        log_block_begin(params.log, "building SA_rlz");
+        time_SA_rlz = now();
+    }
+
     typename rlz<_diff_access>::template construction<decltype(SAd), mds_pairs> SA_rlz_construction(
         idx._SA_rlz, SAd, I_Phi_inv, n, r,
         {
@@ -183,6 +192,13 @@ void move_r<support, mlf_enc>::construction::build_SA_rlz() requires(has_SA_rlz)
         });
     SA_rlz_construction.build();
 
+    if (params.log) {
+        log_message("SA_rlz built");
+        log_runtime(time_SA_rlz);
+    }
+
+    log_block_end(params.log);
+
     if (!sa_in_memory) {
         readers.clear();
         sampled.clear();
@@ -190,7 +206,7 @@ void move_r<support, mlf_enc>::construction::build_SA_rlz() requires(has_SA_rlz)
         mlf_starts = elias_fano_bit_vector();
         phi_inv_starts = elias_fano_bit_vector();
 
-        // the temporary M_Phi^{-1} is not stored in the index
+        // the temporary M_Phi_inv is not stored in the index
         idx._M_Phi_inv = mphi_t();
         idx.r__ = 0;
         r__ = 0;

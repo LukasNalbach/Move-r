@@ -37,12 +37,12 @@ template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_mlf()
 {
     begin_mds_result("build_mlf");
-    log_phase_start("building M_LF:");
+    log_mds_phase_start("M_LF");
 
     uint8_t width_l_ = std::bit_width(idx.sigma);
 
     mds_params mlf_params { .num_threads = p, .a = idx.a,
-        .log = params.log, .mf = params.mf_mds };
+        .log = params.log, .mf = params.mf_mds, .name = "M_LF" };
     if (I_LF_sym.width_of(0) == 8) mlf_params.q_order_keys = I_LF_sym.data<uint8_t>();
     // L' is built from I_LF_sym by the construction of M_LF (see mds_pair_row)
     mds_pair_row l_row { .values = &I_LF_sym };
@@ -59,7 +59,7 @@ void move_r<support, mlf_enc>::construction::build_mlf()
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_SA_run_from_iphi_inv()
 {
-    /* SA_run is built here from I_Phi^{-1} (its pairs contain the SA values at the run boundaries), if the RLBWT
+    /* SA_run is built here from I_Phi_inv (its pairs contain the SA values at the run boundaries), if the RLBWT
        has been read from the output of the prefix-free parsing and the samples are stored in SA_run */
     const bool build = builds_SA_samples && rlbwt_from_pfp && samples_layout == _at_run_boundaries;
     const bool with_ends = samples_at_run_ends();

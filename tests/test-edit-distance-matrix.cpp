@@ -192,12 +192,12 @@ static void verify_edit_distance_matrix(const inp_t& input, gen_t& gen)
     directional_substring<inp_t> pattern_view(P, 0, m - 1, RIGHT);
     M.set_input(pattern_view, sigma, alph_map);
     M.init(k);
-    for (int32_t i = 1; i <= n && i < M.num_rows(); i++)
+    for (int64_t i = 1; i <= n && i < int64_t(M.num_rows()); i++)
         M.compute_row(i, T[i - 1]);
 
-    for (uint16_t i = 0; i < M.num_rows() && i <= n; i++) {
+    for (int64_t i = 0; i < int64_t(M.num_rows()) && i <= n; i++) {
         if (!M.is_in_final_column(i)) continue;
-        uint16_t value = M(i, M.num_cols() - 1);
+        uint64_t value = M(i, M.num_cols() - 1);
 
         if (value <= k) {
             inp_t prefix(T.begin(), T.begin() + i);

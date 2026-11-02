@@ -26,7 +26,9 @@
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_CONSTRUCTION_HPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_CONSTRUCTION_HPP
 
+#include <algorithm>
 #include <optional>
+#include <string_view>
 #include <misc/utils.hpp>
 
 #include <misc/sort.hpp>
@@ -54,13 +56,26 @@ inline std::string measurement_phase(const std::string& mf_key)
 }
 
 /**
+ * @brief returns the log message of a phase that stores data structures to disk or reads them: "storing data
+ *        structures to disk" resp. "reading data structures from disk" (other messages, e.g. "deleting M_Phi_inv",
+ *        are returned unchanged)
+ * @param message the action and the data structure, e.g. "storing M_Phi"
+ */
+inline std::string spill_message(const std::string& message)
+{
+    if (message.starts_with("storing ")) return "storing data structures to disk";
+    if (message.starts_with("reading ")) return "reading data structures from disk";
+    return message;
+}
+
+/**
  * @brief ends a phase that stores a data structure to disk, loads it from disk or deletes it, started with
- *        log_phase_start(log, time, ""): logs "<message>: <size>, in ~ <time>" (a stored data structure) or
- *        "<message>, in ~ <time>" if bytes >= min_logged_spill_bytes, else nothing; the measurement keys of
- *        log_phase_end are written in both cases
+ *        log_phase_start(log, time, ""): logs it with log_grouped as spill_message(message) (in one line with the
+ *        phases of the same message logged directly before, e.g. "storing data structures to disk, in ~ <time>"), if
+ *        bytes >= min_logged_spill_bytes; the measurement keys of log_phase_end are written in both cases
  * @param log whether logging is enabled
- * @param time the phase timer
- * @param message the message of the phase, e.g. "storing M_Phi"
+ * @param time the phase timer; set to now
+ * @param message the action and the data structure, e.g. "storing M_Phi"
  * @param bytes the number of bytes stored, loaded or deleted
  * @param stored whether the phase stores the data structure (only then its size is logged)
  * @param mf the measurement file (nullptr: none)
@@ -69,21 +84,7 @@ inline std::string measurement_phase(const std::string& mf_key)
 inline void log_spill_phase_end(bool log, std::chrono::steady_clock::time_point& time, const std::string& message,
     uint64_t bytes, bool stored, std::ostream* mf, const std::string& mf_key)
 {
-    if (!log) return;
-
-    if (bytes >= min_logged_spill_bytes) {
-        log_out() << message;
-        if (stored) log_out() << ": " << format_size(bytes);
-        log_phase_end(log, time, mf, mf_key);
-    } else {
-        if (mf != nullptr && !mf_key.empty()) {
-            const std::string phase = measurement_phase(mf_key);
-            *mf << " " << mf_key << "=" << time_diff_ns(time, now()) << " peak_" << phase << "=" << phase_peak()
-                << " held_" << phase << "=" << phase_allocated();
-        }
-
-        note_peak();
-    }
+    log_grouped_phase_end(log, time, spill_message(message), 0, false, mf, mf_key, bytes >= min_logged_spill_bytes);
 }
 
 /**
@@ -94,8 +95,8 @@ inline void log_spill_phase_end(bool log, std::chrono::steady_clock::time_point&
  * 1. the RLBWT of T$ and the C-array, from the suffix array (modes _suffix_array and _suffix_array_space) or from
  *    the output of the prefix-free parsing (mode _pfp, see build_rlbwt_pfp);
  * 2. I_LF and M_LF;
- * 3. the suffix array samples at the run boundaries and I_Phi^{-1} (and I_Phi);
- * 4. M_Phi^{-1}, M_Phi or the rlz of the differential suffix array, depending on the support;
+ * 3. the suffix array samples at the run boundaries and I_Phi_inv (and I_Phi);
+ * 4. M_Phi_inv, M_Phi or the rlz of the differential suffix array, depending on the support;
  * 5. the data structures over L'.
  * The sections of the threads in the phases 1-3 are ranges of consecutive BWT runs (see n_p and r_p).
  */
@@ -141,15 +142,15 @@ public:
      * @brief reader of the values of the differential suffix array SA^d (for the RLZ construction) that does not
      *        need the suffix array
      *
-     * A reader starts at the SA sample at the start of a run and computes the following SA values with M_Phi^{-1}.
-     * Reading consecutive values takes one Phi^{-1} step per value; other positions are reached with seek().
+     * A reader starts at the SA sample at the start of a run and computes the following SA values with M_Phi_inv.
+     * Reading consecutive values takes one Phi_inv step per value; other positions are reached with seek().
      * Each thread uses its own reader.
      */
     struct alignas(cache_line_bytes) SA_rlz_reader {
         construction* build = nullptr; // the construction
         // marks the starting positions of the input intervals of M_LF (and position n)
         const elias_fano_bit_vector* starts = nullptr;
-        // marks the starting positions of the input intervals of M_Phi^{-1} (and position n)
+        // marks the starting positions of the input intervals of M_Phi_inv (and position n)
         const elias_fano_bit_vector* phi_starts = nullptr;
         /* [0..(n-1) >> sampled_shift] sampled[j] = SA[j << sampled_shift]; only set for positions inside runs
            longer than 2^sampled_shift (see build_SA_rlz) */
@@ -161,7 +162,7 @@ public:
         uint64_t pos = 0; // the current position in the suffix array
         uint64_t value = 0; // SA[pos]
         uint64_t prev_value = 0; // SA[pos - 1]
-        uint64_t phi_interval = 0; // the input interval of M_Phi^{-1} containing value
+        uint64_t phi_interval = 0; // the input interval of M_Phi_inv containing value
 
         SA_rlz_reader() = default;
 
@@ -169,7 +170,7 @@ public:
          * @brief constructs a reader
          * @param build the construction
          * @param starts marks the starting positions of the input intervals of M_LF
-         * @param phi_starts marks the starting positions of the input intervals of M_Phi^{-1}
+         * @param phi_starts marks the starting positions of the input intervals of M_Phi_inv
          * @param sampled [0..(n-1) >> sampled_shift] the sampled SA values (see sampled), or null
          * @param sampled_shift log_2 of the sample distance
          */
@@ -178,7 +179,7 @@ public:
             : build(&build), starts(&starts), phi_starts(&phi_starts), sampled(sampled), sampled_shift(sampled_shift)
         { }
 
-        // sets phi_interval to the input interval of M_Phi^{-1} containing value
+        // sets phi_interval to the input interval of M_Phi_inv containing value
         void locate_phi_interval()
         {
             auto& phi_inv = build->idx._M_Phi_inv;
@@ -186,7 +187,7 @@ public:
             while (value >= phi_inv.p(phi_interval + 1)) phi_interval++;
         }
 
-        // advances to the next suffix array position (one Phi^{-1} step)
+        // advances to the next suffix array position (one Phi_inv step)
         void step_right();
 
         /**
@@ -245,7 +246,9 @@ public:
 
     move_r_params params; // construction parameters
     uint64_t p = 1; // the number of threads to use
-    // p', the number of threads that build the RLBWT, C, I_LF and I_Phi^{-1} (1 for an integer alphabet)
+    // sets the number of threads of OpenMP to p during the construction (see omp_threads_scope)
+    std::optional<omp_threads_scope> threads_scope;
+    // p', the number of threads that build the RLBWT, C, I_LF and I_Phi_inv (1 for an integer alphabet)
     uint64_t p_ = 1;
     bool delete_T = false; // controls whether T should be deleted when not needed anymore
     std::string prefix_tmp_files = ""; // prefix of temporary files
@@ -277,7 +280,7 @@ public:
     bool reversed = false;
     uint64_t r = 0; // r, the number of runs in L
     uint64_t r_ = 0; // r', the number of input/output intervals in M_LF
-    uint64_t r__ = 0; // r'', the number of input/output intervals in M_Phi^{-1}
+    uint64_t r__ = 0; // r'', the number of input/output intervals in M_Phi_inv
     uint64_t r___ = 0; // r''', the number of input/output intervals in M_Phi
 
     // [0..n-1] SA, the suffix array of T$ (modes _suffix_array and _suffix_array_space)
@@ -304,24 +307,24 @@ public:
        while LCP_run is not empty, the second component of pair x is x (see build_iphi); sorted by the first
        component by sort_iphi */
     mds_pairs I_Phi;
-    /* [0..r-1] I_Phi^{-1}, the disjoint interval sequence for Phi^{-1}: pair x = (SA[i-1], SA[i]), where i is the
+    /* [0..r-1] I_Phi_inv, the disjoint interval sequence for Phi_inv: pair x = (SA[i-1], SA[i]), where i is the
        start of the x-th run (pair 0: (SA[n-1], SA[0])); sorted by the first component by sort_iphi_inv */
     mds_pairs I_Phi_inv;
     // [0..r-1] LCP_run[x] = LCP[i], where i is the start of the x-th run; bit_width(n) bits each
     interleaved_bit_aligned_vectors LCP_run;
     /* [0..r-1] the values of LCP_run, sorted by the text positions SA[i] of the run starts i (the order of I_Phi after
-       sort_iphi), i.e., the PLCP values at the starts of the output intervals of I_Phi^{-1}; _plcp_row_width bits
+       sort_iphi), i.e., the PLCP values at the starts of the output intervals of I_Phi_inv; _plcp_row_width bits
        each */
     interleaved_bit_aligned_vectors plcp_pair;
 
     // layout of the suffix array samples at the run boundaries (see sa_samples_layout_t and choose_sa_samples_layout)
     sa_samples_layout_t samples_layout = _at_run_boundaries;
-    /* [0..r-1] run_ranks[x] = the index of the pair of the x-th run in I_Phi^{-1} sorted by the first component;
+    /* [0..r-1] run_ranks[x] = the index of the pair of the x-th run in I_Phi_inv sorted by the first component;
        bytes_per_value(r) bytes each; stored in the file prefix_tmp_files + ".run_ranks" if run_ranks_on_disk */
     uint_bytes_array<1> run_ranks;
     bool run_ranks_on_disk = false; // true <=> the run ranks are stored in a temporary file (see store_run_ranks)
-    /* marks the first input interval of M_Phi^{-1} of each pair of I_Phi^{-1} (sorted by the first component):
-       select(i) = index of the first input interval of M_Phi^{-1} of the i-th pair */
+    /* marks the first input interval of M_Phi_inv of each pair of I_Phi_inv (sorted by the first component):
+       select(i) = index of the first input interval of M_Phi_inv of the i-th pair */
     mds_piece_marks phi_inv_first_intervals;
 
     // ############################# INTERNAL METHODS #############################
@@ -458,23 +461,35 @@ public:
     void log_phase_end_quiet(const std::string& mf_key);
 
     /**
-     * @brief ends a phase that stores a data structure to disk or loads it, started with log_phase_start(""): like
-     *        log_phase_end, after logging "<message>: <size>" (stored) or "<message>" (loaded), if
-     *        bytes >= min_logged_spill_bytes, else like log_phase_end_quiet
+     * @brief ends a phase that stores a data structure to disk or loads it, started with log_phase_start(""): logs
+     *        spill_message(message) like end_grouped_phase, if bytes >= min_logged_spill_bytes, else only writes the
+     *        measurement keys
      * @param message the message of the phase, e.g. "storing M_Phi"
      * @param bytes the number of bytes stored or loaded
-     * @param stored whether the phase stores the data structure (only then its size is logged)
      * @param mf_key measurement-file key of the phase
      */
-    void end_spill_phase(const std::string& message, uint64_t bytes, bool stored, const std::string& mf_key)
+    void end_spill_phase(const std::string& message, uint64_t bytes, const std::string& mf_key)
     {
-        if (params.log && bytes >= min_logged_spill_bytes) {
-            std::cout << message;
-            if (stored) std::cout << ": " << format_size(bytes);
-            log_phase_end(mf_key);
-        } else {
-            log_phase_end_quiet(mf_key);
-        }
+        end_grouped_phase(spill_message(message), 0, false, mf_key, bytes >= min_logged_spill_bytes);
+    }
+
+    /**
+     * @brief ends a phase started with log_phase_start(""), writes its measurement keys (see log_phase_end_quiet) and
+     *        logs it with log_grouped, in one line with the phases of the same action logged directly before
+     * @param message the action and the data structure, e.g. "reading LCP_run"
+     * @param bytes the size of the data structure
+     * @param with_size whether the size is logged
+     * @param mf_key measurement-file key of the phase
+     * @param logged whether the phase is logged
+     */
+    void end_grouped_phase(const std::string& message, uint64_t bytes, bool with_size, const std::string& mf_key,
+        bool logged = true)
+    {
+        const uint64_t ns = time_diff_ns(time, now());
+        log_phase_end_quiet(mf_key);
+        const size_t space = message.find(' ');
+        if (logged) log_grouped(params.log, message.substr(0, space), message.substr(space + 1), bytes, with_size, ns);
+        time = now();
     }
 
     // writes the start of the RESULT line of a move data structure construction to mf_mds (see log_mds_phase_end)
@@ -487,6 +502,13 @@ public:
                            << " num_threads=" << p
                            << " a=" << idx.a;
         }
+    }
+
+    // starts a move-data-structure construction phase: the block "building <name>:" (see log_block_begin)
+    void log_mds_phase_start(const std::string& name)
+    {
+        log_block_begin(params.log, "building " + name);
+        log_phase_start("");
     }
 
     /**
@@ -526,7 +548,7 @@ public:
         write(file);
         file.close();
         drop_from_page_cache(file_name);
-        end_spill_phase("storing " + name, std::filesystem::file_size(file_name), true, mf_key);
+        end_spill_phase("storing " + name, std::filesystem::file_size(file_name), mf_key);
     }
 
     /**
@@ -550,7 +572,7 @@ public:
         file.close();
         const uint64_t bytes = std::filesystem::file_size(file_name);
         if (remove_file) std::filesystem::remove(file_name);
-        end_spill_phase("reading " + name, bytes, false, mf_key);
+        end_spill_phase("reading " + name, bytes, mf_key);
     }
 
     /**
@@ -570,11 +592,11 @@ public:
     /** @brief reads the RLBWT from its temporary file and deletes the file */
     void load_rlbwt();
 
-    /** @brief writes I_Phi^{-1} to a temporary file and frees it */
+    /** @brief writes I_Phi_inv to a temporary file and frees it */
     void store_iphi_inv();
 
     /**
-     * @brief reads I_Phi^{-1} from its temporary file
+     * @brief reads I_Phi_inv from its temporary file
      * @param remove_file true <=> the file is deleted afterwards
      */
     void load_iphi_inv(bool remove_file = true);
@@ -639,7 +661,7 @@ public:
     void build_rlbwt_pfp_fasta_once(const std::string& output_prefix, const pfp_rlbwt::params& prm,
         std::array<uint8_t, 256>& map);
 
-    /** @brief builds I_Phi^{-1} from the SA samples written by the prefix-free parsing */
+    /** @brief builds I_Phi_inv from the SA samples written by the prefix-free parsing */
     void read_iphi_inv_pfp();
 
     /** @brief reads the LCP values at the run starts written by the prefix-free parsing into LCP_run */
@@ -740,17 +762,17 @@ public:
     /** @brief builds SA_run from the suffix array */
     void build_sa_run_from_sa();
 
-    /** @brief builds I_Phi^{-1} (and SA_run) from the suffix array */
+    /** @brief builds I_Phi_inv (and SA_run) from the suffix array */
     void build_iphi_inv_from_sa();
 
-    /** @brief builds SA_run from I_Phi^{-1} (if the RLBWT was read from a file) and frees the RLBWT */
+    /** @brief builds SA_run from I_Phi_inv (if the RLBWT was read from a file) and frees the RLBWT */
     void build_SA_run_from_iphi_inv();
 
     /** @brief computes the LCP values at the run starts by comparing suffixes of T (see LCP_run) */
     void build_plcp_run();
 
     /**
-     * @brief builds I_Phi from I_Phi^{-1}; if LCP_run is not empty, the second component of each pair is the
+     * @brief builds I_Phi from I_Phi_inv; if LCP_run is not empty, the second component of each pair is the
      *        index of its run (sort_iphi replaces it)
      */
     void build_iphi();
@@ -759,26 +781,25 @@ public:
     void sort_iphi();
 
     /**
-     * @brief sorts I_Phi^{-1} by the first components, and computes the run ranks, if the samples are stored as
-     *        input intervals of M_Phi^{-1} (see run_ranks)
+     * @brief sorts I_Phi_inv by the first components, and computes the run ranks, if the samples are stored as
+     *        input intervals of M_Phi_inv (see run_ranks)
      */
     void sort_iphi_inv();
 
-    /** @brief builds M_Phi^{-1} */
+    /** @brief builds M_Phi_inv */
     void build_mphi_inv();
 
     /** @brief builds M_Phi */
     void build_mphi();
 
-    /** @brief builds SA_Phi^{-1} from the run ranks and phi_inv_first_intervals (see run_ranks) */
+    /** @brief builds SA_Phi_inv from the run ranks and phi_inv_first_intervals (see run_ranks) */
     void build_SA_Phi_inv();
 
     /**
      * @brief builds the rlz of the differential suffix array; unless SA is in memory, it builds a temporary
-     *        M_Phi^{-1} first (see SA_rlz_reader)
+     *        M_Phi_inv first (see SA_rlz_reader)
      */
     void build_SA_rlz() requires(has_SA_rlz);
-
     /** @brief builds the data structures over L' (depending on the supported queries and on sigma) */
     void build_data_structures_over_l_();
 };
