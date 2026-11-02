@@ -225,7 +225,7 @@ template <typename idx_t>
 uint64_t apm_edit<idx_t>::append_copy(uint64_t prev, uint64_t pos, uint64_t len, direction_t dir) const
 {
     uint64_t i = allocate_piece();
-    _matched_pieces[i] = matched_piece_t{prev, pos, uint16_t(len), 0, uint8_t{}, dir};
+    _matched_pieces[i] = matched_piece_t{prev, pos, uint32_t(len), 0, uint8_t{}, dir};
     if (prev != no_piece) inc_ref(prev);
     return i;
 }
@@ -435,6 +435,26 @@ auto apm_edit<idx_t>::effective_intervals(const std::vector<context_ref_t<mode>>
 // ############################# SEARCH #############################
 
 template <typename idx_t>
+template <typename push_fnc_t>
+bool apm_edit<idx_t>::extend_node(node_t& node, direction_t dir, push_fnc_t& push) const
+{
+    apm_dfs_children<search_context_t<LOCATE>> children;
+    auto push_child = [&](search_context_t<LOCATE>&& ctx) { push(child_of(node, ctx)); };
+    auto ext_ctx = node.ctx.extend_phase();
+    ext_ctx.template prepare_extend_all<NO_TERM>(dir);
+
+    while (ext_ctx.can_extend()) {
+        if (next_is_separator(ext_ctx)) { ext_ctx.extend_next(); continue; }
+        children.add(ext_ctx.extend_next(), push_child);
+    }
+
+    if (!children.has_one()) return false;
+    node.ctx = std::move(children.only());
+    descend(node);
+    return true;
+}
+
+template <typename idx_t>
 template <typename matrix_word_t>
 void apm_edit<idx_t>::set_matrix_input(edit_distance_matrix<matrix_word_t>& matrix,
     const directional_substring<inp_t>& part) const
@@ -458,13 +478,14 @@ auto apm_edit<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) cons
 {
     uint64_t m = P.size();
     uint64_t p = scheme.p;
-    if (m == 0) return {_index.template empty_context<LOCATE>()};
+    node_set_t result;
+    const node_t empty_node { search_context_t<LOCATE>(_index) };
+    if (m == 0) { result.insert(empty_node.key(), empty_node); return result; }
     if (p >= m) throw std::runtime_error("p >= m");
 
     _piece_owner = this; _matched_pieces.clear(); _free_pieces.clear();
     _max_diagonal_shift = scheme.k;
 
-    node_set_t result;
     std::vector<apm_search_steps> searches;
     std::vector<directional_substring<inp_t>> parts;
     searches.reserve(scheme.S.size());
@@ -495,7 +516,7 @@ auto apm_edit<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) cons
             parts[steps.part(p_idx)].set_direction(steps.dir(p_idx));
         }
 
-        node_t node(_index.template empty_context<LOCATE>());
+        node_t node = empty_node;
         uint64_t p_idx = 0;
 
         // the first steps without errors match their parts exactly
@@ -598,37 +619,28 @@ void apm_edit<idx_t>::search_part(node_t& node, uint64_t p_idx, search_data_t<ma
         old_depth = descendants.back().match_len();
     }
 
-    auto ext_ctx = node.ctx.extend_phase();
-    ext_ctx.template prepare_extend_all<NO_TERM>(dir);
-    bool extended = false;
+    // the node is in the row old_depth; without an extension, the part ends there
+    node.set_match_len(old_depth);
+    auto push = [&](node_t&& child) { stack.emplace_back(std::move(child)); };
+    bool has_node = extend_node(node, dir, push);
 
-    while (ext_ctx.can_extend()) {
-        if (next_is_separator(ext_ctx)) { ext_ctx.extend_next(); continue; }
-        stack.emplace_back(ext_ctx.extend_next());
-        stack.back().set_match_len(old_depth + 1);
-        copy_matched_string(stack.back(), node);
-        extended = true;
-    }
-
-    if (!extended && matrix.is_in_final_column(0)) {
+    if (!has_node && stack.empty() && matrix.is_in_final_column(0)) {
         flush_cluster<matrix_word_t>(cluster, p_idx, data, dists_rev, descendants_rev, {});
         return;
     }
 
-    // depth-first search over the extensions: compute the row of each node and extend the nodes that are not bounded
-    while (!stack.empty()) {
-        auto node_cur = stack.back(); stack.pop_back();
-        append_last_symbol(node_cur, part, dir);
-        if (branch_and_bound<matrix_word_t>(matrix, cluster, node_cur, p_idx, data, dists_rev, descendants_rev, {})) continue;
-        auto ext_ctx_cur = node_cur.ctx.extend_phase();
-        ext_ctx_cur.template prepare_extend_all<NO_TERM>(dir);
-
-        while (ext_ctx_cur.can_extend()) {
-            if (next_is_separator(ext_ctx_cur)) { ext_ctx_cur.extend_next(); continue; }
-            stack.emplace_back(ext_ctx_cur.extend_next());
-            stack.back().set_match_len(node_cur.match_len() + 1);
-            copy_matched_string(stack.back(), node_cur);
+    /* depth-first search over the extensions: compute the row of each node and extend the nodes that are not bounded;
+       a node with one extension continues with it in place (see extend_node) */
+    while (has_node || !stack.empty()) {
+        if (!has_node) {
+            node = std::move(stack.back());
+            stack.pop_back();
         }
+
+        append_last_symbol(node, part, dir);
+        has_node = false;
+        if (branch_and_bound<matrix_word_t>(matrix, cluster, node, p_idx, data, dists_rev, descendants_rev, {})) continue;
+        has_node = extend_node(node, dir, push);
     }
 }
 
@@ -647,23 +659,22 @@ void apm_edit<idx_t>::flush_cluster(cluster_t& cluster, uint64_t p_idx, search_d
         auto minima = cluster.local_minima();
 
         for (auto& node_cur : minima) {
-            if (node_cur.ctx.errors() >= k_min) {
-                auto it = result.find(node_cur);
+            if (node_cur.ctx.errors() < k_min) continue;
+            const string_key_t key = node_cur.key();
+            node_t* node_old = result.find(key);
 
-                if (it != result.end()) {
-                    const auto& node_old = *it;
-                    uint16_t cur_err = node_cur.ctx.errors();
-                    uint16_t old_err = node_old.ctx.errors();
+            if (node_old == nullptr) {
+                result.insert(key, node_cur);
+                continue;
+            }
 
-                    if (cur_err  < old_err ||
-                       (cur_err == old_err && node_old.ctx.s.d() == RIGHT && node_cur.ctx.s.d() == LEFT)
-                    ) {
-                        it = result.erase(it);
-                        result.emplace_hint(it, node_cur);
-                    }
-                } else {
-                    result.emplace(node_cur);
-                }
+            uint16_t cur_err = node_cur.ctx.errors();
+            uint16_t old_err = node_old->ctx.errors();
+
+            if (cur_err  < old_err ||
+               (cur_err == old_err && node_old->ctx.s.d() == RIGHT && node_cur.ctx.s.d() == LEFT)
+            ) {
+                *node_old = node_cur;
             }
         }
     };
@@ -750,7 +761,7 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate(const inp_t& P, const sear
     report_fnc_t report) const
 {
     uint64_t m = P.size();
-    assert(m < (uint64_t(1) << aprx_occ_len_bits));
+    require_storable_occurrence_length(m + scheme.k);
     _piece_owner = this;
     if (_params.costs != nullptr) return locate_model<mode>(P, scheme, report);
     if (scheme.k == 0) return this->template locate_exact<mode>(P, report);

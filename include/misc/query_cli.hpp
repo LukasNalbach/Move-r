@@ -104,6 +104,17 @@ inline void print_reverse_complements_option(help_printer& h, bool default_on, c
     h.option("-rc <b>", std::string("on | off (default: ") + (default_on ? "on" : "off") + ")", explanation);
 }
 
+/**
+ * @brief prints the option -rc <b> of the modes that search the reverse complement of each pattern as a further
+ *        pattern (see pattern_processing_t::reverse_complements)
+ * @param h the help printer
+ */
+inline void print_reverse_complement_patterns_option(help_printer& h)
+{
+    print_reverse_complements_option(h, false, "also search the reverse complement of each pattern (named "
+        "<name>_rc)");
+}
+
 // ############################# SAM #############################
 
 /**

@@ -50,13 +50,13 @@ uint64_t move_rb<support>::size_in_bytes() const
 
 template <move_r_support support>
 void move_rb<support>::log_construction_summary(uint64_t time_construction, uint64_t peak_mem_usage,
-    std::ostream* mf) const
+    std::ostream* mf, const std::string& name) const
 {
     // the overall peak, without subtracting the memory allocated before the construction; no throughput is logged,
     // if the pfp output was read from a cache (see move_r::rlbwt_from_cache)
     (void) peak_mem_usage;
-    ::log_construction_summary(time_construction, n,
-        is_malloc_count_linked ? overall_peak() : peak_not_measured, _pfp_cached_texts == 0);
+    ::log_construction_summary(name, time_construction, n, is_malloc_count_linked ? overall_peak() : peak_not_measured,
+        _pfp_cached_texts == 0, _pfp_cached_texts == 0 ? "" : "the RLBWT");
 
     if (mf != nullptr)
         *mf << " throughput_in_mb_per_s="
@@ -68,34 +68,38 @@ template <move_r_support support>
 template <direction_t dir>
 void move_rb<support>::log_direction_sizes() const
 {
-    std::cout << (dir == LEFT ? "forward index:" : "backward index:") << std::endl;
+    begin_component_group(dir == LEFT ? "forward index" : "backward index");
     listing_indent++;
-    index<dir>().log_data_structure_sizes();
+    index<dir>().log_main_structure_sizes();
+    if constexpr (dir == RIGHT && has_SA_pos) log_component("SA_pos", opt_size(_SA_pos));
+    log_context_tables_size<dir>();
 
+    // the auxiliary data structures
+    index<dir>().log_auxiliary_structure_sizes();
     log_component("S_MLF_p", S_MLF_p<dir>().size_in_bytes());
 
     if constexpr (dir == LEFT && has_mphi) {
         log_component("S_MPhi_p", _S_MPhi_p_fwd.size_in_bytes());
-        log_component("S_MPhi^{-1}_p", _S_MPhi_inv_p_fwd.size_in_bytes());
+        log_component("S_MPhi_inv_p", _S_MPhi_inv_p_fwd.size_in_bytes());
     }
 
-    if constexpr (dir == RIGHT && has_SA_pos) log_component("SA_pos", opt_size(_SA_pos));
     listing_indent--;
 }
 
 template <move_r_support support>
-void move_rb<support>::log_built_context_tables() const
+std::string move_rb<support>::context_tables_summary() const
 {
-    if (_context_tables.empty()) {
-        std::cout << "no context tables built (the budget is too small for one level)" << std::endl;
-    } else if (_context_tables.single_length() != 0) {
-        std::cout << "context tables of lengths 1 to " << _context_tables.max_length() << " and "
-                  << _context_tables.single_length() << " alone, using " << _context_tables.bits_per_pattern()
-                  << " bits/context" << std::endl;
+    if (_context_tables.empty()) return "none, the budget is too small for one level";
+    std::ostringstream out;
+
+    if (_context_tables.single_length() != 0) {
+        out << "lengths 1 to " << _context_tables.max_length() << " and " << _context_tables.single_length();
     } else {
-        std::cout << "context tables (up to length " << _context_tables.max_length() << "), using "
-                  << _context_tables.bits_per_pattern() << " bits/context" << std::endl;
+        out << "up to length " << _context_tables.max_length();
     }
+
+    out << ", " << format_ratio(_context_tables.bits_per_pattern()) << " bits/ctx";
+    return out.str();
 }
 
 template <move_r_support support>
@@ -104,7 +108,6 @@ void move_rb<support>::log_data_structure_sizes() const
     const bool owner = begin_listing(size_in_bytes());
     log_direction_sizes<LEFT>();
     log_direction_sizes<RIGHT>();
-    log_context_tables_size();
     if (_seq_data.has_sequences()) log_component("FASTA sequences", _seq_data.size_in_bytes());
     if (owner) end_listing();
 }

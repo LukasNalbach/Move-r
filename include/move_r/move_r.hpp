@@ -72,12 +72,12 @@ enum move_r_support {
     // the values are stored in index files (see serialize) and must not be changed
     _count = 0, // only count support (no locate support)
     _locate_one = 1, // computes exactly one occurrence per pattern
-    _locate_move = 2, // locate support with a move data structure for Phi^{-1} (M_Phi^{-1})
+    _locate_move = 2, // locate support with a move data structure for Phi_inv (M_Phi_inv)
     _locate_rlzsa = 3, // locate support with a relative Lempel-Ziv encoding of the differential suffix array
 
     // ##################### SUB-INDEXES OF A BIDIRECTIONAL INDEX (DON'T USE DIRECTLY) #####################
     _count_bi = 4, // only count support
-    _locate_move_bi = 5, // stores M_Phi and M_Phi^{-1}; M_Phi^{-1} stores the PLCP values as row 0
+    _locate_move_bi = 5, // stores M_Phi and M_Phi_inv; M_Phi_inv stores the PLCP values as row 0
     _locate_rlzsa_bi = 6, // stores an rlz of the differential suffix array
     // stores only the suffix array samples at the BWT run boundaries (one occurrence per pattern)
     _locate_one_bi = 7
@@ -196,8 +196,10 @@ struct fasta_input_t {
     // [0..255] number of occurrences of each byte in the text (nullptr: they are read from the pfp cache,
     // which then stores the sequences, see pfp_cache_fasta_section)
     const uint64_t* byte_freqs = nullptr;
-    uint8_t separator = uint8_t(fasta_separator_symbol); // the separator symbol
-    std::string alphabet = "ACGT"; // the symbols that are kept
+    uint8_t separator = uint8_t(fasta_separator_symbol); // the separator symbol (if transform is nullptr)
+    std::string alphabet = "ACGT"; // the symbols that are kept (if transform is nullptr)
+    // the transformation of the FASTA file into the text; nullptr <=> the one of alphabet and separator
+    const pfp_rlbwt::fasta_transform* transform = nullptr;
     // sampled positions in the text with their offsets in the file (see pfp_rlbwt::fasta_sample); if nullptr,
     // pfp_rlbwt::fasta_source computes them
     const pfp_rlbwt::fasta_sample* index_samples = nullptr;
@@ -208,6 +210,10 @@ struct fasta_input_t {
        pfp_rlbwt::fasta_ranges; only the mode pfp) and stores the length, the symbol frequencies, the samples and the
        sequences of its text here, and text_len, byte_freqs, index_samples and sequences are set from them */
     fasta_scan_t* read_once = nullptr;
+
+    // returns the transformation of the FASTA file into the text (see transform)
+    pfp_rlbwt::fasta_transform text_transform() const
+    { return transform != nullptr ? *transform : pfp_rlbwt::fasta_transform(alphabet, separator); }
 };
 
 // log_data_structures of move_r and move_rb prints the arrays only for inputs up to this length (debugging)
@@ -267,6 +273,9 @@ struct move_r_params {
        the prefix-free parsing is written to temporary files (see tmp_files_beside), which are removed after use */
     bool pfp_cache = true;
 
+    // the pfp cache is pfp_cache_base + ".bwt-runs" (see move_r::pfp_cache_path); empty <=> input_file
+    std::string pfp_cache_base = "";
+
     // true <=> an existing pfp cache of the input is not read, but overwritten
     bool ignore_pfp_cache = false;
 
@@ -317,7 +326,7 @@ template <uint8_t tag> struct absent_field_t { };
  *
  * The index stores M_LF, the move data structure for LF over the BWT L of T$, with L' (the symbol of each of its
  * r' input intervals) as row 0, and PSO_L' for the backward search steps. Depending on the locate support, it also
- * stores the suffix array samples at the starts (and ends) of the r BWT runs, M_Phi^{-1} with r'' and M_Phi with r'''
+ * stores the suffix array samples at the starts (and ends) of the r BWT runs, M_Phi_inv with r'' and M_Phi with r'''
  * input intervals, or an rlz of the differential suffix array. The symbols of T are mapped to the internal symbols [1..sigma-1]; 0 is the terminator $.
  *
  * Symbols are passed to and returned by the index as uint64_t. Whether the input uses a byte or an integer
@@ -333,7 +342,7 @@ class move_r {
 public:
     // ############################# TYPES, CONSTANTS AND PARAMETERS #############################
 
-    // true <=> M_Phi and M_Phi^{-1} are stored; M_Phi^{-1} stores the PLCP value at the start of each input interval
+    // true <=> M_Phi and M_Phi_inv are stored; M_Phi_inv stores the PLCP value at the start of each input interval
     // as row 0
     static constexpr bool has_mphi = support == _locate_move_bi;
     static_assert(support < _count_bi || mlf_enc == POS,
@@ -344,9 +353,9 @@ public:
 
     // type of M_LF; it stores L' (the BWT run heads) as row 0
     using mlf_t = move_data_structure<mlf_enc, UNI>;
-    // type of M_Phi and M_Phi^{-1}: the EF encoding (see move_pos_encoding_t)
+    // type of M_Phi and M_Phi_inv: the EF encoding (see move_pos_encoding_t)
     using mphi_t = move_data_structure<EF, UNI>;
-    // number of additional rows: L' for M_LF, the PLCP values for M_Phi^{-1}
+    // number of additional rows: L' for M_LF, the PLCP values for M_Phi_inv
     static constexpr uint8_t mlf_num_rows = 1;
     static constexpr uint8_t mphi_inv_num_rows = has_mphi ? 1 : 0;
 
@@ -372,7 +381,7 @@ public:
 
     // true <=> the suffix array is also sampled at the ends of the BWT runs (see move_r_params::sample_run_ends)
     static constexpr bool has_run_end_samples = is_bidirectional && builds_SA_samples;
-    // true <=> the index contains move data structures for Phi/Phi^{-1}
+    // true <=> the index contains move data structures for Phi/Phi_inv
     static constexpr bool has_locate_move = support == _locate_move || has_mphi;
 
 protected:
@@ -387,7 +396,7 @@ protected:
     using L_prev_min_t = rmq_tree<L_prev_min_arity>;
 
     // layout of the suffix array samples (also the value written by serialize_SA_samples): in SA_run and
-    // SA_run_pos, or as the input intervals of M_Phi^{-1} in SA_Phi^{-1}
+    // SA_run_pos, or as the input intervals of M_Phi_inv in SA_Phi_inv
     enum sa_samples_layout_t : uint8_t { _at_run_boundaries = 1, _as_phi_inv_intervals = 2 };
 
     class construction;
@@ -398,10 +407,10 @@ protected:
     uint64_t sigma = 0; // the number of distinct symbols (including the terminator symbol 0) of T$
     uint64_t r = 0; // r, the number of runs in L
     uint64_t r_ = 0; // r', the number of input/output intervals in M_LF
-    uint64_t r__ = 0; // r'', the number of input/output intervals in M_Phi^{-1}
+    uint64_t r__ = 0; // r'', the number of input/output intervals in M_Phi_inv
     uint64_t r___ = 0; // r''', the number of input/output intervals in M_Phi
     uint64_t a = 0; // balancing parameter a >= 2; M_LF has at most r * a/(a-1) input intervals
-    uint8_t omega_idx = 0; // bit width of an entry of SA_Phi^{-1}
+    uint8_t omega_idx = 0; // bit width of an entry of SA_Phi_inv
     bool symbols_remapped = false; // true <=> the symbols of the input are mapped to internal symbols
 
 public:
@@ -445,14 +454,14 @@ protected:
        distinct symbols of L'[b..e] are the symbols L'[x] with x in [b, e] and prev(x) <= b */
     L_prev_min_t _L_prev_min;
 
-    // M_Phi^{-1}, the move data structure for Phi^{-1}; row 0 (has_mphi): [0..r''-1] the PLCP value at the start of
+    // M_Phi_inv, the move data structure for Phi_inv; row 0 (has_mphi): [0..r''-1] the PLCP value at the start of
     // the x-th input interval
     mphi_t _M_Phi_inv;
     // M_Phi, the move data structure for Phi (has_mphi)
     mphi_t _M_Phi;
-    /* [0..r'-1] if the x-th input interval of M_LF starts a BWT run, SA_Phi^{-1}[x] is the index of the input
-       interval of M_Phi^{-1} that starts with SA[(M_LF.p[x] - 1) mod n] (its output interval starts with
-       SA[M_LF.p[x]]); else SA_Phi^{-1}[x] = r''; omega_idx bits per entry */
+    /* [0..r'-1] if the x-th input interval of M_LF starts a BWT run, SA_Phi_inv[x] is the index of the input
+       interval of M_Phi_inv that starts with SA[(M_LF.p[x] - 1) mod n] (its output interval starts with
+       SA[M_LF.p[x]]); else SA_Phi_inv[x] = r''; omega_idx bits per entry */
     interleaved_bit_aligned_vectors _SA_Phi_inv;
 
     /* for the input intervals x in [0..r'-1] of M_LF: the indices in _SA_run of the sample at the start of the run
@@ -461,7 +470,7 @@ protected:
     run_sample_positions _SA_run_pos;
     /* the suffix array samples at the BWT run boundaries, run by run: SA at the first position of the run, then (if
        the run has length >= 2 and the ends of the runs are sampled) SA at its last position; bit_width(n) bits per
-       sample; empty if the samples are stored in SA_Phi^{-1} */
+       sample; empty if the samples are stored in SA_Phi_inv */
     interleaved_bit_aligned_vectors _SA_run;
 
     // relative Lempel-Ziv encoding of the differential suffix array (see rlz_ref/rlz.hpp)
@@ -479,7 +488,7 @@ protected:
     // true <=> the construction read the output of the prefix-free parsing from the pfp cache; not serialized
     bool _rlbwt_from_cache = false;
 
-    // bit width of the PLCP row of M_Phi^{-1}; 0 <=> not known before it is built; not serialized
+    // bit width of the PLCP row of M_Phi_inv; 0 <=> not known before it is built; not serialized
     uint8_t _plcp_row_width = 0;
 
     // ############################# INTERNAL METHODS #############################
@@ -507,7 +516,7 @@ protected:
     void assign_alphabet(const std::vector<uint64_t>& symbols, const std::vector<uint64_t>& order);
 
     /**
-     * @brief returns the bit widths of the additional rows of M_Phi^{-1}
+     * @brief returns the bit widths of the additional rows of M_Phi_inv
      * @param n length of the input
      * @return the width of the PLCP row (_plcp_row_width, or the bit width of n if it is 0); empty if there
      *         is no PLCP row
@@ -534,20 +543,20 @@ protected:
     }
 
     /**
-     * @brief sets s = SA[M_LF.p[x]] and s_ to the index of the input interval of M_Phi^{-1} containing s
+     * @brief sets s = SA[M_LF.p[x]] and s_ to the index of the input interval of M_Phi_inv containing s
      * @param x [0..r'-1] an input interval of M_LF that starts a BWT run
      * @param s variable to store SA[M_LF.p[x]] in
-     * @param s_ variable to store the index of the input interval of M_Phi^{-1} containing s in
+     * @param s_ variable to store the index of the input interval of M_Phi_inv containing s in
      */
     inline void init_phi_inv_at_run_start(uint64_t x, uint64_t& s, uint64_t& s_) const requires(has_locate_move);
 
     /**
-     * @brief sets s = SA[b] and s_ to the index of the input interval of M_Phi^{-1} containing s, after a backward
+     * @brief sets s = SA[b] and s_ to the index of the input interval of M_Phi_inv containing s, after a backward
      *        search (see backward_search_step)
      * @param b left limit of the suffix array interval
      * @param e right limit of the suffix array interval
      * @param s variable to store SA[b] in
-     * @param s_ variable to store the index of the input interval of M_Phi^{-1} containing s in
+     * @param s_ variable to store the index of the input interval of M_Phi_inv containing s in
      * @param hat_b_ap_y \hat{b}'_y
      * @param y y
      */
@@ -613,6 +622,14 @@ public:
         if (!move_r_builds_runs_file(mode) || input_file.empty()) return "";
         return input_file + pfp_rlbwt::ext_runs + (reversed ? "-rev" : "");
     }
+
+    /**
+     * @brief returns the name of the pfp cache of a construction (see pfp_cache_path above)
+     * @param params construction parameters (input_file, or pfp_cache_base if it is not empty, and mode)
+     * @param reversed whether the index of the reversed input is built
+     */
+    static std::string pfp_cache_path(const move_r_params& params, bool reversed = false)
+    { return pfp_cache_path(params.pfp_cache_base.empty() ? params.input_file : params.pfp_cache_base, params.mode, reversed); }
 
     /**
      * @brief returns the length n of the text T$ an index is built for
@@ -681,7 +698,7 @@ public:
     inline uint64_t num_bwt_runs() const { return r; }
     // returns the balancing parameter a
     inline uint64_t balancing_parameter() const { return a; }
-    // returns the bit width of an entry of SA_Phi^{-1}
+    // returns the bit width of an entry of SA_Phi_inv
     inline uint8_t width_SA_Phi_inv() const requires(has_locate_move) { return omega_idx; }
 
     // returns the starting positions, names and separator symbol of the sequences of a FASTA input (see _seq_data)
@@ -717,10 +734,19 @@ public:
 
     /**
      * @brief logs the sizes of the data structures of the index with their shares of the index size, one per line
-     *        (see log_component); unless a listing is in progress (e.g. of a move_rb), the list ends with the size of
-     *        the rest of the index ("other")
+     *        (see log_component), the main ones first (see log_main_structure_sizes and
+     *        log_auxiliary_structure_sizes); unless a listing is in progress (e.g. of a move_rb), the list ends with
+     *        the size of the rest of the index ("other")
      */
     void log_data_structure_sizes() const;
+
+    /* logs the sizes of the main data structures: M_LF, L' and the data structures built on it, the move
+       data structures for Phi and Phi_inv and the suffix array samples and arrays (see log_component) */
+    void log_main_structure_sizes() const;
+
+    // logs the sizes of the auxiliary data structures: the alphabet, the FASTA sequences and the starts of the revert
+    // (see log_component)
+    void log_auxiliary_structure_sizes() const;
 
     /**
      * @brief adds the parameters the size of the index depends on to the facts of the info modes, one per line:
@@ -764,7 +790,7 @@ public:
     // range-minimum tree over the previous occurrences of the symbols in L' (see _L_prev_min)
     inline const L_prev_min_t& L_prev_min() const { return _L_prev_min; }
 
-    // returns SA_Phi^{-1}[x] (see _SA_Phi_inv)
+    // returns SA_Phi_inv[x] (see _SA_Phi_inv)
     inline uint64_t SA_Phi_inv(uint64_t x) const requires(support == _locate_move) { return _SA_Phi_inv[x]; }
 
     // returns the positions in SA_run of the samples of the input intervals of M_LF (see run_sample_positions)
@@ -859,7 +885,7 @@ public:
     // returns the name of the data structure storing the suffix array samples (for log messages)
     const char* SA_samples_name() const
     {
-        return _SA_run_pos.empty() && !_SA_Phi_inv.empty() ? "SA_Phi^{-1}" : "SA_run";
+        return _SA_run_pos.empty() && !_SA_Phi_inv.empty() ? "SA_Phi_inv" : "SA_run";
     }
 
     /**
@@ -931,12 +957,12 @@ public:
      */
     struct query_context_t {
         /**
-         * @brief stores the variables needed to locate via Phi^{-1}-move-queries
+         * @brief stores the variables needed to locate via Phi_inv-move-queries
          */
         struct phi_move_context_t {
             uint64_t i;  // current position in the suffix array interval
             uint64_t s;  // current suffix SA[i]
-            uint64_t s_; // index of the input interval of M_Phi^{-1} containing s
+            uint64_t s_; // index of the input interval of M_Phi_inv containing s
         };
 
     protected:
@@ -953,7 +979,7 @@ public:
         STRING_UTILS_NO_UNIQUE_ADDRESS std::conditional_t<has_SA_rlz,
             typename rlz<_diff_access>::decode_context_t, absent_field_t<0>> dec;
 
-        // context for the Phi^{-1}-move-based locate variant (present iff has_locate_move)
+        // context for the Phi_inv-move-based locate variant (present iff has_locate_move)
         STRING_UTILS_NO_UNIQUE_ADDRESS std::conditional_t<has_locate_move,
             phi_move_context_t, absent_field_t<1>> phi;
 
@@ -1220,10 +1246,12 @@ protected:
     inline static void adjust_retrieve_params(retrieve_params& params, uint64_t range_max);
 
     /**
-     * @brief calls fnc(i_p) for each i_p in [0..p-1], in an OpenMP parallel region of p threads if p > 1
+     * @brief calls fnc(i_p) for each i_p in [0..p-1] in an OpenMP parallel region of up to p threads; a team of fewer
+     *        threads (e.g., inside another parallel region) calls it for all i_p, each thread for the i_p congruent to
+     *        its number modulo the size of the team
      * @tparam fnc_t type of fnc
      * @param p the number of threads (p >= 1)
-     * @param fnc the function, called with the thread index i_p
+     * @param fnc the function, called with the index i_p of the part of the work
      */
     template <typename fnc_t>
     inline static void run_parallel_threads(uint64_t p, fnc_t&& fnc);
@@ -1442,7 +1470,7 @@ public:
      * @brief reports the suffix array values in the range [l,r] (0 <= l <= r <= input size), else if l > r, then the
      *        whole suffix array (default), with up to params.num_threads threads: the range is split at BWT run starts
      *        into pieces, and each thread decodes params.num_strands pieces alternately from left to right, one
-     *        Phi^{-1}-step (rlz: one decoded value) per piece and turn (see run_strands)
+     *        Phi_inv-step (rlz: one decoded value) per piece and turn (see run_strands)
      * @tparam report_fnc_t type of the report function
      * @param report function called as report(w, i, s) with s = SA[i] for each i in [l,r] and the strand slot w in
      *        [0..SA_range_strand_slots(params) - 1], by several threads at the same time; within a piece, i increases

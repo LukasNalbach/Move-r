@@ -45,10 +45,15 @@ inline constexpr uint64_t mutation_inverse_probability = 10;
 // in every second one)
 inline constexpr uint64_t separator_test_max_k = 2;
 inline constexpr uint64_t separator_test_min_records = 2;
-// apm_text_ends: the input length is in [min_text_end_input_size, min_text_end_input_size + max_text_end_input_size)
-// (run_fuzz reduces max_text_end_input_size down to min_text_end_input_size), the number of patterns per index, and a
-// pattern is cut from the start, from the end or from a random position of the input with probability
-// 1 / text_end_pattern_inverse_probability each
+/* apm_text_ends: the patterns of an index have one length m, log-uniform in [1, max_text_end_pattern_length] (twice the
+   number of 16-bit values, so that a position in a pattern can exceed 16 bits); the input length is m plus a value in
+   [min_text_end_input_size, min_text_end_input_size + max_text_end_input_size) (run_fuzz reduces
+   max_text_end_input_size down to min_text_end_input_size); an index is queried with as many patterns as have
+   text_end_queries_per_index * max_pattern_length symbols together, at least one and at most
+   text_end_queries_per_index, and the largest k is that number of patterns, at least 1 and at most text_end_max_k; a
+   pattern is cut from the start, from the end or from a random position of the input with probability
+   1 / text_end_pattern_inverse_probability each, and edited with probability 1 / 2 (see apply_random_edits) */
+inline constexpr uint64_t max_text_end_pattern_length = uint64_t(2) << std::numeric_limits<uint16_t>::digits;
 inline uint64_t max_text_end_input_size = 200;
 inline constexpr uint64_t min_text_end_input_size = 32;
 inline constexpr uint64_t text_end_queries_per_index = 20;
@@ -65,38 +70,60 @@ inline constexpr uint32_t continuation_base = 10000;
 TEST(test_move_rb, index)
 {
     run_fuzz("move-rb", { { "index",
-        [](uint64_t i) { cycle_supports(i, _test_index_operations); } } },
+        [](uint64_t i) { cycle_supports(i, _test_index_operations); }, true } },
         fuzz_iterations(), &max_input_size, min_fuzz_input_size);
 }
 
 // approximate matching
-TEST(test_move_rb, hamming)
+TEST(test_move_rb, count_hamming)
 {
     run_fuzz("move-rb", {
-        { "count-hamming",  [](uint64_t i) { cycle_multiple_locate_supports(i, _test_count_hamming); } },
-        { "locate-hamming", [](uint64_t i) { cycle_multiple_locate_supports(i, _test_locate_hamming); } },
+        { "count-hamming", [](uint64_t i) { cycle_multiple_locate_supports(i, _test_count_hamming); }, true }
     }, fuzz_iterations(), &max_input_size, min_fuzz_input_size);
 }
 
-TEST(test_move_rb, edit)
+TEST(test_move_rb, locate_hamming)
 {
     run_fuzz("move-rb", {
-        { "locate-edit",       [](uint64_t i) { cycle_multiple_locate_supports(i, _test_locate_edit); } },
-        { "locate-edit-cigar", [](uint64_t i) { cycle_multiple_locate_supports(i, _test_locate_edit_cigar); } },
+        { "locate-hamming", [](uint64_t i) { cycle_multiple_locate_supports(i, _test_locate_hamming); }, true }
     }, fuzz_iterations(), &max_input_size, min_fuzz_input_size);
 }
 
-TEST(test_move_rb, apm_model)
+TEST(test_move_rb, locate_edit)
 {
-    auto run = [](move_rb_test_t test) {
-        return [test](uint64_t i) { cycle_multiple_locate_supports(i, test, min_input_size, max_model_input_size); };
-    };
-
+    // serial: one input can take long; its queries are checked on all threads (see verify_algorithm)
     run_fuzz("move-rb", {
-        { "count-hamming-model",  run(_test_count_hamming_model) },
-        { "locate-hamming-model", run(_test_locate_hamming_model) },
-        { "locate-edit-model",    run(_test_locate_edit_model) },
-    }, fuzz_iterations(), &max_model_input_size, min_model_fuzz_input_size);
+        { "locate-edit", [](uint64_t i) { cycle_multiple_locate_supports(i, _test_locate_edit); } }
+    }, fuzz_iterations(), &max_input_size, min_fuzz_input_size);
+}
+
+TEST(test_move_rb, locate_edit_cigar)
+{
+    // serial: one input can take long; its queries are checked on all threads (see verify_algorithm)
+    run_fuzz("move-rb", {
+        { "locate-edit-cigar", [](uint64_t i) { cycle_multiple_locate_supports(i, _test_locate_edit_cigar); } }
+    }, fuzz_iterations(), &max_input_size, min_fuzz_input_size);
+}
+
+TEST(test_move_rb, count_hamming_model)
+{
+    run_fuzz("move-rb", { { "count-hamming-model", [](uint64_t i) {
+        cycle_multiple_locate_supports(i, _test_count_hamming_model, min_input_size, max_model_input_size);
+    }, true } }, fuzz_iterations(), &max_model_input_size, min_model_fuzz_input_size);
+}
+
+TEST(test_move_rb, locate_hamming_model)
+{
+    run_fuzz("move-rb", { { "locate-hamming-model", [](uint64_t i) {
+        cycle_multiple_locate_supports(i, _test_locate_hamming_model, min_input_size, max_model_input_size);
+    }, true } }, fuzz_iterations(), &max_model_input_size, min_model_fuzz_input_size);
+}
+
+TEST(test_move_rb, locate_edit_model)
+{
+    run_fuzz("move-rb", { { "locate-edit-model", [](uint64_t i) {
+        cycle_multiple_locate_supports(i, _test_locate_edit_model, min_input_size, max_model_input_size);
+    }, true } }, fuzz_iterations(), &max_model_input_size, min_model_fuzz_input_size);
 }
 
 // the approximate-matching algorithms with random error models on short repetitive inputs over 2 to 4 symbols: copies
@@ -161,7 +188,8 @@ TEST(test_move_rb, apm_text_ends)
         std::mt19937_64 gen_test(gen());
         const std::string syms = bases.substr(0,
             min_random_alphabet_size + gen_test() % (bases.size() - min_random_alphabet_size + 1));
-        const uint64_t n = min_text_end_input_size + gen_test() % max_text_end_input_size;
+        const uint64_t m = random_log_uniform_size(1, max_text_end_pattern_length, gen_test);
+        const uint64_t n = m + min_text_end_input_size + gen_test() % max_text_end_input_size;
         std::string input(n, 'A');
         for (char& c : input) c = syms[gen_test() % syms.size()];
 
@@ -170,17 +198,19 @@ TEST(test_move_rb, apm_text_ends)
         params.num_threads = 1;
         idx_t index(input, params);
         std::span<const char> input_span(input);
+        const uint64_t patterns_in_budget = text_end_queries_per_index * max_pattern_length / m;
+        const uint64_t num_queries = std::clamp<uint64_t>(patterns_in_budget, 1, text_end_queries_per_index);
+        const uint64_t max_k = std::clamp<uint64_t>(patterns_in_budget, 1, text_end_max_k);
 
-        for (uint64_t q = 0; q < text_end_queries_per_index; q++) {
-            const uint64_t m = std::min<uint64_t>(n, 1 + gen_test() % max_pattern_length);
+        for (uint64_t q = 0; q < num_queries; q++) {
             const uint64_t where = gen_test() % text_end_pattern_inverse_probability;
             const uint64_t pos = where == 0 ? 0 : (where == 1 ? n - m : gen_test() % (n - m + 1));
             std::string pattern = input.substr(pos, m);
-            apply_random_edits(pattern, input, gen_test);
+            if (gen_test() % 2 == 0) apply_random_edits(pattern, input, gen_test);
             std::span<const char> pattern_span(pattern);
             const apm_params_t apm_params = random_apm_params(gen_test);
 
-            for (uint64_t k = 1; k <= text_end_max_k; k++) {
+            for (uint64_t k = 1; k <= max_k; k++) {
                 for (const search_scheme_t& scheme : { min_u_scheme(k), pigeon_hole_scheme(k), suffix_filter_scheme(k),
                     zero_one_scheme(k) }) {
                     if (scheme.p >= pattern.size()) continue;
@@ -193,7 +223,7 @@ TEST(test_move_rb, apm_text_ends)
                 }
             }
         }
-    } } }, fuzz_iterations(), &max_text_end_input_size, min_text_end_input_size);
+    }, true } }, fuzz_iterations(), &max_text_end_input_size, min_text_end_input_size);
 }
 
 // the parsing of the rules of an error model and their compilation for a pattern

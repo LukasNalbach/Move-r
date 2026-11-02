@@ -114,14 +114,20 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
     pfp_output_readers = 1 + chooses_revert_starts() + reads_pfp_lcp_samples() + builds_SA_samples;
 
     if (uses_pfp_cache() && std::filesystem::exists(pfp_cache_file()) && read_pfp_cache()) {
-        if (params.log) std::cout << "reading the PFP cache" << std::endl;
         idx._rlbwt_from_cache = true;
         remove_map_file();
         release_int_alphabet();
         return;
     }
 
-    // the steps of pfp_rlbwt log themselves
+    // the samples this index reads; a rebuilt cache keeps the samples of the existing one (see read_pfp_cache)
+    const bool sa_samples = reads_pfp_sa_samples() || pfp_cache_sa_samples;
+    const bool lcp_samples = reads_pfp_lcp_samples() || pfp_cache_lcp_samples;
+    // what is built, e.g. "RLBWT and SA- and LCP-samples"
+    const std::string built = std::string("RLBWT") + (sa_samples && lcp_samples ? " and SA- and LCP-samples"
+        : sa_samples ? " and SA-samples" : lcp_samples ? " and LCP-samples" : "");
+    // the steps of pfp_rlbwt log themselves, in a block of their own
+    log_block_begin(params.log, "building " + built + " with PFP");
     log_phase_start("");
     /* the prefix of the file the prefix-free parsing writes; with a cache, a temporary name in the directory of the
        cache file, which is renamed to the cache file at the end (see write_pfp_cache) */
@@ -148,9 +154,8 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
     pfp_rlbwt::params prm;
     prm.num_threads = p;
     prm.format = pfp_rlbwt::file_format::plain;
-    // the samples this index reads; a rebuilt cache keeps the samples of the existing one (see read_pfp_cache)
-    prm.write_sa_samples = reads_pfp_sa_samples() || pfp_cache_sa_samples;
-    prm.write_lcp_samples = reads_pfp_lcp_samples() || pfp_cache_lcp_samples;
+    prm.write_sa_samples = sa_samples;
+    prm.write_lcp_samples = lcp_samples;
     prm.log = params.log;
 
     // a cache stores the alphabet map and the sequences of a FASTA file, too (see pfp_cache_alphabet_section)
@@ -159,9 +164,10 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
             out.write((const char*) map.data(), map.size());
         } });
 
-        if (fasta_once || (params.fasta.text_len != 0 && params.fasta.sequences != nullptr)) {
+        if (fasta_once || params.fasta.text_len != 0) {
             prm.extra_sections.push_back({ pfp_cache_fasta_section, [&](std::ostream& out) {
-                write_fasta_to_pfp_cache(out, params.fasta.text_len, *params.fasta.sequences);
+                write_fasta_to_pfp_cache(out, params.fasta.text_len,
+                    params.fasta.sequences != nullptr ? *params.fasta.sequences : fasta_sequence_data());
             } });
         }
     }
@@ -177,7 +183,7 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
         text = std::make_unique<pfp_rlbwt::memory_source<uint8_t>>((const uint8_t*) T_inp.data(), n - 1, reversed);
     } else if (params.fasta.text_len != 0) {
         text = std::make_unique<pfp_rlbwt::fasta_source<uint8_t>>(params.input_file, params.fasta.text_len,
-            pfp_rlbwt::fasta_transform(params.fasta.alphabet, params.fasta.separator), params.fasta.index_samples,
+            params.fasta.text_transform(), params.fasta.index_samples,
             params.fasta.num_index_samples, reversed, map_ptr, p);
     } else if (!fasta_once) {
         text = std::make_unique<pfp_rlbwt::file_source<uint8_t>>(params.input_file, reversed, map_ptr);
@@ -217,7 +223,13 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
 
     remove_map_file();
     log_phase_end_quiet("time_pfp");
+
+    if (params.log) {
+        log_message(built + " built");
+        log_runtime(time);
+    }
     log_peak_mem_usage();
+    log_block_end(params.log);
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
@@ -232,7 +244,7 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp_fasta_once(const st
     fasta_sequence_collector collect { 0, seq_starts, seq_names };
 
     pfp_rlbwt::fasta_ranges<fasta_chunk_t> text(params.input_file,
-        pfp_rlbwt::fasta_transform(params.fasta.alphabet, params.fasta.separator),
+        params.fasta.text_transform(),
         [&](const pfp_rlbwt::fasta_scan& text_scan) {
             // the text has been parsed: its length, frequencies, samples and sequences, then the alphabet map
             static_cast<pfp_rlbwt::fasta_scan&>(scan) = text_scan;
@@ -260,7 +272,7 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp_fasta_once(const st
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::read_lcp_run_pfp()
 {
-    log_phase_start("reading LCP_run");
+    log_phase_start("");
 
     LCP_run = interleaved_bit_aligned_vectors({ uint8_t(std::bit_width(n)) });
     LCP_run.resize_no_init(r, p);
@@ -286,13 +298,13 @@ void move_r<support, mlf_enc>::construction::read_lcp_run_pfp()
     idx._plcp_row_width = std::max<uint8_t>(1, std::bit_width(max_val));
 
     release_pfp_output();
-    log_phase_end("time_read_run_lcp");
+    end_grouped_phase("reading LCP_run", 0, false, "time_read_run_lcp");
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::read_iphi_inv_pfp()
 {
-    log_phase_start("reading I_Phi^{-1}");
+    log_phase_start("");
 
     I_Phi_inv.reset(r, n);
 
@@ -317,7 +329,7 @@ void move_r<support, mlf_enc>::construction::read_iphi_inv_pfp()
     }
 
     release_pfp_output();
-    log_phase_end("time_read_iphi");
+    end_grouped_phase("reading I_Phi_inv", 0, false, "time_read_iphi");
 }
 
 #endif // MOVE_R_MOVE_R_CONSTRUCTION_PFP_TPP

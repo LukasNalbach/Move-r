@@ -32,12 +32,11 @@
 #include <cstring>
 #include <ranges>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <variant>
 #include <vector>
-
-#include <tsl/sparse_set.h>
 
 #include <misc/utils.hpp>
 #include <misc/portable_layout.hpp>
@@ -68,6 +67,21 @@ enum extension_scope_t : uint8_t {
 static constexpr uint32_t aprx_occ_pos_bits = 48; // positions up to 2^48 - 1 (see uint48_t)
 static constexpr uint32_t aprx_occ_len_bits = 24; // occurrence lengths up to 2^24 - 1 (i.e. m + k)
 static constexpr uint32_t aprx_occ_err_bits = 8;  // error counts up to 2^8 - 1 (i.e. k)
+
+// the largest length of an approximate occurrence (see aprx_occ_t)
+static constexpr uint64_t aprx_occ_max_len = (uint64_t(1) << aprx_occ_len_bits) - 1;
+
+/**
+ * @brief throws std::invalid_argument if an occurrence can be longer than aprx_occ_max_len
+ * @param max_len the largest length of an occurrence (m for the Hamming distance, m + k for the edit distance)
+ */
+inline void require_storable_occurrence_length(uint64_t max_len)
+{
+    if (max_len <= aprx_occ_max_len) return;
+    throw std::invalid_argument("the occurrences of a pattern can be " + std::to_string(max_len) + " symbols long "
+        "(its length, plus the number of errors with the edit distance); at most " + std::to_string(aprx_occ_max_len)
+        + " are supported");
+}
 
 /**
  * @brief an approximate occurrence: its starting position, length and error count in bit-fields; with a CIGAR, also
@@ -258,7 +272,7 @@ std::pair<uint64_t, uint64_t> edit_dist_prefix(
     const uint64_t n2 = M.size();
     const uint64_t l_min = m > k ? m - k : 0;
     const uint64_t i_max = std::min<uint64_t>(n2, m + k);
-    const uint16_t final_col = mat.num_cols() - 1;
+    const uint64_t final_col = mat.num_cols() - 1;
     uint64_t best_err = k + 1, best_len = 0;
 
     for (uint64_t i = 1; i <= i_max; i++) {

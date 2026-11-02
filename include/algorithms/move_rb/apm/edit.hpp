@@ -83,8 +83,8 @@ public:
     bool is_outer_part(uint8_t i) const { return _steps[i].part == 0 || _steps[i].part == _scheme.p - 1; }
 };
 
-// sort key of a search context: its suffix array interval [beg, end] in T, its match length and its index in the
-// unsorted vector of contexts
+// sort key of a search context: a suffix array interval [beg, end] of it (in T, or of its reversed string in T^R), a
+// length (its match length or the length of its string) and its index in the unsorted vector of contexts
 struct apm_context_order_t {
     uint64_t beg;
     uint64_t end;
@@ -130,7 +130,7 @@ protected:
     using base_t::next_is_separator;
 
     template <query_support_t query_support>
-    using search_context_t = typename idx_t::template search_context_t<query_support>;
+    using search_context_t = typename base_t::template search_context_t<query_support>;
 
     // true <=> the index can decode both text ends (see text_end); benchmark adapters cannot
     static constexpr bool can_decode_text_ends = requires(const idx_t& i) {
@@ -153,14 +153,14 @@ protected:
         using pos_field = next_bit_field_t<prev_field, piece_bits>;
 
         packed_bit_fields<bytes_of_bit_fields<pos_field>> bits; // prev and pos (in the layout of GCC bit-fields)
-        uint16_t len;       // copy: its length (>= 1); 0 marks a literal
+        uint32_t len;       // copy: its length (>= 1); 0 marks a literal
         uint16_t refs;      // reference count: pieces whose prev is this one, plus piece_ref objects referring to it
         uint8_t sym;        // literal: the text symbol; unused for a copy
         direction_t dir;    // LEFT: the piece was prepended to the string, RIGHT: appended
 
         matched_piece_t() = default;
 
-        matched_piece_t(uint64_t prev, uint64_t pos, uint16_t len, uint16_t refs, uint8_t sym, direction_t dir)
+        matched_piece_t(uint64_t prev, uint64_t pos, uint32_t len, uint16_t refs, uint8_t sym, direction_t dir)
             : len(len), refs(refs), sym(sym), dir(dir)
         { bits.template assign<prev_field, pos_field>(prev, pos); }
 
@@ -173,8 +173,8 @@ protected:
         void set_pos(uint64_t value) { bits.template set<pos_field>(value); }
     };
 
-    static_assert(sizeof(matched_piece_t) == 2 * uint40_t::width + 2 * sizeof(uint16_t) + sizeof(uint8_t)
-        + sizeof(direction_t));
+    static_assert(sizeof(matched_piece_t) == 2 * uint40_t::width + sizeof(uint32_t) + sizeof(uint16_t)
+        + sizeof(uint8_t) + sizeof(direction_t));
 
     /* a reference-counted index of a piece in _matched_pieces of _piece_owner (or no_piece): a copy increments, a
        destruction decrements the reference count of the piece; a piece whose count drops to 0 is freed, then its
@@ -210,13 +210,32 @@ protected:
         ~piece_ref() { if (idx != no_piece) _piece_owner->dec_ref(idx); }
     };
 
+    // identifies the text string of a context: its suffix array interval [beg, end] in T and its length
+    struct string_key_t {
+        uint64_t beg;
+        uint64_t end;
+        uint64_t len;
+
+        bool operator==(const string_key_t&) const = default;
+    };
+
+    struct string_key_hash {
+        uint64_t operator()(const string_key_t& key) const
+        {
+            uint64_t h = hash_64(key.beg);
+            hash_combine(h, hash_64(key.end));
+            hash_combine(h, hash_64(key.len));
+            return h;
+        }
+    };
+
     /* a search context with its matched text string: the chain of pieces ending at last_piece, followed by the
-       pending copy P[copy_pos, copy_pos + copy_len) that is not yet a piece (see commit_copy); m + k < 2^16 */
+       pending copy P[copy_pos, copy_pos + copy_len) that is not yet a piece (see commit_copy); m + k <= aprx_occ_max_len */
     struct node_t {
         search_context_t<LOCATE> ctx;
         uint32_t len = 0;      // the matched length (the row in the matrix of the current part), in [0, m + k]
-        uint16_t copy_pos = 0; // the start of the pending copy in P
-        uint16_t copy_len = 0; // the length of the pending copy (0 <=> there is none)
+        uint32_t copy_pos = 0; // the start of the pending copy in P
+        uint32_t copy_len = 0; // the length of the pending copy (0 <=> there is none)
         piece_ref last_piece;  // the last piece of the chain
         uint8_t copy_dir : 2;  // the direction in which the pending copy was matched (LEFT or RIGHT)
         uint8_t was_reported : 1; // whether the context has been reported (see cluster_t)
@@ -231,32 +250,16 @@ protected:
         uint64_t last_piece_idx() const { return last_piece.idx; }
         void set_last_piece(uint64_t i) { last_piece = piece_ref(i); }
 
-        bool operator==(const node_t& o) const {
+        // returns the key of the node in a node_set_t: its suffix array interval in T and its matched length
+        string_key_t key() const
+        {
             auto [b, e] = ctx.forward_sa_interval();
-            auto [ob, oe] = o.ctx.forward_sa_interval();
-            return b == ob && e == oe && len == o.len;
+            return { b, e, len };
         }
-
-        bool operator<(const node_t& o) const {
-            auto [b, e] = ctx.forward_sa_interval();
-            auto [ob, oe] = o.ctx.forward_sa_interval();
-            if (b != ob) return b < ob;
-            if (e != oe) return e > oe;
-            return len < o.len;
-        }
-
-        struct hash {
-            uint64_t operator()(const node_t& n) const {
-                auto [b, e] = n.ctx.forward_sa_interval();
-                uint64_t h = hash_64(b);
-                hash_combine(h, hash_64(e));
-                hash_combine(h, hash_64(n.len));
-                return h;
-            }
-        };
     };
 
-    using node_set_t = tsl::sparse_set<node_t, typename node_t::hash>;
+    // the contexts found by a search, by their keys (see node_t::key)
+    using node_set_t = apm_context_set<node_t, string_key_t, string_key_hash>;
 
     // a reference to a node, in CIGAR mode with the index of its CIGAR
     template <cigar_mode_t mode>
@@ -356,25 +359,6 @@ protected:
          */
         std::tuple<node_t, bool> choose_center(uint16_t k_min, std::vector<node_t>& descendants,
             std::vector<uint16_t>& init_dists);
-    };
-
-    // identifies the text string of a context: its suffix array interval [beg, end] in T and its length
-    struct string_key_t {
-        uint64_t beg;
-        uint64_t end;
-        uint64_t len;
-
-        bool operator==(const string_key_t&) const = default;
-    };
-
-    struct string_key_hash {
-        uint64_t operator()(const string_key_t& key) const
-        {
-            uint64_t h = hash_64(key.beg);
-            hash_combine(h, hash_64(key.end));
-            hash_combine(h, hash_64(key.len));
-            return h;
-        }
     };
 
     /* an alignment that ends at the text string of a context extended by the extension ext (see _ext_trie_parent) in
@@ -528,6 +512,24 @@ protected:
         child.copy_dir = parent.copy_dir;
     }
 
+    // returns the child of a node with the extended context ctx: its matched length is the one of the node + 1, its
+    // matched string is the one of the node (see copy_matched_string)
+    node_t child_of(const node_t& node, const search_context_t<LOCATE>& ctx) const
+    {
+        node_t child(ctx);
+        child.set_match_len(node.match_len() + 1);
+        copy_matched_string(child, node);
+        return child;
+    }
+
+    // makes a node whose context was extended in place its own child: its matched length increases by 1, its matched
+    // string stays (see child_of)
+    static void descend(node_t& node)
+    {
+        node.set_match_len(node.match_len() + 1);
+        node.set_reported(false);
+    }
+
     // appends the pending copy of a node (if there is one) to its chain as a piece
     void commit_copy(node_t& node) const
     {
@@ -605,6 +607,20 @@ protected:
     static std::vector<occurrence_interval_t> effective_intervals(const std::vector<context_ref_t<mode>>& ctxts_sorted);
 
     // ############################# INTERNAL METHODS: SEARCH #############################
+
+    /**
+     * @brief extends the context of a node in direction dir by each symbol except the separator: if it has one
+     *        extension, the node becomes its child in place (see descend) and true is returned; else push(child) is
+     *        called for each extension in the order of the symbols (see apm_dfs_children), where child is a child of
+     *        the node (see child_of), and false is returned
+     * @tparam push_fnc_t type of the function push
+     * @param node the node
+     * @param dir the direction
+     * @param push the function called for each extension that is pushed
+     * @return whether the node became its child
+     */
+    template <typename push_fnc_t>
+    bool extend_node(node_t& node, direction_t dir, push_fnc_t& push) const;
 
     /**
      * @brief sets the input of a matrix to a part; with an error model, a free symbol of a position counts as equal
@@ -845,13 +861,14 @@ public:
     // ############################# QUERY METHODS #############################
 
     /**
-     * @brief locates P with at most k errors: for every reported (pos, len, err), there is a p' in
-     *        [pos - 2k - 1, pos + 2k + 1] and a length L with ed(P, T[p', p' + L)) <= k (with an error model, see
-     *        locate_model); each position is reported at most once
+     * @brief locates P with at most k errors: every reported (pos, len, err) has ed(P, T[pos, pos + len)) = err <= k,
+     *        and for every p' and L with ed(P, T[p', p' + L)) = e <= k, an occurrence with at most e errors is reported
+     *        at most 2k + 1 positions away from p' (with an error model, see locate_model); each position is reported
+     *        at most once
      * @tparam mode whether each occurrence is reported with a CIGAR index
      * @tparam report_fnc_t type of the report function (called with {pos, len, err} or, in CIGAR mode,
      *         {pos, len, err, cigar index})
-     * @param P the pattern (P.size() < 2^aprx_occ_len_bits)
+     * @param P the pattern; throws std::invalid_argument if P.size() + k > aprx_occ_max_len
      * @param scheme the search scheme (provides k)
      * @param report the report function
      * @return in CIGAR mode, the CIGARs (one per suffix array interval); empty in NO_CIGAR mode

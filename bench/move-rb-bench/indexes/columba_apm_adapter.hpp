@@ -91,6 +91,8 @@ class columba_apm_adapter {
     struct locate_context_t;
     template <query_support_t query_support> struct extend_context_t;
     template <query_support_t query_support> struct search_context_t;
+    // the search contexts of approximate pattern matching (see move_rb::apm_context_t)
+    template <query_support_t query_support> using apm_context_t = search_context_t<query_support>;
 
   protected:
     columba_index_t& _index; // the columba index
@@ -129,6 +131,9 @@ class columba_apm_adapter {
 
     // returns the map from the symbols to the effective alphabet (see _map_int)
     inline const std::vector<uint8_t>& map_int() const { return _map_int; }
+
+    // the symbols of T are bytes (see move_r::byte_alphabet)
+    static constexpr bool byte_alphabet = true;
 
     // returns the index that answers exact count and locate queries (the adapter itself)
     inline const columba_apm_adapter& forward_index() const { return *this; }

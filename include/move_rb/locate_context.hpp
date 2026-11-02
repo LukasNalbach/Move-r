@@ -32,7 +32,7 @@
 /**
  * @brief the state of locating the occurrences SA[b..e] of a search context. Locating starts at a position c in
  *        [b, e] with a known value SA[c] (see compute_center) and reports the occurrences to its right and to
- *        its left: with M_Phi^{-1} and M_Phi (_locate_move) or with the rlz of SA^d (_locate_rlzsa).
+ *        its left: with M_Phi_inv and M_Phi (_locate_move) or with the rlz of SA^d (_locate_rlzsa).
  * @tparam output whether each occurrence is reported with its position in the suffix array (see
  *         locate_output_t)
  */
@@ -61,7 +61,7 @@ protected:
     uint64_t i; // [b..e] the current position
     uint64_t SA_i; // SA[i]
 
-    // index of the input interval of M_Phi^{-1} (scan_dir = RIGHT) resp. M_Phi (scan_dir = LEFT) containing SA_i
+    // index of the input interval of M_Phi_inv (scan_dir = RIGHT) resp. M_Phi (scan_dir = LEFT) containing SA_i
     STRING_UTILS_NO_UNIQUE_ADDRESS std::conditional_t<!stores_SA_pos, uint64_t, absent_t<13>> x_phi;
 
     // decoders of the rlz of SA^d for the positions left resp. right of c
@@ -72,7 +72,7 @@ protected:
     STRING_UTILS_NO_UNIQUE_ADDRESS std::conditional_t<!stores_SA_pos && reports_sa_positions,
         uint64_t, absent_t<17>> buf_pos;
     /* the occurrences right of c computed by compute_center: [0..k-1] buf[j] = SA[c + 1 + j], where k is the number
-       of Phi^{-1} steps compute_center made (empty, if it made none) */
+       of Phi_inv steps compute_center made (empty, if it made none) */
     STRING_UTILS_NO_UNIQUE_ADDRESS std::conditional_t<!stores_SA_pos && reports_sa_positions,
         std::vector<uint64_t>, absent_t<18>> buf;
 
@@ -121,7 +121,7 @@ public:
      * @brief computes c and SA_c = SA[c]: c is the position of the SA-sample of the search context, or b, if
      *        the sample is a backward one and b - (start of its BWT run) < m - i (SA[b] is then decoded from the
      *        start of the run); if the position of the SA-sample is not known, c = e - k, where k is the number
-     *        of Phi^{-1} steps from SA_c to SA[e]
+     *        of Phi_inv steps from SA_c to SA[e]
      * @return c
      */
     inline uint64_t compute_center() requires(supports_multiple_locate);

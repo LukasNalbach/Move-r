@@ -43,6 +43,10 @@ constexpr uint64_t num_iterations_pfp_integer_alphabet = 30;
 constexpr uint64_t num_iterations_input_widths = 10;
 constexpr uint64_t num_iterations_retrieve_range_to_file = 20;
 
+// returns the number of threads of a construction: 1 in a parallel functionality (run_fuzz runs it on all threads),
+// else a random number in [1..max_num_threads]
+static uint64_t random_num_threads() { return omp_in_parallel() ? 1 : 1 + gen() % max_num_threads; }
+
 /**
  * @brief returns the contents of a file as an array of values of type value_t
  * @param file the path of the file
@@ -78,7 +82,7 @@ static void verify_index_of_iteration(uint64_t i, uint64_t min_n = min_input_siz
     }
 }
 
-// builds one index per iteration and checks every query on it
+// builds one index per iteration and checks every query on it (serial: the checks run on all threads, see verify_index)
 TEST(test_move_r, index)
 {
     run_fuzz("move-r", { { "index", [](uint64_t i) { verify_index_of_iteration(i); } } },
@@ -108,7 +112,7 @@ TEST(test_move_r, pfp_integer_alphabet)
             std::vector<sym_t> input = random_repetitive_input<std::vector<sym_t>>(min_pfp_input_size,
                 max_input_size, sym_t(first), sym_t(first + span - 1), gen() | 1);
 
-            move_r_params params { .mode = _suffix_array, .num_threads = 1 + gen() % max_num_threads,
+            move_r_params params { .mode = _suffix_array, .num_threads = random_num_threads(),
                 .reorder_alphabet = gen() % 2 == 0 };
             const move_r<_locate_move> reference(input, params);
             std::stringstream expected;
@@ -139,7 +143,7 @@ TEST(test_move_r, pfp_integer_alphabet)
             case 1: run.template operator()<uint32_t>(); break;
             default: run.template operator()<uint64_t>(); break;
         }
-    } } }, fuzz_iterations(num_iterations_pfp_integer_alphabet), nullptr, 0);
+    }, true } }, fuzz_iterations(num_iterations_pfp_integer_alphabet), nullptr, 0);
 }
 
 /* the index of a text with symbols of 2 to 7 bytes (built with the suffix array or the prefix-free parsing) is the same
@@ -156,7 +160,7 @@ TEST(test_move_r, input_widths)
                     max_input_size, first, first + span - 1, gen() | 1);
                 std::vector<sym_t> input(values.begin(), values.end());
 
-                move_r_params params { .mode = _suffix_array, .num_threads = 1 + gen() % max_num_threads,
+                move_r_params params { .mode = _suffix_array, .num_threads = random_num_threads(),
                     .reorder_alphabet = gen() % 2 == 0 };
                 const move_r<_locate_move> reference(values, params);
                 std::stringstream expected;
@@ -175,7 +179,7 @@ TEST(test_move_r, input_widths)
         #define MOVE_R_TEST_INPUT_WIDTH(sym_t) run.template operator()<sym_t>();
         MOVE_R_FOR_EACH_INPUT_WIDTH(MOVE_R_TEST_INPUT_WIDTH)
         #undef MOVE_R_TEST_INPUT_WIDTH
-    } } }, fuzz_iterations(num_iterations_input_widths), nullptr, 0);
+    }, true } }, fuzz_iterations(num_iterations_input_widths), nullptr, 0);
 }
 
 // BWT_range and SA_range with a file name write the values of the range [l, r] to the file
@@ -186,7 +190,7 @@ TEST(test_move_r, retrieve_range_to_file)
 
         // n - 1 = input size >= range_end
         std::string input = random_repetitive_input<std::string>(range_end, max_input_size, 'a', 'd', gen() | 1);
-        const index_t index(input, move_r_params { .mode = _suffix_array, .num_threads = 1 + gen() % max_num_threads });
+        const index_t index(input, move_r_params { .mode = _suffix_array, .num_threads = random_num_threads() });
         const index_t::retrieve_params range { .l = range_beg, .r = range_end, .num_threads = 1 + gen() % max_num_threads };
         const std::string label = "n = " + std::to_string(input.size() + 1) + ", "
             + std::to_string(range.num_threads) + " threads";
@@ -204,7 +208,7 @@ TEST(test_move_r, retrieve_range_to_file)
         EXPECT_EQ(sa_from_file, std::vector<uint64_t>(sa.begin(), sa.end())) << "SA, " << label;
 
         std::filesystem::remove(file);
-    } } }, fuzz_iterations(num_iterations_retrieve_range_to_file), nullptr, 0);
+    }, true } }, fuzz_iterations(num_iterations_retrieve_range_to_file), nullptr, 0);
 }
 
 // short texts (fewer runs than revert starts requested, a single run of a symbol), with a byte and an integer

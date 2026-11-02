@@ -264,6 +264,23 @@ public:
     }
 
     /**
+     * @brief returns the size in bytes of the part of one order: of the forward order with the suffix array samples
+     *        and the entries of the symbols, or of the reverse order
+     * @param order the order
+     */
+    uint64_t size_in_bytes(context_order_t order) const
+    {
+        uint64_t size = order == _forward_order ? symbol_entries.size() * sizeof(uint32_t) : 0;
+
+        for (const level_t& l : levels) {
+            size += l.orders[order].size_in_bytes();
+            if (order == _forward_order) size += l.sample_marks.size_in_bytes() + l.samples.size_in_bytes();
+        }
+
+        return size;
+    }
+
+    /**
      * @brief logs the alphabet size, the lengths and the numbers of patterns, one per line, the patterns of the
      *        lengths 1 to max_length() as a tree (each pattern below the pattern its last primary extension
      *        extended), and the patterns of the single-length level as a table; a pattern is logged with its suffix

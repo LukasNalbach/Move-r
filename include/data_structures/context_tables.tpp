@@ -38,16 +38,16 @@ inline void context_tables::log_data_structures(const std::function<std::string(
     const uint64_t num_levels = max_length();
     const bool has_reverse = !levels.empty() && !levels[0].orders[_reverse_order].beg.empty();
     std::cout << "sigma = " << sigma << std::endl;
-    std::cout << "maximum length = " << num_levels << std::endl;
+    std::cout << "patterns up to length " << num_levels << std::endl;
     for (uint64_t len = 1; len <= num_levels; len++)
-        std::cout << "patterns of length " << len << " = " << format_number(num_entries(len)) << std::endl;
+        std::cout << format_number(num_entries(len)) << " patterns of length " << len << std::endl;
     if (single_len != 0) {
-        std::cout << "patterns of length " << single_len << " = " << format_number(levels.back().num_entries)
+        std::cout << format_number(levels.back().num_entries) << " patterns of length " << single_len
                   << std::endl;
     }
 
-    std::cout << "reverse order = " << (has_reverse ? "yes" : "no") << std::endl;
-    std::cout << "size = " << format_size(size_in_bytes()) << std::endl;
+    std::cout << (has_reverse ? "with" : "without") << " the reverse order" << std::endl;
+    std::cout << format_size(size_in_bytes()) << " in total" << std::endl;
     if (levels.empty()) return;
 
     // returns a pattern as it is logged: its symbols in double quotes, if each is one character, else separated by

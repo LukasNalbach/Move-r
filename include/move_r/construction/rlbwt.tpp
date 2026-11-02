@@ -60,7 +60,8 @@ void move_r<support, mlf_enc>::construction::build_sa()
 template <move_r_support support, move_pos_encoding_t mlf_enc>
 void move_r<support, mlf_enc>::construction::build_rlbwt_c()
 {
-    log_phase_start(rlbwt_from_pfp ? "reading RLBWT" : "building RLBWT");
+    log_phase_start(rlbwt_from_pfp ? (idx._rlbwt_from_cache ? "reading RLBWT (from the PFP cache)" : "reading RLBWT")
+        : "building RLBWT");
 
     p_ = byte_alphabet ? p : 1;
     // the runs written by the prefix-free parsing (see pfp_rlbwt::run_data_file)

@@ -41,21 +41,6 @@
 #include <move_rb/move_rb.hpp>
 
 /**
- * @brief removes an input file written by the construction, together with the caches of the RLBWT and its samples
- *        and the files of the prefix-free parsing that are named after it
- * @param input_file path of the input file
- */
-inline void remove_temporary_input(const std::string& input_file)
-{
-    std::error_code ec;
-    if (input_file.empty()) return;
-
-    // the input file and its caches (see move_r::pfp_cache_path)
-    const std::string cache = input_file + pfp_rlbwt::ext_runs;
-    for (const std::string& file : { input_file, cache, cache + "-rev" }) std::filesystem::remove(file, ec);
-}
-
-/**
  * @brief the state of the construction of a move_rb that its steps share. build calls the steps in this order:
  *        1. prepare_input: reads the input file into memory, or writes the input to a file for the pfp
  *        2. build_byte_alphabet and (for an integer input and for a byte input with more distinct bytes than
@@ -118,6 +103,19 @@ struct move_rb<support>::build_state_t {
     }
 
     /**
+     * @brief ends a phase started with log_phase_start(log, time, "") and logs it in one line with the phases of the
+     *        same action logged directly before it (see log_grouped_phase_end), and writes the size of the index
+     *        under the key live_<phase> (see measurement_phase)
+     * @param message the action and the data structure, e.g. "building S_MLF_p (backward)"
+     * @param key the measurement key of the phase
+     */
+    void finish_grouped_phase(const std::string& message, const std::string& key)
+    {
+        log_grouped_phase_end(log, time, message, 0, false, params.measurement_file, key);
+        if (log && params.measurement_file != nullptr) *params.measurement_file << " live_" << measurement_phase(key) << "=" << idx.size_in_bytes();
+    }
+
+    /**
      * @brief ends a phase that stores a data structure to disk, loads it or deletes it, started with
      *        log_phase_start(log, time, "") (see ::log_spill_phase_end), and writes the size of the index under the
      *        key live_<phase> (see measurement_phase)
@@ -156,10 +154,11 @@ void move_rb<support>::build(
     std::vector<std::string> dropped_slowly; // the input file and the caches of the RLBWT, every 5 s
 
     // the pfp caches of T and T^R (see move_r::pfp_cache_path); empty without caches (see move_r_params::pfp_cache)
+    const std::string cache_base = st.params.pfp_cache_base.empty() ? st.input_file_name : st.params.pfp_cache_base;
     const std::string cache_fwd = st.params.pfp_cache
-        ? move_r_fwd_t::pfp_cache_path(st.input_file_name, st.params.mode) : std::string();
+        ? move_r_fwd_t::pfp_cache_path(cache_base, st.params.mode) : std::string();
     const std::string cache_bwd = st.params.pfp_cache
-        ? move_r_bwd_t::pfp_cache_path(st.input_file_name, st.params.mode, true) : std::string();
+        ? move_r_bwd_t::pfp_cache_path(cache_base, st.params.mode, true) : std::string();
 
     for (const std::string& file : { st.input_file_name, cache_fwd, cache_bwd }) {
         if (file.empty()) continue;
@@ -181,7 +180,7 @@ void move_rb<support>::build(
 
     prepare_input(st);
 
-    log_phase_start(st.log, st.time, "preprocessing T");
+    log_phase_start(st.log, st.time, "computing the alphabet of T");
     st.p = st.params.num_threads;
 
     if (st.byte_input) build_byte_alphabet(st);
@@ -207,6 +206,8 @@ void move_rb<support>::build(
 
     if (st.log && log_summary) {
         uint64_t time_construction = time_diff_ns(time_start, now());
+        // the sizes are a block of their own (see log_empty_line)
+        log_empty_line(true);
         log_output_size("index", size_in_bytes(), n);
         log_data_structure_sizes();
         log_construction_summary(time_construction, st.peak_memory_usage, st.params.measurement_file);
@@ -229,8 +230,7 @@ void move_rb<support>::prepare_input(build_state_t& st)
         if (st.params.fasta.text_len != 0) {
             // read the text described by the FASTA file (see read_fasta_into)
             uint64_t num_read = read_fasta_into({ st.input_file_name },
-                reinterpret_cast<uint8_t*>(input.data()), st.params.fasta.alphabet,
-                char(st.params.fasta.separator), true, st.params.num_threads);
+                reinterpret_cast<uint8_t*>(input.data()), st.params.fasta.text_transform(), st.params.num_threads);
 
             if (num_read != n - 1)
                 throw std::runtime_error("move_rb: the FASTA file changed while it was being read");
@@ -242,7 +242,7 @@ void move_rb<support>::prepare_input(build_state_t& st)
         prog.finish();
         st.finish_phase("time_read_input");
     } else if (st.reads_input_file && !st.file_input) {
-        log_phase_start(st.log, st.time, "storing T");
+        log_phase_start(st.log, st.time, "storing data structures to disk");
 
         st.input_file_name = st.prefix_tmp_files + ".input";
         direct_ofstream input_ofile(st.input_file_name, std::ios::binary);
@@ -281,10 +281,12 @@ void move_rb<support>::build_byte_alphabet(build_state_t& st)
     } else if (st.pfp) {
         // read the symbol frequencies and the alphabet maps from the pfp caches, if they exist (see
         // read_alphabet_from_pfp_cache)
+        const std::string cache_base = st.params.pfp_cache_base.empty() ? st.input_file_name
+            : st.params.pfp_cache_base;
         const std::string cache_fwd = st.params.pfp_cache
-            ? move_r_fwd_t::pfp_cache_path(st.input_file_name, st.params.mode) : std::string();
+            ? move_r_fwd_t::pfp_cache_path(cache_base, st.params.mode) : std::string();
         const std::string cache_bwd = st.params.pfp_cache
-            ? move_r_bwd_t::pfp_cache_path(st.input_file_name, st.params.mode, true) : std::string();
+            ? move_r_bwd_t::pfp_cache_path(cache_base, st.params.mode, true) : std::string();
         std::vector<uint64_t> cache_freq;
 
         if (!cache_fwd.empty() && std::filesystem::exists(cache_fwd)) {
@@ -367,7 +369,7 @@ void move_rb<support>::build_byte_alphabet(build_state_t& st)
 
     // the pfp applies the alphabet map while reading the input file
     if (st.pfp) {
-        log_phase_start(st.log, st.time, "storing the alphabet map");
+        log_phase_start(st.log, st.time, "storing data structures to disk");
 
         st.map_file_name = st.prefix_tmp_files + ".map";
         direct_ofstream map_ofile(st.map_file_name, std::ios::binary);
@@ -473,7 +475,6 @@ void move_rb<support>::build_sub_indexes(build_state_t& st)
     sub_params.sample_run_ends = supports_locate;
 
     try {
-        log_message(st.log, "building the forward index:\n");
         const bool fasta_once = sub_params.fasta.read_once != nullptr && sub_params.fasta.text_len == 0;
         idx_fwd = move_r_fwd_t(input, sub_params);
         _pfp_cached_texts = idx_fwd.rlbwt_from_cache() ? 1 : 0;
@@ -482,9 +483,10 @@ void move_rb<support>::build_sub_indexes(build_state_t& st)
         else if (st.byte_input) idx_fwd.set_alphabet_maps(st.map_int, st.map_ext);
         else idx_fwd.set_alphabet(st.symbols, st.order);
 
-        // store the forward index on disk while the backward index is built
-        if (st.pfp || st.sa_space) {
-            log_phase_start(st.log, st.time, "storing the forward index");
+        /* store the forward index on disk while the backward index is built (not if it fits into the buffer of a file
+           written with O_DIRECT, then storing it does not lower the peak memory usage) */
+        if ((st.pfp || st.sa_space) && idx_fwd.size_in_bytes() >= direct_filebuf_base::buffer_length) {
+            log_phase_start(st.log, st.time, "storing data structures to disk");
 
             st.idx_fwd_file_name = st.prefix_tmp_files + ".move_r_fwd";
             direct_ofstream idx_fwd_ofile(st.idx_fwd_file_name);
@@ -492,14 +494,12 @@ void move_rb<support>::build_sub_indexes(build_state_t& st)
             idx_fwd = move_r_fwd_t();
             idx_fwd_ofile.close();
             drop_from_page_cache(st.idx_fwd_file_name, true);
-            log_spilled_size(st.log, st.idx_fwd_file_name);
 
             st.finish_phase("time_store_forward_index");
         }
 
         if (!st.pfp) reverse(input, st.p, st.log, st.params.measurement_file, "time_reverse_t_for_backward");
 
-        log_message(st.log, "building the backward index:\n");
         sub_params.measurement_key_suffix = "_bwd";
         // the backward index is built for T^R (see move_r_params::reversed)
         sub_params.reversed = true;
@@ -529,9 +529,9 @@ template <typename mds_t>
 void move_rb<support>::build_sampling_phase(build_state_t& st, const std::string& name,
     const char* key, const mds_t& M, elias_fano_bit_vector& sampling)
 {
-    log_phase_start(st.log, st.time, name);
+    log_phase_start(st.log, st.time, "");
     sampling = sample_input_intervals(M, st.p);
-    st.finish_phase(key);
+    st.finish_grouped_phase(name, key);
 }
 
 template <move_r_support support>
@@ -545,7 +545,7 @@ void move_rb<support>::build_samplings(build_state_t& st)
         if constexpr (has_mphi) {
             build_sampling_phase(st, std::string("building S_MPhi_p") + direction_suffix<LEFT>(),
                 "time_build_s_mphi_p_fwd", idx_fwd.M_Phi(), _S_MPhi_p_fwd);
-            build_sampling_phase(st, std::string("building S_MPhi^{-1}_p") + direction_suffix<LEFT>(),
+            build_sampling_phase(st, std::string("building S_MPhi_inv_p") + direction_suffix<LEFT>(),
                 "time_build_s_mphi_inv_p_fwd", idx_fwd.M_Phi_inv(), _S_MPhi_inv_p_fwd);
         }
 
@@ -557,13 +557,15 @@ void move_rb<support>::build_samplings(build_state_t& st)
 template <move_r_support support>
 void move_rb<support>::load_forward_index(build_state_t& st)
 {
-    if (st.pfp || st.sa_space) {
-        log_phase_start(st.log, st.time, "reading the forward index");
+    // the forward index is only stored on disk if it does not fit into one buffer (see build_sub_indexes)
+    if (!st.idx_fwd_file_name.empty()) {
+        log_phase_start(st.log, st.time, "reading data structures from disk");
 
         direct_ifstream idx_fwd_ifile(st.idx_fwd_file_name);
         idx_fwd.load(idx_fwd_ifile);
         idx_fwd_ifile.close();
         std::filesystem::remove(st.idx_fwd_file_name);
+        st.idx_fwd_file_name.clear();
 
         st.finish_phase("time_load_forward_index");
     }
@@ -676,8 +678,9 @@ template <move_r_support support>
 void move_rb<support>::build_context_tables_phase(build_state_t& st)
 {
     const uint64_t index_size = size_in_bytes();
-    // the SA-samples and M_Phi are stored on disk while the context tables are built (in the modes _pfp and
-    // _suffix_array_space)
+    /* the SA-samples and M_Phi are stored on disk while the context tables are built (in the modes _pfp and
+       _suffix_array_space), unless the index fits into the buffer of a file written with O_DIRECT (then storing them
+       does not lower the peak memory usage) */
 
     // a data structure stored on disk
     struct stored_t {
@@ -701,7 +704,7 @@ void move_rb<support>::build_context_tables_phase(build_state_t& st)
         stored.push_back({ std::move(name), std::move(file), std::move(load) });
     };
 
-    if (st.pfp || st.sa_space) {
+    if ((st.pfp || st.sa_space) && index_size >= direct_filebuf_base::buffer_length) {
         if constexpr (move_r_fwd_t::builds_SA_samples) {
             store_to_disk(std::string(idx_fwd.SA_samples_name()) + direction_suffix<LEFT>(), ".sa_run_fwd",
                 [&](std::ostream& out) { idx_fwd.store_SA_samples(out); },
@@ -721,11 +724,12 @@ void move_rb<support>::build_context_tables_phase(build_state_t& st)
         }
     }
 
-    log_phase_start(st.log, st.time, "building the context tables");
+    // one line with the lengths of the tables, e.g. "building the context tables (up to length 10, 68.75 bits/ctx)"
+    log_phase_start(st.log, st.time, "");
     build_context_tables(st.params.context_table_share, index_size,
         st.params.context_tables_single_length, st.p);
-    st.finish_phase("time_build_context_tables");
-    if (st.log) log_built_context_tables();
+    st.finish_grouped_phase("building the context tables (" + context_tables_summary() + ")",
+        "time_build_context_tables");
 
     for (stored_t& entry : stored) {
         log_phase_start(st.log, st.time, "");

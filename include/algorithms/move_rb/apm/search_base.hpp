@@ -28,8 +28,10 @@
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_SEARCH_BASE_HPP
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
+#include <gtl/phmap.hpp>
 #include <misc/apm.hpp>
 #include <misc/cigar.hpp>
 
@@ -46,6 +48,87 @@ inline std::vector<direction_t> apm_step_directions(const search_t& S)
     for (uint64_t i = 1; i < S.size(); i++) dirs[i] = S[i].part > S[i - 1].part ? RIGHT : LEFT;
     return dirs;
 }
+
+/**
+ * @brief a set of search contexts with distinct keys, in the order of their insertion: the contexts are stored in a
+ *        vector and a hash map maps the key of each one to its index, so that an insertion moves no context
+ * @tparam ctx_t type of a context
+ * @tparam key_t type of the key of a context (the values that identify it)
+ * @tparam key_hash_t hash function of the keys
+ */
+template <typename ctx_t, typename key_t, typename key_hash_t = gtl::Hash<key_t>>
+class apm_context_set {
+protected:
+    std::vector<ctx_t> _contexts; // [0..size()-1] the contexts in the order of their insertion
+    gtl::flat_hash_map<key_t, uint32_t, key_hash_t> _index_of; // maps the key of each context to its index in _contexts
+
+public:
+    // returns the context with a key, or nullptr if there is none
+    ctx_t* find(const key_t& key)
+    {
+        auto it = _index_of.find(key);
+        return it == _index_of.end() ? nullptr : &_contexts[it->second];
+    }
+
+    // inserts a context with a key that no context of the set has
+    void insert(const key_t& key, const ctx_t& ctx)
+    {
+        _index_of.emplace(key, uint32_t(_contexts.size()));
+        _contexts.emplace_back(ctx);
+    }
+
+    // returns the number of contexts
+    uint64_t size() const { return _contexts.size(); }
+
+    // removes all contexts
+    void clear()
+    {
+        _contexts.clear();
+        _index_of.clear();
+    }
+
+    // returns the contexts in the order of their insertion
+    std::vector<ctx_t>& contexts() { return _contexts; }
+
+    auto begin() { return _contexts.begin(); }
+    auto end() { return _contexts.end(); }
+    auto begin() const { return _contexts.begin(); }
+    auto end() const { return _contexts.end(); }
+};
+
+/**
+ * @brief the children of a node of a depth-first search in the order of their creation: the first one is kept, and a
+ *        second one pushes both onto the stack in this order, as every further one is pushed; a node with one child
+ *        continues with it without the stack, and the nodes are visited in the same order
+ * @tparam child_t type of a child
+ */
+template <typename child_t>
+class apm_dfs_children {
+protected:
+    std::optional<child_t> _first; // the first child, until a second one is added
+    uint64_t _num = 0; // the number of children
+
+public:
+    /**
+     * @brief adds a child
+     * @tparam push_fnc_t type of the function push
+     * @param child the child
+     * @param push called as push(child) for each child that is pushed onto the stack
+     */
+    template <typename push_fnc_t>
+    void add(child_t&& child, push_fnc_t&& push)
+    {
+        if (_num++ == 0) { _first.emplace(std::move(child)); return; }
+        if (_num == 2) push(std::move(*_first));
+        push(std::move(child));
+    }
+
+    // returns whether there is exactly one child
+    bool has_one() const { return _num == 1; }
+
+    // returns the only child (if has_one())
+    child_t& only() { return *_first; }
+};
 
 /**
  * @brief the members of apm_hamming and apm_edit: the index, the query parameters, the locate query without errors
@@ -66,8 +149,22 @@ protected:
     apm_search_base(const idx_t& index, apm_params_t params) : _index(index), _params(params) {}
 
     /**
+     * @brief returns whether a symbol is the separator of the sequences of the index (always false for an index
+     *        without sequences); a search does not extend with it
+     * @param sym a symbol
+     */
+    bool is_separator(uint64_t sym) const
+    {
+        if constexpr (requires (const idx_t& ix) { ix.seq_data(); }) {
+            return _index.seq_data().has_sequences() && sym == _index.seq_data().separator_sym();
+        } else {
+            return false;
+        }
+    }
+
+    /**
      * @brief returns whether the next symbol of an extension context is the separator of the sequences of the index
-     *        (always false for an index without sequences); a search does not extend with it
+     *        (see is_separator)
      * @tparam ext_ctx_t type of the extension context
      * @param ext_ctx an extension context
      */
@@ -75,8 +172,7 @@ protected:
     bool next_is_separator(const ext_ctx_t& ext_ctx) const
     {
         if constexpr (requires (const idx_t& ix) { ix.seq_data(); }) {
-            return _index.seq_data().has_sequences() && ext_ctx.can_extend()
-                && ext_ctx.next_symbol() == _index.seq_data().separator_sym();
+            return ext_ctx.can_extend() && is_separator(ext_ctx.next_symbol());
         } else {
             return false;
         }

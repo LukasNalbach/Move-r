@@ -25,7 +25,7 @@ The template parameter `support` selects what the index stores besides M_LF (the
 | --- | --- | --- |
 | `_count` | count | O(r) words |
 | `_locate_one` | count, one occurrence per pattern | O(r) words |
-| `_locate_move` (default) | count, locate (with M_Phi^{-1}) | O(r) words |
+| `_locate_move` (default) | count, locate (with M_Phi_inv) | O(r) words |
 | `_locate_rlzsa` | count, locate, SA[i] (with an RLZ of the differential suffix array) | O(r) words + the RLZ |
 
 The construction parameters (`move_r_params`) that matter most:

@@ -68,6 +68,8 @@ class edit_distance_matrix {
 public:
     // ############################# TYPES AND PARAMETERS #############################
 
+    using pos_t = uint32_t; // type of a row, of a column and of a number of rows or columns
+
     static constexpr uint16_t bits_per_word = sizeof(word_t) * 8;
     static constexpr uint16_t half_word = bits_per_word / 2; // number of rows of a block
     static constexpr uint16_t max_supported_errors = (bits_per_word - half_word - 2) / 3; // maximum supported number of errors
@@ -81,17 +83,17 @@ protected:
         word_t dh_pos; // HP: positions whose horizontal delta is +1
         word_t dh_neg; // HN: positions whose horizontal delta is -1
         word_t last_active_bit; // single set bit at the rightmost band cell with value <= k_max
-        uint16_t diag_distance; // edit distance in the cell of this row on the main diagonal
+        pos_t diag_distance; // edit distance in the cell of this row on the main diagonal (at most the row)
     };
 
     // ############################# VARIABLES #############################
 
     uint16_t sigma = 0; // size of the effective alphabet
     uint16_t k_max = 0; // maximum number of errors of the current query
-    uint16_t _num_rows = 0; // number of rows (band length)
-    uint16_t _num_cols = 0; // number of columns (input length + 1)
-    uint16_t band_width = 0; // number of columns left of the diagonal in the band
-    uint16_t band_height = 0; // number of rows below the diagonal whose value can still be <= k_max
+    pos_t _num_rows = 0; // number of rows (band length)
+    pos_t _num_cols = 0; // number of columns (input length + 1)
+    pos_t band_width = 0; // number of columns left of the diagonal in the band
+    pos_t band_height = 0; // number of rows below the diagonal whose value can still be <= k_max
 
     // maps a byte to its one-based rank in the effective alphabet (0 if it does not occur)
     const std::vector<uint8_t>* symbol_rank = nullptr;
@@ -106,7 +108,7 @@ protected:
 
     // ############################# INTERNAL METHODS #############################
 
-    void resize_rows(uint16_t num) { rows.resize(num); }
+    void resize_rows(pos_t num) { rows.resize(num); }
 
     // maps a query symbol to its zero-based index in the match_masks of a block
     template <typename sym_t>
@@ -120,19 +122,19 @@ public:
     // ############################# MISC PUBLIC METHODS #############################
 
     // returns the number of columns of the matrix (input length + 1)
-    uint16_t num_cols() const { return _num_cols; }
+    pos_t num_cols() const { return _num_cols; }
 
     // returns the number of rows of the matrix
-    uint16_t num_rows() const { return _num_rows; }
+    pos_t num_rows() const { return _num_rows; }
 
     // returns whether an input has been set (see set_input)
     bool is_initialized() const { return !match_masks.empty(); }
 
     // returns the number of rows with a cell in the last column of the matrix
-    uint16_t last_col_size() const { return band_height + band_width + 1; }
+    pos_t last_col_size() const { return band_height + band_width + 1; }
 
     // returns whether the band in row i contains a cell of the last column (i.e., the whole input is matched)
-    bool is_in_final_column(const uint16_t i) const { return i >= num_rows() - last_col_size(); }
+    bool is_in_final_column(const pos_t i) const { return i >= num_rows() - last_col_size(); }
 
     // ############################# CONSTRUCTION METHODS #############################
 
@@ -150,11 +152,12 @@ public:
     void set_input(const directional_substring<inp_t>& input, uint16_t sigma, const std::vector<uint8_t>& symbol_rank,
         match_fnc_t matches = {})
     {
+        assert(input.size() <= std::numeric_limits<pos_t>::max() - first_col_bits);
         this->sigma = sigma;
         this->symbol_rank = &symbol_rank;
         _num_cols = input.size() + 1;
         _num_rows = 2 * max_supported_errors + _num_cols;
-        uint16_t num_blocks = (_num_rows + half_word - 1) / half_word;
+        const uint64_t num_blocks = (uint64_t(_num_rows) + half_word - 1) / half_word;
         match_masks.resize(num_blocks * sigma);
 
         // block 0: the lowest first_col_bits bits (the first column) are set for every symbol, the
@@ -162,9 +165,9 @@ public:
         word_t low_ones = (word_t(1) << first_col_bits) - word_t(1);
         std::fill(match_masks.begin(), match_masks.begin() + sigma, low_ones);
         word_t bit = word_t(1) << first_col_bits;
-        uint16_t j_end = std::min<uint16_t>(input.size(), bits_per_word - first_col_bits);
+        const uint64_t j_end = std::min<uint64_t>(input.size(), bits_per_word - first_col_bits);
 
-        for (uint16_t j = 0; j < j_end; j++) {
+        for (uint64_t j = 0; j < j_end; j++) {
             uint8_t rank = symbol_rank[std::bit_cast<uint8_t>(input[j])];
             if (rank != 0) match_masks[rank - 1] |= bit;
             matches(input.pos(j), [&](uint8_t r) { match_masks[r - 1] |= bit; });
@@ -173,8 +176,8 @@ public:
 
         // each further block is the previous block shifted right by half_word bits, with the next
         // half_word input symbols in its upper half
-        for (uint16_t block = 1; block < num_blocks; block++) {
-            uint64_t base = uint64_t(block) * sigma;
+        for (uint64_t block = 1; block < num_blocks; block++) {
+            uint64_t base = block * sigma;
             uint64_t prev = base - sigma;
 
             for (uint64_t c = 0; c < sigma; c++) {
@@ -182,10 +185,10 @@ public:
             }
 
             bit = word_t(1) << (bits_per_word - half_word);
-            uint16_t j_beg = bits_per_word - first_col_bits + (block - 1) * half_word;
-            uint16_t block_end = std::min<uint16_t>(input.size(), j_beg + half_word);
+            const uint64_t j_beg = bits_per_word - first_col_bits + (block - 1) * half_word;
+            const uint64_t block_end = std::min<uint64_t>(input.size(), j_beg + half_word);
 
-            for (uint16_t j = j_beg; j < block_end; j++) {
+            for (uint64_t j = j_beg; j < block_end; j++) {
                 uint8_t rank = symbol_rank[std::bit_cast<uint8_t>(input[j])];
                 if (rank != 0) match_masks[base + rank - 1] |= bit;
                 matches(input.pos(j), [&](uint8_t r) { match_masks[base + r - 1] |= bit; });
@@ -200,7 +203,7 @@ public:
      * @param init_dists (optional) distances in the first column, to continue the band of an adjacent matrix
      * @param min_band_width (optional) the band extends at least this many columns left of the diagonal (see add_alignment_start)
      */
-    void init(uint16_t k_max, const std::vector<uint16_t>& init_dists = {}, uint16_t min_band_width = 0)
+    void init(uint16_t k_max, const std::vector<uint16_t>& init_dists = {}, pos_t min_band_width = 0)
     {
         assert(k_max <= max_supported_errors);
         assert(is_initialized());
@@ -226,10 +229,10 @@ public:
         rows[0].dh_neg = ~rows[0].dh_pos;
 
         // encode the given first-column distances as horizontal deltas
-        uint16_t i_max = std::min<uint16_t>(init_dists.size(), first_col_bits + 1);
+        const uint64_t i_max = std::min<uint64_t>(init_dists.size(), first_col_bits + 1);
         word_t bit = word_t(1) << first_col_bits;
 
-        for (uint16_t i = 1; i < i_max; i++) {
+        for (uint64_t i = 1; i < i_max; i++) {
             bit >>= 1;
 
             if (init_dists[i] < init_dists[i - 1]) {
@@ -253,13 +256,13 @@ public:
      * @return false if all values of the band in row i exceed k_max, else true
      */
     template <typename sym_t>
-    bool compute_row(uint16_t i, sym_t sym)
+    bool compute_row(pos_t i, sym_t sym)
     {
         assert(i > 0);
         assert(i < _num_rows);
         assert(is_initialized());
 
-        const uint16_t block = i / half_word;
+        const uint64_t block = i / half_word;
         const uint16_t offset = i % half_word;
 
         // HP, HN, D0, VP and VN as in Myers/Hyyrö
@@ -317,7 +320,7 @@ public:
      * @param dist the distance of the new alignment in cell (i, 0)
      * @return false if all values of the band in row i exceed k_max, else true
      */
-    bool add_alignment_start(uint16_t i, uint16_t dist)
+    bool add_alignment_start(pos_t i, uint16_t dist)
     {
         assert(i < _num_rows && i < half_word);
         assert(i <= band_width && dist + i + band_height >= k_max);
@@ -369,44 +372,42 @@ public:
      * @param i [0..num_rows()-1] row
      * @param j [0..num_cols()-1] column
      */
-    uint16_t operator()(uint16_t i, uint16_t j) const
+    pos_t operator()(pos_t i, pos_t j) const
     {
         assert(i < _num_rows);
         assert(j < _num_cols);
         // bit range [lo, hi) of the horizontal deltas lying between the diagonal and column j
-        const uint16_t diag = (i % half_word) + block_diag_bit;
-        uint16_t lo = (i > j) ? diag - (i - j) + 1 : diag + 1;
-        uint16_t hi = (i > j) ? diag + 1 : diag + (j - i) + 1;
+        const pos_t diag = (i % half_word) + block_diag_bit;
+        const pos_t lo = (i > j) ? diag - (i - j) + 1 : diag + 1;
+        const pos_t hi = (i > j) ? diag + 1 : diag + (j - i) + 1;
         word_t window = ((word_t(1) << (hi - lo)) - word_t(1)) << lo;
-        int32_t neg = ::popcount(rows[i].dh_neg & window);
-        int32_t pos = ::popcount(rows[i].dh_pos & window);
-        uint16_t s = rows[i].diag_distance;
-        s += (i > j) ? (neg - pos) : (pos - neg);
-        return s;
+        int64_t neg = ::popcount(rows[i].dh_neg & window);
+        int64_t pos = ::popcount(rows[i].dh_pos & window);
+        return pos_t(int64_t(rows[i].diag_distance) + ((i > j) ? (neg - pos) : (pos - neg)));
     }
 
     /**
      * @brief returns whether from row i on, the matrix can only be extended by vertical gaps (insertions)
      * @param i [0..num_rows()-1] row
      */
-    bool only_vertical_gaps_left(uint16_t i) const
+    bool only_vertical_gaps_left(pos_t i) const
     {
         assert(i < _num_rows);
-        if (i + first_col_bits < _num_cols) return false; // the band in row i does not reach the last column
-        const uint16_t block = i / half_word;
-        const uint16_t offset = i % half_word;
+        if (uint64_t(i) + first_col_bits < _num_cols) return false; // the band in row i does not reach the last column
+        const pos_t block = i / half_word;
+        const pos_t offset = i % half_word;
         // check whether dh_neg is set at all positions [lo, hi) of the band up to the last column
-        uint16_t lo = block_diag_bit - band_width + offset + 1;
-        uint16_t hi = block_diag_bit + _num_cols - block * half_word;
+        const pos_t lo = block_diag_bit - band_width + offset + 1;
+        const pos_t hi = block_diag_bit + _num_cols - block * half_word;
         return (((~rows[i].dh_neg >> lo) << lo) << (bits_per_word - hi)) == word_t(0);
     }
 };
 
 static constexpr int64_t edit_distance_max_errors_64 = edit_distance_matrix<uint64_t>::max_supported_errors;
 static constexpr int64_t edit_distance_max_errors_128 = edit_distance_matrix<uint128_t>::max_supported_errors;
-// the largest length of the input and of the compared string of a matrix: the numbers of rows and columns are uint16_t,
-// and a row index plus first_col_bits must fit into a uint16_t
-static constexpr int64_t edit_distance_max_length =
-    std::numeric_limits<uint16_t>::max() - edit_distance_matrix<uint128_t>::first_col_bits;
+// the largest length of the input and of the compared string of a matrix: a row index plus first_col_bits must fit into
+// a pos_t
+static constexpr int64_t edit_distance_max_length = std::numeric_limits<edit_distance_matrix<uint128_t>::pos_t>::max()
+    - edit_distance_matrix<uint128_t>::first_col_bits;
 
 #endif // MOVE_R_DATA_STRUCTURES_EDIT_DISTANCE_MATRIX_HPP
