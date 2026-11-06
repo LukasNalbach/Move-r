@@ -212,7 +212,7 @@ void print_mds()
         pairs.set<1>(i, intervals[i].second);
     }
 
-    move_data_structure<POS> mds(std::move(pairs), cli.mds_n, { .num_threads = cli.num_threads, .a = cli.a });
+    move_data_structure<CACHE_LINES> mds(std::move(pairs), cli.mds_n, { .num_threads = cli.num_threads, .a = cli.a });
     print_fact("n", cli.mds_n);
     print_fact("k'", mds.num_intervals());
     print_fact("a", mds.balancing_parameter());

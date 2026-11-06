@@ -330,7 +330,7 @@ void apm_costs_t::compile(const apm_model_t& model, const pat_t& P, std::string_
     if (model.tau != 0 || error_cost != 0) {
         set_tau(model.tau != 0 ? model.tau : 1);
         _uniform_cost = error_cost >= _tau ? error_cost : 0;
-        choose_cost_dp(model.cost_dp);
+        choose_cost_dp(model);
         return;
     }
 
@@ -384,7 +384,7 @@ void apm_costs_t::compile(const apm_model_t& model, const pat_t& P, std::string_
 
     if (applied != best_tau) set_tau(best_tau);
     _uniform_cost = 0;
-    choose_cost_dp(model.cost_dp);
+    choose_cost_dp(model);
 }
 
 inline uint16_t apm_costs_t::compute_uniform_cost() const
@@ -402,14 +402,25 @@ inline uint16_t apm_costs_t::compute_uniform_cost() const
     return cost;
 }
 
-inline void apm_costs_t::choose_cost_dp(apm_cost_dp_t cost_dp)
+inline void apm_costs_t::choose_cost_dp(const apm_model_t& model)
 {
-    // with AUTO, the search prunes without gap openings and counters, or bounds the cost if the costs alone allow
-    // at most one insertion or deletion and the search more errors
-    const uint64_t indels = max_num_errors(0, _m, true, false);
-    const bool auto_on = indels <= 1 && _max_errors > indels;
-    const bool auto_prune = !_affine && _num_counters == 0;
-    _prunes = can_prune() && (cost_dp == APM_COST_DP_PRUNE || (cost_dp == APM_COST_DP_AUTO && auto_prune));
+    // with AUTO, the search bounds the cost if the costs allow at most two thirds of its errors as insertions and
+    // deletions, or as substitutions at their median cost, and also prunes if it can and the occurrences are not written
+    const apm_cost_dp_t cost_dp = model.cost_dp;
+    bool auto_on = false;
+
+    if (_m > 0 && _max_errors > 0) {
+        static thread_local std::vector<uint16_t> sub_costs;
+        sub_costs.assign(_min_sub_cost.begin(), _min_sub_cost.end());
+        const auto median = sub_costs.begin() + _m / 2;
+        std::nth_element(sub_costs.begin(), median, sub_costs.end());
+        const uint64_t subs = _bound / *median;
+        const uint64_t indels = max_num_errors(0, _m, true, false);
+        auto_on = 3 * std::min(subs, indels) <= 2 * _max_errors;
+    }
+
+    _prunes = can_prune() && (cost_dp == APM_COST_DP_PRUNE
+        || (cost_dp == APM_COST_DP_AUTO && auto_on && !model.writes_occurrences));
     _bounds_costs = _prunes || cost_dp == APM_COST_DP_ON || cost_dp == APM_COST_DP_PRUNE
         || (cost_dp == APM_COST_DP_AUTO && auto_on);
 }
@@ -420,6 +431,7 @@ inline void apm_costs_t::set_tau(uint16_t tau)
     _free_syms.clear();
     _free_beg.assign(_m + 1, 0);
     _min_error_cost.assign(_m, apm_forbidden);
+    _min_sub_cost.assign(_m, apm_forbidden);
     _all_errors_counted.assign(_m, 1);
 
     for (uint64_t i = 0; i < _m; i++) {
@@ -432,6 +444,7 @@ inline void apm_costs_t::set_tau(uint16_t tau)
             if (is_free(i, r)) { _free_syms.emplace_back(_unrank[r]); continue; }
             if (c > _bound) continue;
             _min_error_cost[i] = std::min(_min_error_cost[i], c);
+            _min_sub_cost[i] = std::min(_min_sub_cost[i], c);
             if (_sub_counts[i] == 0) _all_errors_counted[i] = 0;
         }
 
@@ -450,36 +463,42 @@ inline uint64_t apm_costs_t::max_num_errors(uint64_t beg, uint64_t end, bool ind
 {
     // the cheapest error at each position
     auto item = [&](uint64_t i) -> uint16_t { return indels_only ? _ins[i] : _min_error_cost[i]; };
-
-    // with the costs alone: the cheapest errors first; a deletion at a boundary can be repeated
-    static thread_local std::vector<uint64_t> buckets;
-    buckets.assign(_bound + 1, 0);
-    for (uint64_t i = beg; i < end; i++) if (item(i) <= _bound) buckets[item(i)]++;
     uint16_t del_min = apm_forbidden;
     for (uint64_t x = beg + 1; x < end; x++) del_min = std::min(del_min, _del[x]);
-    uint64_t by_cost = 0, budget = _bound;
 
-    // an alignment of P with an insertion or a deletion opens a gap
-    if (indels_only && beg == 0 && end == _m) {
+    // the most errors at most budget can pay for: the cheapest errors first; a deletion at a boundary can be repeated
+    static thread_local std::vector<uint64_t> buckets;
+
+    auto most_errors = [&](uint64_t budget, auto cost_at, uint16_t repeated) {
+        buckets.assign(_bound + 1, 0);
+        for (uint64_t i = beg; i < end; i++) if (cost_at(i) <= _bound) buckets[cost_at(i)]++;
+        uint64_t errors = 0;
+
+        for (uint64_t c = 1; c <= budget; c++) {
+            if (repeated <= c) return errors + budget / repeated;
+            const uint64_t take = std::min<uint64_t>(buckets[c], budget / c);
+            errors += take;
+            budget -= take * c;
+        }
+
+        return errors;
+    };
+
+    uint64_t by_cost;
+
+    if (beg == 0 && end == _m) {
+        // an alignment of P with an insertion or a deletion opens a gap
         uint64_t open_min = apm_forbidden;
         for (uint64_t i = 0; i < _m; i++) if (_ins[i] <= _bound) open_min = std::min<uint64_t>(open_min, _ins_open[i]);
         for (uint64_t x = 1; x < _m; x++) if (_del[x] <= _bound) open_min = std::min<uint64_t>(open_min, _del_open[x]);
-        if (open_min > budget) return 0;
-        budget -= open_min;
-    }
+        by_cost = open_min <= _bound ? most_errors(_bound - open_min, item, del_min) : 0;
 
-    for (uint64_t c = 1; c <= _bound; c++) {
-        if (c > budget) break;
-
-        if (del_min <= c) {
-            by_cost += budget / del_min;
-            budget %= del_min;
-            break;
+        if (!indels_only) {
+            auto sub_at = [&](uint64_t i) { return _min_sub_cost[i]; };
+            by_cost = std::max(by_cost, most_errors(_bound, sub_at, apm_forbidden));
         }
-
-        uint64_t take = std::min<uint64_t>(buckets[c], budget / c);
-        by_cost += take;
-        budget -= take * c;
+    } else {
+        by_cost = most_errors(_bound, item, del_min);
     }
 
     if (!counters) return by_cost;
@@ -630,7 +649,7 @@ std::pair<uint64_t, uint64_t> apm_costs_t::align_without_counters(const str_t& M
 
             for (uint64_t q0 = 0; q0 < states && !found; q0++) {
                 if (plus(at(i - 1, j - 1, q0), c) != v) continue;
-                runs.emplace_back(t == _pattern[i - 1] ? MATCH<uint8_t>() : MISMATCH(t));
+                runs.emplace_back(matches(i - 1, r) ? MATCH<uint8_t>() : MISMATCH(t));
                 if (!matches(i - 1, r)) path_counters += _sub_counts[i - 1];
                 i--; j--; q = q0; found = true;
             }
@@ -821,7 +840,7 @@ std::pair<uint64_t, uint64_t> apm_costs_t::align_reusing(const str_t& M, cigar_t
         for (uint32_t x = best; labels[x].step != step_start; x = labels[x].prev) {
             switch (labels[x].step) {
                 case step_match:
-                    if (std::bit_cast<uint8_t>(T[j - 1]) == _pattern[i - 1]) runs.emplace_back(MATCH<uint8_t>());
+                    if (matches(i - 1, _rank[std::bit_cast<uint8_t>(T[j - 1])])) runs.emplace_back(MATCH<uint8_t>());
                     else runs.emplace_back(MISMATCH(std::bit_cast<uint8_t>(T[j - 1])));
                     i--; j--;
                     break;

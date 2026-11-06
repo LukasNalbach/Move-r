@@ -173,7 +173,7 @@ TEST(test_move_rb, apm_model_repetitive)
                 verify_hamming_model(index, pattern_bytes, input_bytes, *costs, apm_params, locate, gen_test);
             }
         }
-    } } }, fuzz_iterations());
+    }, true } }, fuzz_iterations());
 }
 
 /* locate with the Hamming and the edit distance (with and without CIGARs) with each search scheme for patterns at the

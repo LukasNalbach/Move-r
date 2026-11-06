@@ -121,6 +121,7 @@ void move_r<support, mlf_enc>::construction::build_mphi_inv()
             .pair_rows = &plcp_row,
             // marks the first input interval of each pair (see build_SA_Phi_inv)
             .first_pieces = samples_layout == _as_phi_inv_intervals ? &phi_inv_first_intervals : nullptr,
+            .input_interval_queries = is_bidirectional,
             .log = params.log,
             .mf = params.mf_mds,
             .name = "M_Phi_inv",
@@ -227,6 +228,7 @@ void move_r<support, mlf_enc>::construction::build_mphi()
         std::move(I_Phi), n, {
             .num_threads = p,
             .a = idx.a,
+            .input_interval_queries = is_bidirectional,
             .log = params.log,
             .mf = params.mf_mds,
             .name = "M_Phi",

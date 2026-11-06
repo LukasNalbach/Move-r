@@ -36,6 +36,7 @@
 #include <data_structures/interleaved_bit_aligned_vectors.hpp>
 #include <move_data_structure/move_data_structure.hpp>
 #include <move_r/construction/pfp_output.hpp>
+#include <move_r/construction/spill_log.hpp>
 #include <move_r/construction/text_alphabet.hpp>
 #include <misc/files.hpp>
 #include <misc/log.hpp>
@@ -45,46 +46,11 @@
 // minimum number of symbols of T$ per thread of a construction (see limit_num_threads)
 inline constexpr uint64_t move_r_min_symbols_per_thread = 1000;
 
-// storing, loading or deleting fewer bytes of a data structure is not logged (one sector of O_DIRECT)
-inline constexpr uint64_t min_logged_spill_bytes = direct_io_alignment;
-
 // returns the phase of a measurement key: the key without the prefix "time_" (see log_phase_end)
 inline std::string measurement_phase(const std::string& mf_key)
 {
     constexpr std::string_view time_prefix = "time_";
     return mf_key.starts_with(time_prefix) ? mf_key.substr(time_prefix.size()) : mf_key;
-}
-
-/**
- * @brief returns the log message of a phase that stores data structures to disk or reads them: "storing data
- *        structures to disk" resp. "reading data structures from disk" (other messages, e.g. "deleting M_Phi_inv",
- *        are returned unchanged)
- * @param message the action and the data structure, e.g. "storing M_Phi"
- */
-inline std::string spill_message(const std::string& message)
-{
-    if (message.starts_with("storing ")) return "storing data structures to disk";
-    if (message.starts_with("reading ")) return "reading data structures from disk";
-    return message;
-}
-
-/**
- * @brief ends a phase that stores a data structure to disk, loads it from disk or deletes it, started with
- *        log_phase_start(log, time, ""): logs it with log_grouped as spill_message(message) (in one line with the
- *        phases of the same message logged directly before, e.g. "storing data structures to disk, in ~ <time>"), if
- *        bytes >= min_logged_spill_bytes; the measurement keys of log_phase_end are written in both cases
- * @param log whether logging is enabled
- * @param time the phase timer; set to now
- * @param message the action and the data structure, e.g. "storing M_Phi"
- * @param bytes the number of bytes stored, loaded or deleted
- * @param stored whether the phase stores the data structure (only then its size is logged)
- * @param mf the measurement file (nullptr: none)
- * @param mf_key the measurement key of the phase (empty: none)
- */
-inline void log_spill_phase_end(bool log, std::chrono::steady_clock::time_point& time, const std::string& message,
-    uint64_t bytes, bool stored, std::ostream* mf, const std::string& mf_key)
-{
-    log_grouped_phase_end(log, time, spill_message(message), 0, false, mf, mf_key, bytes >= min_logged_spill_bytes);
 }
 
 /**
@@ -483,14 +449,7 @@ public:
      * @param logged whether the phase is logged
      */
     void end_grouped_phase(const std::string& message, uint64_t bytes, bool with_size, const std::string& mf_key,
-        bool logged = true)
-    {
-        const uint64_t ns = time_diff_ns(time, now());
-        log_phase_end_quiet(mf_key);
-        const size_t space = message.find(' ');
-        if (logged) log_grouped(params.log, message.substr(0, space), message.substr(space + 1), bytes, with_size, ns);
-        time = now();
-    }
+        bool logged = true);
 
     // writes the start of the RESULT line of a move data structure construction to mf_mds (see log_mds_phase_end)
     void begin_mds_result(const std::string& algo)

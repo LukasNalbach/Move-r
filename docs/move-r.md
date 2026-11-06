@@ -79,8 +79,8 @@ int main()
 }
 ```
 
-The second template parameter selects the encoding of the interval starting positions of M_LF: `EF` (default for
-`_count` to `_locate_rlzsa`; smaller) or `POS` (faster), e.g. `move_r<_locate_move, POS>`.
+The second template parameter selects the encoding of the interval starting positions of M_LF: `ELIAS_FANO` (default for
+`_count` to `_locate_rlzsa`; smaller) or `CACHE_LINES` (faster), e.g. `move_r<_locate_move, CACHE_LINES>`.
 
 ## Storing and loading
 
@@ -200,7 +200,7 @@ range methods for the suffix array need `_locate_move` or `_locate_rlzsa`. The B
 lexicographically. The index stores up to `move_r_params::revert_start_samples` (default 4096) BWT run starts with
 their suffix array values; `revert` splits the text at these positions and reverts the pieces with up to the given
 number of threads (default: all), each of which reverts `default_revert_strands` pieces alternately (2 with M_LF in
-EF, else 1); `revert(report)` reports the symbols from right to left with one thread.
+ELIAS_FANO, else 1); `revert(report)` reports the symbols from right to left with one thread.
 `BWT_range`, `SA_range` and `revert` return a `no_init_vector` (a `std::vector` that is resized without initializing
 its elements, header `misc/memory.hpp` of string-utils); `BWT_range<out_t>` and `revert<out_t>` take another
 container type.

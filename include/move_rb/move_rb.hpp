@@ -99,15 +99,15 @@ class move_rb {
     // (see _SA_pos); else, they are computed with Phi_inv (see compute_center)
     static constexpr bool stores_SA_pos = support == _locate_rlzsa;
 
-    // type of idx_fwd; its M_LF uses the POS encoding (absolute input interval starting positions)
+    // type of idx_fwd; its M_LF uses the CACHE_LINES encoding (absolute input interval starting positions)
     using move_r_fwd_t = constexpr_switch_t<
-        constexpr_case<support == _locate_move,  move_r<_locate_move_bi, POS>>,
-        constexpr_case<support == _locate_rlzsa, move_r<_locate_rlzsa_bi, POS>>,
-        constexpr_case<support == _locate_one,   move_r<_locate_one_bi, POS>>,
-     /* constexpr_case<support == _count, */     move_r<_count_bi, POS>>;
+        constexpr_case<support == _locate_move,  move_r<_locate_move_bi, CACHE_LINES>>,
+        constexpr_case<support == _locate_rlzsa, move_r<_locate_rlzsa_bi, CACHE_LINES>>,
+        constexpr_case<support == _locate_one,   move_r<_locate_one_bi, CACHE_LINES>>,
+     /* constexpr_case<support == _count, */     move_r<_count_bi, CACHE_LINES>>;
 
     // type of idx_bwd; it stores M_LF and the SA-samples
-    using move_r_bwd_t = std::conditional_t<support == _count, move_r<_count_bi, POS>, move_r<_locate_one_bi, POS>>;
+    using move_r_bwd_t = std::conditional_t<support == _count, move_r<_count_bi, CACHE_LINES>, move_r<_locate_one_bi, CACHE_LINES>>;
 
     // true <=> the index supports locate
     static constexpr bool supports_locate = move_r_fwd_t::supports_locate;
@@ -124,7 +124,7 @@ class move_rb {
 
     using inp_t = std::vector<uint8_t>; // pattern type of the approximate pattern matching algorithms
 
-    // every input_interval_sample_rate-th input interval starting position is stored in the sd-arrays S_*_p
+    // every input_interval_sample_rate-th input interval starting position is stored in the sd-arrays S_MLF_p
     // (see sample_input_intervals)
     static constexpr uint64_t input_interval_sample_rate = 4;
 
@@ -267,11 +267,6 @@ protected:
     elias_fano_bit_vector _S_MLF_p_fwd;
     elias_fano_bit_vector _S_MLF_p_bwd;
 
-    // samples the input interval starting positions of M_Phi resp. M_Phi_inv of idx_fwd (as _S_MLF_p_fwd); empty
-    // unless has_mphi
-    elias_fano_bit_vector _S_MPhi_p_fwd;
-    elias_fano_bit_vector _S_MPhi_inv_p_fwd;
-
     /* the positions in the suffix array of T of the SA-samples of idx_bwd: [0..s-1], s = idx_bwd.SA_run_pos().num_samples();
        _SA_pos[k] = j with SA[j] = n - 1 - v_k, where v_k is the value of the k-th SA-sample of idx_bwd (numbered as
        in run_sample_positions: one at each start of a BWT run, one at each end of a BWT run of length > 1);
@@ -364,15 +359,13 @@ protected:
     // returns the index of the input interval of M_Phi containing pos
     inline uint64_t phi_interval(uint64_t pos) const requires(has_mphi)
     {
-        const auto& M_Phi = idx_fwd.M_Phi();
-        return input_interval(pos, _S_MPhi_p_fwd, [&](uint64_t y) { return M_Phi.p(y); });
+        return idx_fwd.M_Phi().input_interval_at(pos);
     }
 
     // returns the index of the input interval of M_Phi_inv containing pos
     inline uint64_t phi_inv_interval(uint64_t pos) const requires(has_mphi)
     {
-        const auto& M_Phi_inv = idx_fwd.M_Phi_inv();
-        return input_interval(pos, _S_MPhi_inv_p_fwd, [&](uint64_t y) { return M_Phi_inv.p(y); });
+        return idx_fwd.M_Phi_inv().input_interval_at(pos);
     }
 
     // ############################# CONSTRUCTION #############################
@@ -633,16 +626,7 @@ public:
      * @param max_entries at most this many patterns are logged per tree or table
      */
     void log_context_tables(uint64_t max_depth = default_logged_tree_depth,
-        uint64_t max_entries = default_logged_entries) const
-    {
-        if (_context_tables.empty()) {
-            std::cout << "no context tables" << std::endl;
-            return;
-        }
-
-        _context_tables.log_data_structures([&](uint64_t sym) { return idx_fwd.logged_symbol(sym); },
-            ctx_primary_dir == LEFT, max_depth, max_entries);
-    }
+        uint64_t max_entries = default_logged_entries) const;
 
     /**
      * @brief adds the parameters the size of the index depends on to the facts of the info modes (see
@@ -788,14 +772,12 @@ public:
      */
     template <cigar_mode_t mode = NO_CIGAR>
     std::vector<cigar_t<uint8_t>> locate_apm(const std::vector<uint8_t>& P, const search_scheme_t& scheme,
-        distance_metric_t dist_metr, std::vector<aprx_occ_t<mode>>& occ, apm_params_t params = {}) const
-        requires(supports_multiple_locate);
+        distance_metric_t dist_metr, std::vector<aprx_occ_t<mode>>& occ, apm_params_t params = {}) const requires(supports_multiple_locate);
 
     // converts the pattern to bytes and calls locate_apm
     template <cigar_mode_t mode = NO_CIGAR, typename sym_t>
     std::vector<cigar_t<uint8_t>> locate(move_r_pattern_view<sym_t> P, const search_scheme_t& scheme,
-        distance_metric_t dist_metr, std::vector<aprx_occ_t<mode>>& occ, apm_params_t params = {}) const
-        requires(supports_multiple_locate)
+        distance_metric_t dist_metr, std::vector<aprx_occ_t<mode>>& occ, apm_params_t params = {}) const requires(supports_multiple_locate)
     {
         std::vector<uint8_t> P_(P.begin(), P.end());
         return locate_apm<mode>(P_, scheme, dist_metr, occ, params);
@@ -819,8 +801,7 @@ public:
      */
     template <typename sym_t>
     std::vector<aprx_occ_t<>> locate(move_r_pattern_view<sym_t> P, const search_scheme_t& scheme,
-        distance_metric_t dist_metr, apm_params_t params = {}) const
-        requires(supports_multiple_locate)
+        distance_metric_t dist_metr, apm_params_t params = {}) const requires(supports_multiple_locate)
     {
         std::vector<aprx_occ_t<>> occ;
         locate<NO_CIGAR>(P, scheme, dist_metr, occ, params);
@@ -836,8 +817,7 @@ public:
 
     // locates a NUL-terminated pattern with at most k errors (w.r.t. dist_metr)
     std::vector<aprx_occ_t<>> locate(const char* P, const search_scheme_t& scheme,
-        distance_metric_t dist_metr, apm_params_t params = {}) const
-        requires(supports_multiple_locate)
+        distance_metric_t dist_metr, apm_params_t params = {}) const requires(supports_multiple_locate)
     { return locate(std::string_view(P), scheme, dist_metr, params); }
 
     // ############################# CONSTRUCTION METHODS #############################

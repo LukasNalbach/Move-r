@@ -724,7 +724,7 @@ inline std::string random_symbols(const std::string& syms, std::mt19937_64& gen_
 inline apm_model_t random_apm_model(const std::string& syms, uint64_t m, std::mt19937_64& gen_query)
 {
     // the largest cost_dp of a random model
-    constexpr uint64_t max_model_cost_dp = APM_COST_DP_OFF;
+    constexpr uint64_t max_model_cost_dp = APM_COST_DP_PRUNE;
 
     apm_model_t model;
     const uint8_t ops_all = APM_SUB | APM_INS | APM_DEL | APM_OPEN;
@@ -886,9 +886,10 @@ inline uint64_t model_cigar_cost(std::span<const uint8_t> text, std::span<const 
             if (run.op == cigar_op_t::MATCH || run.op == cigar_op_t::MISMATCH) {
                 if (i >= P.size() || j >= len) return invalid;
                 uint8_t t = text[pos + j];
-                if (run.op == cigar_op_t::MATCH && t != P[i]) return invalid;
-                if (run.op == cigar_op_t::MISMATCH && (t != run.sym || t == P[i])) return invalid;
                 uint64_t r = costs.rank(t);
+                // a match is a pair of symbols the model matches (e.g., with symbol classes), not only equal symbols
+                if (run.op == cigar_op_t::MATCH && !costs.matches(i, r)) return invalid;
+                if (run.op == cigar_op_t::MISMATCH && (t != run.sym || costs.matches(i, r))) return invalid;
 
                 if (!costs.matches(i, r)) {
                     if (costs.sub(i, r) == apm_forbidden) return invalid;

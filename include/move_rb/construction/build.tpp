@@ -542,13 +542,6 @@ void move_rb<support>::build_samplings(build_state_t& st)
         build_sampling_phase(st, std::string("building S_MLF_p") + direction_suffix<RIGHT>(), "time_build_s_mlf_p_bwd",
             idx_bwd.M_LF(), _S_MLF_p_bwd);
     } else {
-        if constexpr (has_mphi) {
-            build_sampling_phase(st, std::string("building S_MPhi_p") + direction_suffix<LEFT>(),
-                "time_build_s_mphi_p_fwd", idx_fwd.M_Phi(), _S_MPhi_p_fwd);
-            build_sampling_phase(st, std::string("building S_MPhi_inv_p") + direction_suffix<LEFT>(),
-                "time_build_s_mphi_inv_p_fwd", idx_fwd.M_Phi_inv(), _S_MPhi_inv_p_fwd);
-        }
-
         build_sampling_phase(st, std::string("building S_MLF_p") + direction_suffix<LEFT>(), "time_build_s_mlf_p_fwd",
             idx_fwd.M_LF(), _S_MLF_p_fwd);
     }

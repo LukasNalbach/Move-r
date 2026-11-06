@@ -191,4 +191,16 @@ inline void context_tables::log_data_structures(const std::function<std::string(
     });
 }
 
+inline uint64_t context_tables::size_in_bytes(context_order_t order) const
+{
+    uint64_t size = order == _forward_order ? symbol_entries.size() * sizeof(uint32_t) : 0;
+
+    for (const level_t& l : levels) {
+        size += l.orders[order].size_in_bytes();
+        if (order == _forward_order) size += l.sample_marks.size_in_bytes() + l.samples.size_in_bytes();
+    }
+
+    return size;
+}
+
 #endif // MOVE_R_DATA_STRUCTURES_CONTEXT_TABLES_TPP

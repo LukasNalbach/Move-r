@@ -39,8 +39,6 @@ uint64_t move_rb<support>::size_in_bytes() const
         idx_bwd.size_in_bytes() +
         _S_MLF_p_fwd.size_in_bytes() +
         _S_MLF_p_bwd.size_in_bytes() +
-        _S_MPhi_p_fwd.size_in_bytes() +
-        _S_MPhi_inv_p_fwd.size_in_bytes() +
         opt_size(_SA_pos) +
         _seq_data.size_in_bytes() +
         _context_tables.size_in_bytes();
@@ -77,11 +75,6 @@ void move_rb<support>::log_direction_sizes() const
     // the auxiliary data structures
     index<dir>().log_auxiliary_structure_sizes();
     log_component("S_MLF_p", S_MLF_p<dir>().size_in_bytes());
-
-    if constexpr (dir == LEFT && has_mphi) {
-        log_component("S_MPhi_p", _S_MPhi_p_fwd.size_in_bytes());
-        log_component("S_MPhi_inv_p", _S_MPhi_inv_p_fwd.size_in_bytes());
-    }
 
     listing_indent--;
 }
@@ -166,11 +159,6 @@ void move_rb<support>::log_data_structure_sizes(std::ostream& out) const
     idx_fwd.log_data_structure_sizes(out, "_fwd");
     out << " size_s_mlf_p_fwd=" << _S_MLF_p_fwd.size_in_bytes();
 
-    if constexpr (has_mphi) {
-        out << " size_s_mphi_p=" << _S_MPhi_p_fwd.size_in_bytes();
-        out << " size_s_mphi_inv_p=" << _S_MPhi_inv_p_fwd.size_in_bytes();
-    }
-
     idx_bwd.log_data_structure_sizes(out, "_bwd");
     out << " size_s_mlf_p_bwd=" << _S_MLF_p_bwd.size_in_bytes();
     if constexpr (has_SA_pos) out << " size_sa_pos=" << opt_size(_SA_pos);
@@ -200,9 +188,6 @@ void move_rb<support>::serialize(std::ostream& out) const
     _S_MLF_p_fwd.serialize(out);
     _S_MLF_p_bwd.serialize(out);
 
-    _S_MPhi_p_fwd.serialize(out);
-    _S_MPhi_inv_p_fwd.serialize(out);
-
     opt_serialize(_SA_pos, out);
 
     _seq_data.serialize(out);
@@ -230,13 +215,22 @@ void move_rb<support>::load(std::istream& in)
     _S_MLF_p_fwd.load(in);
     _S_MLF_p_bwd.load(in);
 
-    _S_MPhi_p_fwd.load(in);
-    _S_MPhi_inv_p_fwd.load(in);
-
     opt_load(_SA_pos, in);
 
     _seq_data.load(in);
     _context_tables.load(in);
+}
+
+template <move_r_support support>
+inline void move_rb<support>::log_context_tables(uint64_t max_depth, uint64_t max_entries) const
+{
+    if (_context_tables.empty()) {
+        std::cout << "no context tables" << std::endl;
+        return;
+    }
+
+    _context_tables.log_data_structures([&](uint64_t sym) { return idx_fwd.logged_symbol(sym); },
+        ctx_primary_dir == LEFT, max_depth, max_entries);
 }
 
 #endif // MOVE_R_MOVE_RB_MOVE_RB_TPP

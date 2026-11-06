@@ -48,8 +48,7 @@ inline uint64_t move_rb<support>::locate_context_t<output>::sampled_occ() const
 
 template <move_r_support support>
 template <locate_output_t output>
-inline uint64_t move_rb<support>::locate_context_t<output>::compute_center()
-    requires(supports_multiple_locate)
+inline uint64_t move_rb<support>::locate_context_t<output>::compute_center() requires(supports_multiple_locate)
 {
     if (centered) return c;
     centered = true;
@@ -119,8 +118,7 @@ inline uint64_t move_rb<support>::locate_context_t<output>::compute_center()
 
 template <move_r_support support>
 template <locate_output_t output>
-inline uint64_t move_rb<support>::locate_context_t<output>::first_occ()
-    requires(supports_multiple_locate)
+inline uint64_t move_rb<support>::locate_context_t<output>::first_occ() requires(supports_multiple_locate)
 {
     const auto& [b, e, b_R, e_R, b_, e_, b_R_, e_R_, s] = ctx->template const_vars<LEFT>();
 
@@ -147,8 +145,7 @@ inline uint64_t move_rb<support>::locate_context_t<output>::first_occ()
 
 template <move_r_support support>
 template <locate_output_t output>
-inline bool move_rb<support>::locate_context_t<output>::is_right_limit() const
-    requires(supports_multiple_locate && !stores_SA_pos)
+inline bool move_rb<support>::locate_context_t<output>::is_right_limit() const requires(supports_multiple_locate && !stores_SA_pos)
 {
     // PLCP[Phi_inv(SA_i)] = LCP[i + 1] < m <=> i = e
     return idx->plcp_at_phi_inv(SA_i, x_phi) < ctx->m;
@@ -156,8 +153,7 @@ inline bool move_rb<support>::locate_context_t<output>::is_right_limit() const
 
 template <move_r_support support>
 template <locate_output_t output>
-inline uint64_t move_rb<support>::locate_context_t<output>::next_occ()
-    requires(supports_multiple_locate)
+inline uint64_t move_rb<support>::locate_context_t<output>::next_occ() requires(supports_multiple_locate)
 {
     if (scan_dir == NO_DIR) [[unlikely]] {
         return first_occ();
@@ -205,8 +201,7 @@ inline uint64_t move_rb<support>::locate_context_t<output>::next_occ()
 template <move_r_support support>
 template <locate_output_t output>
 template <typename report_fnc_t>
-inline void move_rb<support>::locate_context_t<output>::locate(report_fnc_t report)
-    requires(supports_multiple_locate)
+inline void move_rb<support>::locate_context_t<output>::locate(report_fnc_t report) requires(supports_multiple_locate)
 {
     locate_from_sample(report);
 }
@@ -322,8 +317,7 @@ inline void move_rb<support>::locate_context_t<output>::locate_from_sample(
 
 template <move_r_support support>
 template <locate_output_t output>
-std::vector<uint48_t> move_rb<support>::locate_context_t<output>::locate()
-    requires(supports_multiple_locate)
+std::vector<uint48_t> move_rb<support>::locate_context_t<output>::locate() requires(supports_multiple_locate)
 {
     std::vector<uint48_t> Occ;
     Occ.reserve(occ_rem);

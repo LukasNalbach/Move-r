@@ -115,8 +115,9 @@ struct apm_class_t {
 
 /** @brief whether the edit-distance search bounds the cost of the alignments (see apm_cost_band) */
 enum apm_cost_dp_t : uint8_t {
-    // PRUNE if the search can prune (see apm_costs_t::can_prune) and neither gap openings nor counters apply, else ON
-    // if the costs allow at most one insertion or deletion but the search more errors, else OFF
+    // if the costs allow at most two thirds of the errors of the search as insertions and deletions, or as
+    // substitutions at their median cost: PRUNE if the search can prune (see apm_costs_t::can_prune) and the occurrences
+    // are not written (see apm_model_t::writes_occurrences), else ON; else OFF
     APM_COST_DP_AUTO = 0,
     APM_COST_DP_ON = 1,   // the search bounds the cost
     APM_COST_DP_OFF = 2,  // the search does not compute the cost
@@ -140,6 +141,7 @@ struct apm_model_t {
     uint16_t tau = 0;     // the smallest cost of a substitution that the search counts as an error (see
                           // apm_costs_t::tau); 0: chosen for each pattern (see apm_costs_t::compile)
     apm_cost_dp_t cost_dp = APM_COST_DP_AUTO; // whether the edit-distance search bounds the cost
+    bool writes_occurrences = false; // whether every reported occurrence is written to a file (see APM_COST_DP_AUTO)
 
     // returns whether the model is the default model
     bool is_default() const
@@ -249,6 +251,8 @@ protected:
     // [0..m-1] the cost of the cheapest error at P[i] (a counted substitution or an insertion) within the bound, or
     // apm_forbidden
     std::vector<uint16_t> _min_error_cost;
+    // [0..m-1] the cost of the cheapest counted substitution of P[i] within the bound, or apm_forbidden
+    std::vector<uint16_t> _min_sub_cost;
     // [0..m-1] 1 <=> every error at P[i] within the bound increments a counter
     std::vector<uint8_t> _all_errors_counted;
     uint64_t _num_counters = 0;
@@ -281,7 +285,7 @@ protected:
     void set_tau(uint16_t tau);
 
     // sets whether the edit-distance search bounds the cost of the alignments
-    void choose_cost_dp(apm_cost_dp_t cost_dp);
+    void choose_cost_dp(const apm_model_t& model);
 
     // returns the cost of every error if all substitutions, insertions and deletions cost the same and neither
     // counters nor gap openings apply, else 0

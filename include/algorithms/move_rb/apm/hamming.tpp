@@ -349,7 +349,7 @@ auto apm_hamming<idx_t>::search_model(const inp_t& P, const search_scheme_t& sch
 
                     uint64_t next_num_errors = st.num_errors + counted;
                     if (next_num_errors > S[cur.step].k_max || (part_ends && next_num_errors < S[cur.step].k_min)) return;
-                    bool differs = sym != P[cur.pos];
+                    bool differs = !costs.matches(cur.pos, r);
 
                     if (next_step == p) {
                         next_ctx.set_errors(cost);
