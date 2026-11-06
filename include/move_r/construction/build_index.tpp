@@ -332,4 +332,15 @@ void move_r<support, mlf_enc>::construction::log_statistics()
         + ", sigma = " + format_number(idx.sigma) + "\n");
 }
 
+template <move_r_support support, move_pos_encoding_t mlf_enc>
+void move_r<support, mlf_enc>::construction::end_grouped_phase(const std::string& message, uint64_t bytes, bool with_size, const std::string& mf_key,
+    bool logged)
+{
+    const uint64_t ns = time_diff_ns(time, now());
+    log_phase_end_quiet(mf_key);
+    const size_t space = message.find(' ');
+    if (logged) log_grouped(params.log, message.substr(0, space), message.substr(space + 1), bytes, with_size, ns);
+    time = now();
+}
+
 #endif // MOVE_R_MOVE_R_CONSTRUCTION_BUILD_INDEX_TPP

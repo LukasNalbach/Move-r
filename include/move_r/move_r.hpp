@@ -334,10 +334,10 @@ template <uint8_t tag> struct absent_field_t { };
  * of the constructors only.
  *
  * @tparam support type of locate support
- * @tparam mlf_enc M_LF's interval-position encoding type (default: EF for _count to _locate_rlzsa, else POS); with
- *         EF, the backward search moves (interval, offset)-pairs (see move_data_structure::move_offset)
+ * @tparam mlf_enc M_LF's interval-position encoding type (default: ELIAS_FANO for _count to _locate_rlzsa, else CACHE_LINES); with
+ *         ELIAS_FANO, the backward search moves (interval, offset)-pairs (see move_data_structure::move_offset)
  */
-template <move_r_support support = _locate_move, move_pos_encoding_t mlf_enc = (support <= _locate_rlzsa ? EF : POS)>
+template <move_r_support support = _locate_move, move_pos_encoding_t mlf_enc = (support <= _locate_rlzsa ? ELIAS_FANO : CACHE_LINES)>
 class move_r {
 public:
     // ############################# TYPES, CONSTANTS AND PARAMETERS #############################
@@ -345,7 +345,7 @@ public:
     // true <=> M_Phi and M_Phi_inv are stored; M_Phi_inv stores the PLCP value at the start of each input interval
     // as row 0
     static constexpr bool has_mphi = support == _locate_move_bi;
-    static_assert(support < _count_bi || mlf_enc == POS,
+    static_assert(support < _count_bi || mlf_enc == CACHE_LINES,
         "a sub-index of a bidirectional index stores the positional M_LF encoding");
 
     // true <=> the suffix array samples are the only locate data structure the index stores (see _locate_one_bi)
@@ -353,8 +353,8 @@ public:
 
     // type of M_LF; it stores L' (the BWT run heads) as row 0
     using mlf_t = move_data_structure<mlf_enc, UNI>;
-    // type of M_Phi and M_Phi_inv: the EF encoding (see move_pos_encoding_t)
-    using mphi_t = move_data_structure<EF, UNI>;
+    // type of M_Phi and M_Phi_inv: the ELIAS_FANO encoding (see move_pos_encoding_t)
+    using mphi_t = move_data_structure<ELIAS_FANO, UNI>;
     // number of additional rows: L' for M_LF, the PLCP values for M_Phi_inv
     static constexpr uint8_t mlf_num_rows = 1;
     static constexpr uint8_t mphi_inv_num_rows = has_mphi ? 1 : 0;
@@ -657,8 +657,7 @@ public:
      * @param map_int [0..255] the map from the bytes to the internal symbols (see _map_int)
      * @param map_ext [0..255] the map from the internal symbols to the bytes (see _map_ext)
      */
-    void set_alphabet_maps(const std::vector<uint8_t>& map_int, const std::vector<uint8_t>& map_ext)
-        requires(is_bidirectional);
+    void set_alphabet_maps(const std::vector<uint8_t>& map_int, const std::vector<uint8_t>& map_ext) requires(is_bidirectional);
 
     /**
      * @brief sets the alphabet of an index with an integer alphabet (only for bidirectional indexes)
@@ -801,8 +800,7 @@ public:
      * @param x [0..r'-1] an input interval of M_LF that starts a BWT run
      * @return SA[M_LF.p[x]]
      */
-    inline uint64_t SA_run_start(uint64_t x) const
-        requires(builds_SA_samples);
+    inline uint64_t SA_run_start(uint64_t x) const requires(builds_SA_samples);
 
     /**
      * @brief returns the suffix array sample at the end position of the x-th input interval of M_LF
@@ -820,14 +818,14 @@ public:
     inline uint64_t L_(uint64_t x) const { return _M_LF.template row<0>(x); }
 
     /**
-     * @brief LF step with M_LF: i is a position (M_LF in POS) or the offset of a position within the x-th input
-     *        interval of M_LF (M_LF in EF, see move_data_structure::move_offset)
+     * @brief LF step with M_LF: i is a position (M_LF in CACHE_LINES) or the offset of a position within the x-th input
+     *        interval of M_LF (M_LF in ELIAS_FANO, see move_data_structure::move_offset)
      * @param i position or offset of j; is set to the position or offset of LF(j)
      * @param x [0..r'-1] index of the input interval of M_LF containing j; is set to the one containing LF(j)
      */
     inline void LF_step(uint64_t& i, uint64_t& x) const
     {
-        if constexpr (mlf_enc == POS) _M_LF.move(i, x);
+        if constexpr (mlf_enc == CACHE_LINES) _M_LF.move(i, x);
         else _M_LF.move_offset(i, x);
     }
 
@@ -937,8 +935,7 @@ public:
      * @param i [0..input size]
      * @return SA[i]
      */
-    uint64_t SA(uint64_t i) const
-        requires(has_SA_access);
+    uint64_t SA(uint64_t i) const requires(has_SA_access);
 
     /**
      * @brief reports SA[b..e] (with random access to the suffix array, see has_SA_access)
@@ -948,8 +945,7 @@ public:
      * @param report function called as report(SA[i]) for i = b, ..., e
      */
     template <typename fnc_t>
-    void SA_range(uint64_t b, uint64_t e, fnc_t report) const
-        requires(has_SA_access);
+    void SA_range(uint64_t b, uint64_t e, fnc_t report) const requires(has_SA_access);
 
     /**
      * @brief the state of a backward search for a pattern P that is extended to the left (see prepend), and of the
@@ -967,7 +963,7 @@ public:
 
     protected:
         uint64_t l; // length of the currently matched pattern
-        // b and e (M_LF in POS), or their offsets in the input intervals b_ and e_ of M_LF (M_LF in EF)
+        // b and e (M_LF in CACHE_LINES), or their offsets in the input intervals b_ and e_ of M_LF (M_LF in ELIAS_FANO)
         uint64_t b, e;
         // the input intervals of M_LF containing b and e, and \hat{b'}_y, \hat{e'}_z (see backward_search_step)
         uint64_t b_, e_, hat_b_ap_y, hat_e_ap_z;
@@ -1036,7 +1032,7 @@ public:
          */
         inline uint64_t num_occ()
         {
-            if constexpr (mlf_enc == EF) {
+            if constexpr (mlf_enc == ELIAS_FANO) {
                 if (!be_valid) return idx->M_LF().distance(b_, b, e_, e) + 1;
             }
             return e - b + 1;
@@ -1046,8 +1042,7 @@ public:
          * @brief returns the number of remaining (not yet reported) occurrences of the currently matched pattern
          * @return number of remaining occurrences
          */
-        inline uint64_t num_occ_rem()
-            requires(supports_multiple_locate)
+        inline uint64_t num_occ_rem() requires(supports_multiple_locate)
         {
             ensure_be();
             return e >= pos() ? e - pos() + 1 : 0;
@@ -1106,8 +1101,8 @@ public:
 
     /**
      * @brief initializes the variables of a backward search for the empty pattern: the suffix array interval
-     *        [b, e] = [0, n-1] is stored as b, e (M_LF in POS) or as their offsets in the input intervals b_ and
-     *        e_ of M_LF (M_LF in EF)
+     *        [b, e] = [0, n-1] is stored as b, e (M_LF in CACHE_LINES) or as their offsets in the input intervals b_ and
+     *        e_ of M_LF (M_LF in ELIAS_FANO)
      * @param b b, or its offset in the b_-th input interval of M_LF
      * @param b_ index of the input interval of M_LF containing b
      * @param e e, or its offset in the e_-th input interval of M_LF
@@ -1182,8 +1177,7 @@ public:
      * @param report function that is called with every occurrence of P in the input as a parameter
      */
     template <typename report_fnc_t, typename sym_t>
-    inline void locate(move_r_pattern_view<sym_t> P, report_fnc_t report) const
-        requires(supports_multiple_locate);
+    inline void locate(move_r_pattern_view<sym_t> P, report_fnc_t report) const requires(supports_multiple_locate);
 
     // locates a pattern stored in a contiguous container (see move_r_pattern_view)
     template <typename report_fnc_t, typename pat_t>
@@ -1192,8 +1186,7 @@ public:
     { locate<report_fnc_t>(move_r_pattern_view_t<pat_t>(P), report); }
 
     // locates a null-terminated pattern
-    inline std::vector<uint48_t> locate(const char* P) const
-        requires(supports_multiple_locate)
+    inline std::vector<uint48_t> locate(const char* P) const requires(supports_multiple_locate)
     { return locate(std::string_view(P)); }
 
     /**
@@ -1203,8 +1196,7 @@ public:
      * @return a vector containing the occurrences of P in the input
      */
     template <typename pat_t>
-    inline std::vector<uint48_t> locate(const pat_t& P) const
-        requires(supports_multiple_locate)
+    inline std::vector<uint48_t> locate(const pat_t& P) const requires(supports_multiple_locate)
     {
         std::vector<uint48_t> Occ;
         locate(P, [&](uint64_t, uint64_t occ){Occ.emplace_back(occ);});
@@ -1356,15 +1348,15 @@ public:
         }, file_name, params);
     }
 
-    // default number of pieces each thread of revert_strands reverts alternately: 2 with M_LF in EF, else 1
-    static constexpr uint64_t default_revert_strands = mlf_enc == EF ? 2 : 1;
+    // default number of pieces each thread of revert_strands reverts alternately: 2 with M_LF in ELIAS_FANO, else 1
+    static constexpr uint64_t default_revert_strands = mlf_enc == ELIAS_FANO ? 2 : 1;
 
     // a piece of the input that revert_strands reverts from right to left
     struct revert_strand {
         uint64_t j; // the text position of the next symbol to report
         uint64_t first; // the text position of the first symbol of the piece
         uint64_t x; // the input interval of M_LF containing ISA[j + 1]
-        uint64_t d; // ISA[j + 1] (M_LF in POS) or its offset in the x-th input interval (EF)
+        uint64_t d; // ISA[j + 1] (M_LF in CACHE_LINES) or its offset in the x-th input interval (ELIAS_FANO)
         uint64_t w; // [0..num_threads * num_strands - 1] the strand slot, unique among all threads
     };
 
@@ -1477,8 +1469,7 @@ public:
      * @param params parameters
      */
     template <typename report_fnc_t>
-    void SA_range_in_pieces(report_fnc_t report, retrieve_params params = {}) const
-        requires(supports_multiple_locate);
+    void SA_range_in_pieces(report_fnc_t report, retrieve_params params = {}) const requires(supports_multiple_locate);
 
     /**
      * @brief writes the values in the suffix array of the input in the range [l,r] to the file file_name (0 <= l <= r <= input size),

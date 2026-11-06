@@ -184,7 +184,7 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
     } else if (params.fasta.text_len != 0) {
         text = std::make_unique<pfp_rlbwt::fasta_source<uint8_t>>(params.input_file, params.fasta.text_len,
             params.fasta.text_transform(), params.fasta.index_samples,
-            params.fasta.num_index_samples, reversed, map_ptr, p);
+            params.fasta.num_index_samples, reversed, map_ptr, p, params.log);
     } else if (!fasta_once) {
         text = std::make_unique<pfp_rlbwt::file_source<uint8_t>>(params.input_file, reversed, map_ptr);
     }

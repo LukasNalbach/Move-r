@@ -39,30 +39,25 @@
 #define MOVE_R_INDEX_OF(supp, enc) move_r<supp, enc>
 #define MOVE_R_CONSTRUCTION_OF(supp, enc) MOVE_R_INDEX_OF(supp, enc)::construction
 
-// all valid index types (support, mlf_enc), in two lists
+// the index types (support, mlf_enc) with the encodings the indexes use (see move_r and move_rb), in two lists
 #define MOVE_R_CLASSES_1(X) \
-    X(_count, POS) \
-    X(_locate_one, POS) \
-    X(_locate_move, POS) \
-    X(_locate_rlzsa, POS) \
-    X(_count_bi, POS) \
-    X(_locate_move_bi, POS)
+    X(_count, ELIAS_FANO) \
+    X(_locate_one, ELIAS_FANO) \
+    X(_count_bi, CACHE_LINES) \
+    X(_locate_move_bi, CACHE_LINES)
 #define MOVE_R_CLASSES_2(X) \
-    X(_count, EF) \
-    X(_locate_one, EF) \
-    X(_locate_move, EF) \
-    X(_locate_rlzsa, EF) \
-    X(_locate_rlzsa_bi, POS) \
-    X(_locate_one_bi, POS)
+    X(_locate_move, ELIAS_FANO) \
+    X(_locate_rlzsa, ELIAS_FANO) \
+    X(_locate_rlzsa_bi, CACHE_LINES) \
+    X(_locate_one_bi, CACHE_LINES)
 #define MOVE_R_CLASSES(X) \
     MOVE_R_CLASSES_1(X) \
     MOVE_R_CLASSES_2(X)
 
 // the index types with an rlz of the differential suffix array (see has_SA_rlz)
 #define MOVE_R_SA_RLZ_CLASSES(X) \
-    X(_locate_rlzsa, POS) \
-    X(_locate_rlzsa, EF) \
-    X(_locate_rlzsa_bi, POS)
+    X(_locate_rlzsa, ELIAS_FANO) \
+    X(_locate_rlzsa_bi, CACHE_LINES)
 
 /* The phases of the construction (without member templates), grouped by the files defining them. Each phase
    is instantiated explicitly by one unit of the instantiation library, so a phase that is added to one of the
@@ -77,6 +72,7 @@
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::limit_num_threads(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::log_phase_end(const std::string&); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::log_phase_end_quiet(const std::string&); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::end_grouped_phase(const std::string&, uint64_t, bool, const std::string&, bool); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::log_mds_phase_end(const std::string&, const std::string&, uint64_t); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::log_peak_mem_usage(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_index(); \

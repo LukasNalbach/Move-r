@@ -67,6 +67,21 @@ are the submodules of the indexes it compares with downloaded and built.
 | `MOVE_R_EXTERN_TEMPLATES` | compile the index classes once in a library instead of in every translation unit (`ON`) |
 | `MOVE_R_COLUMBA_BITS` | `both` (default), `32` or `64`: the index widths of columba built for the move-rb benchmarks |
 
+### macOS
+
+Apple Clang has no OpenMP runtime; install LLVM's `libomp` and the build tools with [Homebrew](https://brew.sh) (the
+compiler comes with Xcode or the Command Line Tools, `xcode-select --install`):
+
+```shell
+brew install cmake ninja libomp
+```
+
+Then build as above. TBB and zlib are not needed on macOS (they are used by the benchmarks), and the benchmarks are only
+meant for Linux: leave `MOVE_R_BUILD_MOVE_R_BENCH` and `MOVE_R_BUILD_MOVE_RB_BENCH` off. CMake finds `libomp` in
+Homebrew or MacPorts, or in the prefix given with `-DOpenMP_ROOT=<prefix>`; see
+[string-utils](https://github.com/LukasNalbach/string-utils#macos) for the details and the differences from Linux.
+Tested on Apple silicon with Apple Clang 21 (macOS 26).
+
 ### Windows
 
 Native MSVC (`cl.exe`) is not supported. With LLVM/Clang (`winget install LLVM.LLVM`), Visual Studio Build Tools and

@@ -140,8 +140,7 @@ template <move_r_support support>
 template <cigar_mode_t mode>
 std::vector<cigar_t<uint8_t>> move_rb<support>::locate_apm(
     const std::vector<uint8_t>& P, const search_scheme_t& scheme, distance_metric_t dist_metr,
-    std::vector<aprx_occ_t<mode>>& occ, apm_params_t params) const
-    requires(supports_multiple_locate)
+    std::vector<aprx_occ_t<mode>>& occ, apm_params_t params) const requires(supports_multiple_locate)
     {
         assert(dist_metr == HAMMING_DISTANCE || dist_metr == EDIT_DISTANCE);
 

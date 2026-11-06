@@ -82,8 +82,7 @@ protected:
     inline uint64_t first_occ() requires(supports_multiple_locate);
 
     // returns whether i = e, i.e., LCP[i + 1] < m
-    inline bool is_right_limit() const
-        requires(supports_multiple_locate && !stores_SA_pos);
+    inline bool is_right_limit() const requires(supports_multiple_locate && !stores_SA_pos);
 
     // reports the remaining occurrences to the left and to the right of c (see locate)
     template <typename report_fnc_t>

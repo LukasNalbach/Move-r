@@ -105,8 +105,8 @@ uint64_t move_r<support, mlf_enc>::input_length(const move_r_input_view& T, cons
 }
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::set_alphabet_maps(const std::vector<uint8_t>& map_int, const std::vector<uint8_t>& map_ext)
-    requires(is_bidirectional)
+void move_r<support, mlf_enc>::set_alphabet_maps(const std::vector<uint8_t>& map_int,
+    const std::vector<uint8_t>& map_ext) requires(is_bidirectional)
 {
     symbols_remapped = true;
     byte_alphabet = true;
@@ -386,8 +386,7 @@ std::pair<std::vector<uint64_t>, std::vector<uint64_t>> move_r<support, mlf_enc>
 // ############################# ACCESS METHODS #############################
 
 template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline uint64_t move_r<support, mlf_enc>::SA_run_start(uint64_t x) const
-    requires(builds_SA_samples)
+inline uint64_t move_r<support, mlf_enc>::SA_run_start(uint64_t x) const requires(builds_SA_samples)
 {
     if constexpr (support == _locate_move) {
         return M_Phi_inv().q(SA_Phi_inv(x));

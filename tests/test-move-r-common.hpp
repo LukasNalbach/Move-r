@@ -58,7 +58,7 @@ inline uint64_t max_input_size = 16000;
    support and an input type occurs in iterations_per_combination * num_supports * num_input_types consecutive
    iterations */
 inline constexpr uint64_t iterations_per_combination = 2;
-inline constexpr uint64_t num_supports = 8;
+inline constexpr uint64_t num_supports = 4;
 inline constexpr uint64_t num_input_types = 5;
 
 // max_pattern_length(n) of move_r_adapter is n / input_length_per_pattern_length, clamped to
@@ -201,7 +201,8 @@ inline void verify_index(
  * @tparam inp_t_ the container of the input
  * @tparam mlf_enc the encoding of M_LF
  */
-template <move_r_support support, typename sym_t_, typename inp_t_, move_pos_encoding_t mlf_enc = EF>
+template <move_r_support support, typename sym_t_, typename inp_t_,
+    move_pos_encoding_t mlf_enc = (support <= _locate_rlzsa ? ELIAS_FANO : CACHE_LINES)>
 struct move_r_adapter {
     // the index type does not depend on the symbol type of the input
     using index_t = move_r<support, mlf_enc>;
@@ -281,8 +282,7 @@ struct move_r_adapter {
     }
 
     static uint64_t count(index_t& index, inp_t& pattern) { return index.count(pattern); }
-    static std::vector<uint48_t> locate(index_t& index, inp_t& pattern)
-        requires(index_t::supports_multiple_locate) { return index.locate(pattern); }
+    static std::vector<uint48_t> locate(index_t& index, inp_t& pattern) requires(index_t::supports_multiple_locate) { return index.locate(pattern); }
 
     /**
      * @brief checks count(), locate() and the query context of index.query() for a pattern; the occurrences of the
@@ -428,8 +428,8 @@ struct move_r_adapter {
 };
 
 /**
- * @brief builds an index of a random input and checks its queries (see verify_index), with the support and the encoding
- *        of M_LF of iteration i
+ * @brief builds an index of a random input and checks its queries (see verify_index), with the support of iteration i
+ *        and its default encoding of M_LF (see move_r)
  * @tparam sym_t the symbol type of the input
  * @tparam inp_t the container of the input
  * @param i the iteration
@@ -439,19 +439,15 @@ struct move_r_adapter {
 template <typename sym_t, typename inp_t>
 void verify_support_of_iteration(uint64_t i, uint64_t min_n, uint64_t max_n)
 {
-    auto run = [&]<move_r_support support, move_pos_encoding_t mlf_enc>() {
-        verify_index<move_r_adapter<support, sym_t, inp_t, mlf_enc>>(gen, max_num_threads, min_n, max_n);
+    auto run = [&]<move_r_support support>() {
+        verify_index<move_r_adapter<support, sym_t, inp_t>>(gen, max_num_threads, min_n, max_n);
     };
 
     switch ((i / iterations_per_combination) % num_supports) {
-        case 0: run.template operator()<_locate_move,  EF>();   break;
-        case 1: run.template operator()<_locate_rlzsa, EF>();   break;
-        case 2: run.template operator()<_locate_move,  POS>();  break;
-        case 3: run.template operator()<_locate_rlzsa, POS>();  break;
-        case 4: run.template operator()<_count,        EF>();   break;
-        case 5: run.template operator()<_locate_one,   EF>();   break;
-        case 6: run.template operator()<_count,        POS>();  break;
-        case 7: run.template operator()<_locate_one,   POS>();  break;
+        case 0: run.template operator()<_locate_move>(); break;
+        case 1: run.template operator()<_locate_rlzsa>(); break;
+        case 2: run.template operator()<_count>(); break;
+        case 3: run.template operator()<_locate_one>(); break;
     }
 }
 
