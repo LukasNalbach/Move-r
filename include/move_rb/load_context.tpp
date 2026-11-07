@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file load_context.tpp
+ * @brief counting the contexts of a context table and loading a search context from it
+ */
+
 #ifndef MOVE_R_MOVE_RB_LOAD_CONTEXT_TPP
 #define MOVE_R_MOVE_RB_LOAD_CONTEXT_TPP
 

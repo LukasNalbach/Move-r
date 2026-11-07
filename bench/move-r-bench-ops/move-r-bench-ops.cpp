@@ -24,6 +24,12 @@
  * SOFTWARE.
  */
 
+/**
+ * @file move-r-bench-ops.cpp
+ * @brief move-r-bench-ops: measures the queries of a move-r index for increasing pattern lengths and prints them as a
+ *        grid
+ */
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file fasta_sequence_data.hpp
+ * @brief the sequences of a FASTA input: their starting positions in the text and their names
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_FASTA_SEQUENCE_DATA_HPP
 #define MOVE_R_DATA_STRUCTURES_FASTA_SEQUENCE_DATA_HPP
 

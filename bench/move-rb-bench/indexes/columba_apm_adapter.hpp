@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file columba_apm_adapter.hpp
+ * @brief the index of columba (b-move or FM-index) with the query interface of move_rb
+ */
+
 #ifndef MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_APM_ADAPTER_HPP
 #define MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_APM_ADAPTER_HPP
 

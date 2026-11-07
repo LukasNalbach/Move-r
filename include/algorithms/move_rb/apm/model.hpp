@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file model.hpp
+ * @brief error models of approximate pattern matching: operations, cost rules, counters and symbol classes
+ */
+
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_MODEL_HPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_MODEL_HPP
 

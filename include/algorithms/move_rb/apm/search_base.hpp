@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file search_base.hpp
+ * @brief the parts of the searches with search schemes that the Hamming and the edit distance share
+ */
+
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_SEARCH_BASE_HPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_SEARCH_BASE_HPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file pred_succ_occ.hpp
+ * @brief symbol predecessor and successor queries with the stored occurrences of each symbol
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_PRED_SUCC_OCC_HPP
 #define MOVE_R_DATA_STRUCTURES_PRED_SUCC_OCC_HPP
 

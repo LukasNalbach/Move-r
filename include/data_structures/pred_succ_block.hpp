@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file pred_succ_block.hpp
+ * @brief symbol predecessor and successor queries with lookup tables per block and a scan of the block
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_PRED_SUCC_BLOCK_HPP
 #define MOVE_R_DATA_STRUCTURES_PRED_SUCC_BLOCK_HPP
 

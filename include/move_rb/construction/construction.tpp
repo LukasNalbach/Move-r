@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file construction.tpp
+ * @brief the constructors of move_rb
+ */
+
 #ifndef MOVE_R_MOVE_RB_CONSTRUCTION_CONSTRUCTION_TPP
 #define MOVE_R_MOVE_RB_CONSTRUCTION_CONSTRUCTION_TPP
 

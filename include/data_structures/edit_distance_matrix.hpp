@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file edit_distance_matrix.hpp
+ * @brief banded bit-parallel edit-distance matrix (Myers) between an input and a query, computed row by row
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_EDIT_DISTANCE_MATRIX_HPP
 #define MOVE_R_DATA_STRUCTURES_EDIT_DISTANCE_MATRIX_HPP
 
@@ -42,6 +47,7 @@
 #include <sstream>
 #include <string>
 
+#include <data_structures/wide_word.hpp>
 #include <misc/directional_substring.hpp>
 #include <misc/utils.hpp>
 
@@ -59,11 +65,13 @@ struct no_extra_matches_t {
  * The rows are grouped into blocks of half_word rows. Bit x of the word of row i in block b = i / half_word
  * corresponds to column x + b * half_word - first_col_bits + 1 (i.e., to input position x + b * half_word -
  * first_col_bits); the cell (i, i) of the main diagonal is at bit (i mod half_word) + block_diag_bit.
- * @tparam word_t unsigned type of the word storing a row of the band (uint64_t or uint128_t)
+ * @tparam word_t unsigned type of the word storing a row of the band (uint64_t, uint128_t or a wide_word)
  */
 template <typename word_t>
 class edit_distance_matrix {
-    static_assert(std::is_same_v<word_t, uint64_t> || std::is_same_v<word_t, uint128_t>);
+    static_assert(std::is_same_v<word_t, uint64_t> || std::is_same_v<word_t, uint128_t>
+        || std::is_same_v<word_t, wide_word<256>> || std::is_same_v<word_t, wide_word<512>>
+        || std::is_same_v<word_t, wide_word<1024>>);
 
 public:
     // ############################# TYPES AND PARAMETERS #############################
@@ -294,7 +302,7 @@ public:
 
         // the value on the diagonal increases by one, unless its diagonal delta is 0
         const uint16_t diag_bit = offset + block_diag_bit;
-        rows[i].diag_distance = rows[i - 1].diag_distance + (D0 & (word_t(1) << diag_bit) ? 0 : 1);
+        rows[i].diag_distance = rows[i - 1].diag_distance + (test_bit(D0, diag_bit) ? 0 : 1);
 
         // move last_active_bit to the rightmost band cell with a value <= k_max; return false if there is none
         if (!(D0 & last_active_bit)) {
@@ -304,7 +312,7 @@ public:
             while (excess > 0) {
                 if (HP & last_active_bit) excess--;
                 if (HN & last_active_bit) excess++;
-                if (last_active_bit == (word_t(1) << (diag_bit - band_width))) return false;
+                if (test_bit(last_active_bit, diag_bit - band_width)) return false;
                 last_active_bit >>= 1;
             }
         }
@@ -405,9 +413,30 @@ public:
 
 static constexpr int64_t edit_distance_max_errors_64 = edit_distance_matrix<uint64_t>::max_supported_errors;
 static constexpr int64_t edit_distance_max_errors_128 = edit_distance_matrix<uint128_t>::max_supported_errors;
+static constexpr int64_t edit_distance_max_errors_256 = edit_distance_matrix<wide_word<256>>::max_supported_errors;
+static constexpr int64_t edit_distance_max_errors_512 = edit_distance_matrix<wide_word<512>>::max_supported_errors;
+// the largest number of errors of an edit-distance matrix
+static constexpr int64_t edit_distance_max_errors = edit_distance_matrix<wide_word<1024>>::max_supported_errors;
 // the largest length of the input and of the compared string of a matrix: a row index plus first_col_bits must fit into
 // a pos_t
-static constexpr int64_t edit_distance_max_length = std::numeric_limits<edit_distance_matrix<uint128_t>::pos_t>::max()
-    - edit_distance_matrix<uint128_t>::first_col_bits;
+static constexpr int64_t edit_distance_max_length = std::numeric_limits<edit_distance_matrix<wide_word<1024>>::pos_t>::max()
+    - edit_distance_matrix<wide_word<1024>>::first_col_bits;
+
+/**
+ * @brief calls fnc with the smallest word type of an edit-distance matrix for k errors
+ * @tparam fnc_t type of fnc
+ * @param k the number of errors, at most edit_distance_max_errors
+ * @param fnc called as fnc.template operator()<word_t>()
+ * @return the return value of fnc
+ */
+template <typename fnc_t>
+inline decltype(auto) with_edit_distance_word(uint64_t k, fnc_t&& fnc)
+{
+    if (k <= uint64_t(edit_distance_max_errors_64)) return fnc.template operator()<uint64_t>();
+    if (k <= uint64_t(edit_distance_max_errors_128)) return fnc.template operator()<uint128_t>();
+    if (k <= uint64_t(edit_distance_max_errors_256)) return fnc.template operator()<wide_word<256>>();
+    if (k <= uint64_t(edit_distance_max_errors_512)) return fnc.template operator()<wide_word<512>>();
+    return fnc.template operator()<wide_word<1024>>();
+}
 
 #endif // MOVE_R_DATA_STRUCTURES_EDIT_DISTANCE_MATRIX_HPP

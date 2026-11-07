@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file cigar.hpp
+ * @brief CIGAR strings of approximate occurrences: operations, runs and the traceback of an edit-distance matrix
+ */
+
 #ifndef MOVE_R_MISC_CIGAR_HPP
 #define MOVE_R_MISC_CIGAR_HPP
 
@@ -224,7 +229,7 @@ static cigar_t<std::ranges::range_value_t<seq2_t>> cigar_traceback(
 /**
  * @brief computes ed(P, M) and a CIGAR of the pattern P against the matched string M with a banded bit-parallel
  *        dynamic program (Myers) and a traceback; the CIGAR has M as the reference (INS = a symbol of P missing in M,
- *        DEL = a symbol of M missing in P). Requires ed(P, M) <= k, k <= edit_distance_max_errors_128 and n2 <= edit_distance_max_length.
+ *        DEL = a symbol of M missing in P). Requires ed(P, M) <= k, k <= edit_distance_max_errors and n2 <= edit_distance_max_length.
  * @tparam seq1_t random-access sequence type of the pattern
  * @tparam seq2_t random-access sequence type of the matched string
  * @param P the pattern
@@ -239,7 +244,7 @@ static std::pair<uint64_t, cigar_t<std::ranges::range_value_t<seq2_t>>> edit_cig
     const seq1_t& P, int64_t n1, const seq2_t& M, int64_t n2, int64_t k)
 {
     using sym_t = std::ranges::range_value_t<seq2_t>;
-    assert(k <= edit_distance_max_errors_128);
+    assert(k <= edit_distance_max_errors);
     assert(n2 <= edit_distance_max_length);
 
     // an empty side aligns trivially: only insertions of P (M empty) or deletions of M (P empty) remain
@@ -257,9 +262,7 @@ static std::pair<uint64_t, cigar_t<std::ranges::range_value_t<seq2_t>>> edit_cig
         return {mat(n1, n2), cigar_traceback(mat, P, M, n1, n2, k)};
     };
 
-    if (k <= edit_distance_max_errors_64)
-         return run.template operator()<uint64_t>();
-    else return run.template operator()<uint128_t>();
+    return with_edit_distance_word(k, run);
 }
 
 /**
@@ -280,7 +283,7 @@ static std::tuple<uint64_t, uint64_t, cigar_t<std::ranges::range_value_t<seq2_t>
     const seq1_t& P, int64_t n1, const seq2_t& M, int64_t n2, int64_t k)
 {
     using sym_t = std::ranges::range_value_t<seq2_t>;
-    assert(k <= edit_distance_max_errors_128);
+    assert(k <= edit_distance_max_errors);
 
     // only a prefix of length in [n1 - k, n1 + k] can be within edit distance k of P (a length difference of d costs
     // at least d indels); prefixes past n1 + k leave the band, so the reference is capped there
@@ -308,9 +311,7 @@ static std::tuple<uint64_t, uint64_t, cigar_t<std::ranges::range_value_t<seq2_t>
         return {best_err, uint64_t(best_len), cigar_traceback(mat, P, M, n1, best_len, k)};
     };
 
-    if (k <= edit_distance_max_errors_64)
-         return run.template operator()<uint64_t>();
-    else return run.template operator()<uint128_t>();
+    return with_edit_distance_word(k, run);
 }
 
 /**

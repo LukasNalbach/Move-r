@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file indexes.hpp
+ * @brief the r-indexes move-r-bench compares with: building and querying them, partly with their own command-line tools
+ */
+
 #ifndef MOVE_R_BENCH_MOVE_R_BENCH_INDEXES_HPP
 #define MOVE_R_BENCH_MOVE_R_BENCH_INDEXES_HPP
 

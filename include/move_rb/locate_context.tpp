@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file locate_context.tpp
+ * @brief locating the occurrences of a search context
+ */
+
 #ifndef MOVE_R_MOVE_RB_LOCATE_CONTEXT_TPP
 #define MOVE_R_MOVE_RB_LOCATE_CONTEXT_TPP
 

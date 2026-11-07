@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file temporary_input.hpp
+ * @brief removes an input file written by the construction and its caches
+ */
+
 #ifndef MOVE_R_MOVE_RB_CONSTRUCTION_TEMPORARY_INPUT_HPP
 #define MOVE_R_MOVE_RB_CONSTRUCTION_TEMPORARY_INPUT_HPP
 

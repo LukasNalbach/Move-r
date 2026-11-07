@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file pfp_integer.cpp
+ * @brief the construction of the RLBWT of a text of integers with prefix-free parsing
+ */
+
 #include <algorithm>
 #include <bit>
 #include <cstring>

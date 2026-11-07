@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file move_rb.hpp
+ * @brief the bidirectional r-index move_rb: operation support, parameters and queries
+ */
+
 #ifndef MOVE_R_MOVE_RB_MOVE_RB_HPP
 #define MOVE_R_MOVE_RB_MOVE_RB_HPP
 

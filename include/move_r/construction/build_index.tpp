@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file build_index.tpp
+ * @brief the construction of a move_r index: its phases, the number of threads and the logging
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_BUILD_INDEX_TPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_BUILD_INDEX_TPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file queries.tpp
+ * @brief the queries of move_r: BWT, SA, count and locate
+ */
+
 #ifndef MOVE_R_MOVE_R_QUERIES_TPP
 #define MOVE_R_MOVE_R_QUERIES_TPP
 

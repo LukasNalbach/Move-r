@@ -23,6 +23,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+/**
+ * @file spill_log.hpp
+ * @brief the log messages of the phases that store data structures to disk, load them or delete them
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_SPILL_LOG_HPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_SPILL_LOG_HPP
 

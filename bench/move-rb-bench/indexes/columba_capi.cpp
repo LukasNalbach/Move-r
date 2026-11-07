@@ -24,7 +24,11 @@
  * SOFTWARE.
  */
 
-// the C interface of columba_capi.hpp for one variant of columba (compiled once per variant and width of the positions)
+/**
+ * @file columba_capi.cpp
+ * @brief the C interface of columba_capi.hpp for one variant of columba (compiled once per variant and width of the
+ *        positions)
+ */
 
 #include <ips2ra.hpp>
 

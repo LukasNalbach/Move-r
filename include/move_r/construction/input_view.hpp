@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file input_view.hpp
+ * @brief views of an input and of a pattern with symbols of 1 to 8 bytes
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_INPUT_VIEW_HPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_INPUT_VIEW_HPP
 

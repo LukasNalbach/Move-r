@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file test-move-r.cpp
+ * @brief fuzz tests of move_r: the index, its construction and reverting the text
+ */
+
 #include "test-move-r-common.hpp"
 
 // smallest value run_fuzz reduces max_input_size to in TEST(test_move_r, index)

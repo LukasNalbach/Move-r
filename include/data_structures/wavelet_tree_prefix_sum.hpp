@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file wavelet_tree_prefix_sum.hpp
+ * @brief a wavelet tree over weighted symbols with the query smaller(i, j, c)
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_WAVELET_TREE_PREFIX_SUM_HPP
 #define MOVE_R_DATA_STRUCTURES_WAVELET_TREE_PREFIX_SUM_HPP
 

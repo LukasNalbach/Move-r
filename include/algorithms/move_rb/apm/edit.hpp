@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file edit.hpp
+ * @brief approximate pattern matching with edit distance on a bidirectional index with search schemes
+ */
+
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_EDIT_HPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_EDIT_HPP
 
@@ -884,9 +889,7 @@ public:
      */
     node_set_t search(const inp_t& P, const search_scheme_t& scheme) const
     {
-        if (scheme.k <= edit_distance_matrix<uint64_t>::max_supported_errors)
-             return search<uint64_t>(P, scheme);
-        else return search<uint128_t>(P, scheme);
+        return with_edit_distance_word(scheme.k, [&]<typename word_t>() { return search<word_t>(P, scheme); });
     }
 };
 

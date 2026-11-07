@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file move_phi.tpp
+ * @brief the construction of M_Phi, M_Phi_inv and the PLCP samples
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_MOVE_PHI_TPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_MOVE_PHI_TPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file br_index_adapter.hpp
+ * @brief the bidirectional r-index (br-index) with the query interface of move_rb
+ */
+
 #ifndef MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_BR_INDEX_ADAPTER_HPP
 #define MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_BR_INDEX_ADAPTER_HPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file symbol_groups.hpp
+ * @brief for some symbols of a sequence, the groups of 2^k consecutive positions that contain them
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_SYMBOL_GROUPS_HPP
 #define MOVE_R_DATA_STRUCTURES_SYMBOL_GROUPS_HPP
 

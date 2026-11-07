@@ -24,12 +24,16 @@
  * SOFTWARE.
  */
 
-// move-rb-gen-apm-queries: generates the pattern files of move-rb-bench-apm. For each k and m it writes the files
-//   <text_name>.patterns-count-hamming-k<k>-m<m>
-//   <text_name>.patterns-locate-hamming-k<k>-m<m>
-//   <text_name>.patterns-locate-edit-k<k>-m<m>
-// of substrings of the text at random positions. Patterns are added to a file until their queries on a move_rb index
-// take the target time (--time) in total.
+/**
+ * @file move-rb-gen-apm-queries.cpp
+ * @brief move-rb-gen-apm-queries: generates the pattern files of move-rb-bench-apm. For each k and m it writes the
+ *        files
+ *          <text_name>.patterns-count-hamming-k<k>-m<m>
+ *          <text_name>.patterns-locate-hamming-k<k>-m<m>
+ *          <text_name>.patterns-locate-edit-k<k>-m<m>
+ *        of substrings of the text at random positions. Patterns are added to a file until their queries on a move_rb
+ *        index take the target time (--time) in total.
+ */
 
 #include <algorithm>
 #include <cerrno>

@@ -61,7 +61,7 @@
 inline constexpr uint64_t max_scheme_errors = std::numeric_limits<decltype(search_scheme_t::k)>::max();
 
 // the largest number of errors of the edit distance (-k with -d edit)
-inline constexpr uint64_t max_edit_errors = edit_distance_max_errors_128;
+inline constexpr uint64_t max_edit_errors = edit_distance_max_errors;
 
 // the search scheme without -scheme and of the approximate queries of the interactive mode of move-rb
 inline constexpr std::string_view default_scheme_name = "min-u";

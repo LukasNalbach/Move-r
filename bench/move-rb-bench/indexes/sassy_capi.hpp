@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file sassy_capi.hpp
+ * @brief loads libsassy_capi.so, the C interface of the approximate pattern matcher sassy, and searches texts with it
+ */
+
 #ifndef MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_SASSY_CAPI_HPP
 #define MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_SASSY_CAPI_HPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file model.tpp
+ * @brief the methods of apm_model_t: parsing, compiling and aligning a pattern against a text window under the model
+ */
+
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_MODEL_TPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_MODEL_TPP
 

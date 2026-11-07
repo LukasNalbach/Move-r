@@ -24,6 +24,12 @@
  * SOFTWARE.
  */
 
+/**
+ * @file context_tables.hpp
+ * @brief the suffix array intervals of all patterns up to a length, with the keys to go from a pattern to its
+ *        extensions
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_CONTEXT_TABLES_HPP
 #define MOVE_R_DATA_STRUCTURES_CONTEXT_TABLES_HPP
 

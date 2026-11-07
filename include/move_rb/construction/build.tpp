@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file build.tpp
+ * @brief the construction of a move_rb: the input, the sub-indexes and the samplings
+ */
+
 #ifndef MOVE_R_MOVE_RB_CONSTRUCTION_BUILD_TPP
 #define MOVE_R_MOVE_RB_CONSTRUCTION_BUILD_TPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file blocked_positions.hpp
+ * @brief an increasing sequence of positions, stored in blocks of 32 bytes
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_BLOCKED_POSITIONS_HPP
 #define MOVE_R_DATA_STRUCTURES_BLOCKED_POSITIONS_HPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file test-move-rb.cpp
+ * @brief fuzz tests of move_rb: the indexes and approximate pattern matching
+ */
+
 #include <algorithm>
 #include <numeric>
 

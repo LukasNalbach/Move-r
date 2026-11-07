@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file edit_model.tpp
+ * @brief the methods of apm_edit for queries with an error model
+ */
+
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_EDIT_MODEL_TPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_EDIT_MODEL_TPP
 
@@ -168,8 +173,7 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate_model(const inp_t& P, cons
         node_set_t found = search(P, scheme);
         nodes = std::move(found.contexts());
     } else {
-        nodes = costs.max_errors() <= edit_distance_matrix<uint64_t>::max_supported_errors
-            ? search_model<uint64_t>(P, scheme) : search_model<uint128_t>(P, scheme);
+        nodes = with_edit_distance_word(costs.max_errors(), [&]<typename word_t>() { return search_model<word_t>(P, scheme); });
     }
 
     // the text strings of the contexts: strings[beg[x], beg[x + 1]) is the string of nodes[x]
@@ -204,11 +208,9 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate_model(const inp_t& P, cons
 
     if (uniform) {
         if constexpr (can_decode_text_ends) {
-            if (costs.max_errors() <= edit_distance_matrix<uint64_t>::max_supported_errors) {
-                locate_at_text_ends_model<mode, uint64_t>(P, strings, beg, occ);
-            } else {
-                locate_at_text_ends_model<mode, uint128_t>(P, strings, beg, occ);
-            }
+            with_edit_distance_word(costs.max_errors(), [&]<typename word_t>() {
+                locate_at_text_ends_model<mode, word_t>(P, strings, beg, occ);
+            });
         }
     }
 

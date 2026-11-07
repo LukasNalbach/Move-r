@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file pfp_output.hpp
+ * @brief the cache of the prefix-free parsing: its alphabet and the data of a FASTA input
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_PFP_OUTPUT_HPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_PFP_OUTPUT_HPP
 

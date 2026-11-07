@@ -24,7 +24,10 @@
  * SOFTWARE.
  */
 
-// fuzz tests of move_rb (see test-move-rb.cpp)
+/**
+ * @file test-move-rb-common.hpp
+ * @brief fuzz tests of move_rb (see test-move-rb.cpp)
+ */
 
 #ifndef MOVE_R_TESTS_TEST_MOVE_RB_COMMON_HPP
 #define MOVE_R_TESTS_TEST_MOVE_RB_COMMON_HPP

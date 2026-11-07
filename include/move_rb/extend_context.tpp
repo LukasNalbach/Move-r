@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file extend_context.tpp
+ * @brief extending a search context with every symbol in one direction
+ */
+
 #ifndef MOVE_R_MOVE_RB_EXTEND_CONTEXT_TPP
 #define MOVE_R_MOVE_RB_EXTEND_CONTEXT_TPP
 

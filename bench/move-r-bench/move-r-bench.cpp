@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file move-r-bench.cpp
+ * @brief move-r-bench: measures the construction, count and locate of move-r and of other r-indexes
+ */
+
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>

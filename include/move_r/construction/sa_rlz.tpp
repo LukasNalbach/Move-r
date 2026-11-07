@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file sa_rlz.tpp
+ * @brief the construction of the RLZ of the differential suffix array
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_SA_RLZ_TPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_SA_RLZ_TPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file move_rb.tpp
+ * @brief the methods of move_rb: sizes, logging, storing and loading
+ */
+
 #ifndef MOVE_R_MOVE_RB_MOVE_RB_TPP
 #define MOVE_R_MOVE_RB_MOVE_RB_TPP
 

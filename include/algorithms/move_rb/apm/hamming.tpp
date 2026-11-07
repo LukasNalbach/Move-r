@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file hamming.tpp
+ * @brief the methods of apm_hamming: count, locate and the search with and without an error model
+ */
+
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_HAMMING_TPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_HAMMING_TPP
 

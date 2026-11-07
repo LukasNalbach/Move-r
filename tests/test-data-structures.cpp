@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file test-data-structures.cpp
+ * @brief fuzz tests of the data structures: bit vectors, sets, arrays and others
+ */
+
 #include <algorithm>
 #include <array>
 #include <clocale>

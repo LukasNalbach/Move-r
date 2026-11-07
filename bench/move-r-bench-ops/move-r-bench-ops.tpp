@@ -24,6 +24,12 @@
  * SOFTWARE.
  */
 
+/**
+ * @file move-r-bench-ops.tpp
+ * @brief samples patterns from a move-r index and measures count, locate and the access to the BWT and the suffix array
+ *        for each pattern length
+ */
+
 #ifndef MOVE_R_BENCH_MOVE_R_BENCH_OPS_MOVE_R_BENCH_OPS_TPP
 #define MOVE_R_BENCH_MOVE_R_BENCH_OPS_MOVE_R_BENCH_OPS_TPP
 

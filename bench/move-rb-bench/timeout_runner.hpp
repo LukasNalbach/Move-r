@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file timeout_runner.hpp
+ * @brief runs queries in a child process and kills it if a query takes longer than a timeout
+ */
+
 #ifndef MOVE_R_BENCH_MOVE_RB_BENCH_TIMEOUT_RUNNER_HPP
 #define MOVE_R_BENCH_MOVE_RB_BENCH_TIMEOUT_RUNNER_HPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file move-rb-bench-ops.tpp
+ * @brief samples contexts from a move-rb index and measures its extensions and locate queries for each pattern length
+ */
+
 #ifndef MOVE_R_BENCH_MOVE_RB_BENCH_OPS_MOVE_RB_BENCH_OPS_TPP
 #define MOVE_R_BENCH_MOVE_RB_BENCH_OPS_MOVE_RB_BENCH_OPS_TPP
 
