@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file hamming.hpp
+ * @brief approximate pattern matching with Hamming distance on a bidirectional index with search schemes
+ */
+
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_HAMMING_HPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_HAMMING_HPP
 

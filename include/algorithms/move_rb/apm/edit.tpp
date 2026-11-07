@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file edit.tpp
+ * @brief the methods of apm_edit: the search, the errors of the found contexts and the occurrences at the text ends
+ */
+
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_EDIT_TPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_EDIT_TPP
 
@@ -160,8 +165,7 @@ template <cigar_mode_t mode, typename report_fnc_t>
 void apm_edit<idx_t>::locate_at_text_ends(const inp_t& P, uint64_t m, uint64_t k, report_fnc_t& report,
     std::vector<cigar_t<uint8_t>>& cigars) const
 {
-    if (k <= edit_distance_matrix<uint64_t>::max_supported_errors) locate_at_text_ends_impl<mode, uint64_t>(P, m, k, report, cigars);
-    else                                              locate_at_text_ends_impl<mode, uint128_t>(P, m, k, report, cigars);
+    with_edit_distance_word(k, [&]<typename word_t>() { locate_at_text_ends_impl<mode, word_t>(P, m, k, report, cigars); });
 }
 
 template <typename idx_t>
@@ -771,9 +775,9 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate(const inp_t& P, const sear
     std::vector<context_ref_t<mode>> ctxts_sorted;
     ctxts_sorted.reserve(ctxts.size());
     if constexpr (mode == CIGAR) cigars.reserve(ctxts.size());
-    if (scheme.k <= edit_distance_matrix<uint64_t>::max_supported_errors)
-         recompute_errors<mode, uint64_t>(ctxts, P, m, scheme.k, ctxts_sorted, cigars);
-    else recompute_errors<mode, uint128_t>(ctxts, P, m, scheme.k, ctxts_sorted, cigars);
+    with_edit_distance_word(scheme.k, [&]<typename word_t>() {
+        recompute_errors<mode, word_t>(ctxts, P, m, scheme.k, ctxts_sorted, cigars);
+    });
 
     // the occurrences at the text ends (the search misses some of them), at most one per position, the cheaper one
     std::vector<aprx_occ_t<mode>> end_occ;

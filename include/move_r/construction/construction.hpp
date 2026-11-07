@@ -23,6 +23,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+/**
+ * @file construction.hpp
+ * @brief construction of a move_r index: the input, the intermediate data structures and the parameters
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_CONSTRUCTION_HPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_CONSTRUCTION_HPP
 

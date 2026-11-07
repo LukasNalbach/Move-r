@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file preprocess.tpp
+ * @brief preprocessing the input of a construction: the byte alphabet, widening and reading the text from a file
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_PREPROCESS_TPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_PREPROCESS_TPP
 

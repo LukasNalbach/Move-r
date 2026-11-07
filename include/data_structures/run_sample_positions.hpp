@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file run_sample_positions.hpp
+ * @brief maps the input intervals of M_LF to the positions of their suffix array samples
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_RUN_SAMPLE_POSITIONS_HPP
 #define MOVE_R_DATA_STRUCTURES_RUN_SAMPLE_POSITIONS_HPP
 

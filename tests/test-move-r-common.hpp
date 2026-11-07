@@ -24,8 +24,11 @@
  * SOFTWARE.
  */
 
-// the checks of an index built by the fuzz tests of move_r, shared by tests/test-move-r.cpp and
-// tests/test-move-r-instantiations.cpp
+/**
+ * @file test-move-r-common.hpp
+ * @brief the checks of an index built by the fuzz tests of move_r, shared by tests/test-move-r.cpp and
+ *        tests/test-move-r-instantiations.cpp
+ */
 
 #ifndef MOVE_R_TESTS_TEST_MOVE_R_COMMON_HPP
 #define MOVE_R_TESTS_TEST_MOVE_R_COMMON_HPP

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file rlbwt.tpp
+ * @brief the construction of the suffix array and the RLBWT, and storing and loading the RLBWT
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_RLBWT_TPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_RLBWT_TPP
 

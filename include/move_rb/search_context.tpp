@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file search_context.tpp
+ * @brief extending a search context and updating its samples
+ */
+
 #ifndef MOVE_R_MOVE_RB_SEARCH_CONTEXT_TPP
 #define MOVE_R_MOVE_RB_SEARCH_CONTEXT_TPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file locate_context.hpp
+ * @brief the state of locating the occurrences of a search context
+ */
+
 #ifndef MOVE_R_MOVE_RB_LOCATE_CONTEXT_HPP
 #define MOVE_R_MOVE_RB_LOCATE_CONTEXT_HPP
 

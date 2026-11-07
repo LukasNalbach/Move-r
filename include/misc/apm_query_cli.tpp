@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file apm_query_cli.tpp
+ * @brief the approximate queries of move-rb: printing and reading their options and building the search schemes
+ */
+
 #ifndef MOVE_R_MISC_APM_QUERY_CLI_TPP
 #define MOVE_R_MISC_APM_QUERY_CLI_TPP
 

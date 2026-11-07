@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file text_lce.hpp
+ * @brief longest common extensions of positions of a text in memory
+ */
+
 #ifndef MOVE_R_MISC_TEXT_LCE_HPP
 #define MOVE_R_MISC_TEXT_LCE_HPP
 

@@ -1,16 +1,16 @@
-# Move-r
+# move-r
 
-This repository contains Move-r, an optimized and parallelized r-index [1, 2], and its bi-directional variant Move-rb
+This repository contains move-r, an optimized and parallelized r-index [1, 2], and its bi-directional variant move-rb
 [7] with approximate pattern matching, together with command-line tools, tests and benchmarks.
 
-- **Move-r** (`move_r`) counts and locates the occurrences of a pattern, gives access to the BWT and the suffix
+- **move-r** (`move_r`) counts and locates the occurrences of a pattern, gives access to the BWT and the suffix
   array and reconstructs the text. It locates with a move data structure for Phi_inv or with an RLZ of the
   differential suffix array (RLZSA [3, 4]). It works over byte alphabets and over integer alphabets.
-- **Move-rb** (`move_rb`) extends a pattern on both sides. It counts and locates the occurrences of a pattern and finds
+- **move-rb** (`move_rb`) extends a pattern on both sides. It counts and locates the occurrences of a pattern and finds
   the occurrences of a pattern with at most k errors (Hamming or edit distance, with search schemes [5, 6]), locating
   with a move data structure for Phi_inv or with the RLZSA.
 
-The standalone RLZSA and LZEndSA indexes of [3, 4] are part of earlier releases of Move-r, e.g.
+The standalone RLZSA and LZEndSA indexes of [3, 4] are part of earlier releases of move-r, e.g.
 [ALENEX-2027](https://github.com/LukasNalbach/Move-r/tree/ALENEX-2027).
 
 ## Contents
@@ -49,23 +49,20 @@ sorting, bit vectors; it includes sdsl-lite, libsais, ips4o, ips2ra, gtl, emhash
 
 ### CMake options
 
-The `MOVE_R_BUILD_*_CLI` options are `ON` if Move-r is the top-level project and `OFF` if it is added by another
-project. The tests and the benchmark options are always `OFF` unless they are switched on; only with a benchmark option
-are the submodules of the indexes it compares with downloaded and built.
+Only with a benchmark option are the submodules of the indexes it compares with downloaded and built.
 
-| Option | Description |
-| --- | --- |
-| `MOVE_R_BUILD_MOVE_R_CLI`, `MOVE_R_BUILD_MOVE_RB_CLI` | build `move-r` and `move-rb` |
-| `MOVE_R_BUILD_TOOLS_CLI` | build `gen-patterns`, `gen-repetitive`, `fasta-to-text`, `print-data-structures` |
-| `MOVE_R_BUILD_MOVE_R_BENCH`, `MOVE_R_BUILD_MOVE_RB_BENCH` | build the benchmarks and the indexes they compare with (`OFF`) |
-| `MOVE_R_BUILD_TESTS` | build the tests (`OFF`) |
-| `MOVE_R_USE_MALLOC_COUNT` | measure the peak memory usage with malloc_count |
-| `MOVE_R_MARCH_NATIVE` | compile with `-march=native` (`ON`) |
-| `MOVE_R_ENABLE_LTO` | link-time optimization (`OFF`) |
-| `MOVE_R_USE_CCACHE` | use ccache, if it is installed |
-| `MOVE_R_FAST_TESTS` | compile the tests with `-O0` (`OFF`) |
-| `MOVE_R_EXTERN_TEMPLATES` | compile the index classes once in a library instead of in every translation unit (`ON`) |
-| `MOVE_R_COLUMBA_BITS` | `both` (default), `32` or `64`: the index widths of columba built for the move-rb benchmarks |
+| Option | Default | Description |
+| --- | --- | --- |
+| `MOVE_R_BUILD_MOVE_R_CLI`, `MOVE_R_BUILD_MOVE_RB_CLI` | `ON` if move-r is the top-level project, else `OFF` | build `move-r` and `move-rb` |
+| `MOVE_R_BUILD_TOOLS_CLI` | `ON` if move-r is the top-level project, else `OFF` | build `gen-patterns`, `gen-repetitive`, `fasta-to-text`, `print-data-structures` |
+| `MOVE_R_BUILD_MOVE_R_BENCH`, `MOVE_R_BUILD_MOVE_RB_BENCH` | `OFF` | build the benchmarks and the indexes they compare with |
+| `MOVE_R_BUILD_TESTS` | `OFF` | build the tests |
+| `MOVE_R_USE_MALLOC_COUNT` | `ON` | measure the peak memory usage with malloc_count |
+| `MOVE_R_MARCH_NATIVE` | `ON` | compile with `-march=native` |
+| `MOVE_R_ENABLE_LTO` | `OFF` | link-time optimization |
+| `MOVE_R_USE_CCACHE` | `ON` | use ccache, if it is installed |
+| `MOVE_R_FAST_TESTS` | `OFF` | compile the tests with `-O0` |
+| `MOVE_R_EXTERN_TEMPLATES` | `ON` | compile the index classes once in a library instead of in every translation unit |
 
 ### macOS
 
@@ -151,7 +148,7 @@ Temporary files are written to the directory `MOVE_R_TMPDIR` (default: the tempo
 
 ## C++ usage
 
-Add Move-r to a CMake project and link the targets of the components it uses (only their compiled parts are built):
+Add move-r to a CMake project and link the targets of the components it uses (only their compiled parts are built):
 
 ```cmake
 add_subdirectory(Move-r/ EXCLUDE_FROM_ALL)
@@ -198,7 +195,7 @@ All benchmark tools (in `build/bench/`) print a summary; `-m <file>` appends `RE
   **move-rb-gen-ext-queries**. **bri-build**, **columba-build** and **columba-rlc-build** (in `build/cli/`) build the
   compared indexes.
 
-The comparison of Move-r with other r-indexes is in [benchmarks/move-r.md](benchmarks/move-r.md); how to repeat the
+The comparison of move-r with other r-indexes is in [benchmarks/move-r.md](benchmarks/move-r.md); how to repeat the
 measurements of [2] and [7] is described in [measurements/move-r/replicate.md](measurements/move-r/replicate.md) and
 [measurements/move-rb/replicate.md](measurements/move-rb/replicate.md).
 

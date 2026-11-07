@@ -24,6 +24,12 @@
  * SOFTWARE.
  */
 
+/**
+ * @file framework.hpp
+ * @brief the framework of move-r-bench: preprocessing the input, building an index, counting and locating the patterns
+ *        and the peak memory usage
+ */
+
 #ifndef MOVE_R_BENCH_MOVE_R_BENCH_FRAMEWORK_HPP
 #define MOVE_R_BENCH_MOVE_R_BENCH_FRAMEWORK_HPP
 

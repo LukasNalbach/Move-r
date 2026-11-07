@@ -24,6 +24,12 @@
  * SOFTWARE.
  */
 
+/**
+ * @file text_alphabet.hpp
+ * @brief the alphabet of a text: the counts of the bytes of a file or of the symbols of a pfp cache and the byte
+ *        alphabet map
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_TEXT_ALPHABET_HPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_TEXT_ALPHABET_HPP
 

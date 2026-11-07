@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file apm.hpp
+ * @brief approximate pattern matching: occurrences, costs, parameters and the bounded Hamming and edit distances
+ */
+
 #ifndef MOVE_R_MISC_APM_HPP
 #define MOVE_R_MISC_APM_HPP
 
@@ -224,7 +229,7 @@ static std::vector<aprx_occ_t<>> locate_hamming_dist(const inp_t& T, const inp_t
 
 /**
  * @brief computes the edit distance of two sequences with a banded bit-parallel dynamic program (Myers), capped at
- *        k + 1. Requires k <= edit_distance_max_errors_128 and the longer sequence to be at most edit_distance_max_length long.
+ *        k + 1. Requires k <= edit_distance_max_errors and the longer sequence to be at most edit_distance_max_length long.
  * @tparam inp_t contiguous range type of the sequences (a byte alphabet, since the matrix indexes symbols by byte)
  * @param T the first sequence
  * @param P the second sequence
@@ -239,7 +244,7 @@ static int64_t edit_dist_bounded(const inp_t& T, const inp_t& P, int64_t k)
     const bool p_longer = nP > nT;
     const int64_t nR = p_longer ? nP : nT, nQ = p_longer ? nT : nP;
     if (nQ == 0) return nR;
-    assert(k <= edit_distance_max_errors_128);
+    assert(k <= edit_distance_max_errors);
     assert(nR <= edit_distance_max_length);
 
     auto run = [&]<typename word_t>() -> int64_t {
@@ -249,9 +254,7 @@ static int64_t edit_dist_bounded(const inp_t& T, const inp_t& P, int64_t k)
         return std::min<int64_t>(mat(nQ, nR), k + 1);
     };
 
-    return k <= edit_distance_max_errors_64 ?
-        run.template operator()<uint64_t>() :
-        run.template operator()<uint128_t>();
+    return with_edit_distance_word(k, run);
 }
 
 /**
@@ -294,7 +297,7 @@ std::pair<uint64_t, uint64_t> edit_dist_prefix(
  * @tparam inp_t contiguous range type of the text and pattern (a byte alphabet, since the matrix indexes symbols by byte)
  * @param T the text
  * @param P the pattern (1 <= |P| <= edit_distance_max_length)
- * @param k the maximum number of errors (k <= edit_distance_max_errors_128)
+ * @param k the maximum number of errors (k <= edit_distance_max_errors)
  * @return the occurrences of P in T with at most k errors
  */
 template <std::ranges::contiguous_range inp_t>
@@ -302,7 +305,7 @@ static std::vector<aprx_occ_t<>> locate_edit_dist(const inp_t& T, const inp_t& P
 {
     static_assert(sizeof(std::ranges::range_value_t<inp_t>) == 1);
     const int64_t n = T.size(), m = P.size();
-    assert(m > 0 && m <= edit_distance_max_length && int64_t(k) <= edit_distance_max_errors_128);
+    assert(m > 0 && m <= edit_distance_max_length && int64_t(k) <= edit_distance_max_errors);
     const int64_t l_min = std::max<int64_t>(1, m - int64_t(k)); // occurrences have positive length (no empty window)
     const int64_t l_max = m + k;
 
@@ -343,9 +346,7 @@ static std::vector<aprx_occ_t<>> locate_edit_dist(const inp_t& T, const inp_t& P
         return Occ;
     };
 
-    return int64_t(k) <= edit_distance_max_errors_64 ?
-        run.template operator()<uint64_t>() :
-        run.template operator()<uint128_t>();
+    return with_edit_distance_word(k, run);
 }
 
 /**

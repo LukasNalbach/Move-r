@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file min_u_schemes.hpp
+ * @brief the minU search schemes for k errors
+ */
+
 #ifndef MOVE_R_MISC_MIN_U_SCHEMES_HPP
 #define MOVE_R_MISC_MIN_U_SCHEMES_HPP
 

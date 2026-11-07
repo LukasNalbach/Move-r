@@ -24,10 +24,13 @@
  * SOFTWARE.
  */
 
-// move-rb-gen-ext-queries: generates the pattern files of move-rb-bench-ext. For each m it writes the files
-// <text_name>.patterns-count-m<m> and <text_name>.patterns-locate-m<m> of substrings of the text at random positions.
-// Patterns are added to a file until their queries on a move_rb index take the target time (--time) in total. The
-// extension plans are not stored: move-rb-bench-ext draws the same plans (see ext_query.hpp).
+/**
+ * @file move-rb-gen-ext-queries.cpp
+ * @brief move-rb-gen-ext-queries: generates the pattern files of move-rb-bench-ext. For each m it writes the files
+ *        <text_name>.patterns-count-m<m> and <text_name>.patterns-locate-m<m> of substrings of the text at random
+ *        positions. Patterns are added to a file until their queries on a move_rb index take the target time (--time)
+ *        in total. The extension plans are not stored: move-rb-bench-ext draws the same plans (see ext_query.hpp).
+ */
 
 #include <algorithm>
 #include <cerrno>

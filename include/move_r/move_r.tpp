@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file move_r.tpp
+ * @brief the methods of move_r: building from an input, the alphabet, sizes, logging and the run parts
+ */
+
 #ifndef MOVE_R_MOVE_R_MOVE_R_TPP
 #define MOVE_R_MOVE_R_MOVE_R_TPP
 

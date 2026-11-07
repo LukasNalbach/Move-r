@@ -24,9 +24,12 @@
  * SOFTWARE.
  */
 
-// runs the columba index builder with 32-bit positions (COLUMBA_BUILD_32) if the input files (-f, --fasta-files) have
-// less than 2^32 - 1 bytes in total, else the builder with 64-bit positions (COLUMBA_BUILD_64), with the same arguments;
-// both builders are in the directory of this executable
+/**
+ * @file columba-build-dispatch.cpp
+ * @brief runs the columba index builder with 32-bit positions (COLUMBA_BUILD_32) if the input files (-f, --fasta-files)
+ *        have less than 2^32 - 1 bytes in total, else the builder with 64-bit positions (COLUMBA_BUILD_64), with the
+ *        same arguments; both builders are in the directory of this executable
+ */
 
 #include <cerrno>
 #include <cstdint>

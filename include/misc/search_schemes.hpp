@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file search_schemes.hpp
+ * @brief search schemes: searches, steps, the built-in schemes and the parsing of scheme files
+ */
+
 #ifndef MOVE_R_MISC_SEARCH_SCHEMES_HPP
 #define MOVE_R_MISC_SEARCH_SCHEMES_HPP
 

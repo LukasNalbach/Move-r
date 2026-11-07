@@ -24,6 +24,12 @@
  * SOFTWARE.
  */
 
+/**
+ * @file test-edit-distance-matrix.cpp
+ * @brief fuzz tests of edit_distance_matrix, of the bounded edit distance, of the CIGARs and of locating with edit
+ *        distance
+ */
+
 #include <random>
 #include <string>
 #include <vector>
@@ -74,9 +80,6 @@ constexpr double prob_copy = 0.5;
 constexpr uint64_t locate_max_errors = 6;
 constexpr uint64_t pattern_length_per_error = 3;
 constexpr uint64_t locate_max_pattern_length = 20;
-// TEST(test_edit_distance_matrix, matrix) checks the 64-bit matrix with probability prob_64_bit_matrix, else the
-// 128-bit one
-constexpr double prob_64_bit_matrix = 0.5;
 
 /**
  * @brief returns the edit distance of T and P (full DP matrix)
@@ -164,7 +167,7 @@ static inp_t random_substring(const inp_t& input, uint64_t max_length, bool muta
  * @brief checks every cell of the last column of an edit_distance_matrix with value <= k against
  *        reference_edit_distance; the pattern is a mutated substring of input, the text a mutated copy of the pattern
  *        or of another substring
- * @tparam word_t the matrix word type (uint64_t or uint128_t)
+ * @tparam word_t the matrix word type (uint64_t, uint128_t or a wide_word)
  * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
  * @tparam gen_t random number generator type
  * @param input the input sequence to draw the pattern and the text from
@@ -221,8 +224,8 @@ static void verify_edit_dist_bounded_and_cigar(const inp_t& input, gen_t& gen)
 {
     constexpr uint64_t max_length = bounded_max_length;
 
-    // k is drawn up to the maximum of the larger matrix word type
-    std::uniform_int_distribution<int32_t> k_distrib(0, edit_distance_max_errors_128);
+    // k is drawn up to the maximum of the largest matrix word type
+    std::uniform_int_distribution<int32_t> k_distrib(0, edit_distance_max_errors);
     int32_t k = k_distrib(gen);
 
     inp_t P = prob_distrib(gen) < prob_empty ? inp_t() : random_substring(input, max_length, true, gen);
@@ -304,8 +307,13 @@ static void for_random_input_type(uint64_t i, verify_t verify)
 TEST(test_edit_distance_matrix, matrix)
 {
     run_fuzz("edit-distance-matrix", { { "matrix", [](uint64_t i) { for_random_input_type(i, [](auto& input) {
-        if (prob_distrib(gen) < prob_64_bit_matrix) verify_edit_distance_matrix<uint64_t>(input, gen);
-        else                         verify_edit_distance_matrix<uint128_t>(input, gen);
+        switch (std::uniform_int_distribution<int32_t>(0, 4)(gen)) {
+            case 0: verify_edit_distance_matrix<uint64_t>(input, gen); break;
+            case 1: verify_edit_distance_matrix<uint128_t>(input, gen); break;
+            case 2: verify_edit_distance_matrix<wide_word<256>>(input, gen); break;
+            case 3: verify_edit_distance_matrix<wide_word<512>>(input, gen); break;
+            default: verify_edit_distance_matrix<wide_word<1024>>(input, gen); break;
+        }
     }); }, true } }, fuzz_iterations(num_iterations_matrix), &max_input_size, min_fuzz_input_size);
 }
 

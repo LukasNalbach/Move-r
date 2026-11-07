@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file rank_select_set.hpp
+ * @brief a set of integers with rank and select, stored as a bit vector or with Elias-Fano coding, whichever is smaller
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_RANK_SELECT_SET_HPP
 #define MOVE_R_DATA_STRUCTURES_RANK_SELECT_SET_HPP
 

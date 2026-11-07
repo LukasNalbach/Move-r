@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file fasta.hpp
+ * @brief FASTA input: DNA bases, reverse complements, scanning and reading FASTA files
+ */
+
 #ifndef MOVE_R_MISC_FASTA_HPP
 #define MOVE_R_MISC_FASTA_HPP
 

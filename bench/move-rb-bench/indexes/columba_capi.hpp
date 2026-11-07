@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file columba_capi.hpp
+ * @brief the C interface of the columba plugins, which the move-rb benchmarks load at run time
+ */
+
 #ifndef MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_CAPI_HPP
 #define MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_CAPI_HPP
 

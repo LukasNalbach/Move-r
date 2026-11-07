@@ -24,8 +24,12 @@
  * SOFTWARE.
  */
 
-// verify_support_of_iteration for the symbol type TEST_MOVE_R_SYMBOL, whose input container is std::string for char and
-// std::vector<TEST_MOVE_R_SYMBOL> otherwise (this file is compiled once per input type, see CMakeLists.txt)
+/**
+ * @file test-move-r-instantiations.cpp
+ * @brief verify_support_of_iteration for the symbol type TEST_MOVE_R_SYMBOL, whose input container is std::string for
+ *        char and std::vector<TEST_MOVE_R_SYMBOL> otherwise (this file is compiled once per input type, see
+ *        CMakeLists.txt)
+ */
 
 #include "test-move-r-common.hpp"
 

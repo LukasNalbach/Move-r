@@ -24,7 +24,10 @@
  * SOFTWARE.
  */
 
-// checks of the parallel reverts of the indexes
+/**
+ * @file test-revert.hpp
+ * @brief checks of the parallel reverts of the indexes
+ */
 
 #ifndef MOVE_R_TESTS_TEST_REVERT_HPP
 #define MOVE_R_TESTS_TEST_REVERT_HPP

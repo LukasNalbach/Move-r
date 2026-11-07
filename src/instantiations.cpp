@@ -24,9 +24,12 @@
  * SOFTWARE.
  */
 
-// explicit instantiations of the indexes. This file is compiled once per part: the build defines
-// MOVE_R_INSTANTIATION_PART_<part> for each translation unit (see CMakeLists.txt), and each part instantiates
-// one group of members for all index types.
+/**
+ * @file instantiations.cpp
+ * @brief explicit instantiations of the indexes. This file is compiled once per part: the build defines
+ *        MOVE_R_INSTANTIATION_PART_<part> for each translation unit (see CMakeLists.txt), and each part instantiates
+ *        one group of members for all index types.
+ */
 
 #define MOVE_R_DECLARATIONS_ONLY
 

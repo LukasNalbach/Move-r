@@ -24,7 +24,11 @@
  * SOFTWARE.
  */
 
-// cycle_input_types for the support TEST_MOVE_RB_SUPPORT (this file is compiled once per support, see CMakeLists.txt)
+/**
+ * @file test-move-rb-instantiations.cpp
+ * @brief cycle_input_types for the support TEST_MOVE_RB_SUPPORT (this file is compiled once per support, see
+ *        CMakeLists.txt)
+ */
 
 #include "test-move-rb-common.hpp"
 

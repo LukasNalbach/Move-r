@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file partition.hpp
+ * @brief a partition of a pattern into parts with the search context of each part
+ */
+
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_PARTITION_HPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_PARTITION_HPP
 

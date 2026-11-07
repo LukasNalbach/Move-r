@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file search_context.hpp
+ * @brief the state of a bidirectional search for a pattern
+ */
+
 #ifndef MOVE_R_MOVE_RB_SEARCH_CONTEXT_HPP
 #define MOVE_R_MOVE_RB_SEARCH_CONTEXT_HPP
 

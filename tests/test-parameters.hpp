@@ -24,7 +24,10 @@
  * SOFTWARE.
  */
 
-// test parameters shared by several test files
+/**
+ * @file test-parameters.hpp
+ * @brief test parameters shared by several test files
+ */
 
 #ifndef MOVE_R_TESTS_TEST_PARAMETERS_HPP
 #define MOVE_R_TESTS_TEST_PARAMETERS_HPP

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file queries.tpp
+ * @brief the queries of move_rb: search contexts, input intervals and the approximate queries
+ */
+
 #ifndef MOVE_R_MOVE_RB_QUERIES_TPP
 #define MOVE_R_MOVE_RB_QUERIES_TPP
 

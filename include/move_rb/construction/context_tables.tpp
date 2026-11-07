@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file context_tables.tpp
+ * @brief the construction of the context tables of a move_rb
+ */
+
 #ifndef MOVE_R_MOVE_RB_CONSTRUCTION_CONTEXT_TABLES_TPP
 #define MOVE_R_MOVE_RB_CONSTRUCTION_CONTEXT_TABLES_TPP
 

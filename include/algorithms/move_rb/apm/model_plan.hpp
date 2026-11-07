@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file model_plan.hpp
+ * @brief the partition of a pattern and the search scheme of a query with an error model
+ */
+
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_MODEL_PLAN_HPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_MODEL_PLAN_HPP
 

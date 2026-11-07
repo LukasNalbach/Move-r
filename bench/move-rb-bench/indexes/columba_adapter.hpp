@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file columba_adapter.hpp
+ * @brief loads a columba index and runs the approximate pattern matching of columba itself (b-move or FM-index)
+ */
+
 #ifndef MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_ADAPTER_HPP
 #define MOVE_R_BENCH_MOVE_RB_BENCH_INDEXES_COLUMBA_ADAPTER_HPP
 

@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file pfp.tpp
+ * @brief the construction of the RLBWT with prefix-free parsing and its cache
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_PFP_TPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_PFP_TPP
 

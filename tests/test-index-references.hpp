@@ -24,8 +24,10 @@
  * SOFTWARE.
  */
 
-
-// naive references of the index tests: suffix array intervals
+/**
+ * @file test-index-references.hpp
+ * @brief naive references of the index tests: suffix array intervals
+ */
 
 #ifndef MOVE_R_TESTS_TEST_INDEX_REFERENCES_HPP
 #define MOVE_R_TESTS_TEST_INDEX_REFERENCES_HPP

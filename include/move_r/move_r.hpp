@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file move_r.hpp
+ * @brief the r-index move_r: locate supports, parameters and queries
+ */
+
 #ifndef MOVE_R_MOVE_R_MOVE_R_HPP
 #define MOVE_R_MOVE_R_MOVE_R_HPP
 

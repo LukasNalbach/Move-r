@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file hash.hpp
+ * @brief hash functors for wide values and spans
+ */
+
 #ifndef MOVE_R_MISC_HASH_HPP
 #define MOVE_R_MISC_HASH_HPP
 

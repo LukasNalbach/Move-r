@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file context_tables.tpp
+ * @brief the logging and the size of context_tables
+ */
+
 #ifndef MOVE_R_DATA_STRUCTURES_CONTEXT_TABLES_TPP
 #define MOVE_R_DATA_STRUCTURES_CONTEXT_TABLES_TPP
 

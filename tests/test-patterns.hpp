@@ -24,7 +24,10 @@
  * SOFTWARE.
  */
 
-// random patterns for the tests and their occurrences
+/**
+ * @file test-patterns.hpp
+ * @brief random patterns for the tests and their occurrences
+ */
 
 #ifndef MOVE_R_TESTS_TEST_PATTERNS_HPP
 #define MOVE_R_TESTS_TEST_PATTERNS_HPP

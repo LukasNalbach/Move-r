@@ -24,6 +24,11 @@
  * SOFTWARE.
  */
 
+/**
+ * @file move_lf.tpp
+ * @brief the construction of M_LF and of the data structures over L
+ */
+
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_MOVE_LF_TPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_MOVE_LF_TPP
 
