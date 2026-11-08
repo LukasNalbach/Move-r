@@ -26,7 +26,7 @@
 
 /**
  * @file test-index-references.hpp
- * @brief naive references of the index tests: suffix array intervals
+ * @brief naive references of the index tests: suffix array intervals and random documents
  */
 
 #ifndef MOVE_R_TESTS_TEST_INDEX_REFERENCES_HPP
@@ -34,9 +34,13 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <random>
+#include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include <data_structures/document_map.hpp>
 
 /**
  * @brief returns the suffix array interval [b, e] of the pattern P in text; b > e <=> P does not occur in text
@@ -75,6 +79,34 @@ inline std::pair<int64_t, int64_t> reference_sa_interval(
         std::lower_bound(SA.begin(), SA.end(), P, suffix_less) - SA.begin(),
         std::upper_bound(SA.begin(), SA.end(), P, pattern_less) - SA.begin() - 1
     };
+}
+
+/**
+ * @brief returns random documents of a text of length n (including the sentinel): the positions are split into
+ *        ranges of random lengths, and each range is assigned to one of at most as many documents as there are ranges;
+ *        document d is named "d<d>"
+ * @param n the number of positions (>= 1)
+ * @param max_num_ranges the maximum number of ranges (>= 1)
+ * @param gen random number generator
+ */
+template <typename gen_t>
+inline document_map random_documents(uint64_t n, uint64_t max_num_ranges, gen_t& gen)
+{
+    const uint64_t num_ranges = std::uniform_int_distribution<uint64_t>(1, std::min(n, max_num_ranges))(gen);
+
+    // the starting positions of the ranges, starting with 0
+    std::set<uint64_t> start_set { 0 };
+    while (start_set.size() < num_ranges) start_set.insert(std::uniform_int_distribution<uint64_t>(1, n - 1)(gen));
+    std::vector<uint64_t> starts(start_set.begin(), start_set.end());
+
+    // [0..num_ranges-1] documents[x] = document of the x-th range
+    const uint64_t num_documents = std::uniform_int_distribution<uint64_t>(1, num_ranges)(gen);
+    std::vector<uint32_t> documents(num_ranges);
+    for (uint32_t& document : documents) document = uint32_t(gen() % num_documents);
+
+    std::vector<std::string> names;
+    for (uint64_t d = 0; d < num_documents; d++) names.push_back("d" + std::to_string(d));
+    return document_map(std::move(starts), std::move(documents), std::move(names));
 }
 
 #endif // MOVE_R_TESTS_TEST_INDEX_REFERENCES_HPP

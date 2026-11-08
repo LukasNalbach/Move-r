@@ -102,4 +102,9 @@ inline constexpr uint64_t pfp_inverse_probability = 8;
 // the values of move_r_params::context_table_share a random index is built with (0: no context tables)
 inline constexpr std::array<double, 3> context_table_shares { 0.0, 0.1, 0.9 };
 
+// the maximum number of ranges of random documents (see random_documents)
+inline constexpr uint64_t max_document_ranges = 40;
+// the number of patterns a document check queries
+inline constexpr uint64_t num_document_queries = 64;
+
 #endif

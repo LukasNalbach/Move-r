@@ -26,7 +26,7 @@
 
 /**
  * @file test-move-rb.cpp
- * @brief fuzz tests of move_rb: the indexes and approximate pattern matching
+ * @brief fuzz tests of move_rb: the indexes, the documents and approximate pattern matching
  */
 
 #include <algorithm>
@@ -76,6 +76,14 @@ TEST(test_move_rb, index)
 {
     run_fuzz("move-rb", { { "index",
         [](uint64_t i) { cycle_supports(i, _test_index_operations); }, true } },
+        fuzz_iterations(), &max_input_size, min_fuzz_input_size);
+}
+
+// the documents, for the supports that locate all occurrences (see move_r_params::documents)
+TEST(test_move_rb, documents)
+{
+    run_fuzz("move-rb", { { "documents",
+        [](uint64_t i) { cycle_multiple_locate_supports(i, _test_documents); }, true } },
         fuzz_iterations(), &max_input_size, min_fuzz_input_size);
 }
 

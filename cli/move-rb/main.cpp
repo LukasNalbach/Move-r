@@ -43,6 +43,7 @@ int main(int argc, char** argv)
         { "extract-sa", move_rb_extract_sa_description, move_rb_extract_sa },
         { "extract-bwt", move_rb_extract_bwt_description, move_rb_extract_bwt },
         { "extract-rlbwt", move_rb_extract_rlbwt_description, move_rb_extract_rlbwt },
+        { "docs", move_rb_docs_description, move_rb_docs },
         { "info", move_rb_info_description, move_rb_info }
     }, argc, argv);
 }

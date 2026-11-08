@@ -184,10 +184,13 @@ auto apm_hamming<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) c
 
     auto add_ctx = [&](search_context_t<query_support>& ctx) { add_result<query_support>(result, ctx, m); };
 
-    // partition P into p parts and compute the search context of each part
-    apm_partition<idx_t, query_support> partition(_index, P, p, _params);
+    // partition P into the p parts of the scheme or of its mirror (see apm_partition::mirrored) and compute the search
+    // context of each part
+    apm_partition<idx_t, query_support> partition(_index, P, scheme, HAMMING_DISTANCE, _params);
+    const search_scheme_t mirror = partition.mirrored() ? mirrored_scheme(scheme) : search_scheme_t();
+    const search_scheme_t& oriented = partition.mirrored() ? mirror : scheme;
 
-    for (const search_t& S : scheme.S) {
+    for (const search_t& S : oriented.S) {
         std::vector<search_position_t> positions = search_positions(S, partition, m);
         std::vector<state_t> stack;
         stack.reserve(m);

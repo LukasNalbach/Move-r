@@ -6,9 +6,9 @@ This repository contains move-r, an optimized and parallelized r-index [1, 2], a
 - **move-r** (`move_r`) counts and locates the occurrences of a pattern, gives access to the BWT and the suffix
   array and reconstructs the text. It locates with a move data structure for Phi_inv or with an RLZ of the
   differential suffix array (RLZSA [3, 4]). It works over byte alphabets and over integer alphabets.
-- **move-rb** (`move_rb`) extends a pattern on both sides. It counts and locates the occurrences of a pattern and finds
-  the occurrences of a pattern with at most k errors (Hamming or edit distance, with search schemes [5, 6]), locating
-  with a move data structure for Phi_inv or with the RLZSA.
+- **move-rb** (`move_rb`) extends a pattern on both sides. It counts and locates the occurrences of a pattern, finds
+  the occurrences of a pattern with at most k errors (Hamming or edit distance, with search schemes [5, 6]) and lists
+  the documents containing a pattern, locating with a move data structure for Phi_inv or with the RLZSA.
 
 The standalone RLZSA and LZEndSA indexes of [3, 4] are part of earlier releases of move-r, e.g.
 [ALENEX-2027](https://github.com/LukasNalbach/Move-r/tree/ALENEX-2027).
@@ -127,14 +127,18 @@ Temporary files are written to the directory `MOVE_R_TMPDIR` (default: the tempo
 ### move-rb
 
 - **build**: builds a move-rb index; `-s` selects the support (`count`, `locate-one`, `locate-move` or
-  `locate-rlzsa`), `-context-table` the share of the index size used for the search contexts of short patterns.
-  `move-rb build -s locate-move genome.fa`
+  `locate-rlzsa`), `-context-table` the share of the index size used for the search contexts of short patterns;
+  `-docs` stores the documents of a FASTA input (`records`, `files` or a map file that groups the records; with
+  `locate-move` or `locate-rlzsa`). `move-rb build -s locate-move genome.fa`
 - **count**, **locate**: count or locate the occurrences of patterns with at most `-k` errors (`-d hamming` or
   `-d edit`, with a search scheme `-scheme`); `locate -sam` and `-paf` align reads against a FASTA index. Without a
   patterns file, the patterns are read interactively.
   `move-rb locate -k 2 -d edit -sam reads.sam genome.fa.move-rb-locate reads.fq`
 - **revert**, **extract-sa**, **extract-bwt**, **extract-rlbwt**: as for move-r; `-rev` for the reversed text.
   `move-rb extract-bwt -rev genome.fa.move-rb-locate genome.bwt-rev`
+- **docs**: lists, counts or ranks the documents containing each pattern (`-report list`, `count`, `frequencies` or
+  `top`), computed from its located occurrences (index built with `-docs`).
+  `move-rb docs -report top -top 3 genomes.fa.move-rb-locate reads.fa`
 - **info**: prints the support, the parameters and the sizes of the data structures of an index.
 
 ### Other tools
@@ -166,7 +170,7 @@ The use of each data structure, with complete example programs for all of its fu
 - [docs/move-r.md](docs/move-r.md): `move_r`, construction, storing, count, locate, incremental search, BWT and suffix
   array access, revert;
 - [docs/move-rb.md](docs/move-rb.md): `move_rb`, search contexts (extension, locate), enumerating extensions, BWT and
-  suffix array access, approximate pattern matching.
+  suffix array access, approximate pattern matching, documents.
 
 ## Tests
 

@@ -2,8 +2,8 @@
 
 `move_rb<support>` (header `move_rb/move_rb.hpp`) is the bi-directional index of a text T: a move-r index of T and one
 of the reversed text T^R. A search context of a pattern P can be extended by a symbol on both sides. On top of this,
-it matches patterns approximately with search schemes. Link your target with `move_r` (see the
-[main README](../README.md#c-usage)).
+it matches patterns approximately with search schemes and lists the documents containing a pattern. Link your target
+with `move_r` (see the [main README](../README.md#c-usage)).
 
 Every block below is a complete program. A comment `// -> x` at the end of a line or on the line above a statement
 shows the line the statement prints, `// ~> x` an output that depends on the build (e.g. a size).
@@ -16,6 +16,7 @@ shows the line the statement prints, `// ~> x` an output that depends on the bui
 - [Enumerating extensions](#enumerating-extensions)
 - [BWT, suffix array and text](#bwt-suffix-array-and-text)
 - [Approximate pattern matching](#approximate-pattern-matching)
+- [Documents](#documents)
 
 ## Construction
 
@@ -26,7 +27,8 @@ The construction takes the parameters of move-r (`move_r_params`, see [move-r.md
 
 - `context_table_share`: the share of the index size used for a table of the search contexts of all short patterns,
   at which a search starts (default 0.05, 0 builds none);
-- `context_tables_single_length`: `true` stores the table for one pattern length only.
+- `context_tables_single_length`: `true` stores the table for one pattern length only;
+- `documents`: the documents of the text (`_locate_move` and `_locate_rlzsa` only, see [Documents](#documents)).
 
 ```cpp
 #include <move_rb/move_rb.hpp>
@@ -256,7 +258,7 @@ int main()
     std::cout << std::endl; // -> (3, 3, 1) (5, 3, 1)
 
     // uniform partitioning of P into the parts of the scheme instead of the
-    // dynamic one
+    // optimized one
     apm_params_t uniform;
     uniform.partitioning = _partition_uniform;
     // -> 2
@@ -314,5 +316,56 @@ int main()
         params);
     for (auto occ : occs) std::cout << occ << " ";
     std::cout << std::endl; // -> (3, 5, 1)
+}
+```
+
+## Documents
+
+With `documents` (a `document_map`: the starting positions of ranges of the text and the document of each range), an
+index that locates all occurrences (`_locate_move` or `_locate_rlzsa`) stores the documents of the text.
+`document_query` (header `algorithms/documents.hpp`) lists, counts and ranks the documents containing a pattern from
+its occurrences: a query takes a function `occurrences`, called as `occurrences(report)`, that calls `report(occ)` for
+every occurrence.
+
+```cpp
+#include <move_rb/move_rb.hpp>
+#include <algorithms/documents.hpp>
+
+int main()
+{
+    // three documents, separated by '#'
+    std::string text = "ACGTTA#ACGTCA#TTACGA";
+    document_map docs({ 0, 7, 14 }, { 0, 1, 2 }, { "d0", "d1", "d2" });
+    move_rb<_locate_move> index(text, { .documents = &docs });
+    // -> 1 3
+    std::cout << index.has_documents() << " "
+              << index.documents().num_documents() << std::endl;
+
+    bool occurs;
+    auto ctx = index.search(std::string("ACG"), occurs);
+    auto occurrences = [&](auto&& report) {
+        ctx.locate_phase().locate(report);
+    };
+    document_query query(index.documents());
+
+    query.list(occurrences, [&](uint64_t d) {
+        std::cout << docs.name(d) << " ";
+    });
+    std::cout << std::endl; // -> d0 d1 d2
+    std::cout << query.count(occurrences) << std::endl; // -> 3
+
+    // the documents with the numbers of occurrences of "TA", and the
+    // document with the most occurrences
+    auto ctx_ta = index.search(std::string("TA"), occurs);
+    auto occurrences_ta = [&](auto&& report) {
+        ctx_ta.locate_phase().locate(report);
+    };
+    query.list_with_frequencies(occurrences_ta, [&](uint64_t d, uint64_t f) {
+        std::cout << docs.name(d) << ":" << f << " ";
+    });
+    std::cout << std::endl; // -> d0:1 d2:1
+    query.top_k(occurrences_ta, 1, [&](uint64_t d, uint64_t f) {
+        std::cout << docs.name(d) << ":" << f << std::endl; // -> d0:1
+    });
 }
 ```

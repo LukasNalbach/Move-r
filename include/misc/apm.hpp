@@ -503,8 +503,10 @@ static std::vector<aprx_occ_t<>> locate_naive(const inp_t& T, const inp_t& P, ui
 
 /** @brief strategy for partitioning a pattern into the parts of a search scheme */
 enum partitioning_t : uint8_t {
-    _partition_uniform = 0, // p parts of equal length
-    _partition_dynamic = 1  // part boundaries chosen per pattern, s.t. each part has few exact occurrences
+    _partition_uniform = 0,  // p parts of equal length
+    _partition_dynamic = 1,  // part boundaries chosen per pattern, s.t. each part has few exact occurrences
+    _partition_optimized = 2 // part boundaries and the direction of the search scheme chosen per pattern, s.t. the
+                             // predicted number of steps of the searches is small (see apm_search_cost)
 };
 
 class apm_costs_t;
@@ -512,7 +514,7 @@ class apm_costs_t;
 /** @brief the options of an approximate-pattern-matching query that are not part of the search scheme */
 struct apm_params_t {
     // strategy for partitioning the pattern
-    partitioning_t partitioning = _partition_dynamic;
+    partitioning_t partitioning = _partition_optimized;
 
     /* true <=> a search starts with the search context of the exact match of its first part computed by the
        partitioning; false <=> it matches its first part symbol by symbol */

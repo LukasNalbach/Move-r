@@ -32,6 +32,8 @@
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_PARTITION_HPP
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_PARTITION_HPP
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <ranges>
@@ -39,14 +41,18 @@
 #include <vector>
 
 #include <misc/apm.hpp>
+#include <misc/search_schemes.hpp>
 #include <misc/utils.hpp>
 #include <algorithms/move_rb/apm/model.hpp>
+#include <algorithms/move_rb/apm/search_cost.hpp>
 
 /**
  * @brief a partition of a pattern P into p parts, with the search context of each part: part i is
  *        P[beg(i), end(i)). The search context of a part is computed if no position of the part has a free symbol
  *        other than its own symbol (see apm_costs_t::has_free; always without an error model). The parts are of
- *        equal length, or chosen by the dynamic partitioning of Columba (Renders, Depuydt, Fostier).
+ *        equal length, chosen by the dynamic partitioning of Columba (Renders, Depuydt, Fostier), or chosen together
+ *        with the direction of the search scheme such that the predicted number of steps of the searches is small
+ *        (see apm_search_cost).
  * @tparam idx_t the bidirectional index type
  * @tparam query_support whether the contexts support locate (LOCATE) or only count (COUNT)
  */
@@ -66,6 +72,7 @@ protected:
     // [0..p-1] 1 <=> no position of part i has a free symbol other than its own, so _ctx[i] is the context of part i
     std::vector<uint8_t> _has_context;
     const apm_costs_t* _costs;     // the error model, or nullptr
+    bool _mirrored = false;        // whether the searches run with the mirror of the search scheme
 
     // returns whether P[i] has a free symbol other than itself
     bool is_free(uint64_t i) const { return _costs != nullptr && _costs->has_free(i); }
@@ -252,6 +259,284 @@ protected:
         _bounds[p] = m;
     }
 
+    // partitions P into p parts of equal length, or with partition_dynamic unless params.partitioning is uniform
+    void make_parts(const inp_t& P, uint64_t p, const apm_params_t& params)
+    {
+        // the dynamic partitioning requires p >= 2 and m >= 2p
+        if (p == 1 || params.partitioning == _partition_uniform || P.size() < 2 * p) {
+            partition_uniform(P, p);
+        } else {
+            partition_dynamic(P, p);
+        }
+    }
+
+    // whether the index provides its alphabet size, the number of runs in its BWT and the length of its text
+    static constexpr bool can_optimize = requires(const idx_t& idx) {
+        idx.alphabet_size();
+        idx.num_bwt_runs();
+        idx.input_size();
+    };
+
+    /**
+     * @brief returns the numbers of occurrences of the substrings of P that start at each position: [i][l - 1] is the
+     *        number of occurrences of P[i, i + l), for l = 1, 2, ... until at most one occurrence has a distinct
+     *        continuation (occ * share <= 1, see apm_search_cost), the substring does not occur, it has a position with
+     *        a free symbol or P ends; a substring with a free symbol has no search context (a search that starts with it
+     *        starts at the root), it counts as n occurrences
+     * @param P the pattern
+     * @param share r / n
+     * @param steps increased by the number of extensions
+     */
+    std::vector<std::vector<uint64_t>> occurrence_table(const inp_t& P, double share, double& steps) const
+    {
+        const uint64_t m = P.size();
+        std::vector<std::vector<uint64_t>> occ(m);
+
+        for (uint64_t i = 0; i < m; i++) {
+            ctx_t ctx = _index.template empty_context<query_support>();
+
+            for (uint64_t e = i; e < m; e++) {
+                if (is_free(e)) { occ[i].emplace_back(_index.input_size()); break; }
+                auto [next, ok] = ctx.extend(P[e], RIGHT);
+                steps++;
+                if (!ok) { occ[i].emplace_back(0); break; }
+                ctx = std::move(next);
+                occ[i].emplace_back(ctx.num_occ());
+                if (double(ctx.num_occ()) * share <= 1) break;
+            }
+        }
+
+        return occ;
+    }
+
+    /**
+     * @brief returns the bounds of the p parts of P that minimize the sum of cost.part_cost (dynamic programming over
+     *        the bounds: f[i][e] is the smallest sum for parts 0..i-1 covering P[0, e))
+     * @param m the pattern length
+     * @param p the number of parts
+     * @param cost the prediction
+     * @param occ_of occ_of(b, e) returns the number of occurrences of P[b, e)
+     */
+    template <typename occ_fnc_t>
+    static std::vector<uint64_t> minimal_bounds(uint64_t m, uint64_t p, const apm_search_cost& cost, occ_fnc_t occ_of)
+    {
+        const double inf = std::numeric_limits<double>::infinity();
+        std::vector<std::vector<double>> f(p + 1, std::vector<double>(m + 1, inf));
+        std::vector<std::vector<uint64_t>> from(p + 1, std::vector<uint64_t>(m + 1, 0));
+        f[0][0] = 0;
+
+        for (uint64_t i = 0; i < p; i++) {
+            for (uint64_t b = i; b + (p - i) <= m; b++) {
+                if (f[i][b] == inf) continue;
+
+                for (uint64_t e = b + 1; e + (p - 1 - i) <= m; e++) {
+                    const double c = f[i][b] + cost.part_cost(i, occ_of(b, e));
+                    if (c < f[i + 1][e]) { f[i + 1][e] = c; from[i + 1][e] = b; }
+                }
+            }
+        }
+
+        std::vector<uint64_t> bounds(p + 1);
+        bounds[p] = m;
+        for (uint64_t i = p; i > 0; i--) bounds[i - 1] = from[i][bounds[i]];
+        return bounds;
+    }
+
+    /**
+     * @brief partitions P into the parts of a search scheme or of its mirror (then _mirrored is set) such that the
+     *        predicted number of steps of the searches (see apm_search_cost) is small, and computes the search context
+     *        of each part; the optimization counts its own steps (an extension of a context, a cell or a transition of
+     *        a dynamic program) and stops once they exceed the prediction for the best partition found:
+     *
+     * 1. The partition of partition_dynamic; it stays if each of its parts has at most one occurrence with a distinct
+     *    continuation (occ * r / n <= 1, a rare part) or if apm_model_plan runs the anchored search for every partition;
+     *    it also stays, with the scheme or the mirror, whichever has the smaller prediction, if one of its parts is rare
+     *    or if the prediction is below the m * log_sigma(r) extensions of step 2.
+     * 2. The numbers of occurrences of the substrings of P (see occurrence_table); a longer substring is assumed to
+     *    occur as often as its longest prefix in the table.
+     * 3. For the scheme and for the mirror: a local search from the uniform partition, from the partition of step 1
+     *    and from minimal_bounds (if its cells do not exceed the budget), which moves one bound by one symbol, the move
+     *    that lowers the prediction most, until no move lowers it by more than the steps of trying the moves; a bound
+     *    next to a rare part does not move.
+     *
+     * A position has one symbol without an error, sigma - 1 substitutions and, under the edit distance, an insertion and
+     * sigma deletions; with an error model, its free symbols and the errors whose costs are within its bound.
+     *
+     * @param P the pattern
+     * @param scheme the search scheme
+     * @param metric the distance metric of the searches
+     */
+    void partition_optimized(const inp_t& P, const search_scheme_t& scheme, distance_metric_t metric)
+    {
+        const uint64_t m = P.size();
+        const uint64_t p = scheme.p;
+        const double sigma = double(_index.alphabet_size());
+        const uint64_t r = _index.num_bwt_runs();
+        const uint64_t n = _index.input_size();
+        const search_scheme_t mirror = mirrored_scheme(scheme);
+        const bool edit = metric == EDIT_DISTANCE;
+        std::vector<double> match(m, 1), sub(m, sigma - 1), ins(m, edit ? 1 : 0), del(m, edit ? sigma : 0);
+
+        if (_costs != nullptr) {
+            for (uint64_t i = 0; i < m; i++) {
+                match[i] = double(_costs->free_symbols(i).size());
+                sub[i] = 0;
+
+                for (uint64_t c = 0; c < _costs->num_ranks(); c++) {
+                    if (!_costs->is_free(i, c) && _costs->sub(i, c) <= _costs->bound()) sub[i]++;
+                }
+
+                ins[i] = edit && _costs->ins(i) <= _costs->bound() ? 1 : 0;
+                del[i] = edit && _costs->del(i) <= _costs->bound() ? sigma : 0;
+            }
+        }
+
+        // the occurrences of the anchor of the error model (see apm_costs_t::anchor)
+        uint64_t anchor_occ = 0;
+
+        if (_costs != nullptr) {
+            auto [a_beg, a_end] = _costs->anchor();
+
+            if (a_beg < a_end) {
+                bool occurs;
+                const ctx_t ctx = context_of(P, a_beg, a_end, occurs);
+                if (occurs) anchor_occ = ctx.num_occ();
+            }
+        }
+
+        const apm_search_cost cost[2] {
+            { scheme, _costs, sigma, match, sub, ins, del, r, n, anchor_occ },
+            { mirror, _costs, sigma, match, sub, ins, del, r, n, anchor_occ }
+        };
+
+        partition_dynamic(P, p);
+        const std::vector<uint64_t> bounds_dynamic = _bounds;
+
+        // if every part has at most one occurrence with a distinct continuation, every search starts with at most one context
+        bool all_rare = true;
+        for (uint64_t i = 0; i < p; i++) all_rare &= _has_context[i] && double(num_occ(i)) * double(r) <= double(n);
+        if (all_rare) return;
+
+        /* if a position has a free symbol and every part is the first part of a search, every partition has a search that
+           starts without a search context, so apm_model_plan runs the anchored search if there is an anchor, whatever the
+           parts are; then the dynamic partition stays */
+        if (_costs != nullptr && _costs->anchor().first < _costs->anchor().second) {
+            bool has_free_symbol = false;
+            for (uint64_t i = 0; i < m; i++) has_free_symbol |= is_free(i);
+            std::vector<uint8_t> is_first(p, 0);
+            for (const search_t& S : scheme.S) is_first[S[0].part] = 1;
+            if (has_free_symbol && std::find(is_first.begin(), is_first.end(), 0) == is_first.end()) return;
+        }
+
+        std::vector<uint64_t> occ(p);
+        bool has_rare = false;
+
+        for (uint64_t i = 0; i < p; i++) {
+            occ[i] = num_occ(i);
+            has_rare |= _has_context[i] && double(occ[i]) * double(r) <= double(n);
+        }
+
+        // with a rare part or a prediction below the steps of the table, only the direction is chosen
+        const double cost_scheme = cost[0].cost(_bounds, occ), cost_mirror = cost[1].cost(_bounds, occ);
+        double best = std::min(cost_scheme, cost_mirror);
+        _mirrored = cost_mirror < cost_scheme;
+        if (has_rare || best <= double(m) * std::log(double(r)) / std::log(sigma)) return;
+
+        double table_steps = 0;
+        const std::vector<std::vector<uint64_t>> table = occurrence_table(P, double(r) / double(n), table_steps);
+        double steps = table_steps + double(cost[0].work() + cost[1].work());
+
+        // next_free[i] = the first position >= i with a free symbol, or m
+        std::vector<uint64_t> next_free(m + 1, m);
+        for (uint64_t i = m; i-- > 0;) next_free[i] = is_free(i) ? i : next_free[i + 1];
+
+        /* returns the number of occurrences of P[b, e): at most that of each of its substrings without a free symbol, so
+           the smallest of those of its maximal ones (a substring longer than its row of the table occurs as often as the
+           longest prefix in the row), or n if every position of it has a free symbol */
+        auto occ_of = [&](uint64_t b, uint64_t e) {
+            uint64_t smallest = n;
+
+            for (uint64_t x = b; x < e;) {
+                if (is_free(x)) { x++; continue; }
+                const uint64_t y = std::min(next_free[x], e);
+                const std::vector<uint64_t>& row = table[x];
+                smallest = std::min(smallest, row[std::min<uint64_t>(y - x, row.size()) - 1]);
+                x = y;
+            }
+
+            return smallest;
+        };
+
+        // returns whether P[b, e) has at most one occurrence with a distinct continuation
+        auto is_rare = [&](uint64_t b, uint64_t e) { return double(occ_of(b, e)) * double(r) <= double(n); };
+
+        // returns the prediction of cost[o] for the parts with the bounds; steps counts the work of all predictions
+        auto predict = [&](uint64_t o, const std::vector<uint64_t>& bounds) {
+            for (uint64_t i = 0; i < p; i++) occ[i] = occ_of(bounds[i], bounds[i + 1]);
+            const double c = cost[o].cost(bounds, occ);
+            steps = table_steps + double(cost[0].work() + cost[1].work());
+            return c;
+        };
+
+        best = predict(0, bounds_dynamic);
+        const double best_mirror = predict(1, bounds_dynamic);
+        _mirrored = best_mirror < best;
+        best = std::min(best, best_mirror);
+
+        std::vector<uint64_t> bounds_uniform(p + 1);
+        for (uint64_t i = 0; i <= p; i++) bounds_uniform[i] = (i * m) / p;
+        std::vector<uint64_t> bounds_best = bounds_dynamic;
+        bool mirrored_best = _mirrored;
+
+        for (uint64_t o = 0; o < 2; o++) {
+            std::vector<std::vector<uint64_t>> starts { bounds_dynamic, bounds_uniform };
+            const double cells_dp = double(p) * double(m) * double(m);
+
+            if (steps + cells_dp <= best) {
+                starts.emplace_back(minimal_bounds(m, p, cost[o], occ_of));
+                table_steps += cells_dp;
+                steps = table_steps + double(cost[0].work() + cost[1].work());
+            }
+
+            for (std::vector<uint64_t> bounds : starts) {
+                double c = predict(o, bounds);
+
+                while (steps <= best) {
+                    const double steps_before = steps;
+                    double c_move = c;
+                    uint64_t i_move = 0;
+                    bool move_right = false;
+
+                    for (uint64_t i = 1; i < p; i++) {
+                        // a border between parts with at most one occurrence with a distinct continuation stays
+                        if (is_rare(bounds[i - 1], bounds[i]) || is_rare(bounds[i], bounds[i + 1])) continue;
+
+                        for (bool right : { false, true }) {
+                            if (right ? bounds[i] + 1 == bounds[i + 1] : bounds[i] - 1 == bounds[i - 1]) continue;
+                            bounds[i] = right ? bounds[i] + 1 : bounds[i] - 1;
+                            const double c_i = predict(o, bounds);
+                            bounds[i] = right ? bounds[i] - 1 : bounds[i] + 1;
+                            if (c_i < c_move) { c_move = c_i; i_move = i; move_right = right; }
+                        }
+                    }
+
+                    if (i_move == 0) break;
+                    bounds[i_move] = move_right ? bounds[i_move] + 1 : bounds[i_move] - 1;
+                    const double gain = c - c_move;
+                    c = c_move;
+                    if (gain < steps - steps_before) break;
+                }
+
+                if (c < best) { best = c; bounds_best = bounds; mirrored_best = o == 1; }
+            }
+        }
+
+        _mirrored = mirrored_best;
+        if (bounds_best == bounds_dynamic) return;
+        _bounds = bounds_best;
+        compute_contexts(P);
+    }
+
 public:
     /**
      * @brief partitions a pattern into p parts and computes the search context of each part
@@ -266,13 +551,36 @@ public:
         assert(0 < p && p <= P.size());
         _ctx.reserve(p);
         for (uint64_t i = 0; i < p; i++) _ctx.emplace_back(index.template empty_context<query_support>());
+        make_parts(P, p, params);
+    }
 
-        // the dynamic partitioning requires p >= 2 and m >= 2p
-        if (p == 1 || params.partitioning == _partition_uniform || P.size() < 2 * p) {
-            partition_uniform(P, p);
-        } else {
-            partition_dynamic(P, p);
+    /**
+     * @brief partitions a pattern into the parts of a search scheme and computes the search context of each part; with
+     *        _partition_optimized (if the index provides what it needs), the searches run with the mirror of the scheme
+     *        if mirrored(), else as with the constructor that takes p
+     * @param index the index to search in
+     * @param P the pattern
+     * @param scheme the search scheme (0 < scheme.p <= P.size())
+     * @param metric the distance metric of the searches
+     * @param params query parameters (partitioning strategy, error model)
+     */
+    apm_partition(const idx_t& index, const inp_t& P, const search_scheme_t& scheme, distance_metric_t metric,
+        const apm_params_t& params)
+        : _index(index), _bounds(scheme.p + 1), _occurs(scheme.p, 0), _has_context(scheme.p, 1), _costs(params.costs)
+    {
+        const uint64_t p = scheme.p;
+        assert(0 < p && p <= P.size());
+        _ctx.reserve(p);
+        for (uint64_t i = 0; i < p; i++) _ctx.emplace_back(index.template empty_context<query_support>());
+
+        if constexpr (can_optimize) {
+            if (params.partitioning == _partition_optimized && p >= 2 && P.size() >= 2 * p) {
+                partition_optimized(P, scheme, metric);
+                return;
+            }
         }
+
+        make_parts(P, p, params);
     }
 
     /**
@@ -292,6 +600,9 @@ public:
 
     // returns the number of parts
     uint64_t size() const { return _bounds.size() - 1; }
+
+    // returns whether the searches run with the mirror of the search scheme (see mirrored_scheme)
+    bool mirrored() const { return _mirrored; }
 
     // returns the bounds of the parts ([0..p], part i is P[bounds()[i], bounds()[i + 1]))
     const std::vector<uint64_t>& bounds() const { return _bounds; }

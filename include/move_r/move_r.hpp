@@ -192,6 +192,9 @@ inline uint64_t L_prev_min_max_symbols(uint64_t sigma, uint64_t width)
 // the result of a scan of FASTA files (see misc/fasta.hpp)
 struct fasta_scan_t;
 
+// the documents of a text (see data_structures/document_map.hpp)
+class document_map;
+
 /**
  * @brief parameters for building the index of the text described by a FASTA file; each header line and each
  *        run of symbols outside the allowed alphabet is replaced by one separator (see pfp_rlbwt::fasta_transform)
@@ -303,6 +306,10 @@ struct move_r_params {
     // (move_rb only) true <=> the context tables store only the patterns of the maximum length that
     // context_table_share permits, instead of all lengths up to it (see context_tables::single_len)
     bool context_tables_single_length = false;
+
+    // (move_rb with _locate_move or _locate_rlzsa only) the documents of the text; if set, the index stores them (see
+    // move_rb::documents)
+    const document_map* documents = nullptr;
 
     // ##################### SET BY A BIDIRECTIONAL INDEX FOR ITS SUB-INDEXES (DON'T USE DIRECTLY) #####################
     uint64_t* peak_memory_usage = nullptr; // variable to store the peak memory usage in

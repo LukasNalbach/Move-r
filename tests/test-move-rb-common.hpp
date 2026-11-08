@@ -41,6 +41,7 @@
 #include <gtest/gtest.h>
 #include <gtl/phmap.hpp>
 #include <move_rb/move_rb.hpp>
+#include <algorithms/documents.hpp>
 #include <misc/apm.hpp>
 #include <algorithms/move_rb/apm/model.hpp>
 #include <ips2ra.hpp>
@@ -152,7 +153,9 @@ enum move_rb_test_t {
     // locate with the Hamming distance and a random error model
     _test_locate_hamming_model,
     // locate with the edit distance and a random error model
-    _test_locate_edit_model
+    _test_locate_edit_model,
+    // random documents of the input and the document queries (see document_query)
+    _test_documents
 };
 
 // true <=> test is an approximate-matching test (these are run with byte alphabets only)
@@ -220,7 +223,7 @@ inline inp_t random_query_pattern(const inp_t& input, sym_of<inp_t> absent, std:
 inline apm_params_t random_apm_params(std::mt19937_64& gen_query)
 {
     return {
-        .partitioning = partitioning_t(gen_query() % 2),
+        .partitioning = partitioning_t(gen_query() % 3),
         .start_at_part_contexts = gen_query() % 2 == 0
     };
 }
@@ -243,7 +246,7 @@ struct naive_reference {
     std::vector<int32_t> text_rev; // [0..n-1] text_rev[i] = text[n-1-i]
     std::vector<int64_t> SA; // [0..n] the suffix array of text (including the terminator)
     std::vector<int64_t> SA_rev; // [0..n] the suffix array of text_rev
-    // [0..alphabet_size()+1] input_symbol[s] = the input symbol of the internal symbol s (see move_r::unmap_symbol)
+    // [0..alphabet_size()] input_symbol[s] = the input symbol of the internal symbol s (see move_r::unmap_symbol)
     std::vector<uint64_t> input_symbol;
     // the internal symbol of each input symbol that occurs in the input
     std::map<uint64_t, uint64_t> internal_symbol;
@@ -266,7 +269,7 @@ naive_reference build_naive_reference(const idx_t& index, const inp_t& input)
     ref.SA_rev = compute_reference_sa<int32_t, std::vector<int32_t>>(ref.text_rev, n, max_num_threads);
 
     // the mappings between the internal symbols and the input symbols
-    ref.input_symbol.resize(index.alphabet_size() + 2);
+    ref.input_symbol.resize(index.alphabet_size() + 1);
     for (uint64_t s = 0; s < ref.input_symbol.size(); s++) ref.input_symbol[s] = index.unmap_symbol(s);
     for (uint64_t i = 0; i < n; i++) ref.internal_symbol[ref.input_symbol[uint64_t(ref.text[i])]] = uint64_t(ref.text[i]);
 
@@ -1050,7 +1053,7 @@ void verify_edit_model(const idx_t& index, std::span<const uint8_t> pattern, std
 
 /**
  * @brief verifies one approximate-matching algorithm with random patterns drawn from the input
- * @param test the algorithm to verify (not _test_index_operations)
+ * @param test the algorithm to verify (not _test_index_operations or _test_documents)
  * @param absent a symbol that does not occur in the input
  * @param thorough false <=> the index was loaded from a stream or built from a cache (fewer queries are performed)
  */
@@ -1127,6 +1130,90 @@ void verify_algorithm(const move_rb<support>& index, const inp_t& input,
     }
 }
 
+/**
+ * @brief verifies the documents of an index and the document queries against a naive search
+ * @param map the documents the index was built with
+ * @param absent a symbol that does not occur in the input
+ */
+template <typename inp_t, move_r_support support>
+void verify_documents(const move_rb<support>& index, const inp_t& input, const document_map& map,
+    sym_of<inp_t> absent, const std::string& label) requires(move_rb<support>::supports_multiple_locate)
+{
+    const uint64_t n = input.size();
+    ASSERT_TRUE(index.has_documents()) << "no documents, " << label;
+    const document_array& docs = index.documents();
+    const document_map& stored = docs.documents();
+    ASSERT_EQ(docs.num_documents(), map.num_documents()) << label;
+    ASSERT_EQ(stored.num_ranges(), map.num_ranges()) << label;
+
+    for (uint64_t k = 0; k < map.num_ranges(); k++) {
+        ASSERT_EQ(stored.range_start(k), map.range_start(k)) << "start of range " << k << ", " << label;
+        ASSERT_EQ(stored.range_document(k), map.range_document(k)) << "document of range " << k << ", " << label;
+    }
+
+    for (uint64_t d = 0; d < map.num_documents(); d++)
+        ASSERT_EQ(stored.name(d), map.name(d)) << "name of document " << d << ", " << label;
+
+    std::mt19937_64 gen_query(gen());
+    std::uniform_int_distribution<uint64_t> pos_distrib(0, n - 1);
+    std::uniform_int_distribution<uint64_t> length_distrib(1, std::min<uint64_t>(max_pattern_length, n));
+    document_query query(docs);
+
+    for (uint64_t q = 0; q < num_document_queries; q++) {
+        const uint64_t pos = pos_distrib(gen_query);
+        const uint64_t m = std::min<uint64_t>(length_distrib(gen_query), n - pos);
+        inp_t pattern(input.begin() + pos, input.begin() + pos + m);
+        if (gen_query() % 2 == 0) pattern[gen_query() % m] = absent;
+
+        // the number of occurrences of the pattern in each document that contains it
+        std::map<uint64_t, uint64_t> frequency;
+
+        for (uint64_t p = 0; p + m <= n; p++) {
+            if (std::equal(pattern.begin(), pattern.end(), input.begin() + p)) frequency[map.document_of(p)]++;
+        }
+
+        auto ctx = index.forward_index().query();
+        bool occurs = true;
+        for (uint64_t i = m; occurs && i-- > 0;) occurs = ctx.prepend(pattern[i]);
+        ASSERT_EQ(occurs, !frequency.empty()) << "pattern occurrence, " << label;
+        if (!occurs) continue;
+
+        // the occurrences of the pattern; locate reports the occurrences not reported yet, so each pass locates with a
+        // copy of the context
+        auto source = [&](auto&& report) {
+            auto pass = ctx;
+            pass.locate([&](uint64_t, uint64_t occ) { report(occ); });
+        };
+
+        // the documents that contain the pattern, in increasing order
+        std::vector<uint64_t> expected;
+        for (const auto& [document, freq] : frequency) expected.push_back(document);
+        std::vector<uint64_t> listed;
+        query.list(source, [&](uint64_t document) { listed.push_back(document); });
+        EXPECT_EQ(listed, expected) << "list, " << label;
+        EXPECT_EQ(query.count(source), expected.size()) << "count, " << label;
+
+        std::map<uint64_t, uint64_t> listed_frequency;
+        query.list_with_frequencies(source, [&](uint64_t document, uint64_t freq) {
+            EXPECT_TRUE(listed_frequency.empty() || listed_frequency.rbegin()->first < document)
+                << "list_with_frequencies: not in increasing order, " << label;
+            listed_frequency[document] = freq;
+        });
+        EXPECT_EQ(listed_frequency, frequency) << "list_with_frequencies, " << label;
+
+        // the top k by decreasing frequency, ties by the smaller document
+        std::vector<std::pair<uint64_t, uint64_t>> ranked;
+        for (const auto& [document, freq] : frequency) ranked.emplace_back(freq, document);
+        std::sort(ranked.begin(), ranked.end(), [](const auto& x, const auto& y) {
+            return x.first != y.first ? x.first > y.first : x.second < y.second; });
+        const uint64_t k = 1 + gen_query() % (frequency.size() + 1);
+        std::vector<std::pair<uint64_t, uint64_t>> top;
+        query.top_k(source, k, [&](uint64_t document, uint64_t freq) { top.emplace_back(freq, document); });
+        ranked.resize(std::min<uint64_t>(k, ranked.size()));
+        EXPECT_EQ(top, ranked) << "top_k, " << label;
+    }
+}
+
 // ############################# TEST DRIVERS #############################
 
 /**
@@ -1182,6 +1269,14 @@ void build_and_verify_move_rb(move_rb_test_t test, uint64_t min_n, uint64_t max_
         .context_tables_single_length = gen() % 2 == 0
     };
 
+    // the documents of the input (_test_documents only)
+    document_map documents;
+
+    if (test == _test_documents) {
+        documents = random_documents(n + 1, max_document_ranges, gen);
+        params.documents = &documents;
+    }
+
     // use the prefix-free parsing for large enough inputs (see pfp_inverse_probability), else one of the two in-memory
     // modes
     const bool use_pfp = n >= min_pfp_input_size && gen() % pfp_inverse_probability == 0;
@@ -1223,13 +1318,20 @@ void build_and_verify_move_rb(move_rb_test_t test, uint64_t min_n, uint64_t max_
         + (params.reorder_alphabet ? ", reordered" : ", not reordered")
         + ", revert starts " + std::to_string(params.revert_start_samples)
         + ", context share " + std::to_string(params.context_table_share)
-        + (params.context_tables_single_length ? ", single length" : ", chained");
+        + (params.context_tables_single_length ? ", single length" : ", chained")
+        + (test == _test_documents ? ", " + std::to_string(documents.num_documents()) + " documents in "
+            + std::to_string(documents.num_ranges()) + " ranges" : "");
 
 
     // verifies the part test of an index built from the input (thorough: see verify_extend)
     auto verify_functionality = [&](const idx_t& idx, bool thorough) {
-        if (test == _test_index_operations) verify_extend(idx, input, ref, absent, label, thorough);
-        else verify_algorithm(idx, input, test, absent, label, thorough);
+        if (test == _test_index_operations) {
+            verify_extend(idx, input, ref, absent, label, thorough);
+        } else if (test == _test_documents) {
+            if constexpr (idx_t::supports_multiple_locate) verify_documents(idx, input, documents, absent, label);
+        } else {
+            verify_algorithm(idx, input, test, absent, label, thorough);
+        }
     };
 
     verify_construction(index, input, ref, label);

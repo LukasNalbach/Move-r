@@ -46,7 +46,8 @@ uint64_t move_rb<support>::size_in_bytes() const
         _S_MLF_p_bwd.size_in_bytes() +
         opt_size(_SA_pos) +
         _seq_data.size_in_bytes() +
-        _context_tables.size_in_bytes();
+        _context_tables.size_in_bytes() +
+        _docs.size_in_bytes();
 
     return size;
 }
@@ -106,6 +107,8 @@ void move_rb<support>::log_data_structure_sizes() const
     const bool owner = begin_listing(size_in_bytes());
     log_direction_sizes<LEFT>();
     log_direction_sizes<RIGHT>();
+    if (has_documents())
+        log_component("document map (" + format_count(_docs.num_documents(), "document") + ")", _docs.size_in_bytes());
     if (_seq_data.has_sequences()) log_component("FASTA sequences", _seq_data.size_in_bytes());
     if (owner) end_listing();
 }
@@ -173,6 +176,10 @@ void move_rb<support>::log_data_structure_sizes(std::ostream& out) const
         out << " size_context_tables=" << _context_tables.size_in_bytes();
     }
 
+    if (has_documents()) {
+        out << " num_documents=" << _docs.num_documents();
+        out << " size_document_array=" << _docs.size_in_bytes();
+    }
 }
 
 // ############################# SERIALIZATION METHODS #############################
@@ -197,6 +204,10 @@ void move_rb<support>::serialize(std::ostream& out) const
 
     _seq_data.serialize(out);
     _context_tables.serialize(out);
+    // a byte stating whether the document map is stored, then the document map
+    const uint8_t has_docs = has_documents();
+    out.write((const char*) &has_docs, sizeof(has_docs));
+    if (has_docs) _docs.serialize(out);
 }
 
 template <move_r_support support>
@@ -224,6 +235,10 @@ void move_rb<support>::load(std::istream& in)
 
     _seq_data.load(in);
     _context_tables.load(in);
+    _docs = document_array();
+    uint8_t has_docs = 0;
+    in.read((char*) &has_docs, sizeof(has_docs));
+    if (has_docs) _docs.load(in);
 }
 
 template <move_r_support support>

@@ -104,8 +104,9 @@ inline void print_apm_output_options(help_printer& h, bool locate, const std::st
 
 inline void print_apm_execution_options(help_printer& h)
 {
-    h.option("-partition <partitioning>", "dynamic | uniform (default: dynamic)",
-        "how a pattern is partitioned into the parts of the search scheme");
+    h.option("-partition <partitioning>", "optimized | dynamic | uniform (default: optimized)",
+        "how a pattern is partitioned into the parts of the search scheme; optimized also chooses the direction of "
+        "the scheme, so that the predicted number of steps of the searches is small");
     h.option("-no-seed", "", "match the first part of each search symbol by symbol instead of starting at its search "
         "context computed by the partitioning");
 }
@@ -138,7 +139,8 @@ inline bool read_apm_query_option(cli_arguments& args, const std::string& option
         const std::string partitioning = args.value(option);
         if (partitioning == "uniform") apm.apm_params.partitioning = _partition_uniform;
         else if (partitioning == "dynamic") apm.apm_params.partitioning = _partition_dynamic;
-        else throw usage_error("-partition expects dynamic or uniform");
+        else if (partitioning == "optimized") apm.apm_params.partitioning = _partition_optimized;
+        else throw usage_error("-partition expects optimized, dynamic or uniform");
     } else if (option == "-no-seed") {
         apm.apm_params.start_at_part_contexts = false;
     } else if (option == "-bestmap") {

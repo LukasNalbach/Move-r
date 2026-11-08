@@ -185,7 +185,7 @@ if(MOVE_R_BUILD_MOVE_R_CLI)
 endif()
 
 if(MOVE_R_BUILD_MOVE_RB_CLI)
-  move_r_add_cli(move-rb move-rb "move_rb;move_rb_apm" main build query revert extract info)
+  move_r_add_cli(move-rb move-rb "move_rb;move_rb_apm" main build query revert extract info docs)
 endif()
 
 if(MOVE_R_BUILD_TOOLS_CLI)

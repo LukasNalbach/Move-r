@@ -44,6 +44,7 @@ inline constexpr const char* move_rb_extract_sa_description = "writes the suffix
 inline constexpr const char* move_rb_extract_bwt_description = "writes the BWT of the text or of the reversed text";
 inline constexpr const char* move_rb_extract_rlbwt_description
     = "writes the BWT runs of the text or of the reversed text and the values the index stores for them";
+inline constexpr const char* move_rb_docs_description = "finds the documents that contain each pattern";
 inline constexpr const char* move_rb_info_description
     = "prints the support type, the parameters, the sizes of the data structures and the modes of an index";
 
@@ -54,6 +55,7 @@ int move_rb_revert(int argc, char** argv);
 int move_rb_extract_sa(int argc, char** argv);
 int move_rb_extract_bwt(int argc, char** argv);
 int move_rb_extract_rlbwt(int argc, char** argv);
+int move_rb_docs(int argc, char** argv);
 int move_rb_info(int argc, char** argv);
 
 #endif // MOVE_R_CLI_MOVE_RB_MODES_HPP

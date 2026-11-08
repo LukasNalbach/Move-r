@@ -341,7 +341,7 @@ void run_locate_cigar(idx_t& index, uint64_t n, const bench_config_t& cfg, const
 
 /**
  * @brief returns the query parameters each pattern file is measured with: cfg.apm_params, or with --partitioning all
- *        uniform partitioning without seeding, uniform partitioning and dynamic partitioning
+ *        uniform partitioning without seeding, uniform, dynamic and optimized partitioning
  * @return (suffix of the algo name, parameters) per variant; the suffix is empty without --partitioning all
  */
 inline std::vector<std::pair<std::string, apm_params_t>> apm_variants(const bench_config_t& cfg)
@@ -351,7 +351,8 @@ inline std::vector<std::pair<std::string, apm_params_t>> apm_variants(const benc
     return {
         { "_uniform_noseed", apm_params_t { _partition_uniform, false } },
         { "_uniform",        apm_params_t { _partition_uniform, true  } },
-        { "_dynamic",        apm_params_t { _partition_dynamic, true  } }
+        { "_dynamic",        apm_params_t { _partition_dynamic, true  } },
+        { "_optimized",      apm_params_t { _partition_optimized, true } }
     };
 }
 
@@ -731,8 +732,8 @@ void measure_move_rb_rlzsa(const bench_config_t& cfg)
     std::cout << "   --k <list>           (optional) measure only pattern files with these error counts k (comma-separated)" << std::endl;
     std::cout << "   --m <list>           (optional) measure only pattern files with these pattern lengths m (comma-separated)" << std::endl;
     std::cout << "   --partitioning <s>   (optional) strategy for partitioning a pattern into the parts of the search" << std::endl;
-    std::cout << "                        scheme: uniform|dynamic|all (default: dynamic). all measures uniform without" << std::endl;
-    std::cout << "                        seeding (see --no-seed), uniform and dynamic." << std::endl;
+    std::cout << "                        scheme: uniform|dynamic|optimized|all (default: optimized). all measures uniform" << std::endl;
+    std::cout << "                        without seeding (see --no-seed), uniform, dynamic and optimized." << std::endl;
     std::cout << "   --no-seed            (optional) match the first part of each search symbol by symbol (default: start" << std::endl;
     std::cout << "                        with the exact match of the first part computed by the partitioning)" << std::endl;
     std::cout << "   --best               (optional) measure all-best mapping: locate with 0, 1, 2, ... errors until an" << std::endl;
@@ -880,8 +881,9 @@ int main(int argc, char** argv)
             std::string a = argv[arg_idx++];
             if      (a == "uniform") cfg.apm_params.partitioning = _partition_uniform;
             else if (a == "dynamic") cfg.apm_params.partitioning = _partition_dynamic;
+            else if (a == "optimized") cfg.apm_params.partitioning = _partition_optimized;
             else if (a == "all")     cfg.partitioning_sweep = true;
-            else help("error: --partitioning must be uniform, dynamic or all");
+            else help("error: --partitioning must be uniform, dynamic, optimized or all");
         } else if (opt == "--no-seed") {
             cfg.apm_params.start_at_part_contexts = false;
         } else if (opt == "--best") {

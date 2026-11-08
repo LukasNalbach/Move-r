@@ -40,6 +40,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <misc/apm.hpp>
@@ -477,6 +478,20 @@ public:
 
     // returns whether P[i] admits no error and only matches P[i] itself
     bool is_literal(uint64_t i) const { return _min_error_cost[i] == apm_forbidden && !has_free(i); }
+
+    // returns the longest range [beg, end) of P whose positions are literal and admit no deletion between them (the anchor)
+    std::pair<uint64_t, uint64_t> anchor() const
+    {
+        uint64_t best_beg = 0, best_end = 0, beg = 0;
+
+        for (uint64_t i = 0; i < _m; i++) {
+            if (!is_literal(i)) { beg = i + 1; continue; }
+            if (i > beg && del(i) <= bound()) beg = i;
+            if (i + 1 - beg > best_end - best_beg) { best_beg = beg; best_end = i + 1; }
+        }
+
+        return {best_beg, best_end};
+    }
 
     /**
      * @brief returns whether boundary b (between P[b - 1] and P[b]) lies in the range [beg, end) of positions: it

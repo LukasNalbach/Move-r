@@ -44,6 +44,7 @@
 #include <tsl/sparse_set.h>
 
 #include <data_structures/context_tables.hpp>
+#include <data_structures/document_array.hpp>
 #include <data_structures/elias_fano_bit_vector.hpp>
 #include <move_r/move_r.hpp>
 // search schemes, apm_params_t and query_support_t
@@ -285,6 +286,9 @@ protected:
     // the search contexts of all patterns up to some length (see context_tables); empty unless requested (see
     // move_r_params::context_table_share)
     ::context_tables _context_tables;
+
+    // the documents of the text (empty if the index was built without documents, see move_r_params::documents)
+    document_array _docs;
 
     // ############################# INTERNAL METHODS #############################
 
@@ -559,6 +563,9 @@ public:
     // true <=> the index stores context tables (see context_tables)
     inline bool has_context_tables() const { return !_context_tables.empty(); }
 
+    // returns whether the index stores the documents of the text (see move_r_params::documents)
+    inline bool has_documents() const { return !_docs.empty(); }
+
     // returns the maximum pattern length, for which the contexts of all patterns are stored (0 <=> none are stored)
     inline uint64_t context_tables_max_length() const { return _context_tables.max_length(); }
 
@@ -669,6 +676,10 @@ public:
 
     // returns the context tables
     inline const ::context_tables& context_tables() const { return _context_tables; }
+
+    // returns the documents of the text (empty if the index was built without documents); the documents of a pattern
+    // are computed from its located occurrences (see document_query)
+    inline const document_array& documents() const { return _docs; }
 
     /**
      * @brief returns the index of the input interval of M_LF containing position i; searches at most

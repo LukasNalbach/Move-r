@@ -495,15 +495,18 @@ auto apm_edit<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) cons
     searches.reserve(scheme.S.size());
     parts.reserve(p);
 
-    // partition P into p parts and compute the search context of each part
-    apm_partition<idx_t, LOCATE> partition(_index, P, p, _params);
+    // partition P into the p parts of the scheme or of its mirror (see apm_partition::mirrored) and compute the search
+    // context of each part
+    apm_partition<idx_t, LOCATE> partition(_index, P, scheme, EDIT_DISTANCE, _params);
+    const search_scheme_t mirror = partition.mirrored() ? mirrored_scheme(scheme) : search_scheme_t();
+    const search_scheme_t& oriented = partition.mirrored() ? mirror : scheme;
 
     for (uint64_t part = 0; part < p; part++) {
         parts.emplace_back(directional_substring<inp_t>(P, partition.beg(part), partition.end(part) - 1));
     }
 
-    for (uint64_t s_idx = 0; s_idx < scheme.S.size(); s_idx++) {
-        searches.emplace_back(apm_search_steps(scheme, s_idx));
+    for (uint64_t s_idx = 0; s_idx < oriented.S.size(); s_idx++) {
+        searches.emplace_back(apm_search_steps(oriented, s_idx));
     }
 
     std::vector<std::vector<node_t>> stacks;

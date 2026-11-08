@@ -54,7 +54,7 @@
  *        4. build_samplings<RIGHT>: the data structures over T^R
  *        5. load_forward_index (modes _pfp and _suffix_array_space)
  *        6. build_samplings<LEFT>, build_SA_pos: the data structures over T
- *        7. restore_input
+ *        7. restore_input, and the documents are stored (see move_r_params::documents)
  *        8. build_context_tables_phase
  */
 template <move_r_support support>
@@ -141,6 +141,12 @@ void move_rb<support>::build(
     move_r_input_view& input, move_r_params params, bool log_summary)
 {
     build_state_t st { .idx = *this, .input = input, .params = std::move(params) };
+
+    if constexpr (!supports_multiple_locate) {
+        if (st.params.documents != nullptr)
+            throw std::invalid_argument("move_rb: the documents need the support _locate_move or _locate_rlzsa");
+    }
+
     st.byte_input = input.byte_alphabet();
     st.time = now();
     const auto time_start = st.time;
@@ -202,6 +208,7 @@ void move_rb<support>::build(
     if (st.reads_input_file && !st.file_input) remove_temporary_input(st.input_file_name);
     if (st.file_input) drop_from_page_cache(st.input_file_name, true);
     restore_input(st);
+    if (st.params.documents != nullptr) _docs = document_array(*st.params.documents);
 
     // the context tables are built last, they are computed with searches in the index
     if (st.params.context_table_share > 0) build_context_tables_phase(st);

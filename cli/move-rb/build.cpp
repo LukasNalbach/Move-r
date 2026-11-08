@@ -35,6 +35,7 @@
 
 #include <misc/build_cli.hpp>
 #include <misc/cli_help.hpp>
+#include <misc/documents_cli.hpp>
 #include <misc/move_r_cli.hpp>
 #include <misc/move_rb_cli.hpp>
 #include <move_rb/move_rb.hpp>
@@ -50,6 +51,8 @@ struct move_rb_build_cli_t : build_cli_t {
     double context_table_share = move_r_params().context_table_share;
     // -context-table-one-length (see move_r_params::context_tables_single_length)
     bool context_tables_single_length = false;
+    // -docs: the documents of the input (see document_map_of_cli); empty <=> no documents are stored
+    std::string documents_source;
 } cli;
 
 /**
@@ -79,6 +82,12 @@ void print_help(std::ostream& out)
         "the maximum size of the table of the suffix-array intervals of short patterns, as a share of the size of "
         "the index file; 0: no table");
     h.option("-context-table-one-length", "", "store the table for one pattern length only");
+    h.option("-docs <docs>", "records | files | <file>",
+        "in the FASTA mode, with -s locate-move or locate-rlzsa: also store the documents of the text "
+        "(see move-rb docs)\n"
+        "records: every FASTA record is a document\n"
+        "files: every input file is a document\n"
+        "<file>: one line \"<record name> <document name>\" per record groups the records into documents");
     h.group("output");
     h.option("-o <base_name>", "a path (default: <input_file>)", "the index is written to "
         "<base_name>.move-rb-<support>, with <support> = count, locate-one, locate (for -s locate-move) or rlzsa");
@@ -107,9 +116,21 @@ void read_option(cli_arguments& args, const std::string& option)
         cli.context_table_share = read_nonnegative_number(args, option);
     } else if (option == "-context-table-one-length") {
         cli.context_tables_single_length = true;
+    } else if (option == "-docs") {
+        cli.documents_source = args.value(option);
     } else {
         throw unknown_option(option);
     }
+}
+
+// checks that -docs is given only in the FASTA mode and with a support that locates all occurrences
+void check_document_options()
+{
+    if (cli.documents_source.empty()) return;
+    if (!cli.fasta_mode) throw usage_error("-docs needs the FASTA mode (-fasta)");
+    if (cli.support != _locate_move && cli.support != _locate_rlzsa)
+        throw usage_error("-docs needs -s locate-move or locate-rlzsa (the documents of a pattern are computed from its "
+            "located occurrences)");
 }
 
 /**
@@ -120,7 +141,11 @@ template <move_r_support support>
 void build()
 {
     fasta_cli_t fasta(cli);
-    fasta.scan(true);
+    // the documents (-docs) are read from the sequences before the construction
+    fasta.scan(cli.documents_source.empty());
+    document_map documents; // the documents of the input (-docs)
+    if (!cli.documents_source.empty())
+        documents = read_documents_option(cli.documents_source, fasta.data, cli.path_input_files);
 
     move_rb<support> index = build_with_fallback(cli.mode, cli.construction_mode_given, fasta.input_length(),
         [&](move_r_construction_mode construction_mode) {
@@ -140,7 +165,8 @@ void build()
             .text_name = cli.text_name,
             .fasta = fasta.fasta_input(fasta_direct),
             .context_table_share = cli.context_table_share,
-            .context_tables_single_length = cli.context_tables_single_length
+            .context_tables_single_length = cli.context_tables_single_length,
+            .documents = cli.documents_source.empty() ? nullptr : &documents
         });
     });
 
@@ -163,6 +189,7 @@ int move_rb_build(int argc, char** argv)
         cli_arguments args(argc, argv);
         while (args.at_option()) read_option(args, args.next());
         read_input_files(args, cli);
+        check_document_options();
 
         cli.path_index_file = move_rb_index_file_name(cli.index_base_name, cli.support);
         begin_build(cli, "move-rb", "s = " + move_r_support_option_name(cli.support) + ", a = "

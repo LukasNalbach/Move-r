@@ -67,24 +67,6 @@ protected:
     std::optional<partition_t> _anchored; // the partition of the anchored search, if it runs
     search_scheme_t _scheme;
 
-    /**
-     * @brief returns the longest range [beg, end) of P whose positions are literal (see apm_costs_t::is_literal)
-     *        and admit no deletion between them
-     */
-    static std::pair<uint64_t, uint64_t> anchor(const apm_costs_t& costs)
-    {
-        const uint64_t m = costs.length();
-        uint64_t best_beg = 0, best_end = 0, beg = 0;
-
-        for (uint64_t i = 0; i < m; i++) {
-            if (!costs.is_literal(i)) { beg = i + 1; continue; }
-            if (i > beg && costs.del(i) <= costs.bound()) beg = i;
-            if (i + 1 - beg > best_end - best_beg) { best_beg = beg; best_end = i + 1; }
-        }
-
-        return {best_beg, best_end};
-    }
-
 public:
     /**
      * @brief plans a query with an error model
@@ -94,7 +76,7 @@ public:
      * @param params query parameters (the error model must be set)
      */
     apm_model_plan(const idx_t& index, const inp_t& P, const search_scheme_t& scheme, const apm_params_t& params)
-        : _partition(index, P, scheme.p, params)
+        : _partition(index, P, scheme, params.costs->metric(), params)
     {
         const apm_costs_t& costs = *params.costs;
         const uint64_t m = P.size();
@@ -124,7 +106,11 @@ public:
         bool lowered = false;
         uint64_t num_first_part_occ = 0;
 
-        for (const search_t& S : scheme.S) {
+        // the searches of the scheme or of its mirror (see apm_partition::mirrored)
+        const search_scheme_t mirror = _partition.mirrored() ? mirrored_scheme(scheme) : search_scheme_t();
+        const search_scheme_t& oriented = _partition.mirrored() ? mirror : scheme;
+
+        for (const search_t& S : oriented.S) {
             search_t T = S;
             uint64_t beg = _partition.beg(S[0].part), end = _partition.end(S[0].part);
             bool feasible = true;
@@ -149,7 +135,7 @@ public:
         }
 
         // the anchored search
-        auto [a_beg, a_end] = anchor(costs);
+        auto [a_beg, a_end] = costs.anchor();
         if (a_beg == a_end) return;
 
         std::vector<uint64_t> bounds { 0, a_beg, a_end, m };

@@ -72,6 +72,7 @@ void print_info(const move_rb<support>& index, uint64_t index_bytes)
     modes += ", revert";
     if constexpr (fwd_t::supports_multiple_locate) modes += ", extract-sa";
     modes += ", extract-bwt, extract-rlbwt";
+    if (index.has_documents()) modes += ", docs";
 
     index_facts facts;
     facts.add("support: " + move_r_support_option_name(support));

@@ -172,6 +172,19 @@ inline const search_scheme_t zero_one_scheme(uint8_t k)
 }
 
 /**
+ * @brief returns the mirror of a search scheme: part i of each search becomes part p - 1 - i (it finds the same
+ *        occurrences, with the parts in the reverse order)
+ * @param scheme the search scheme
+ * @return the mirrored search scheme
+ */
+inline search_scheme_t mirrored_scheme(const search_scheme_t& scheme)
+{
+    search_scheme_t mirror = scheme;
+    for (search_t& S : mirror.S) for (search_step_t& step : S) step.part = uint8_t(scheme.p - 1 - step.part);
+    return mirror;
+}
+
+/**
  * @brief parses a comma-separated list of numbers from a single bracket of a search scheme file
  * @param content the content between a pair of braces
  * @param max_value the maximum value (exits with an error message if a value is larger)
