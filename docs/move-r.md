@@ -19,7 +19,8 @@ index is described in [move-rb.md](move-rb.md) and the move data structure in th
 
 ## Construction
 
-The template parameter `support` selects what the index stores besides M_LF (the move data structure for LF):
+Besides M_LF (the move data structure for LF), the index stores the following, depending on the template parameter
+`support`:
 
 | support | queries | size |
 | --- | --- | --- |
@@ -30,15 +31,16 @@ The template parameter `support` selects what the index stores besides M_LF (the
 
 The construction parameters (`move_r_params`) that matter most:
 
-- `mode`: `_suffix_array` (default; builds the suffix array in memory, inputs of at most 2^38 - 1 symbols),
-  `_suffix_array_space` (the same, stores some data structures on disk while they are not needed) or `_pfp` (builds
-  the run-length encoded BWT with prefix-free parsing; less memory for repetitive inputs, up to 2^48 - 2 symbols);
+- `mode`: `_suffix_array` (default; the suffix array is built in memory, inputs of at most 2^38 - 1 symbols),
+  `_suffix_array_space` (the same, and some data structures are stored on disk while they are not needed) or `_pfp`
+  (the run-length encoded BWT is built with prefix-free parsing; less memory for repetitive inputs, up to 2^48 - 2
+  symbols);
 - `num_threads`: the maximum number of threads (default: all);
-- `a`: the balancing parameter (default 8); a smaller `a` makes M_LF larger and the queries faster;
-- `reorder_alphabet`: `true` (default) maps the symbols by decreasing frequency, `false` keeps their order (then the
-  suffix array is the one of the lexicographic order);
-- `input_file`: builds the index from a file instead of the container passed to the constructor;
-- `log`: prints the phases of the construction.
+- `a`: the balancing parameter (default 8); with a smaller `a`, M_LF is larger and the queries are faster;
+- `reorder_alphabet`: `true` (default): the symbols are mapped by decreasing frequency; `false`: their order is kept
+  (then the suffix array is the one of the lexicographic order);
+- `input_file`: the file from which the index is built instead of the container passed to the constructor;
+- `log`: whether the phases of the construction are printed.
 
 ```cpp
 #include <move_r/move_r.hpp>
@@ -79,8 +81,7 @@ int main()
 }
 ```
 
-The second template parameter selects the encoding of the interval starting positions of M_LF: `ELIAS_FANO` (default for
-`_count` to `_locate_rlzsa`; smaller) or `CACHE_LINES` (faster), e.g. `move_r<_locate_move, CACHE_LINES>`.
+The starting positions of the input intervals of M_LF are encoded with `ELIAS_FANO` (see `move_r::mlf_enc`).
 
 ## Storing and loading
 
@@ -200,7 +201,7 @@ range methods for the suffix array need `_locate_move` or `_locate_rlzsa`. The B
 lexicographically. The index stores up to `move_r_params::revert_start_samples` (default 4096) BWT run starts with
 their suffix array values; `revert` splits the text at these positions and reverts the pieces with up to the given
 number of threads (default: all), each of which reverts `default_revert_strands` pieces alternately (2 with M_LF in
-ELIAS_FANO, else 1); `revert(report)` reports the symbols from right to left with one thread.
+`ELIAS_FANO`, else 1); `revert(report)` reports the symbols from right to left with one thread.
 `BWT_range`, `SA_range` and `revert` return a `no_init_vector` (a `std::vector` that is resized without initializing
 its elements, header `misc/memory.hpp` of string-utils); `BWT_range<out_t>` and `revert<out_t>` take another
 container type.

@@ -47,7 +47,7 @@
  *        strands) alternately, one step per piece and turn; a finished piece is replaced by the next piece not taken
  *        by any thread; with one strand, each thread processes its pieces one after another
  * @tparam strand_t type of a strand; it has a member w, the strand slot in [0..num_threads * num_strands - 1], which
- *         is unique among all threads and kept when the strand takes the next piece
+ *         is unique among all threads and does not change when the strand moves to the next piece
  * @tparam start_fnc_t type of start
  * @tparam step_fnc_t type of step
  * @param num_pieces the number of pieces

@@ -40,7 +40,7 @@
 
 #include <move_r/construction/instantiations.hpp>
 
-#define MOVE_R_DEFINE_INDEX(supp, enc) template class MOVE_R_INDEX_OF(supp, enc);
+#define MOVE_R_DEFINE_INDEX(supp) template class MOVE_R_INDEX_OF(supp);
 
 MOVE_R_CLASSES(MOVE_R_DEFINE_INDEX)
 
@@ -55,9 +55,9 @@ MOVE_R_CLASSES(MOVE_R_DEFINE_INDEX)
 #include <move_r/construction/pfp.tpp>
 #include <move_r/construction/rlbwt.tpp>
 
-#define MOVE_R_DEFINE_MEMBERS(supp, enc) \
-    MOVE_R_CONSTRUCTION_DRIVER_MEMBERS(, supp, enc) \
-    MOVE_R_CONSTRUCTION_TEXT_MEMBERS(, supp, enc)
+#define MOVE_R_DEFINE_MEMBERS(supp) \
+    MOVE_R_CONSTRUCTION_DRIVER_MEMBERS(, supp) \
+    MOVE_R_CONSTRUCTION_TEXT_MEMBERS(, supp)
 
 MOVE_R_CLASSES(MOVE_R_DEFINE_MEMBERS)
 
@@ -71,7 +71,7 @@ MOVE_R_CLASSES(MOVE_R_DEFINE_MEMBERS)
 #include <move_r/construction/move_phi.tpp>
 #include <move_r/construction/load_store.tpp>
 
-#define MOVE_R_DEFINE_MEMBERS(supp, enc) MOVE_R_CONSTRUCTION_MOVE_MEMBERS(, supp, enc)
+#define MOVE_R_DEFINE_MEMBERS(supp) MOVE_R_CONSTRUCTION_MOVE_MEMBERS(, supp)
 
 MOVE_R_CLASSES(MOVE_R_DEFINE_MEMBERS)
 
@@ -84,7 +84,7 @@ MOVE_R_CLASSES(MOVE_R_DEFINE_MEMBERS)
 #include <rlz_ref/construction/construction.hpp>
 #include <move_r/construction/sa_rlz.tpp>
 
-#define MOVE_R_DEFINE_MEMBERS(supp, enc) MOVE_R_CONSTRUCTION_SA_RLZ_MEMBERS(, supp, enc)
+#define MOVE_R_DEFINE_MEMBERS(supp) MOVE_R_CONSTRUCTION_SA_RLZ_MEMBERS(, supp)
 
 MOVE_R_SA_RLZ_CLASSES(MOVE_R_DEFINE_MEMBERS)
 

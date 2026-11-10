@@ -63,7 +63,7 @@ struct query_cli_t {
     std::string path_patterns_file; // empty <=> the patterns are read from stdin interactively
     std::string command_line; // the command line, for the program line of the SAM header
     direct_ifstream index_file;
-    direct_ofstream output_file;
+    std::ofstream output_file;
 } cli;
 
 /**
@@ -208,6 +208,7 @@ void run_queries(const move_r<support>& index)
                     st.last_sequence, pattern.name, m, count, st.occurrences, st.rc_occurrences);
             }
 
+            if (cli.output_file.is_open() || sam_output || bed_output) chunk.write(j);
             st.occurrences.clear();
             st.rc_occurrences.clear();
         }

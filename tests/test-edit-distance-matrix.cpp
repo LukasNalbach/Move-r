@@ -50,7 +50,7 @@ thread_local std::mt19937 gen(test_seed() + omp_get_thread_num());
 thread_local std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
 
 // the random inputs have a length in [min_input_size, max_input_size]; max_input_size is calibrated by run_fuzz to its
-// time budget, down to min_fuzz_input_size
+// time limit, down to min_fuzz_input_size
 uint64_t min_input_size = 1;
 uint64_t max_input_size = 80000;
 constexpr uint64_t min_fuzz_input_size = 2000;
@@ -60,8 +60,8 @@ constexpr uint64_t num_iterations_matrix = 320000;
 constexpr uint64_t num_iterations_distance = 320000;
 constexpr uint64_t num_iterations_locate = 430;
 
-// the two largest symbol values do not occur in the random inputs: the ranks 1..sigma of the alphabet map stay below
-// uint8_t(-1), which edit_distance_matrix reserves for a symbol that does not occur in the pattern, next to rank 0
+// the two largest symbol values do not occur in the random inputs, so the ranks 1..sigma of the alphabet map are below
+// uint8_t(-1), which is reserved in edit_distance_matrix for a symbol that does not occur in the pattern, next to rank 0
 constexpr uint64_t num_excluded_symbols = 2;
 
 // verify_edit_distance_matrix: the pattern and the text have a length of at most matrix_length_per_error times the

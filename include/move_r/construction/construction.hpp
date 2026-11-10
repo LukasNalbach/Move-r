@@ -72,8 +72,8 @@ inline std::string measurement_phase(const std::string& mf_key)
  * 5. the data structures over L'.
  * The sections of the threads in the phases 1-3 are ranges of consecutive BWT runs (see n_p and r_p).
  */
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-class move_r<support, mlf_enc>::construction {
+template <move_r_support support>
+class move_r<support>::construction {
 public:
     construction() = delete;
     construction(construction&&) = delete;
@@ -106,7 +106,7 @@ public:
             if (fd >= 0 && !std::filesystem::exists(path())) { platform::close(fd); fd = -1; }
         }
 
-        // returns the path that reopens the file of the descriptor
+        // returns the path through which the file of the descriptor is reopened
         std::string path() const { return platform::reopen_path(fd, file); }
     };
 
@@ -115,7 +115,7 @@ public:
      *        need the suffix array
      *
      * A reader starts at the SA sample at the start of a run and computes the following SA values with M_Phi_inv.
-     * Reading consecutive values takes one Phi_inv step per value; other positions are reached with seek().
+     * Each next value is computed with one Phi_inv step; other positions are reached with seek().
      * Each thread uses its own reader.
      */
     struct alignas(cache_line_bytes) SA_rlz_reader {
@@ -211,7 +211,7 @@ public:
     // [0..|T|-1] T with two bytes per symbol, if its internal symbols do not fit into a byte (see widen_t)
     no_init_vector<uint16_t> T_wide;
     bool T_widened = false; // true <=> T_inp is a view of T_wide; then the input itself is not mapped
-    move_r<support, mlf_enc>& idx; // the index to build
+    move_r<support>& idx; // the index to build
     // maps the symbols of an integer-alphabet input to the internal symbols (freed once T has been mapped)
     std::unique_ptr<move_r_int_alphabet> int_alphabet;
     uint64_t int_alphabet_bytes = 0; // size of int_alphabet in bytes
@@ -222,7 +222,7 @@ public:
     std::optional<omp_threads_scope> threads_scope;
     // p', the number of threads that build the RLBWT, C, I_LF and I_Phi_inv (1 for an integer alphabet)
     uint64_t p_ = 1;
-    bool delete_T = false; // controls whether T should be deleted when not needed anymore
+    bool delete_T = false; // true <=> T is deleted once it is not needed
     std::string prefix_tmp_files = ""; // prefix of temporary files
     std::chrono::steady_clock::time_point time; // time of the start of the current construction phase
     std::chrono::steady_clock::time_point time_start; // time of the start of the construction
@@ -237,8 +237,8 @@ public:
     /* the table of contents of the runs file written by the prefix-free parsing: the cache file, or without a
        cache, pfp_prefix + pfp_rlbwt::ext_runs (see pfp_output_file) */
     pfp_rlbwt::run_data_file pfp_output;
-    /* the number of construction steps that still read pfp_output; after the last one, the file is removed without a
-       cache (see release_pfp_output) */
+    /* the number of construction steps that still read pfp_output; without a cache, the file is removed after the last
+       one (see release_pfp_output) */
     uint8_t pfp_output_readers = 0;
     // true <=> the existing cache stores the SA samples (the LCP samples); a rebuilt cache stores them, too
     bool pfp_cache_sa_samples = false, pfp_cache_lcp_samples = false;
@@ -621,7 +621,7 @@ public:
      *        preprocess_t), and n is set afterwards
      * @param output_prefix the prefix of the output files
      * @param prm the parameters of pfp_rlbwt::build
-     * @param map (output) [0..255] the map that the parsing reads the bytes through
+     * @param map (output) [0..255] the map through which the parsing reads the bytes
      */
     void build_rlbwt_pfp_fasta_once(const std::string& output_prefix, const pfp_rlbwt::params& prm,
         std::array<uint8_t, 256>& map);
@@ -651,10 +651,10 @@ public:
      * @brief constructs a move_r index of the input
      * @param index the index to build
      * @param T view of the container storing T
-     * @param delete_T controls whether T should be deleted once it is not needed anymore
+     * @param delete_T true <=> T is deleted once it is not needed
      * @param params_ construction parameters
      */
-    construction(move_r<support, mlf_enc>& index, move_r_input_view& T, bool delete_T,
+    construction(move_r<support>& index, move_r_input_view& T, bool delete_T,
         move_r_params params_);
 
     // ############################# CONSTRUCTION PHASES #############################

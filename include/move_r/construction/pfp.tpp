@@ -47,15 +47,15 @@
 #include <move_r/construction/pfp_integer.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::release_pfp_output()
+template <move_r_support support>
+void move_r<support>::construction::release_pfp_output()
 {
     // the file is read with O_DIRECT, so a cache is not in the page cache
     if (--pfp_output_readers == 0 && !uses_pfp_cache()) std::filesystem::remove(pfp_output_file());
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-std::array<uint8_t, 256> move_r<support, mlf_enc>::construction::pfp_alphabet_map() const
+template <move_r_support support>
+std::array<uint8_t, 256> move_r<support>::construction::pfp_alphabet_map() const
 {
     std::array<uint8_t, 256> map {};
 
@@ -67,8 +67,8 @@ std::array<uint8_t, 256> move_r<support, mlf_enc>::construction::pfp_alphabet_ma
     return map;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-bool move_r<support, mlf_enc>::construction::read_pfp_cache()
+template <move_r_support support>
+bool move_r<support>::construction::read_pfp_cache()
 {
     if (params.ignore_pfp_cache || reads_fasta_once()) return false;
 
@@ -79,10 +79,10 @@ bool move_r<support, mlf_enc>::construction::read_pfp_cache()
     pfp_cache_sa_samples = pfp_output.has_sa_samples();
     pfp_cache_lcp_samples = pfp_output.has_lcp_samples();
 
-    // the symbols of the cache must be the ones this construction reads the text with (see reorder_alphabet)
+    // the symbols of the cache must be those with which this construction reads the text (see reorder_alphabet)
     if (alphabet.map != pfp_alphabet_map()) return false;
 
-    // the cache must store the sections this index reads
+    // the cache must store the sections that this construction reads
     if (reads_pfp_sa_samples() && !pfp_cache_sa_samples) return false;
     if (reads_pfp_lcp_samples() && !pfp_cache_lcp_samples) return false;
     // a cache of a FASTA file stores its sequences, so that it can be used without scanning the FASTA file
@@ -90,8 +90,8 @@ bool move_r<support, mlf_enc>::construction::read_pfp_cache()
     return true;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::write_pfp_cache(const std::string& output_file)
+template <move_r_support support>
+void move_r<support>::construction::write_pfp_cache(const std::string& output_file)
 {
     pfp_cache_descriptor.open(output_file);
     std::error_code ec;
@@ -100,8 +100,8 @@ void move_r<support, mlf_enc>::construction::write_pfp_cache(const std::string& 
         " (" + ec.message() + ")");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
+template <move_r_support support>
+void move_r<support>::construction::build_rlbwt_pfp()
 {
     // removes the map file, if it was written by this construction (see preprocess_t)
     auto remove_map_file = [&]() {
@@ -125,13 +125,14 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
         return;
     }
 
-    // the samples this index reads; a rebuilt cache keeps the samples of the existing one (see read_pfp_cache)
+    // the samples that this construction reads; a rebuilt cache also contains the samples of the existing one (see
+    // read_pfp_cache)
     const bool sa_samples = reads_pfp_sa_samples() || pfp_cache_sa_samples;
     const bool lcp_samples = reads_pfp_lcp_samples() || pfp_cache_lcp_samples;
     // what is built, e.g. "RLBWT and SA- and LCP-samples"
     const std::string built = std::string("RLBWT") + (sa_samples && lcp_samples ? " and SA- and LCP-samples"
         : sa_samples ? " and SA-samples" : lcp_samples ? " and LCP-samples" : "");
-    // the steps of pfp_rlbwt log themselves, in a block of their own
+    // pfp_rlbwt logs its steps in a block of their own
     log_block_begin(params.log, "building " + built + " with PFP");
     log_phase_start("");
     /* the prefix of the file the prefix-free parsing writes; with a cache, a temporary name in the directory of the
@@ -237,8 +238,8 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp()
     log_block_end(params.log);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_rlbwt_pfp_fasta_once(const std::string& output_prefix,
+template <move_r_support support>
+void move_r<support>::construction::build_rlbwt_pfp_fasta_once(const std::string& output_prefix,
     const pfp_rlbwt::params& prm, std::array<uint8_t, 256>& map)
 {
     if (params.mode != _pfp)
@@ -253,7 +254,7 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp_fasta_once(const st
         [&](const pfp_rlbwt::fasta_scan& text_scan) {
             // the text has been parsed: its length, frequencies, samples and sequences, then the alphabet map
             static_cast<pfp_rlbwt::fasta_scan&>(scan) = text_scan;
-            // the index appends one sentinel to the text, so its length is text_size + 1 (see scan_fasta)
+            // one sentinel is appended to the text, so its length is text_size + 1 (see scan_fasta)
             scan.data.set_sequences(scan.text_size + 1, seq_starts, std::move(seq_names), char(params.fasta.separator));
             params.fasta.text_len = scan.text_size;
             params.fasta.byte_freqs = scan.freq.data();
@@ -274,8 +275,8 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_pfp_fasta_once(const st
     limit_num_threads();
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::read_lcp_run_pfp()
+template <move_r_support support>
+void move_r<support>::construction::read_lcp_run_pfp()
 {
     log_phase_start("");
 
@@ -306,8 +307,8 @@ void move_r<support, mlf_enc>::construction::read_lcp_run_pfp()
     end_grouped_phase("reading LCP_run", 0, false, "time_read_run_lcp");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::read_iphi_inv_pfp()
+template <move_r_support support>
+void move_r<support>::construction::read_iphi_inv_pfp()
 {
     log_phase_start("");
 

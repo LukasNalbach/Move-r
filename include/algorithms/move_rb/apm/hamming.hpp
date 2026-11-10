@@ -61,10 +61,10 @@ protected:
     template <query_support_t query_support>
     using search_context_t = typename base_t::template search_context_t<query_support>;
 
-    // marks a search state that added no mismatch; the largest value of search_state_t::added_pos
+    // the value of search_state_t::added_pos for a state without an added mismatch; its largest value
     static constexpr uint64_t no_mismatch = std::numeric_limits<uint32_t>::max();
 
-    // marks a located context without a CIGAR
+    // the value of located_context_t::cigar_idx for a located context without a CIGAR
     static constexpr uint32_t no_cigar = std::numeric_limits<uint32_t>::max();
 
     // a search context of a LOCATE search and the index of its CIGAR in _cigars (or no_cigar)
@@ -95,7 +95,7 @@ protected:
     struct search_state_t {
         search_context_t<query_support> ctx;
         uint32_t position_idx; // index in positions of the next position to match
-        uint32_t added_pos; // the position of the mismatch this state added to its path, or no_mismatch (CIGAR mode)
+        uint32_t added_pos; // the position of the mismatch added to the path with this state, or no_mismatch (CIGAR mode)
         uint8_t num_errors; // number of mismatches so far (at most k)
         uint8_t num_path_mismatches; // number of mismatches on the path of this state (CIGAR mode)
         uint8_t added_sym; // the text symbol of the added mismatch (CIGAR mode)
@@ -169,7 +169,8 @@ public:
     // ############################# QUERY METHODS #############################
 
     /**
-     * @brief counts the occurrences of P with at most k mismatches (with an error model: of cost at most its bound)
+     * @brief counts the occurrences of P with at most k mismatches (with an error model: with a cost of at most the
+     *        cost bound)
      * @param P the pattern
      * @param scheme the search scheme (provides k)
      * @return the number of occurrences
@@ -187,7 +188,8 @@ public:
     std::vector<uint64_t> count_histogram(const inp_t& P, const search_scheme_t& scheme) const;
 
     /**
-     * @brief locates the occurrences of P with at most k mismatches (with an error model: of cost at most its bound)
+     * @brief locates the occurrences of P with at most k mismatches (with an error model: with a cost of at most the
+     *        cost bound)
      * @tparam mode whether each occurrence is reported with a CIGAR index
      * @tparam report_fnc_t type of the report function
      * @param P the pattern; throws std::invalid_argument if P.size() > aprx_occ_max_len

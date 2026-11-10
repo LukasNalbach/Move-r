@@ -637,7 +637,7 @@ void apm_edit<idx_t>::search_part(node_t& node, uint64_t p_idx, search_data_t<ma
     }
 
     /* depth-first search over the extensions: compute the row of each node and extend the nodes that are not bounded;
-       a node with one extension continues with it in place (see extend_node) */
+       a node with one extension is continued with it in place (see extend_node) */
     while (has_node || !stack.empty()) {
         if (!has_node) {
             node = std::move(stack.back());
@@ -708,7 +708,7 @@ void apm_edit<idx_t>::flush_cluster(cluster_t& cluster, uint64_t p_idx, search_d
     std::vector<uint16_t> dists;
     auto [center, found] = cluster.choose_center(k_min, descendants, dists);
 
-    // no local minimum with at least k_min errors: another search covers this path
+    // no local minimum with at least k_min errors: the alignments on this path are found by another search
     if (!found) return;
 
     descendants.insert(descendants.end(), remaining_descendants.begin(), remaining_descendants.end());
@@ -782,7 +782,8 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate(const inp_t& P, const sear
         recompute_errors<mode, word_t>(ctxts, P, m, scheme.k, ctxts_sorted, cigars);
     });
 
-    // the occurrences at the text ends (the search misses some of them), at most one per position, the cheaper one
+    // the occurrences at the text ends (the search misses some of them), at most one per position (the one with fewer
+    // errors)
     std::vector<aprx_occ_t<mode>> end_occ;
 
     if constexpr (can_decode_text_ends) {
@@ -797,7 +798,7 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate(const inp_t& P, const sear
         locate_at_text_ends<mode>(P, m, scheme.k, collect, cigars);
     }
 
-    // an occurrence of the search at the position of an occurrence in end_occ replaces it if it has fewer errors
+    // an occurrence in end_occ is replaced by an occurrence of the search at the same position with fewer errors
     auto report_unless_at_text_end = [&](const aprx_occ_t<mode>& o) {
         for (aprx_occ_t<mode>& e : end_occ) {
             if (e.pos() == o.pos()) {

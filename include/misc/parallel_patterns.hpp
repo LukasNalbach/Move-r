@@ -26,8 +26,9 @@
 
 /**
  * @file parallel_patterns.hpp
- * @brief processes the patterns of a file with several threads: the patterns are read in blocks, the threads take
- *        chunks of consecutive patterns of a block, and the output of the patterns is written in their order; while
+ * @brief processes the patterns of a file with several threads: the patterns are read in blocks, and the threads take
+ *        chunks of consecutive patterns of a block; the output of a pattern is written as soon as the pattern is
+ *        processed (pattern_chunk::write), or else with the outputs of its block in the order of the patterns; while
  *        the threads process a block, one of them first writes the output of the previous block and reads the next
  *        one; prints the summary of the queries of all query modes
  */
@@ -44,6 +45,7 @@
 #include <exception>
 #include <iostream>
 #include <limits>
+#include <mutex>
 #include <omp.h>
 #include <ostream>
 #include <string>
@@ -89,11 +91,23 @@ struct pattern_totals_t {
     uint64_t time_wall = 0; // the time (in ns) from reading the first pattern to writing the last output
 };
 
+/**
+ * @brief writes an output buffer to its stream and frees it
+ * @param stream the output stream (nullptr: not written)
+ * @param buffer the output
+ */
+inline void write_output_buffer(std::ostream* stream, std::string& buffer)
+{
+    if (stream != nullptr && !buffer.empty()) stream->write(buffer.data(), buffer.size());
+    std::string().swap(buffer);
+}
+
 /** @brief consecutive patterns of a block, processed by one thread */
 class pattern_chunk {
 public:
-    pattern_chunk(const pattern_reader::pattern_t* patterns, std::string* buffers, uint64_t size, uint64_t num_outputs)
-        : patterns(patterns), buffers(buffers), num(size), num_outputs(num_outputs) {}
+    pattern_chunk(const pattern_reader::pattern_t* patterns, std::string* buffers, uint64_t size,
+        const std::vector<std::ostream*>& outputs, std::mutex& output_mutex)
+        : patterns(patterns), buffers(buffers), num(size), outputs(&outputs), output_mutex(&output_mutex) {}
 
     // returns the number of patterns of the chunk
     uint64_t size() const { return num; }
@@ -102,13 +116,21 @@ public:
     const pattern_reader::pattern_t& pattern(uint64_t j) const { return patterns[j]; }
 
     // returns the output of pattern j of the chunk to the output stream s
-    std::string& out(uint64_t j, uint64_t s = 0) const { return buffers[j * num_outputs + s]; }
+    std::string& out(uint64_t j, uint64_t s = 0) const { return buffers[j * outputs->size() + s]; }
+
+    // writes the outputs of pattern j of the chunk to their streams and frees them
+    void write(uint64_t j) const
+    {
+        std::lock_guard<std::mutex> lock(*output_mutex);
+        for (uint64_t s = 0; s < outputs->size(); s++) write_output_buffer((*outputs)[s], out(j, s));
+    }
 
 private:
     const pattern_reader::pattern_t* patterns; // the patterns of the chunk
-    std::string* buffers; // the outputs of the patterns of the chunk, num_outputs per pattern
+    std::string* buffers; // the outputs of the patterns of the chunk, one per pattern and output stream
     uint64_t num; // the number of patterns
-    uint64_t num_outputs; // the number of output streams
+    const std::vector<std::ostream*>* outputs; // the output streams (nullptr: not written)
+    std::mutex* output_mutex; // held while a thread writes to the output streams
 };
 
 /** @brief appends text and integers to a string, in the way an output stream writes them (symbols as characters) */
@@ -200,23 +222,25 @@ inline void read_pattern_block(pattern_reader& reader, const pattern_processing_
 }
 
 /**
- * @brief writes the outputs of the patterns of a block in their order and frees them
+ * @brief writes the outputs of the patterns of a block that are not written yet in the order of the patterns and frees
+ *        them
  * @param options the options of process_patterns
  * @param block the block
+ * @param output_mutex held while a thread writes to the output streams
  * @param progress the progress of the search phase, which is advanced by the number of patterns of the block or,
  *        if counts_bytes, set to the number of bytes of the input read after the block
  * @param counts_bytes true <=> the progress counts the bytes of the input
  */
-inline void write_pattern_block(const pattern_processing_t& options, pattern_block_t& block, phase_progress& progress,
-    bool counts_bytes)
+inline void write_pattern_block(const pattern_processing_t& options, pattern_block_t& block, std::mutex& output_mutex,
+    phase_progress& progress, bool counts_bytes)
 {
     const uint64_t num_outputs = options.outputs.size();
 
-    for (uint64_t j = 0; j < block.size; j++) {
-        for (uint64_t s = 0; s < num_outputs; s++) {
-            std::string& buffer = block.buffers[j * num_outputs + s];
-            if (options.outputs[s] != nullptr && !buffer.empty()) options.outputs[s]->write(buffer.data(), buffer.size());
-            std::string().swap(buffer);
+    {
+        std::lock_guard<std::mutex> lock(output_mutex);
+
+        for (uint64_t j = 0; j < block.size; j++) {
+            for (uint64_t s = 0; s < num_outputs; s++) write_output_buffer(options.outputs[s], block.buffers[j * num_outputs + s]);
         }
     }
 
@@ -228,15 +252,15 @@ inline void write_pattern_block(const pattern_processing_t& options, pattern_blo
 }
 
 /**
- * @brief processes the patterns of a reader with several threads (see the file comment); the outputs are written in
- *        the order of the patterns; with options.log, an empty line and the phase "searching <number> patterns using
- *        <p> threads" are printed, with the progress over the patterns, if the reader knows their number, and else
- *        over the bytes of the input, if it is a file
+ * @brief processes the patterns of a reader with several threads (see the file comment); the outputs that process does
+ *        not write with pattern_chunk::write are written in the order of the patterns; with options.log, an empty line
+ *        and the phase "searching <number> patterns using <p> threads" are printed, with the progress over the
+ *        patterns, if their number is known, and else over the bytes of the input, if it is a file
  * @tparam process_fnc_t type of process
  * @param reader the reader of the patterns
  * @param options the options
  * @param process process(chunk, thread) processes the patterns of a chunk on thread thread (in [0, options.threads))
- *        and appends their output to chunk.out(j, s)
+ *        and appends their output to chunk.out(j, s); chunk.write(j) writes the output of pattern j at once
  * @return the totals
  */
 template <typename process_fnc_t>
@@ -245,7 +269,7 @@ pattern_totals_t process_patterns(pattern_reader& reader, const pattern_processi
     pattern_totals_t totals;
     const uint64_t threads = std::max<uint64_t>(1, options.threads);
     const uint64_t num_outputs = options.outputs.size();
-    // the number of patterns, with their reverse complements (0 if the reader does not know it)
+    // the number of patterns, with their reverse complements (0 if it is not known)
     const uint64_t num_patterns = reader.num_patterns() * (options.reverse_complements ? 2 : 1);
     auto time = now();
     log_phase_start(options.log, time, "searching " + (num_patterns == 0 ? std::string("the") : format_number(num_patterns))
@@ -254,6 +278,7 @@ pattern_totals_t process_patterns(pattern_reader& reader, const pattern_processi
     phase_progress progress(options.log, counts_bytes ? reader.file_bytes() : num_patterns);
     // block b is held in blocks[b % 3]: while block b is processed, block b - 1 is written and block b + 1 is read
     std::array<pattern_block_t, 3> blocks;
+    std::mutex output_mutex; // held while a thread writes to the output streams
     auto start = now();
 
     auto read = [&](pattern_block_t& block, bool first) {
@@ -272,7 +297,7 @@ pattern_totals_t process_patterns(pattern_reader& reader, const pattern_processi
 
         run_on_threads(threads, [&](uint64_t thread, uint64_t) {
             if (thread == 0) {
-                write_pattern_block(options, blocks[(b + 2) % 3], progress, counts_bytes);
+                write_pattern_block(options, blocks[(b + 2) % 3], output_mutex, progress, counts_bytes);
                 blocks[(b + 2) % 3].size = 0;
                 read(blocks[(b + 1) % 3], false);
             }
@@ -280,12 +305,12 @@ pattern_totals_t process_patterns(pattern_reader& reader, const pattern_processi
             for (uint64_t c = next_chunk++; c < num_chunks; c = next_chunk++) {
                 const uint64_t first = block.chunk_starts[c];
                 process(pattern_chunk(block.patterns.data() + first, block.buffers.data() + first * num_outputs,
-                    block.chunk_starts[c + 1] - first, num_outputs), thread);
+                    block.chunk_starts[c + 1] - first, options.outputs, output_mutex), thread);
             }
         });
     }
 
-    write_pattern_block(options, blocks[(b + 2) % 3], progress, counts_bytes);
+    write_pattern_block(options, blocks[(b + 2) % 3], output_mutex, progress, counts_bytes);
     progress.finish();
     totals.time_wall = time_diff_ns(start, now());
     log_phase_end(options.log, time);

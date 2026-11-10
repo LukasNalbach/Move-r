@@ -35,103 +35,103 @@
 
 #include <move_r/move_r.hpp>
 
-// the index type (support, mlf_enc) and its construction
-#define MOVE_R_INDEX_OF(supp, enc) move_r<supp, enc>
-#define MOVE_R_CONSTRUCTION_OF(supp, enc) MOVE_R_INDEX_OF(supp, enc)::construction
+// the index type of a support and its construction
+#define MOVE_R_INDEX_OF(supp) move_r<supp>
+#define MOVE_R_CONSTRUCTION_OF(supp) MOVE_R_INDEX_OF(supp)::construction
 
-// the index types (support, mlf_enc) with the encodings the indexes use (see move_r and move_rb), in two lists
+// the supports of the index types the indexes use (see move_r and move_rb), in two lists
 #define MOVE_R_CLASSES_1(X) \
-    X(_count, ELIAS_FANO) \
-    X(_locate_one, ELIAS_FANO) \
-    X(_count_bi, CACHE_LINES) \
-    X(_locate_move_bi, CACHE_LINES)
+    X(_count) \
+    X(_locate_one) \
+    X(_count_bi) \
+    X(_locate_move_bi)
 #define MOVE_R_CLASSES_2(X) \
-    X(_locate_move, ELIAS_FANO) \
-    X(_locate_rlzsa, ELIAS_FANO) \
-    X(_locate_rlzsa_bi, CACHE_LINES) \
-    X(_locate_one_bi, CACHE_LINES)
+    X(_locate_move) \
+    X(_locate_rlzsa) \
+    X(_locate_rlzsa_bi) \
+    X(_locate_one_bi)
 #define MOVE_R_CLASSES(X) \
     MOVE_R_CLASSES_1(X) \
     MOVE_R_CLASSES_2(X)
 
 // the index types with an rlz of the differential suffix array (see has_SA_rlz)
 #define MOVE_R_SA_RLZ_CLASSES(X) \
-    X(_locate_rlzsa, ELIAS_FANO) \
-    X(_locate_rlzsa_bi, CACHE_LINES)
+    X(_locate_rlzsa) \
+    X(_locate_rlzsa_bi)
 
 /* The phases of the construction (without member templates), grouped by the files defining them. Each phase
    is instantiated explicitly by one unit of the instantiation library, so a phase that is added to one of the
    files has to be added to the corresponding list. */
 
 // the constructor, build_index and the log methods (build_index.tpp)
-#define MOVE_R_CONSTRUCTION_DRIVER_MEMBERS(prefix, supp, enc) \
-    prefix template MOVE_R_CONSTRUCTION_OF(supp, enc)::construction(MOVE_R_INDEX_OF(supp, enc)&, \
+#define MOVE_R_CONSTRUCTION_DRIVER_MEMBERS(prefix, supp) \
+    prefix template MOVE_R_CONSTRUCTION_OF(supp)::construction(MOVE_R_INDEX_OF(supp)&, \
         move_r_input_view&, bool, move_r_params); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::choose_sa_samples_layout(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::start_construction(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::limit_num_threads(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::log_phase_end(const std::string&); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::log_phase_end_quiet(const std::string&); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::end_grouped_phase(const std::string&, uint64_t, bool, const std::string&, bool); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::log_mds_phase_end(const std::string&, const std::string&, uint64_t); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::log_peak_mem_usage(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_index(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::log_finished(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::log_statistics();
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::choose_sa_samples_layout(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::start_construction(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::limit_num_threads(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::log_phase_end(const std::string&); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::log_phase_end_quiet(const std::string&); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::end_grouped_phase(const std::string&, uint64_t, bool, const std::string&, bool); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::log_mds_phase_end(const std::string&, const std::string&, uint64_t); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::log_peak_mem_usage(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_index(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::log_finished(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::log_statistics();
 
 // the input, the prefix-free parsing and the run-length encoded BWT (preprocess.tpp, pfp.tpp, rlbwt.tpp)
-#define MOVE_R_CONSTRUCTION_TEXT_MEMBERS(prefix, supp, enc) \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::preprocess_t(const std::string&); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::map_byte_alphabet(std::vector<std::vector<uint64_t>>&); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::finish_byte_alphabet(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::widen_t(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::read_t_from_file(const std::string&); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::unmap_t(); \
-    prefix template std::array<uint8_t, 256> MOVE_R_CONSTRUCTION_OF(supp, enc)::pfp_alphabet_map() const; \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::release_pfp_output(); \
-    prefix template bool MOVE_R_CONSTRUCTION_OF(supp, enc)::read_pfp_cache(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::write_pfp_cache(const std::string&); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_rlbwt_pfp(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_rlbwt_pfp_fasta_once(const std::string&, \
+#define MOVE_R_CONSTRUCTION_TEXT_MEMBERS(prefix, supp) \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::preprocess_t(const std::string&); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::map_byte_alphabet(std::vector<std::vector<uint64_t>>&); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::finish_byte_alphabet(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::widen_t(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::read_t_from_file(const std::string&); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::unmap_t(); \
+    prefix template std::array<uint8_t, 256> MOVE_R_CONSTRUCTION_OF(supp)::pfp_alphabet_map() const; \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::release_pfp_output(); \
+    prefix template bool MOVE_R_CONSTRUCTION_OF(supp)::read_pfp_cache(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::write_pfp_cache(const std::string&); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_rlbwt_pfp(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_rlbwt_pfp_fasta_once(const std::string&, \
         const pfp_rlbwt::params&, std::array<uint8_t, 256>&); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::read_lcp_run_pfp(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::read_iphi_inv_pfp(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_sa(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_rlbwt_c(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::compute_C(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::store_rlbwt(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::load_rlbwt();
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::read_lcp_run_pfp(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::read_iphi_inv_pfp(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_sa(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_rlbwt_c(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::compute_C(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::store_rlbwt(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::load_rlbwt();
 
 // the move data structures and the samples (move_lf.tpp, move_phi.tpp, load_store.tpp)
-#define MOVE_R_CONSTRUCTION_MOVE_MEMBERS(prefix, supp, enc) \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_mlf(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_SA_run_from_iphi_inv(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_data_structures_over_l_(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_ilf(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::choose_revert_starts(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_sa_run_from_sa(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_iphi_inv_from_sa(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_mphi_inv(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_mphi(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_SA_Phi_inv(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::store_iphi_inv(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::load_iphi_inv(bool); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_iphi(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::sort_iphi_inv(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::sort_iphi(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_plcp_run(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::store_run_ranks(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::store_mlf(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::load_mlf(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::store_data_structures_over_l_(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::load_data_structures_over_l_();
+#define MOVE_R_CONSTRUCTION_MOVE_MEMBERS(prefix, supp) \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_mlf(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_SA_run_from_iphi_inv(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_data_structures_over_l_(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_ilf(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::choose_revert_starts(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_sa_run_from_sa(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_iphi_inv_from_sa(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_mphi_inv(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_mphi(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_SA_Phi_inv(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::store_iphi_inv(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::load_iphi_inv(bool); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_iphi(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::sort_iphi_inv(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::sort_iphi(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_plcp_run(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::store_run_ranks(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::store_mlf(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::load_mlf(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::store_data_structures_over_l_(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::load_data_structures_over_l_();
 
 // the rlz of the differential suffix array, for the index types in MOVE_R_SA_RLZ_CLASSES (sa_rlz.tpp)
-#define MOVE_R_CONSTRUCTION_SA_RLZ_MEMBERS(prefix, supp, enc) \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::SA_rlz_reader::step_right(); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::SA_rlz_reader::seek(uint64_t); \
-    prefix template uint64_t MOVE_R_CONSTRUCTION_OF(supp, enc)::SA_rlz_reader::SAd(uint64_t); \
-    prefix template void MOVE_R_CONSTRUCTION_OF(supp, enc)::build_SA_rlz();
+#define MOVE_R_CONSTRUCTION_SA_RLZ_MEMBERS(prefix, supp) \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::SA_rlz_reader::step_right(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::SA_rlz_reader::seek(uint64_t); \
+    prefix template uint64_t MOVE_R_CONSTRUCTION_OF(supp)::SA_rlz_reader::SAd(uint64_t); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_SA_rlz();
 
 // the radix sorts used by the constructions of move_r and move_rb (see misc/sort.hpp; those of the move
 // data structure are listed in move_data_structure/construction/construction.hpp)
@@ -150,7 +150,7 @@ using move_r_u64_u32_pairs_it = std::vector<std::pair<uint64_t, uint32_t>>::iter
 MOVE_R_CONSTRUCTION_SORTS(extern)
 
 // declares the index type with all its members that are not templates (including its construction)
-#define MOVE_R_DECLARE_INDEX(supp, enc) extern template class MOVE_R_INDEX_OF(supp, enc);
+#define MOVE_R_DECLARE_INDEX(supp) extern template class MOVE_R_INDEX_OF(supp);
 
 MOVE_R_CLASSES(MOVE_R_DECLARE_INDEX)
 

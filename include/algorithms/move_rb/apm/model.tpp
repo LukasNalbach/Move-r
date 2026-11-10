@@ -168,8 +168,8 @@ void apm_costs_t::compile(const apm_model_t& model, const pat_t& P, std::string_
     _affine = false;
 
     if (bound >= apm_forbidden) throw std::invalid_argument("bound too large");
-    if (alph_map.empty()) throw std::invalid_argument("an error model needs an index with a byte alphabet (see move_r::map_int)");
-    if (model.quality && quality.size() != _m) throw std::invalid_argument("the model needs one quality per symbol");
+    if (alph_map.empty()) throw std::invalid_argument("error models are only supported for indexes with a byte alphabet (see move_r::map_int)");
+    if (model.quality && quality.size() != _m) throw std::invalid_argument("the model requires one quality score per pattern symbol");
     if (model.counters.size() > apm_max_counters)
         throw std::invalid_argument("at most " + std::to_string(apm_max_counters) + " counters");
 
@@ -187,7 +187,7 @@ void apm_costs_t::compile(const apm_model_t& model, const pat_t& P, std::string_
         }
     }
 
-    // a range, a symbol and a quality of the read, as they are seen at the positions of P
+    // a range and the symbols of the read, mapped to the positions of P
     auto range_of = [&](const apm_range_t& range) -> std::pair<uint64_t, uint64_t> {
         auto [b, e] = range.absolute(_m);
         if (reverse_strand) return {_m - e, _m - b};
@@ -265,7 +265,7 @@ void apm_costs_t::compile(const apm_model_t& model, const pat_t& P, std::string_
         }
     }
 
-    // counters: a counter with bound 0 forbids its operations, the others are packed into byte lanes
+    // counters: the operations of a counter with bound 0 are forbidden, the other counters are packed into byte lanes
     for (const apm_counter_t& counter : model.counters) {
         if (counter.max > apm_max_counter_bound) throw std::invalid_argument("counter bound too large");
         auto [b, e] = range_of(counter.range);
@@ -307,8 +307,8 @@ void apm_costs_t::compile(const apm_model_t& model, const pat_t& P, std::string_
         }
     }
 
-    // a matched symbol is no substitution; an alignment does not start or end with a deletion; Hamming distance
-    // has neither insertions nor deletions
+    // aligning P[i] to a symbol it matches has cost 0. An alignment does not start or end with a deletion. With the
+    // Hamming distance, there are no insertions and no deletions.
     for (uint64_t x = 0; x < _m * _num_ranks; x++) if (_matches[x]) _sub[x] = 0;
     _del[0] = _del[_m] = apm_forbidden;
 
@@ -317,8 +317,8 @@ void apm_costs_t::compile(const apm_model_t& model, const pat_t& P, std::string_
         std::fill(_del.begin(), _del.end(), apm_forbidden);
     }
 
-    for (uint64_t i = 0; i < _m; i++) if (_ins[i] == 0) throw std::invalid_argument("an insertion must cost at least 1");
-    for (uint64_t x = 1; x < _m; x++) if (_del[x] == 0) throw std::invalid_argument("a deletion must cost at least 1");
+    for (uint64_t i = 0; i < _m; i++) if (_ins[i] == 0) throw std::invalid_argument("the cost of an insertion must be at least 1");
+    for (uint64_t x = 1; x < _m; x++) if (_del[x] == 0) throw std::invalid_argument("the cost of a deletion must be at least 1");
 
     for (uint64_t i = 0; i < _m; i++) _affine |= _ins_open[i] != 0 || _ins_open_counts[i] != 0;
     for (uint64_t x = 0; x <= _m; x++) _affine |= _del_open[x] != 0 || _del_open_counts[x] != 0;
@@ -339,8 +339,8 @@ void apm_costs_t::compile(const apm_model_t& model, const pat_t& P, std::string_
         return;
     }
 
-    // tau maximizes the number of symbols without free alternatives that the part without errors of a search with
-    // max_errors() + 1 parts has on average; the candidates are 1 and each cost of a substitution plus 1
+    // tau is chosen such that the number of positions without free alternatives per part of a search with
+    // max_errors() + 1 parts is maximal; the candidates are 1 and each cost of a substitution plus 1
     static thread_local std::vector<uint8_t> is_candidate;
     is_candidate.assign(uint64_t(_bound) + 2, 0);
     is_candidate[1] = 1;
@@ -358,11 +358,12 @@ void apm_costs_t::compile(const apm_model_t& model, const pat_t& P, std::string_
     uint16_t best_tau = 1, applied = 0;
     uint64_t best_exact = 0, best_parts = 1;
 
-    // every tau counts at least the insertions and deletions as errors
+    // with every tau, at least the insertions and deletions are counted as errors
     const uint64_t min_parts = max_num_errors(0, _m, true) + 1;
 
     for (uint16_t tau : candidates) {
-        // the positions without free alternatives; a candidate is skipped if it cannot win with the fewest parts
+        /* the positions without free alternatives; a candidate is skipped if exact / min_parts, its largest possible
+           number per part, is not larger than the best number per part */
         uint64_t exact = 0;
 
         for (uint64_t i = 0; i < _m; i++) {
@@ -409,8 +410,9 @@ inline uint16_t apm_costs_t::compute_uniform_cost() const
 
 inline void apm_costs_t::choose_cost_dp(const apm_model_t& model)
 {
-    // with AUTO, the search bounds the cost if the costs allow at most two thirds of its errors as insertions and
-    // deletions, or as substitutions at their median cost, and also prunes if it can and the occurrences are not written
+    /* with AUTO, the costs are computed in the search if at most 2/3 * max_errors() insertions and deletions, or
+       substitutions at their median cost, fit into the cost bound; then contexts are also discarded by their costs if
+       possible and the occurrences are not written */
     const apm_cost_dp_t cost_dp = model.cost_dp;
     bool auto_on = false;
 
@@ -471,7 +473,8 @@ inline uint64_t apm_costs_t::max_num_errors(uint64_t beg, uint64_t end, bool ind
     uint16_t del_min = apm_forbidden;
     for (uint64_t x = beg + 1; x < end; x++) del_min = std::min(del_min, _del[x]);
 
-    // the most errors at most budget can pay for: the cheapest errors first; a deletion at a boundary can be repeated
+    // the largest number of errors with a total cost of at most budget, cheapest errors first; a deletion at a boundary
+    // can be repeated
     static thread_local std::vector<uint64_t> buckets;
 
     auto most_errors = [&](uint64_t budget, auto cost_at, uint16_t repeated) {
@@ -492,7 +495,7 @@ inline uint64_t apm_costs_t::max_num_errors(uint64_t beg, uint64_t end, bool ind
     uint64_t by_cost;
 
     if (beg == 0 && end == _m) {
-        // an alignment of P with an insertion or a deletion opens a gap
+        // an alignment of P with an insertion or a deletion opens at least one gap
         uint64_t open_min = apm_forbidden;
         for (uint64_t i = 0; i < _m; i++) if (_ins[i] <= _bound) open_min = std::min<uint64_t>(open_min, _ins_open[i]);
         for (uint64_t x = 1; x < _m; x++) if (_del[x] <= _bound) open_min = std::min<uint64_t>(open_min, _del_open[x]);
@@ -508,7 +511,8 @@ inline uint64_t apm_costs_t::max_num_errors(uint64_t beg, uint64_t end, bool ind
 
     if (!counters) return by_cost;
 
-    // with the counters: every error that increments a counter consumes one unit of a counter that overlaps the range
+    /* with the counters: the number of positions in the range with an error that is not counted, plus the bounds of the
+       counters that overlap the range (unbounded if a deletion inside the range is not counted) */
     uint64_t by_counters = 0;
     bool unbounded = false;
 
@@ -727,8 +731,8 @@ std::pair<uint64_t, uint64_t> apm_costs_t::align_reusing(const str_t& M, cigar_t
 {
     if (_num_counters == 0) return align_without_counters(M, cigar, nullptr, reuse);
 
-    // without the counters, the cost is at most the cost with them; if the cheapest alignment without them keeps them,
-    // it is the cheapest alignment with them
+    // without the counters, the cost is at most the cost with them; if no counter of the cheapest alignment without the
+    // counters exceeds its bound, it is also the cheapest alignment with them
     uint64_t counters;
     auto [cost, len] = align_without_counters(M, cigar, &counters, reuse);
     if (cost > _bound || !exceeds(counters)) return {cost, len};
@@ -746,7 +750,7 @@ std::pair<uint64_t, uint64_t> apm_costs_t::align_reusing(const str_t& M, cigar_t
     labels.clear();
     cells.assign((_m + 1) * band * states, {0, 0});
 
-    // cell (i, j, q) holds the labels of P[0, i) against M[0, j) ending in state q; j lies in [i - kb, i + kb]
+    // cell (i, j, q) contains the labels of P[0, i) against M[0, j) ending in state q; j lies in [i - kb, i + kb]
     auto cell = [&](uint64_t i, uint64_t j, uint64_t q) -> std::pair<uint32_t, uint32_t>& {
         return cells[(i * band + (j + kb - i)) * states + q];
     };

@@ -136,7 +136,7 @@ concept index_adapter =
         { idx.map_symbol(sym) } -> std::convertible_to<uint8_t>;
         { idx.unmap_symbol(isym) } -> std::convertible_to<uint8_t>;
         { idx.map_int() } -> std::convertible_to<const std::vector<uint8_t>&>;
-        idx.forward_index(); // index answering the exact count/locate queries
+        idx.forward_index(); // index for the exact count/locate queries
         { idx.count(P) } -> std::convertible_to<uint64_t>; // exact count
         { idx.count_hamming_dist(P, scheme) } -> std::convertible_to<uint64_t>;
         idx.template empty_context<COUNT>();

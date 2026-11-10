@@ -59,7 +59,7 @@ protected:
 
     // ############################# DATA MEMBERS #############################
 
-    const move_rb<support>* idx = nullptr; // the index this context queries
+    const move_rb<support>* idx = nullptr; // the index of the search context
     search_context_t<query_support>* ctx = nullptr; // the search context that is extended
 
     // keys of the level of the extensions in the context tables (see context_tables); the key of an extension is

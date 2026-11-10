@@ -51,7 +51,7 @@
 #include <misc/directional_substring.hpp>
 #include <misc/utils.hpp>
 
-// the matches of an input of an edit-distance matrix without further equal symbols (see set_input)
+// the function matches of set_input for an input in which each symbol only matches itself (no further equal symbols)
 struct no_extra_matches_t {
     template <typename report_fnc_t>
     void operator()(uint64_t, report_fnc_t&&) const {}
@@ -336,7 +336,7 @@ public:
         const uint16_t diag_bit = i + block_diag_bit;
         auto delta = [&](uint16_t b) { return int32_t((row.dh_pos >> b) & 1) - int32_t((row.dh_neg >> b) & 1); };
 
-        // the values of row i at all bits of the word; bit b holds the cell in column i + b - diag_bit
+        // the values of row i at all bits of the word; bit b corresponds to the cell in column i + b - diag_bit
         std::array<int32_t, bits_per_word> vals;
         vals[diag_bit] = row.diag_distance;
         for (uint16_t b = diag_bit + 1; b < bits_per_word; b++) vals[b] = vals[b - 1] + delta(b);

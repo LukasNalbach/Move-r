@@ -38,8 +38,8 @@
 
 // ############################# INTERNAL METHODS #############################
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline void move_r<support, mlf_enc>::init_phi_inv_at_run_start(uint64_t x, uint64_t& s, uint64_t& s_) const requires(has_locate_move)
+template <move_r_support support>
+inline void move_r<support>::init_phi_inv_at_run_start(uint64_t x, uint64_t& s, uint64_t& s_) const requires(has_locate_move)
 {
     if constexpr (support == _locate_move) {
         // the input interval of M_Phi_inv whose output interval starts with s = SA[M_LF.p[x]]
@@ -63,8 +63,8 @@ inline void move_r<support, mlf_enc>::init_phi_inv_at_run_start(uint64_t x, uint
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline void move_r<support, mlf_enc>::init_phi_inv(
+template <move_r_support support>
+inline void move_r<support>::init_phi_inv(
     uint64_t b, uint64_t e,
     uint64_t& s, uint64_t& s_,
     uint64_t hat_b_ap_y, int64_t y) const requires(has_locate_move)
@@ -82,16 +82,16 @@ inline void move_r<support, mlf_enc>::init_phi_inv(
 
 // ############################# QUERY METHODS #############################
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline uint64_t move_r<support, mlf_enc>::BWT(uint64_t i) const
+template <move_r_support support>
+inline uint64_t move_r<support>::BWT(uint64_t i) const
 {
     // L[i] is the symbol of the input interval of M_LF containing i
     return unmap_symbol(L_(_M_LF.interval_and_offset(i).first));
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename fnc_t>
-void move_r<support, mlf_enc>::SA_range(uint64_t b, uint64_t e, fnc_t report) const requires(has_SA_access)
+void move_r<support>::SA_range(uint64_t b, uint64_t e, fnc_t report) const requires(has_SA_access)
 {
     // SA[b] by random access (see SA), then SA[b + 1..e] decoded from it
     const uint64_t first = SA(b);
@@ -103,8 +103,8 @@ void move_r<support, mlf_enc>::SA_range(uint64_t b, uint64_t e, fnc_t report) co
     dec.report_right(e, [&](uint64_t, uint64_t value) { report(value); });
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline uint64_t move_r<support, mlf_enc>::SA(uint64_t i) const requires(has_SA_access)
+template <move_r_support support>
+inline uint64_t move_r<support>::SA(uint64_t i) const requires(has_SA_access)
 {
     // index of the first input interval of M_LF in the bwt run containing i (see SA_run_start)
     uint64_t x = first_interval_of_run(_M_LF.interval_and_offset(i).first);
@@ -129,8 +129,8 @@ inline uint64_t move_r<support, mlf_enc>::SA(uint64_t i) const requires(has_SA_a
     return dec.value();
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline void move_r<support, mlf_enc>::query_context_t::set_pos(uint64_t i)
+template <move_r_support support>
+inline void move_r<support>::query_context_t::set_pos(uint64_t i)
 {
     if constexpr (has_SA_rlz) {
         dec = idx->_SA_rlz.decode_context();
@@ -140,8 +140,8 @@ inline void move_r<support, mlf_enc>::query_context_t::set_pos(uint64_t i)
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline void move_r<support, mlf_enc>::query_context_t::ensure_be()
+template <move_r_support support>
+inline void move_r<support>::query_context_t::ensure_be()
 {
     if (be_valid) return;
     // for M_LF in ELIAS_FANO, turn the offsets b,e within their input intervals b_,e_ into positions
@@ -153,9 +153,9 @@ inline void move_r<support, mlf_enc>::query_context_t::ensure_be()
     be_valid = true;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename sym_t>
-bool move_r<support, mlf_enc>::query_context_t::prepend(sym_t sym)
+bool move_r<support>::query_context_t::prepend(sym_t sym)
 {
     // for M_LF in ELIAS_FANO, turn the positions b,e back into offsets within their input intervals b_,e_
     if constexpr (mlf_enc == ELIAS_FANO) {
@@ -178,10 +178,10 @@ bool move_r<support, mlf_enc>::query_context_t::prepend(sym_t sym)
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline uint64_t move_r<support, mlf_enc>::query_context_t::next_occ() requires(supports_multiple_locate)
+template <move_r_support support>
+inline uint64_t move_r<support>::query_context_t::next_occ() requires(supports_multiple_locate)
 {
-    ensure_be(); // reconstructs b,e and seeds the locate cursor on the first call after a prepend
+    ensure_be(); // on the first call after a prepend, computes b and e and sets the next position to report to b
 
     if constexpr (has_SA_rlz) {
         if (dec.pos() == b) [[unlikely]] {
@@ -208,11 +208,11 @@ inline uint64_t move_r<support, mlf_enc>::query_context_t::next_occ() requires(s
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline uint64_t move_r<support, mlf_enc>::query_context_t::one_occ() const requires(supports_locate) { return idx->SA_run_start(hat_b_ap_y) - (y + 1); }
+template <move_r_support support>
+inline uint64_t move_r<support>::query_context_t::one_occ() const requires(supports_locate) { return idx->SA_run_start(hat_b_ap_y) - (y + 1); }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-std::vector<uint48_t> move_r<support, mlf_enc>::query_context_t::locate() requires(supports_multiple_locate)
+template <move_r_support support>
+std::vector<uint48_t> move_r<support>::query_context_t::locate() requires(supports_multiple_locate)
 {
     std::vector<uint48_t> Occ;
     Occ.reserve(num_occ_rem());
@@ -220,11 +220,11 @@ std::vector<uint48_t> move_r<support, mlf_enc>::query_context_t::locate() requir
     return Occ;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename report_fnc_t>
-void move_r<support, mlf_enc>::query_context_t::locate(report_fnc_t report) requires(supports_multiple_locate)
+void move_r<support>::query_context_t::locate(report_fnc_t report) requires(supports_multiple_locate)
 {
-    ensure_be(); // reconstructs b,e and seeds the locate cursor on the first call after a prepend
+    ensure_be(); // on the first call after a prepend, computes b and e and sets the next position to report to b
 
     if constexpr (has_SA_rlz) {
         if (dec.pos() == b) [[unlikely]] {
@@ -258,8 +258,8 @@ void move_r<support, mlf_enc>::query_context_t::locate(report_fnc_t report) requ
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline void move_r<support, mlf_enc>::init_backward_search(
+template <move_r_support support>
+inline void move_r<support>::init_backward_search(
     uint64_t& b, uint64_t& b_,
     uint64_t& e, uint64_t& e_,
     uint64_t& hat_b_ap_y, int64_t& y,
@@ -277,8 +277,8 @@ inline void move_r<support, mlf_enc>::init_backward_search(
     z = -1;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline bool move_r<support, mlf_enc>::backward_search_step_mapped(
+template <move_r_support support>
+inline bool move_r<support>::backward_search_step_mapped(
     uint64_t i_sym,
     uint64_t& b, uint64_t& b_,
     uint64_t& e, uint64_t& e_,
@@ -340,9 +340,9 @@ inline bool move_r<support, mlf_enc>::backward_search_step_mapped(
     return true;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename sym_t>
-uint64_t move_r<support, mlf_enc>::count(move_r_pattern_view<sym_t> P) const
+uint64_t move_r<support>::count(move_r_pattern_view<sym_t> P) const
 {
     uint64_t b_, b, e_, e, hat_b_ap_y, hat_e_ap_z;
     int64_t y, z;
@@ -360,9 +360,9 @@ uint64_t move_r<support, mlf_enc>::count(move_r_pattern_view<sym_t> P) const
     else return M_LF().distance(b_, b, e_, e) + 1;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename report_fnc_t, typename sym_t>
-void move_r<support, mlf_enc>::locate(move_r_pattern_view<sym_t> P, report_fnc_t report) const requires(supports_multiple_locate)
+void move_r<support>::locate(move_r_pattern_view<sym_t> P, report_fnc_t report) const requires(supports_multiple_locate)
 {
     uint64_t b_, b, e_, e, hat_b_ap_y, hat_e_ap_z;
     int64_t y, z;
@@ -407,8 +407,8 @@ void move_r<support, mlf_enc>::locate(move_r_pattern_view<sym_t> P, report_fnc_t
 
 // ############################# RETRIEVE-RANGE METHODS #############################
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline void move_r<support, mlf_enc>::adjust_retrieve_params(retrieve_params& params, uint64_t range_max)
+template <move_r_support support>
+inline void move_r<support>::adjust_retrieve_params(retrieve_params& params, uint64_t range_max)
 {
     if (params.l > params.r) {
         params.l = 0;
@@ -418,9 +418,9 @@ inline void move_r<support, mlf_enc>::adjust_retrieve_params(retrieve_params& pa
     params.r = std::min(params.r, range_max);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename fnc_t>
-inline void move_r<support, mlf_enc>::run_parallel_threads(uint64_t p, fnc_t&& fnc)
+inline void move_r<support>::run_parallel_threads(uint64_t p, fnc_t&& fnc)
 {
     // the team can have fewer than p threads (e.g., inside another parallel region); it is also opened for p = 1, so
     // that omp_get_thread_num() is the number of the thread in it
@@ -428,8 +428,8 @@ inline void move_r<support, mlf_enc>::run_parallel_threads(uint64_t p, fnc_t&& f
     for (uint64_t i_p = omp_get_thread_num(); i_p < p; i_p += omp_get_num_threads()) fnc(i_p);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline uint64_t move_r<support, mlf_enc>::thread_range_start(uint64_t i_p, uint64_t p, uint64_t l, uint64_t r, uint64_t align)
+template <move_r_support support>
+inline uint64_t move_r<support>::thread_range_start(uint64_t i_p, uint64_t p, uint64_t l, uint64_t r, uint64_t align)
 {
     if (i_p == 0) return l;
     if (i_p >= p) return r + 1;
@@ -438,9 +438,9 @@ inline uint64_t move_r<support, mlf_enc>::thread_range_start(uint64_t i_p, uint6
     return std::min<uint64_t>(l + off, r + 1);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename report_fnc_t>
-void move_r<support, mlf_enc>::revert(report_fnc_t report) const requires(std::invocable<report_fnc_t&, uint64_t, uint64_t>)
+void move_r<support>::revert(report_fnc_t report) const requires(std::invocable<report_fnc_t&, uint64_t, uint64_t>)
 {
     if (n < 2) return;
 
@@ -456,9 +456,9 @@ void move_r<support, mlf_enc>::revert(report_fnc_t report) const requires(std::i
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename piece_fnc_t, typename report_fnc_t>
-void move_r<support, mlf_enc>::revert_strands(uint64_t num_pieces, uint64_t num_threads, uint64_t num_strands,
+void move_r<support>::revert_strands(uint64_t num_pieces, uint64_t num_threads, uint64_t num_strands,
     piece_fnc_t piece, report_fnc_t report) const
 {
     if (num_strands == 1) {
@@ -521,9 +521,9 @@ void move_r<support, mlf_enc>::revert_strands(uint64_t num_pieces, uint64_t num_
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename report_fnc_t>
-void move_r<support, mlf_enc>::revert_in_pieces(report_fnc_t report, uint64_t num_threads, uint64_t num_strands) const
+void move_r<support>::revert_in_pieces(report_fnc_t report, uint64_t num_threads, uint64_t num_strands) const
 {
     if (n < 2) return;
     const uint64_t m = _revert_starts.size();
@@ -541,9 +541,9 @@ void move_r<support, mlf_enc>::revert_in_pieces(report_fnc_t report, uint64_t nu
     }, report);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename out_sym_t>
-void move_r<support, mlf_enc>::revert(std::string file_name, uint64_t num_threads, uint64_t num_strands) const
+void move_r<support>::revert(std::string file_name, uint64_t num_threads, uint64_t num_strands) const
 {
     direct_positioned_file file(file_name, (n - 1) * sizeof(out_sym_t));
 
@@ -560,9 +560,9 @@ void move_r<support, mlf_enc>::revert(std::string file_name, uint64_t num_thread
     if (!file.close_file()) throw std::runtime_error("cannot write " + file_name);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename out_t>
-out_t move_r<support, mlf_enc>::BWT_range(retrieve_params params) const
+out_t move_r<support>::BWT_range(retrieve_params params) const
 {
     adjust_retrieve_params(params, n - 1);
     out_t L;
@@ -571,9 +571,9 @@ out_t move_r<support, mlf_enc>::BWT_range(retrieve_params params) const
     return L;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename report_fnc_t>
-void move_r<support, mlf_enc>::BWT_range(report_fnc_t report, retrieve_params params) const
+void move_r<support>::BWT_range(report_fnc_t report, retrieve_params params) const
 {
     adjust_retrieve_params(params, n - 1);
 
@@ -619,8 +619,8 @@ void move_r<support, mlf_enc>::BWT_range(report_fnc_t report, retrieve_params pa
     });
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-no_init_vector<uint48_t> move_r<support, mlf_enc>::SA_range(retrieve_params params) const requires(supports_multiple_locate)
+template <move_r_support support>
+no_init_vector<uint48_t> move_r<support>::SA_range(retrieve_params params) const requires(supports_multiple_locate)
 {
     adjust_retrieve_params(params, n - 1);
     no_init_vector<uint48_t> SA_rng;
@@ -629,9 +629,9 @@ no_init_vector<uint48_t> move_r<support, mlf_enc>::SA_range(retrieve_params para
     return SA_rng;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename report_fnc_t>
-void move_r<support, mlf_enc>::SA_range_in_pieces(report_fnc_t report, retrieve_params params) const requires(supports_multiple_locate)
+void move_r<support>::SA_range_in_pieces(report_fnc_t report, retrieve_params params) const requires(supports_multiple_locate)
 {
     adjust_retrieve_params(params, n - 1);
     const uint64_t l = params.l;
@@ -739,14 +739,15 @@ void move_r<support, mlf_enc>::SA_range_in_pieces(report_fnc_t report, retrieve_
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::SA_range(std::string file_name, retrieve_params params) const requires(supports_multiple_locate)
+template <move_r_support support>
+void move_r<support>::SA_range(std::string file_name, retrieve_params params) const requires(supports_multiple_locate)
 {
     adjust_retrieve_params(params, n - 1);
     const uint64_t l = params.l;
     const uint64_t length = params.r - l + 1;
     const uint64_t num_slots = SA_range_strand_slots(params);
-    // the output buffers take about 1 / retrieve_output_bytes_per_buffer_byte of the output, or max_bytes_alloc bytes
+    // the size of the output buffers is about 1 / retrieve_output_bytes_per_buffer_byte of the output size, or
+    // max_bytes_alloc bytes
     const uint64_t buffer_bytes = std::max<uint64_t>(retrieve_min_buffer_bytes, params.max_bytes_alloc != -1
         ? params.max_bytes_alloc / num_slots
         : (length * sizeof(uint64_t)) / (num_slots * retrieve_output_bytes_per_buffer_byte));
@@ -763,10 +764,10 @@ void move_r<support, mlf_enc>::SA_range(std::string file_name, retrieve_params p
     if (!file.close_file()) throw std::runtime_error("cannot write " + file_name);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename output_t, typename invoke_t>
-void move_r<support, mlf_enc>::retrieve_range(
-    invoke_t retrieve, std::string file_name, move_r<support, mlf_enc>::retrieve_params params) const
+void move_r<support>::retrieve_range(
+    invoke_t retrieve, std::string file_name, move_r<support>::retrieve_params params) const
 {
     uint64_t l = params.l;
     uint64_t r = params.r;

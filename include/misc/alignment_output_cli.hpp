@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <fstream>
 #include <limits>
 #include <string>
 #include <vector>
@@ -48,7 +49,7 @@
 #include <misc/parallel_patterns.hpp>
 #include <misc/query_cli.hpp>
 
-// MAPQ of the primary SAM record of a read whose fewest errors only one occurrence has
+// MAPQ of the primary SAM record of a read with exactly one occurrence with the fewest errors
 inline constexpr uint16_t unique_mapq = 60;
 
 // SAM flags (FLAG column): the record is a secondary alignment, the read is aligned as its reverse complement, the
@@ -62,7 +63,7 @@ inline constexpr uint16_t paf_mapq = 255;
 
 /**
  * @brief the occurrences of a read on one strand and their CIGARs
- * @tparam cm whether the occurrences carry a CIGAR
+ * @tparam cm whether the occurrences have a CIGAR
  */
 template <cigar_mode_t cm>
 struct strand_occurrences_t {
@@ -81,7 +82,7 @@ struct strand_occurrences_t {
 
 /**
  * @brief writes the SAM record of an occurrence of a read
- * @tparam cm whether the occurrence carries a CIGAR (else the CIGAR and the tag MD are not written)
+ * @tparam cm whether the occurrence has a CIGAR (else the CIGAR and the tag MD are not written)
  * @param sam the output
  * @param sequences the sequences of the text
  * @param last_sequence index of the sequence of the previous occurrence (sequence_index searches from it)
@@ -133,7 +134,7 @@ void write_sam_record(string_appender& sam, const fasta_sequence_data& sequences
  * @brief writes the SAM records of a read: the first occurrence with the fewest errors (forward strand first) as
  *        primary record, the others as secondary records, or one unmapped record if it has no occurrence; MAPQ =
  *        unique_mapq if exactly one occurrence has the fewest errors, else 0
- * @tparam cm whether the occurrences carry a CIGAR
+ * @tparam cm whether the occurrences have a CIGAR
  * @param sam the output
  * @param sequences the sequences of the text
  * @param last_sequence index of the sequence of the previous occurrence (sequence_index searches from it)
@@ -186,7 +187,7 @@ void write_sam_records(string_appender& sam, const fasta_sequence_data& sequence
 /**
  * @brief writes one PAF record per occurrence of a read on one strand; columns: qname, qlen, 0, qlen, strand, tname,
  *        tlen, tstart, tend, matches, block length, paf_mapq, NM and (with a CIGAR) cg
- * @tparam cm whether the occurrences carry a CIGAR (else the matches are the length minus the errors)
+ * @tparam cm whether the occurrences have a CIGAR (else the matches are the length minus the errors)
  * @param paf the output
  * @param sequences the sequences of the text
  * @param last_sequence index of the sequence of the previous occurrence (sequence_index searches from it)
@@ -251,7 +252,7 @@ inline void write_bed_record(string_appender& bed, const fasta_sequence_data& se
 
 /**
  * @brief writes the BED records of the occurrences of a read on one strand (see write_bed_record)
- * @tparam cm whether the occurrences carry a CIGAR
+ * @tparam cm whether the occurrences have a CIGAR
  * @param bed the output
  * @param sequences the sequences of the text
  * @param last_sequence index of the sequence of the previous occurrence (sequence_index searches from it)
@@ -274,8 +275,8 @@ struct exact_alignment_cli_t {
     std::string path_sam_file; // -sam
     std::string path_bed_file; // -bed
     bool reverse_complements = true; // -rc: with -sam or -bed, the reverse complement of each pattern is searched too
-    direct_ofstream sam_file; // -sam
-    direct_ofstream bed_file; // -bed
+    std::ofstream sam_file; // -sam
+    std::ofstream bed_file; // -bed
 
     // returns whether the occurrences are written as SAM or BED records
     bool given() const { return !path_sam_file.empty() || !path_bed_file.empty(); }
@@ -288,7 +289,7 @@ struct exact_alignment_cli_t {
 inline void print_exact_alignment_input_option(help_printer& h)
 {
     print_reverse_complements_option(h, exact_alignment_cli_t().reverse_complements, "with -sam or -bed: also search "
-        "the reverse complement of each pattern; its occurrences get the strand '-'");
+        "the reverse complement of each pattern; its occurrences are written with the strand '-'");
 }
 
 /**

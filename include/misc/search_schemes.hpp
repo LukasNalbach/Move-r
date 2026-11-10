@@ -172,8 +172,8 @@ inline const search_scheme_t zero_one_scheme(uint8_t k)
 }
 
 /**
- * @brief returns the mirror of a search scheme: part i of each search becomes part p - 1 - i (it finds the same
- *        occurrences, with the parts in the reverse order)
+ * @brief returns the mirror of a search scheme: part i of each search becomes part p - 1 - i (the same
+ *        occurrences are found, with the parts in the reverse order)
  * @param scheme the search scheme
  * @return the mirrored search scheme
  */

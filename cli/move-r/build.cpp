@@ -74,7 +74,7 @@ void print_help(std::ostream& out)
         "(locate for -s locate-move)");
     h.group("execution");
     print_execution_options(h, "the BWT is built with the prefix-free parsing (pfp-rlbwt) and stored in "
-        "<input_file>.bwt-runs, which later builds reuse without checking it against the input");
+        "<input_file>.bwt-runs, which is reused by later builds without being checked against the input");
     h.group("measurement");
     print_build_measurement_options(h, true);
 }

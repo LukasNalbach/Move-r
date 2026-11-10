@@ -39,14 +39,14 @@
 #include <vector>
 
 /**
- * @brief finds the documents containing a pattern from its occurrences: from a source of the occurrences, a function
- *        called as source(report), which calls report(occ) for the text position occ of every occurrence (e.g., with
- *        the occurrences located by a query context of the index)
+ * @brief finds the documents containing a pattern from its occurrences, which are given by a source: a function called
+ *        as source(report) that calls report(occ) for the text position occ of every occurrence (e.g., the occurrences
+ *        located with a query context of the index)
  */
 class document_query {
 protected:
     const document_array& docs; // the documents of the text
-    // the documents of the occurrences of the last query: [0..number of occurrences - 1] in increasing order, without
+    // [0..number of occurrences - 1] the document of each occurrence in the last query, in increasing order; without
     // duplicates after decode_unique
     std::vector<uint64_t> decoded_docs;
     // the documents of top_k: [0..number of documents - 1] (frequency, document); the first k are sorted by decreasing
@@ -104,8 +104,8 @@ public:
     }
 
     /**
-     * @brief reports the documents containing a pattern with the numbers of occurrences of the pattern in them, in
-     *        increasing order of the documents
+     * @brief reports each document containing a pattern with how often the pattern occurs in it, in increasing order
+     *        of the documents
      * @tparam source_t type of source
      * @tparam fnc_t type of report
      * @param source the source of the occurrences of the pattern (see document_query)

@@ -26,7 +26,7 @@
 
 /**
  * @file timeout_runner.hpp
- * @brief runs queries in a child process and kills it if a query takes longer than a timeout
+ * @brief runs queries in a child process and kills it if a query runs longer than a timeout
  */
 
 #ifndef MOVE_R_BENCH_MOVE_RB_BENCH_TIMEOUT_RUNNER_HPP
@@ -108,7 +108,7 @@ inline bool wait_readable(int32_t fd, uint64_t timeout_ns)
 
 /**
  * @brief runs queries in a child process (created with fork(), so it shares the loaded index) and kills it if a
- *        query takes longer than a timeout. A query is a request of request_size bytes, sent through a pipe; the child
+ *        query runs longer than a timeout. A query is a request of request_size bytes, sent through a pipe; the child
  *        answers with the timed_result_t of query(request).
  * @tparam query_fnc_t called in the child as query(request) with a std::string of request_size bytes; returns the
  *         timed_result_t of the query (the time measured in the child)

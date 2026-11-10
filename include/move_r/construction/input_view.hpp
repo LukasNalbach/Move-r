@@ -348,7 +348,7 @@ public:
 template <uint8_t width_bits>
 struct packed_uint_t {
     static_assert(std::endian::native == std::endian::little,
-        "packed_uint_t stores the low bytes of a value, which assumes a little-endian layout");
+        "packed_uint_t stores the low bytes of a value and requires a little-endian layout");
     static_assert(width_bits % 8 == 0, "the width of a packed_uint_t is a whole number of bytes");
     static_assert(8 <= width_bits && width_bits <= 128, "a packed_uint_t is at most 128 bits wide");
 

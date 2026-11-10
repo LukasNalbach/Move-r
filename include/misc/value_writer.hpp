@@ -46,7 +46,7 @@
 /**
  * @brief buffers values of bytes_per_value bytes (little endian) and writes them to consecutive positions of a file
  *        with O_DIRECT (see direct_positioned_file); objects writing to disjoint ranges of the file can be used by
- *        different threads (each object takes whole cache lines)
+ *        different threads (each object occupies whole cache lines)
  * @tparam bytes_per_value the number of bytes of a value (at most 8)
  */
 template <uint8_t bytes_per_value>
@@ -138,7 +138,7 @@ public:
 /**
  * @brief buffers values of bytes_per_value bytes (little endian) that are reported from right to left and writes them
  *        to consecutive positions of a file with O_DIRECT (see direct_positioned_file); objects writing to disjoint
- *        ranges of the file can be used by different threads (each object takes whole cache lines)
+ *        ranges of the file can be used by different threads (each object occupies whole cache lines)
  * @tparam bytes_per_value the number of bytes of a value (at most 8)
  */
 template <uint8_t bytes_per_value>

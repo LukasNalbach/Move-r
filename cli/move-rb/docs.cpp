@@ -30,6 +30,7 @@
  */
 
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -51,7 +52,7 @@ struct docs_cli_t {
     docs_query_cli_t docs; // -report, -top
     std::string path_index_file;
     std::string path_patterns_file;
-    direct_ofstream output_file; // -o
+    std::ofstream output_file; // -o
 } cli;
 
 /**

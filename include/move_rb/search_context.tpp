@@ -269,8 +269,9 @@ inline void move_rb<support>::search_context_t<query_support>::update_sample(
     // the SA-sample of this context (see sample)
     const sample_info_pack_t s_old = sample();
 
-    /* a forward or an explicit SA-sample, whose position in the forward suffix array is known, stays the SA-sample if
-       its occurrence is one of the extended pattern, i.e., if its position lies in the new forward interval */
+    /* a forward or an explicit SA-sample, whose position in the forward suffix array is known, remains the SA-sample
+       if its occurrence is an occurrence of the extended pattern, i.e., if its position lies in the new forward
+       interval */
     if constexpr (dir == RIGHT && stores_SA_pos) {
         if (s_old.d() == LEFT || s_old.d() == NO_DIR) {
             const uint64_t pos = b_R_old + s_old.o();

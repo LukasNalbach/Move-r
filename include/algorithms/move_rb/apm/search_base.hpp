@@ -102,9 +102,10 @@ public:
 };
 
 /**
- * @brief the children of a node of a depth-first search in the order of their creation: the first one is kept, and a
- *        second one pushes both onto the stack in this order, as every further one is pushed; a node with one child
- *        continues with it without the stack, and the nodes are visited in the same order
+ * @brief the children of a node of a depth-first search in the order of their creation: the first child is kept; when
+ *        a second one is added, both are pushed onto the stack in this order, as is every further child. A node with
+ *        one child is continued with this child without the stack; the nodes are visited in the same order as if
+ *        every child was pushed
  * @tparam child_t type of a child
  */
 template <typename child_t>
@@ -155,7 +156,7 @@ protected:
 
     /**
      * @brief returns whether a symbol is the separator of the sequences of the index (always false for an index
-     *        without sequences); a search does not extend with it
+     *        without sequences); the searches never extend a context with it
      * @param sym a symbol
      */
     bool is_separator(uint64_t sym) const

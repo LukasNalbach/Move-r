@@ -1,10 +1,10 @@
 # Reproducing the Move-r measurements
 
-This directory reproduces the construction and query (count / locate) measurements of the
-Move-r paper, comparing `move-r` and `move-r-rlzsa` against the competitor r-indexes
+The scripts in this directory reproduce the construction and query (count / locate) measurements
+of the Move-r paper, which compare `move-r` and `move-r-rlzsa` with the competitor r-indexes
 (`block-rlbwt`, `r-index`, `r-index-f`, `rcomp-glfig`, `online-rlbwt`).
 
-You provide the input texts in [`texts/`](texts/); the two pattern sets per text ship with
+You provide the input texts in [`texts/`](texts/); the two pattern sets per text are included in
 this repository, packed in [`patterns.7z`](patterns.7z). The scripts build the indexes and
 write all measurements to [`results/`](results/).
 
@@ -20,7 +20,7 @@ cmake .. -DMOVE_R_BUILD_MOVE_R_BENCH=ON
 make
 ```
 
-This produces the CLI tools (`move-r`, `gen-patterns`) in
+This builds the CLI tools (`move-r`, `gen-patterns`) in
 `build/cli/` and the benchmark tool `move-r-bench` in `build/bench/`. The reproduction
 scripts locate them automatically at `../../build` relative to this folder.
 
@@ -34,7 +34,7 @@ Download and decompress the texts, then place each into [`texts/`](texts/):
 - [dewiki](https://drive.google.com/file/d/1GqvkN0FH6dkSxHZCXFPOr7I1iOBenUIZ/view?usp=sharing)
 - [sars2](https://drive.google.com/file/d/134fLOpY1_3dFTdSSc_vW2qai4yKuyl2W/view?usp=sharing)
 
-The two pattern sets per text ship with this repository, packed in
+The two pattern sets per text are included in this repository, packed in
 [`patterns.7z`](patterns.7z). Unpack them into `patterns/` before running:
 
 ```shell
@@ -63,8 +63,8 @@ invoke them from.
 ./measure-text.sh -t einstein.en.txt -p <max_threads>
 ```
 
-`<max_threads>` is the maximum number of threads to use (default 1; the paper builds and
-queries single-threaded).
+`<max_threads>` is the maximum number of threads to use (default 1; in the paper, all builds
+and queries are single-threaded).
 
 ## 4. What each run does
 
@@ -83,7 +83,7 @@ For every text, `measure-text.sh`:
 
 ## 5. Output
 
-All results land in [`results/`](results/): `results.txt`, `results-a.txt`,
+All results are written to [`results/`](results/): `results.txt`, `results-a.txt`,
 `results-move-r-build-phases.txt`, `results-mds-build-phases.txt` and `statistics.txt`.
 They are the inputs to the paper's figures and tables; to import them into LaTeX, use
 [sqlplot-tools](https://github.com/bingmann/sqlplot-tools).

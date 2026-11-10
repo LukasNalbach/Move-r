@@ -105,7 +105,7 @@ inline bool read_symbol_counts_from_pfp_cache(const std::string& cache_file, uin
 
     const uint64_t r = cache.r();
     const uint64_t threads = std::max<uint64_t>(1, std::min(p, r));
-    // each thread adds up its own counts if they take at most r words, else all threads add to counts
+    // each thread adds up its own counts if they have at most r words, else all threads add to counts
     const bool own_counts = threads * num_values <= r;
     std::vector<std::vector<uint64_t>> counts_thr(own_counts ? threads : 0, std::vector<uint64_t>(num_values, 0));
     counts.assign(num_values, 0);

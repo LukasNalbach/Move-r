@@ -96,7 +96,8 @@ inline uint64_t max_model_counter = 3;
 inline uint64_t max_model_rules = 3;
 // the largest Phred quality of a random pattern quality
 inline uint64_t max_model_quality = 5;
-// a random cost rule of an error model forbids its operations with probability 1 / forbidden_rule_inverse_probability
+// the operations of a random cost rule of an error model are forbidden with probability
+// 1 / forbidden_rule_inverse_probability
 inline constexpr uint64_t forbidden_rule_inverse_probability = 6;
 // the costs of the substitutions of a random error model are the qualities of the positions with probability
 // 1 / quality_model_inverse_probability
@@ -292,7 +293,7 @@ void verify_construction(
     static_assert(!bwd_t::has_locate_move);
     static_assert(!bwd_t::has_SA_rlz);
 
-    // a locating index keeps the SA samples of the index of T^R
+    // a locating index stores the SA samples of the index of T^R
     if constexpr (idx_t::supports_locate) {
         const auto& bwd = index.backward_index();
         uint64_t num_intervals = bwd.M_LF().num_intervals();
@@ -925,8 +926,9 @@ inline uint64_t model_cigar_cost(std::span<const uint8_t> text, std::span<const 
 }
 
 /**
- * @brief returns a random error model compiled for the pattern (see apm_costs_t), or none if its search would allow
- *        more than max_errors errors or have at least as many parts as the pattern has symbols
+ * @brief returns a random error model compiled for the pattern (see apm_costs_t), or none if more than max_errors
+ *        errors would be possible in its search or the search would have at least as many parts as the pattern has
+ *        symbols
  * @param quality output: the random quality string of the pattern
  */
 template <typename idx_t>
@@ -1295,7 +1297,7 @@ void build_and_verify_move_rb(move_rb_test_t test, uint64_t min_n, uint64_t max_
         params.input_file = input_file;
     }
 
-    // empty container that passes the symbol type to the constructor if the input is read from a file
+    // empty container with which the symbol type is passed to the constructor if the input is read from a file
     inp_t symbol_type;
 
     auto make = [&]() {

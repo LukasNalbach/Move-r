@@ -50,11 +50,11 @@
  * For each symbol, the input positions are divided into blocks whose size is a power of two that is chosen
  * s.t. a block contains about occs_per_block occurrences of the symbol. The occurrences of a symbol are
  * stored in increasing order as offsets within their blocks, and for each block the index of the first
- * occurrence in or after it is stored. A query reads the entry of a block and scans the occurrences of the
- * symbol in that block. The occurrences of a symbol with an average gap <= max_gap_scanned are not stored; instead,
- * the groups of max_gap_scanned positions that contain it are stored (see symbol_groups). A query for such a symbol
- * scans the input up to the end of the group after the one of the query position, and then the next group that
- * contains the symbol.
+ * occurrence in or after it is stored. In a query, the entry of a block is read and the occurrences of the symbol
+ * in that block are scanned. The occurrences of a symbol with an average gap <= max_gap_scanned are not stored;
+ * instead, the groups of max_gap_scanned positions that contain it are stored (see symbol_groups). In a query for
+ * such a symbol, the input is scanned up to the end of the group after the one of the query position, and then the
+ * next group that contains the symbol.
  *
  * @tparam read_fnc_t type of the read function (read(i) returns the symbol at index i)
  */
@@ -200,7 +200,7 @@ public:
      * @param occs_per_block average number of occurrences of a symbol per block
      * @param num_threads number of threads to use for counting the occurrences
      * @param scan_frequent true <=> the occurrences of a symbol with an average gap <= max_gap_scanned are not stored
-     *        (see pred_succ_occ); else a query takes O(occs_per_block) time for every symbol
+     *        (see pred_succ_occ); else the query time is O(occs_per_block) for every symbol
      */
     pred_succ_occ(read_fnc_t read, uint64_t input_size, uint64_t alphabet_size,
         uint64_t occs_per_block = 1, uint64_t num_threads = 1, bool scan_frequent = true)

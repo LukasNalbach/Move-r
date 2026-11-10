@@ -48,9 +48,9 @@
     std::cout << "              block-rlbwt-r, r-index, r-index-f, rcomp-glfig and online-rlbwt;" << std::endl;
     std::cout << "              has to be executed from the base folder." << std::endl << std::endl;
     std::cout << "usage: move-r-bench [...] <input_file> <patterns_file_1> <patterns_file_2>" << std::endl;
-    std::cout << "   -c                 check for correctness if possible; disables the -m option; will not print" << std::endl;
-    std::cout << "                      runtime data if the runtime could be affected by checking for correctness" << std::endl;
-    std::cout << "   -m <m_file>        writes measurement data to m_file" << std::endl;
+    std::cout << "   -c                 check for correctness if possible (not with -m); runtimes that the check could" << std::endl;
+    std::cout << "                      affect are not printed" << std::endl;
+    std::cout << "   -m <m_file>        write measurement data to m_file" << std::endl;
     std::cout << "   <input_file>       input file" << std::endl;
     std::cout << "   <patterns_file_1>  file containing patterns (pattern length ~ number of occurrences) from <input_file>" << std::endl;
     std::cout << "                      to count and locate" << std::endl;

@@ -28,8 +28,9 @@
  * @file move-rb-gen-ext-queries.cpp
  * @brief move-rb-gen-ext-queries: generates the pattern files of move-rb-bench-ext. For each m it writes the files
  *        <text_name>.patterns-count-m<m> and <text_name>.patterns-locate-m<m> of substrings of the text at random
- *        positions. Patterns are added to a file until their queries on a move_rb index take the target time (--time)
- *        in total. The extension plans are not stored: move-rb-bench-ext draws the same plans (see ext_query.hpp).
+ *        positions. Patterns are added to a file until the total time of their queries on a move_rb index reaches the
+ *        target time (--time). The extension plans are not stored: move-rb-bench-ext draws the same plans (see
+ *        ext_query.hpp).
  */
 
 #include <algorithm>
@@ -117,9 +118,9 @@ direct_ifstream index_file;
 [[noreturn]] void help(const std::string& msg = "")
 {
     if (msg != "") std::cout << msg << std::endl;
-    std::cout << "move-rb-gen-ext-queries: generate the query (pattern) sets for move-rb-bench-ext, auto-calibrating" << std::endl;
-    std::cout << "                 the number of patterns per file (against a move_rb index) so that running that" << std::endl;
-    std::cout << "                 file's locate operation takes ~<time> seconds (see --time)." << std::endl << std::endl;
+    std::cout << "move-rb-gen-ext-queries: generate the query (pattern) sets for move-rb-bench-ext; the number of" << std::endl;
+    std::cout << "                 patterns per file is calibrated with a move_rb index, so that the locate operation" << std::endl;
+    std::cout << "                 of a file runs for ~<time> seconds (see --time)." << std::endl << std::endl;
     std::cout << "                 For every pattern length m it writes two files, one per operation:" << std::endl;
     std::cout << "                 <text_name>.patterns-count-m<m> and <text_name>.patterns-locate-m<m>" << std::endl << std::endl;
     std::cout << "usage: move-rb-gen-ext-queries [options] <input_file> <move_rb_index>" << std::endl;
@@ -134,8 +135,8 @@ direct_ifstream index_file;
     std::cout << "   --only <op>       restrict to count or locate files: count, locate or both (default: both)" << std::endl;
     std::cout << "   --min <N>         minimum number of patterns per file (default: " << default_min_patterns << ")"
               << std::endl;
-    std::cout << "   --timeout <s>     per-pattern query timeout in seconds; a query runs in a forked worker that is" << std::endl;
-    std::cout << "                     killed if it exceeds the timeout, then the pattern is discarded (0 = off, default: "
+    std::cout << "   --timeout <s>     per-pattern query timeout in seconds; each query is run in a forked worker, which" << std::endl;
+    std::cout << "                     is killed after the timeout, and the pattern is discarded (0 = off, default: "
               << default_timeout_seconds << ")" << std::endl;
     std::cout << "   --max-skips <N>   give up on a set after this many consecutive timeouts (default: "
               << default_max_consecutive_skips << ")" << std::endl;
@@ -147,8 +148,8 @@ direct_ifstream index_file;
 // ############################# GENERATION #############################
 
 /**
- * @brief generates and writes all pattern files; patterns are added to a file until their queries on the index take
- *        target_seconds in total
+ * @brief generates and writes all pattern files; patterns are added to a file until the total time of their queries on
+ *        the index reaches target_seconds
  * @tparam support the locate support of the index
  */
 template <move_r_support support>
@@ -221,7 +222,7 @@ void generate()
             if (timeout_ns != 0) runner.emplace(timed_request, request_size(m));
             std::string request;
 
-            // add patterns until their queries take target_ns in total (but at least min_patterns patterns)
+            // add patterns until the total time of their queries reaches target_ns (at least min_patterns patterns)
             while (n < min_patterns || total_ns < target_ns) {
                 tf.seekg(pos_distrib(pos_rng), std::ios::beg);
                 tf.read(pattern.data(), m);

@@ -206,11 +206,11 @@ void move_rb<support>::build_context_tables(double share, uint64_t base,
     std::vector<uint32_t> entry_of_symbol; // [0..sigma-1] the entry of the pattern c in level 1
     _context_tables.set_alphabet_size(sigma);
 
-    /* single-length mode: only the levels 1..num_short_levels and the last level that fits into the budget are
+    /* single-length mode: only the levels 1..num_short_levels and the last level that fits into budget bytes are
        stored; the last level is keyed by the packed patterns (see context_tables::single_len), so sigma^len < 2^64
        has to hold. A pattern P[0..len-1] is packed as sum_i P[i] * sigma^(len-1-i), where P[0] is the symbol of the
        last primary extension. */
-    typename ::context_tables::level_t single_length_level; // the last level that fits into the budget
+    typename ::context_tables::level_t single_length_level; // the last level that fits into budget bytes
     std::vector<typename ::context_tables::level_t> short_levels; // the levels 1..num_short_levels
     static constexpr uint64_t num_short_levels = 2;
     std::vector<uint64_t> single_packed; // the packed patterns of single_length_level, in forward order
@@ -231,13 +231,14 @@ void move_rb<support>::build_context_tables(double share, uint64_t base,
         uint64_t num_parents = _context_tables.num_entries(len - 1);
         if (used >= budget) break;
 
-        // maximum number of entries of the level, limited by the budget and by the memory used to build it
+        // maximum number of entries of the level, such that the level fits into the available bytes (budget in the
+        // single-length mode, else budget - used) and the memory used to build it is at most 16 * budget bytes
         uint64_t max_entries = std::min<uint64_t>({
             (single_length ? budget : budget - used) / bytes_per_entry,
             (16 * budget) / bytes_per_row,
             uint64_t(no_ctx_entry) - 1 });
 
-        // the level has at least num_parents - 1 entries; stop if they are estimated to exceed the budget
+        // the level has at least num_parents - 1 entries; stop if their estimated size exceeds the available bytes
         if (last_bytes_per_entry > 0 && 0.95 * double(num_parents - 1) * last_bytes_per_entry >
                 double(single_length ? budget : budget - used)) break;
 

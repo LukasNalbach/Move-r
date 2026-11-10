@@ -76,7 +76,7 @@ struct cigar_run_t {
 
 static_assert(sizeof(cigar_run_t<uint8_t>) == sizeof(cigar_op_t) + sizeof(uint32_t) + sizeof(uint8_t));
 
-/** @brief a CIGAR alignment as a sequence of runs (MISMATCH/INS/DEL runs are one position each and carry a symbol)
+/** @brief a CIGAR alignment as a sequence of runs (MISMATCH/INS/DEL runs are one position each and have a symbol)
  * @tparam sym_t the symbol type of the aligned sequences */
 template <typename sym_t>
 using cigar_t = std::vector<cigar_run_t<sym_t>>;
@@ -285,8 +285,9 @@ static std::tuple<uint64_t, uint64_t, cigar_t<std::ranges::range_value_t<seq2_t>
     using sym_t = std::ranges::range_value_t<seq2_t>;
     assert(k <= edit_distance_max_errors);
 
-    // only a prefix of length in [n1 - k, n1 + k] can be within edit distance k of P (a length difference of d costs
-    // at least d indels); prefixes past n1 + k leave the band, so the reference is capped there
+    // only a prefix of length in [n1 - k, n1 + k] can be within edit distance k of P (a length difference of d needs
+    // at least d insertions or deletions); prefixes longer than n1 + k lie outside the band, so the reference is
+    // truncated after n1 + k symbols
     const int64_t j_min = n1 > k ? n1 - k : 0;
     const int64_t j_max = std::min<int64_t>(n2, n1 + k);
     assert(j_max <= edit_distance_max_length);
@@ -297,8 +298,8 @@ static std::tuple<uint64_t, uint64_t, cigar_t<std::ranges::range_value_t<seq2_t>
         edit_distance_matrix<word_t> mat;
         setup_edit_matrix<word_t>(mat, M, j_max, P, n1, k); // reference = M[0..j_max), query = P
 
-        // the best prefix is the column j (in the band at row n1) with the smallest ed(P, M[0..j)); ties keep the
-        // shortest length
+        // the best prefix is the column j (in the band at row n1) with the smallest ed(P, M[0..j)); on ties, the
+        // shortest prefix is chosen
         uint64_t best_err = uint64_t(k) + 1;
         int64_t best_len = 0;
 

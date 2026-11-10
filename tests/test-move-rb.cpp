@@ -303,7 +303,7 @@ TEST(test_move_rb, apm_model_compile)
     EXPECT_EQ(reverse.sub(0, rank('A')), 1);
     EXPECT_TRUE(reverse.matches(2, rank('G')));
 
-    // a substitution costs the quality of its position
+    // the cost of a substitution is the quality score of its position
     apm_model_t quality_model;
     quality_model.quality = true;
     apm_costs_t quality(quality_model, std::string("ACG"), "!#%", false, 4, HAMMING_DISTANCE, alph_map);
@@ -313,7 +313,7 @@ TEST(test_move_rb, apm_model_compile)
     EXPECT_EQ(quality.ins(0), apm_forbidden);
     EXPECT_EQ(quality.tau(), 1);
 
-    // two of ten positions have quality 2: with tau = 3 they are free and a search allows 1 error instead of 2
+    // two of ten positions have quality 2: with tau = 3, they are free, and a search has at most 1 error instead of 2
     apm_costs_t low(quality_model, std::string("ACGTACGTAC"), "II#IIII#II", false, 40, HAMMING_DISTANCE, alph_map);
     EXPECT_EQ(low.tau(), 3);
     EXPECT_EQ(low.max_errors(), 1u);
@@ -402,8 +402,8 @@ TEST(test_move_rb, apm_separator_not_largest)
 
 /* The input has more than move_r_params::min_sigma_L_prev_min distinct symbols, so L_prev_min is built. The suffixes
    starting with marker are ordered by their distinct continuation and their preceding symbols alternate. The left
-   extensions of marker span thousands of runs of L' and report two symbols, the right extensions report every
-   continuation. */
+   extensions of marker are enumerated over thousands of runs of L' and are two symbols; the right extensions are all
+   continuations. */
 TEST(test_move_rb, large_alphabet_extensions)
 {
     using idx_t = move_rb<_locate_move>;
@@ -467,13 +467,13 @@ TEST(test_move_rb, large_alphabet_extensions)
     verify(space_index, "suffix-array-space");
 }
 
-// gives access to the SA-sample of a search context (see move_rb::sample_info_pack_t)
+// access to the SA-sample of a search context (see move_rb::sample_info_pack_t)
 struct sample_info_access : move_rb<> {
     using pack_t = sample_info_pack_t;
     static constexpr sample_t sample_at_run_end = END;
 };
 
-// the fields of an SA-sample hold their largest values: o, i and x positions up to 2^48 - 1
+// the fields of an SA-sample can store their largest values: o, i and x positions up to 2^48 - 1
 TEST(test_move_rb, sample_field_widths)
 {
     sample_info_access::pack_t sample {};

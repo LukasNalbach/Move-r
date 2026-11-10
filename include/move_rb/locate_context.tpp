@@ -86,8 +86,8 @@ inline uint64_t move_rb<support>::locate_context_t<output>::compute_center() req
 
         c = e - num_steps;
     } else /* if (s.d() == RIGHT) */ {
-        /* SA[b] is decoded from the SA-sample at the start of the BWT run containing b, if that reads fewer
-           values than the m - i LF-steps from the position of the backward SA-sample (see SA_pos) */
+        /* SA[b] is decoded from the SA-sample at the start of the BWT run containing b, if fewer values are read
+           this way than with the m - i LF-steps from the position of the backward SA-sample (see SA_pos) */
         const auto& fwd = idx->idx_fwd;
         const uint64_t steps = ctx->m - s.i();
         const uint64_t x_b = idx->template mlf_interval<LEFT>(b);

@@ -54,7 +54,7 @@ using bench_ops::locate_cell_t;
 // draw_symbol draws at most this many positions to find a symbol other than the terminator (measurement setup)
 inline constexpr uint64_t max_symbol_draws = 8;
 // benchmark_access: the number of unmeasured warm-up queries of BWT(i) and of SA(i), and the number of SA(i) queries
-// between two checks of the time budget
+// between two checks of the time limit
 inline constexpr uint64_t bwt_warmup_queries = 4096;
 inline constexpr uint64_t sa_warmup_queries = 64;
 inline constexpr uint64_t sa_budget_check_period = 64;
@@ -441,7 +441,7 @@ access_grid_t benchmark_access(const index_t& index, const config_t& config, uin
         for (uint64_t pos : positions) {
             grid.sa.checksum += index.SA(pos);
             grid.sa.queries++;
-            // check the time budget every sa_budget_check_period queries
+            // check the time limit sa_budget_ns every sa_budget_check_period queries
             if (grid.sa.queries % sa_budget_check_period == 0 &&
                 time_diff_ns(begin, now()) >= sa_budget_ns) break;
         }

@@ -26,8 +26,8 @@
 
 /**
  * @file wide_word.hpp
- * @brief unsigned integers of 256, 512 or 1024 bits: the rows of an edit-distance matrix with more errors than a
- *        uint128_t row supports
+ * @brief unsigned integers of 256, 512 or 1024 bits: the rows of an edit-distance matrix for more errors than are
+ *        possible with uint128_t rows
  */
 
 #ifndef MOVE_R_DATA_STRUCTURES_WIDE_WORD_HPP

@@ -278,8 +278,8 @@ public:
 
     /**
      * @brief logs the alphabet size, the lengths and the numbers of patterns, one per line, the patterns of the
-     *        lengths 1 to max_length() as a tree (each pattern below the pattern its last primary extension
-     *        extended), and the patterns of the single-length level as a table; a pattern is logged with its suffix
+     *        lengths 1 to max_length() as a tree (each pattern below the pattern from which its last primary
+     *        extension started), and the patterns of the single-length level as a table; a pattern is logged with its suffix
      *        array interval in T, the interval of its reverse in T^R (if the reverse order is stored) and whether a
      *        sample is stored for it
      * @param symbol returns a symbol (in the internal effective alphabet) as it is logged

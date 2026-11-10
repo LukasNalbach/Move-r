@@ -35,6 +35,7 @@
 #define MOVE_R_MISC_INDEX_CLI_HPP
 
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <streambuf>
 #include <string>
@@ -198,6 +199,25 @@ inline void close_output_file(direct_ofstream& file, const std::string& path)
     if (!file.is_open()) return;
     file.close();
     drop_from_page_cache(path, true);
+}
+
+/**
+ * @brief opens an output file of query results, if its path is not empty; it is written through the page cache
+ * @param file the stream to open
+ * @param path the path of the file
+ * @throws std::runtime_error if the file cannot be created
+ */
+inline void open_output_file(std::ofstream& file, const std::string& path)
+{
+    if (path.empty()) return;
+    file.open(path, std::ios::binary);
+    require_created(file, path);
+}
+
+// closes an output file of query results (nothing happens if it is not open)
+inline void close_output_file(std::ofstream& file, const std::string&)
+{
+    if (file.is_open()) file.close();
 }
 
 /**

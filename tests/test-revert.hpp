@@ -46,7 +46,7 @@
 // the numbers of threads the reverts are checked with
 inline constexpr std::array<uint64_t, 4> revert_thread_counts { 1, 2, 3, 8 };
 
-// the numbers of pieces each thread reverts alternately the reverts are checked with
+// the numbers of pieces that each thread reverts alternately, with which the reverts are checked
 inline constexpr std::array<uint64_t, 3> revert_strand_counts { 1, 2, 3 };
 
 // the values of move_r_params::revert_start_samples a random index is built with (0: none)

@@ -35,9 +35,9 @@
 #include <move_rb/move_rb.hpp>
 
 /**
- * @brief the state of locating the occurrences SA[b..e] of a search context. Locating starts at a position c in
- *        [b, e] with a known value SA[c] (see compute_center) and reports the occurrences to its right and to
- *        its left: with M_Phi_inv and M_Phi (_locate_move) or with the rlz of SA^d (_locate_rlzsa).
+ * @brief the state of locating the occurrences SA[b..e] of a search context. Starting at a position c in [b, e]
+ *        with a known value SA[c] (see compute_center), the occurrences to its right and to its left are reported:
+ *        with M_Phi_inv and M_Phi (_locate_move) or with the rlz of SA^d (_locate_rlzsa).
  * @tparam output whether each occurrence is reported with its position in the suffix array (see
  *         locate_output_t)
  */
@@ -53,7 +53,7 @@ struct move_rb<support>::locate_context_t {
     // ############################# DATA MEMBERS #############################
 
 protected:
-    const move_rb<support>* idx = nullptr; // the index this context queries
+    const move_rb<support>* idx = nullptr; // the index of the search context
     const search_context_t<LOCATE>* ctx = nullptr; // the search context whose occurrences are located
 
     // direction of the current scan from c: RIGHT (towards e) or LEFT (towards b); NO_DIR before the first

@@ -46,8 +46,8 @@
 
 /**
  * @brief for some symbols of a sequence, the groups of 2^k consecutive positions that contain them: for each of these
- *        symbols a rank_select_set of its groups, which gives the next and the previous group of a position that
- *        contains the symbol
+ *        symbols a rank_select_set of its groups, with which the next and the previous group of a position that
+ *        contains the symbol are found
  */
 class symbol_groups {
 public:

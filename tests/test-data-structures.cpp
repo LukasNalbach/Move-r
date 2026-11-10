@@ -66,7 +66,7 @@
 thread_local std::mt19937 gen(test_seed() + omp_get_thread_num());
 thread_local std::uniform_real_distribution<double> prob_distrib(0.0, 1.0);
 
-// maximum input size, calibrated by run_fuzz to its time budget
+// maximum input size, calibrated by run_fuzz to its time limit
 uint64_t max_input_size = 250000;
 uint64_t max_num_threads = omp_get_max_threads();
 // smallest value run_fuzz reduces max_input_size to

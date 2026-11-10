@@ -133,7 +133,8 @@ inline void move_r_order_alphabet(const std::vector<uint64_t>& freq, bool reorde
     const uint8_t index_bits = std::bit_width(freq.size() - 1);
 
     if (std::bit_width(max_freq) + index_bits <= 64) {
-        // the key (max_freq - freq[i]) * 2^index_bits + i orders by decreasing frequency, then by increasing index
+        // sorted by the key (max_freq - freq[i]) * 2^index_bits + i, the symbols are in the order of decreasing
+        // frequency, then of increasing index
         #pragma omp parallel for num_threads(p)
         for (uint64_t i = 0; i < by_freq.size(); i++) by_freq[i] = ((max_freq - freq[i]) << index_bits) | i;
 

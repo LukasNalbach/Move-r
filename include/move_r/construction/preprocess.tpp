@@ -38,16 +38,16 @@
 #include <move_r/construction/text_alphabet.hpp>
 #include <move_r/construction/construction.hpp>
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::map_byte_alphabet(std::vector<std::vector<uint64_t>>& freq_thr)
+template <move_r_support support>
+void move_r<support>::construction::map_byte_alphabet(std::vector<std::vector<uint64_t>>& freq_thr)
 {
     // sigma includes the terminator
     idx.sigma = 1 + compute_byte_alphabet_map(freq_thr, min_mapped_symbol(), params.reorder_alphabet, idx._map_int);
     idx.symbols_remapped = true;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::finish_byte_alphabet()
+template <move_r_support support>
+void move_r<support>::construction::finish_byte_alphabet()
 {
     if (move_r_builds_runs_file(params.mode)) {
         // the symbols in the RLBWT are the mapped bytes decreased by 2 (see build_rlbwt_c)
@@ -60,8 +60,8 @@ void move_r<support, mlf_enc>::construction::finish_byte_alphabet()
     p_ = p;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::widen_t()
+template <move_r_support support>
+void move_r<support>::construction::widen_t()
 {
     move_r_widen_bytes(T_inp, T_wide, p);
 
@@ -75,14 +75,14 @@ void move_r<support, mlf_enc>::construction::widen_t()
     T_widened = true;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_file_name)
+template <move_r_support support>
+void move_r<support>::construction::preprocess_t(const std::string& T_file_name)
 {
     log_phase_start("computing the alphabet of T");
 
     /* a byte alphabet is mapped to [min_mapped_symbol()..min_mapped_symbol()+sigma-2] (by decreasing frequency, if
-       reorder_alphabet is set); an integer alphabet, and a byte input with more distinct bytes than that range holds,
-       is mapped to [1..sigma-1] */
+       reorder_alphabet is set); an integer alphabet, and a byte input with more distinct bytes than fit into that
+       range, is mapped to [1..sigma-1] */
     if (byte_alphabet) {
         // [0..p-1][0..255] freq_thr[i_p][c] = number of occurrences of c that thread i_p has counted in T[0..n-2]
         std::vector<std::vector<uint64_t>> freq_thr(p, std::vector<uint64_t>(256, 0));
@@ -209,8 +209,8 @@ void move_r<support, mlf_enc>::construction::preprocess_t(const std::string& T_f
     log_phase_end("time_preprocess_t");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::read_t_from_file(
+template <move_r_support support>
+void move_r<support>::construction::read_t_from_file(
     const std::string& T_file_name)
 {
     log_phase_start("reading T");
@@ -229,8 +229,8 @@ void move_r<support, mlf_enc>::construction::read_t_from_file(
     log_phase_end("time_read_t");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::unmap_t()
+template <move_r_support support>
+void move_r<support>::construction::unmap_t()
 {
     // a widened copy of T has been mapped instead of the input
     if (T_widened) return;

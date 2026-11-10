@@ -38,8 +38,8 @@
 #include <misc/text_lce.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_sa_run_from_sa()
+template <move_r_support support>
+void move_r<support>::construction::build_sa_run_from_sa()
 {
     log_phase_start("building SA_run");
 
@@ -58,8 +58,8 @@ void move_r<support, mlf_enc>::construction::build_sa_run_from_sa()
     log_phase_end("time_build_sa_run");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_iphi_inv_from_sa()
+template <move_r_support support>
+void move_r<support>::construction::build_iphi_inv_from_sa()
 {
     // true <=> SA_run is built (else the samples are stored as input intervals of M_Phi_inv, see sa_samples_layout_t)
     const bool at_run_boundaries = builds_SA_samples && samples_layout == _at_run_boundaries;
@@ -110,8 +110,8 @@ void move_r<support, mlf_enc>::construction::build_iphi_inv_from_sa()
     log_phase_end("time_build_iphi_inv");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_mphi_inv()
+template <move_r_support support>
+void move_r<support>::construction::build_mphi_inv()
 {
     begin_mds_result("build_mphi_inv");
     log_mds_phase_start("M_Phi_inv");
@@ -139,8 +139,8 @@ void move_r<support, mlf_enc>::construction::build_mphi_inv()
     log_mds_phase_end("time_build_mphi_inv", "r__", r__);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::store_run_ranks()
+template <move_r_support support>
+void move_r<support>::construction::store_run_ranks()
 {
     store_to_tmp_file("the run ranks", ".run_ranks", "time_store_run_ranks", [&](direct_ofstream& file) {
         write_in_chunks(file, run_ranks.data(), run_ranks.size_in_bytes());
@@ -150,8 +150,8 @@ void move_r<support, mlf_enc>::construction::store_run_ranks()
     run_ranks_on_disk = true;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_SA_Phi_inv()
+template <move_r_support support>
+void move_r<support>::construction::build_SA_Phi_inv()
 {
     log_phase_start("building SA_Phi_inv");
 
@@ -223,8 +223,8 @@ void move_r<support, mlf_enc>::construction::build_SA_Phi_inv()
     log_phase_end("time_build_saphi_inv");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_mphi()
+template <move_r_support support>
+void move_r<support>::construction::build_mphi()
 {
     begin_mds_result("build_mphi");
     log_mds_phase_start("M_Phi");
@@ -246,8 +246,8 @@ void move_r<support, mlf_enc>::construction::build_mphi()
     log_mds_phase_end("time_build_mphi", "r___", r___);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::store_iphi_inv()
+template <move_r_support support>
+void move_r<support>::construction::store_iphi_inv()
 {
     store_to_tmp_file("I_Phi_inv", ".iphi_inv", "time_store_iphi_inv", [&](direct_ofstream& file) {
         const uint64_t iphi_inv_bytes = I_Phi_inv.size_in_bytes();
@@ -258,8 +258,8 @@ void move_r<support, mlf_enc>::construction::store_iphi_inv()
     });
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::load_iphi_inv(bool remove_file)
+template <move_r_support support>
+void move_r<support>::construction::load_iphi_inv(bool remove_file)
 {
     load_from_tmp_file("I_Phi_inv", ".iphi_inv", "time_load_iphi_inv", remove_file, [&](direct_ifstream& file) {
         I_Phi_inv.reset(r, n);
@@ -270,8 +270,8 @@ void move_r<support, mlf_enc>::construction::load_iphi_inv(bool remove_file)
     });
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_iphi()
+template <move_r_support support>
+void move_r<support>::construction::build_iphi()
 {
     log_phase_start("building I_Phi");
 
@@ -288,8 +288,8 @@ void move_r<support, mlf_enc>::construction::build_iphi()
     log_phase_end("time_build_iphi");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_plcp_run()
+template <move_r_support support>
+void move_r<support>::construction::build_plcp_run()
 {
     log_phase_start("building LCP_run");
 
@@ -328,8 +328,8 @@ void move_r<support, mlf_enc>::construction::build_plcp_run()
     log_phase_end("time_build_plcp_run");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::sort_iphi_inv()
+template <move_r_support support>
+void move_r<support>::construction::sort_iphi_inv()
 {
     log_phase_start("sorting I_Phi_inv");
 
@@ -365,8 +365,8 @@ void move_r<support, mlf_enc>::construction::sort_iphi_inv()
     log_phase_end("time_sort_iphi_inv");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::sort_iphi()
+template <move_r_support support>
+void move_r<support>::construction::sort_iphi()
 {
     log_phase_start("sorting I_Phi");
 

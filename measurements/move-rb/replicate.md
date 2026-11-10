@@ -1,6 +1,6 @@
 # Reproducing the Move-rb measurements
 
-This directory reproduces the construction, approximate-pattern-matching (APM) and raw
+The scripts in this directory reproduce the construction, approximate-pattern-matching (APM) and raw
 extension/enumeration measurements of the [Move-rb paper](https://arxiv.org/abs/2609.30089)
 (accepted at ALENEX 2027) for `move-rb`, `move-rb-rlzsa`, `br-index`, `columba` and
 `columba-rlc` (b-move).
@@ -21,7 +21,7 @@ cmake .. -DMOVE_R_BUILD_MOVE_RB_BENCH=ON
 make
 ```
 
-This produces the CLI tools in `build/cli/` and the benchmark tools in `build/bench/`.
+This builds the CLI tools in `build/cli/` and the benchmark tools in `build/bench/`.
 The reproduction scripts locate them automatically at `../../build` relative to this folder.
 
 **GNU time.** The competitor builds are wrapped in `/usr/bin/time -v` for wall time. Their
@@ -32,7 +32,7 @@ consistent with how `move-rb` measures its own construction peak): `columba` /
 GNU time's resident-set size. `/usr/bin/time` is available by default on Ubuntu; the
 scripts assume it exists.
 
-**Memory / scale.** The paper uses 50 GB texts on a machine with 1 TB of RAM. `br-index`
+**Memory / scale.** In the paper, 50 GB texts are used on a machine with 1 TB of RAM. `br-index`
 and `columba` construct their index in RAM (`br-index` needs up to ~0.8 TB on the 50 GB
 inputs), whereas `move-rb` streams intermediate data to disk. For a quick functional test,
 use a small text; full-scale reproduction needs a large machine and free disk space.
@@ -59,8 +59,8 @@ bsc d sars2.ACGT.50Gi.bsc texts/sars2.ACGT.50Gi
 To reproduce with your own inputs, drop them into `texts/` and call `measure-text.sh`
 directly (see below).
 
-**Patterns.** The exact query sets used in the paper ship with this repository, packed in
-[`patterns.7z`](patterns.7z) — the APM queries in `patterns/` and the extension queries in
+**Patterns.** The exact query sets used in the paper are included in this repository, packed in
+[`patterns.7z`](patterns.7z): the APM queries in `patterns/` and the extension queries in
 `patterns_ext/`. Unpack them with:
 
 ```shell
@@ -104,7 +104,7 @@ with the per-text parameters used in the paper:
 | `-T` | `move-rb-gen-*-queries --time`: per-set calibration target in seconds | 5       |
 | `-M` | `move-rb-gen-*-queries --min`: minimum patterns per set             | 4       |
 | `-C` | `1` = also build/measure columba & columba-rlc, `0` = skip them      | 1       |
-| `-p` | build threads (the paper builds and queries single-threaded)         | 1       |
+| `-p` | build threads (in the paper, all builds and queries are single-threaded) | 1       |
 
 ## 4. What each run does
 
@@ -128,11 +128,11 @@ For every text, `measure-text.sh`:
 
 Competitor **builds are non-fatal**: if one fails, the script prints a warning, skips that
 index (the benchmarks load each index independently and simply omit missing ones), and
-continues. The `move-rb`/`move-rb-rlzsa` builds are required and abort the run on failure.
+continues. The `move-rb`/`move-rb-rlzsa` builds are required; if one of them fails, the run is aborted.
 
 ## 5. Output
 
-All results land in [`results/`](results/):
+All results are written to [`results/`](results/):
 
 | File                              | Contents                                            |
 | --------------------------------- | --------------------------------------------------- |

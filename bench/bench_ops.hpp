@@ -142,7 +142,7 @@ inline std::vector<uint64_t> pattern_lengths(uint64_t max_length)
 
 /**
  * @brief returns the average over the operations of the total time measured at one pattern length; this is the
- *        time budget for measuring locate at that length
+ *        time limit for measuring locate at that length
  * @tparam grid_t results of a benchmark, with kinds (the operations) and at(kind, length) (cell with time_ns)
  * @param grid the results
  * @param length index of the pattern length

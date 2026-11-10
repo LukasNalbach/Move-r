@@ -462,11 +462,11 @@ uint64_t execute(
 }
 
 /**
- * @brief measures locate on the contexts of a pattern length until the time budget is used up. Contexts with
+ * @brief measures locate on the contexts of a pattern length until the time limit is reached. Contexts with
  *        more than bench_ops::max_occurrences_per_call occurrences are skipped; if all contexts have more
  *        occurrences, max_occurrences_per_call occurrences per context are located with next_occ() instead.
  * @param samples the samples of the pattern length
- * @param target_time_ns time budget in ns
+ * @param target_time_ns time limit in ns
  * @param seed seed of the random number generator
  * @return the measurements
  */
@@ -484,7 +484,7 @@ locate_cell_t measure_locate(
         uint64_t cursor = next_random(state) % samples.size();
         const uint64_t budget = std::max<uint64_t>(1, target_time_ns);
 
-        // only the calls of locate() are measured; the budget is checked after each call
+        // only the calls of locate() are measured; the time limit (budget) is checked after each call
         uint64_t skipped = 0;
         do {
             const auto& sample = samples[cursor++ % samples.size()];
@@ -613,7 +613,7 @@ grid_t benchmark(
         cell.per_query.push_back(uint32_t(std::min(net, max_stored_query_time_ns)));
     }
 
-    // the time budget of locate is the average time the operations took in total at the pattern length
+    // the time limit of locate is the average total time of the operations at the pattern length
     if constexpr (query_support == LOCATE && index_t::supports_multiple_locate) {
         for (uint64_t length = 0; length < lengths.size(); length++) {
             grid.locate[length] = detail::measure_locate<query_support>(samples_by_length[length],

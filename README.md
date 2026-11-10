@@ -100,24 +100,25 @@ ninja -C build
 
 The benchmarks against other indexes are not built on Windows. The executables of the Clang build need `libomp.dll`,
 which is copied next to them. Blocks of at least 4 MiB are allocated in large pages if the user has the privilege
-"Lock pages in memory" (`MOVE_R_HUGE_PAGES=0` turns this off).
+"Lock pages in memory" (not with `MOVE_R_HUGE_PAGES=0`).
 
 ## Command-line tools
 
 `move-r` and `move-rb` have one mode per operation: `<tool>` lists the modes, `<tool> <mode> -h` prints the options of
-a mode. A build mode writes the index to `<input_file>.<tool>[-<support>]` (`-o` sets another base
-name); with `-fasta on` (or `auto`, the default, for files that start like FASTA files), the input is read as FASTA
+a mode. A build mode writes the index to `<input_file>.<tool>[-<support>]` (another base name can be given with
+`-o`); with `-fasta on` (or `auto`, the default, for files that start like FASTA files), the input is read as FASTA
 (one or more files). Patterns are read in the Pizza&Chili format, as FASTA, FASTQ or one per line, or from stdin. The
-query modes run on all available threads (`-p` sets their number); `-m <file> <name>` appends `RESULT key=value ...`
-lines to a file.
+query modes run on all available threads (another number can be given with `-p`); with `-m <file> <name>`,
+`RESULT key=value ...` lines are appended to a file.
 Temporary files are written to the directory `MOVE_R_TMPDIR` (default: the temporary directory of the system).
 
 ### move-r
 
-- **build**: builds a move-r index; `-s` selects the support (`count`, `locate-one`, `locate-move` or `locate-rlzsa`)
-  and `-c` the construction mode (`sa`, `sa-space` or `pfp`). `move-r build -s locate-rlzsa text.txt`
-- **count**, **locate**: count or locate the occurrences of patterns; for a FASTA index, `locate -sam` and `-bed`
-  write SAM and BED. `move-r locate -o occ.txt text.txt.move-r-rlzsa patterns.txt`
+- **build**: builds a move-r index with the support given by `-s` (`count`, `locate-one`, `locate-move` or
+  `locate-rlzsa`) and the construction mode given by `-c` (`sa`, `sa-space` or `pfp`).
+  `move-r build -s locate-rlzsa text.txt`
+- **count**, **locate**: count or locate the occurrences of patterns; for a FASTA index, locate writes SAM and BED
+  with `-sam` and `-bed`. `move-r locate -o occ.txt text.txt.move-r-rlzsa patterns.txt`
 - **revert**: writes the text, with `-p` threads. `move-r revert -p 16 text.txt.move-r-locate text.out`
 - **extract-sa**, **extract-bwt**, **extract-rlbwt**: write the suffix array, the BWT or the BWT runs with the values
   the index stores for them. `move-r extract-sa text.txt.move-r-locate text.sa`
@@ -126,13 +127,14 @@ Temporary files are written to the directory `MOVE_R_TMPDIR` (default: the tempo
 
 ### move-rb
 
-- **build**: builds a move-rb index; `-s` selects the support (`count`, `locate-one`, `locate-move` or
-  `locate-rlzsa`), `-context-table` the share of the index size used for the search contexts of short patterns;
-  `-docs` stores the documents of a FASTA input (`records`, `files` or a map file that groups the records; with
-  `locate-move` or `locate-rlzsa`). `move-rb build -s locate-move genome.fa`
+- **build**: builds a move-rb index with the support given by `-s` (`count`, `locate-one`, `locate-move` or
+  `locate-rlzsa`). With `-context-table`, the maximum size of the table of the search contexts of short patterns is
+  given as a share of the index size. With `-docs`, the documents of a FASTA input are also stored (`records`, `files`
+  or a file with the document of each record; with `locate-move` or `locate-rlzsa`).
+  `move-rb build -s locate-move genome.fa`
 - **count**, **locate**: count or locate the occurrences of patterns with at most `-k` errors (`-d hamming` or
-  `-d edit`, with a search scheme `-scheme`); `locate -sam` and `-paf` align reads against a FASTA index. Without a
-  patterns file, the patterns are read interactively.
+  `-d edit`, with a search scheme `-scheme`); with `-sam` and `-paf`, locate aligns reads against a FASTA index.
+  Without a patterns file, the patterns are read interactively.
   `move-rb locate -k 2 -d edit -sam reads.sam genome.fa.move-rb-locate reads.fq`
 - **revert**, **extract-sa**, **extract-bwt**, **extract-rlbwt**: as for move-r; `-rev` for the reversed text.
   `move-rb extract-bwt -rev genome.fa.move-rb-locate genome.bwt-rev`
@@ -184,12 +186,13 @@ ctest
 ```
 
 The tests (`build/tests/test-*`) check random inputs: at most `MOVE_R_TEST_SECONDS` seconds (default 10) or
-`MOVE_R_TEST_ITERATIONS` inputs (default 1000) per function. A failed test prints its seed; `MOVE_R_TEST_SEED=<seed>`
-repeats its inputs.
+`MOVE_R_TEST_ITERATIONS` inputs (default 1000) per function. A failed test prints its seed; with
+`MOVE_R_TEST_SEED=<seed>`, its inputs are repeated.
 
 ## Benchmarks
 
-All benchmark tools (in `build/bench/`) print a summary; `-m <file>` appends `RESULT key=value ...` lines to a file.
+All benchmark tools (in `build/bench/`) print a summary; with `-m <file>`, `RESULT key=value ...` lines are appended
+to a file.
 
 - **move-r-bench**: construction and queries of move-r and other r-indexes (run from the repository directory).
 - **move-r-bench-ops**, **move-rb-bench-ops**: the operations of a move-r or move-rb index for increasing pattern

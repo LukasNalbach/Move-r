@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -63,7 +64,7 @@ struct query_cli_t {
     std::vector<std::string> options_given; // the options given, in their order (for the warning without patterns)
     std::string path_index_file;
     std::string path_patterns_file; // empty: the queries are read from stdin
-    direct_ofstream output_file; // -o
+    std::ofstream output_file; // -o
 } cli;
 
 /**
@@ -120,8 +121,8 @@ void print_help(std::ostream& out)
     h.option("quit, exit", "", "leave the program");
     h.text("Each approximate occurrence is printed with its CIGAR and its alignment (the pattern above the matched "
         "text). For an index built in the FASTA mode, a position is printed as <sequence name>:<1-based "
-        "position in the sequence>. The approximate queries use the search scheme " + std::string(default_scheme_name)
-        + "; <pattern> is the rest of the line and may contain spaces.");
+        "position in the sequence>. The approximate queries are answered with the search scheme "
+        + std::string(default_scheme_name) + "; <pattern> is the rest of the line and may contain spaces.");
 }
 
 /**
@@ -147,7 +148,8 @@ constexpr std::string_view interactive_commands = "count <pattern>, locate <patt
 std::string commands_description()
 {
     return "commands: " + std::string(interactive_commands) + " ('quit' exits, 'limit <n>' prints at most n "
-        "occurrences per pattern); the approximate queries use the search scheme " + std::string(default_scheme_name);
+        "occurrences per pattern); the approximate queries are answered with the search scheme "
+        + std::string(default_scheme_name);
 }
 
 /**
@@ -292,7 +294,7 @@ void print_answer_count(uint64_t count, std::chrono::steady_clock::time_point st
 template <move_r_support support>
 void answer_query(const move_rb<support>& index, const std::string& line, uint64_t max_printed)
 {
-    // true <=> the index can report all occurrences of a pattern
+    // true <=> the index supports locating all occurrences of a pattern
     constexpr bool can_locate = move_rb<support>::supports_multiple_locate;
     const uint64_t space = line.find(' ');
     const std::string command = line.substr(0, space);

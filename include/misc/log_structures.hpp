@@ -51,7 +51,7 @@ inline constexpr uint64_t default_logged_entries = 256;
 
 /**
  * @brief logs the nodes of a tree, one per line, indented by two spaces per level; nodes deeper than a maximum depth
- *        and nodes beyond a maximum number are left out, which limits() states at the end
+ *        and nodes beyond a maximum number are left out, and limits() logs at the end which ones were left out
  */
 class tree_log {
     uint64_t _max_depth; // the nodes up to this depth are logged

@@ -47,7 +47,7 @@ inline constexpr uint64_t pattern_symbols_per_max_edit = 2;
  *        substituted symbols are drawn from the positions of input
  * @tparam inp_t container of the pattern and of the input (e.g. std::string or std::vector<int32_t>)
  * @tparam gen_t random number generator type
- * @param pattern the pattern, edited in place (a non-empty pattern stays non-empty)
+ * @param pattern the pattern, edited in place (a non-empty pattern remains non-empty)
  * @param input the input the symbols are drawn from
  * @param gen random number generator
  */

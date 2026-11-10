@@ -34,9 +34,9 @@
 
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename stream_t, typename fnc_t>
-void move_r<support, mlf_enc>::construction::log_store_or_load(const char* verb, const char* name, stream_t& stream, fnc_t fnc)
+void move_r<support>::construction::log_store_or_load(const char* verb, const char* name, stream_t& stream, fnc_t fnc)
 {
     log_phase_start("");
     auto pos = [&] {
@@ -50,8 +50,8 @@ void move_r<support, mlf_enc>::construction::log_store_or_load(const char* verb,
         std::string("time_") + (storing ? "store_" : "load_") + name);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::store_mlf()
+template <move_r_support support>
+void move_r<support>::construction::store_mlf()
 {
     store_to_tmp_file("M_LF and L'", ".mlf", "time_store_mlf", [&](direct_ofstream& file) {
         idx._M_LF.serialize(file);
@@ -59,16 +59,16 @@ void move_r<support, mlf_enc>::construction::store_mlf()
     });
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::load_mlf()
+template <move_r_support support>
+void move_r<support>::construction::load_mlf()
 {
     load_from_tmp_file("M_LF and L'", ".mlf", "time_load_mlf", true, [&](direct_ifstream& file) {
         idx._M_LF.load(file, idx.mlf_num_rows);
     });
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::store_data_structures_over_l_()
+template <move_r_support support>
+void move_r<support>::construction::store_data_structures_over_l_()
 {
     direct_ofstream file(prefix_tmp_files + ".l_");
     log_store_or_load("storing", "PSB_L'", file, [&] {
@@ -81,8 +81,8 @@ void move_r<support, mlf_enc>::construction::store_data_structures_over_l_()
     drop_from_page_cache(prefix_tmp_files + ".l_");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::load_data_structures_over_l_()
+template <move_r_support support>
+void move_r<support>::construction::load_data_structures_over_l_()
 {
     direct_ifstream file(prefix_tmp_files + ".l_");
     log_store_or_load("loading", "PSB_L'", file, [&] {

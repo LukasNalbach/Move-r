@@ -72,7 +72,7 @@ protected:
     // [0..p-1] 1 <=> no position of part i has a free symbol other than its own, so _ctx[i] is the context of part i
     std::vector<uint8_t> _has_context;
     const apm_costs_t* _costs;     // the error model, or nullptr
-    bool _mirrored = false;        // whether the searches run with the mirror of the search scheme
+    bool _mirrored = false;        // whether the mirror of the search scheme is used for the searches
 
     // returns whether P[i] has a free symbol other than itself
     bool is_free(uint64_t i) const { return _costs != nullptr && _costs->has_free(i); }
@@ -84,7 +84,7 @@ protected:
         return true;
     }
 
-    // whether the index can look up the search context of a pattern in its context tables
+    // whether the search context of a pattern can be looked up in context tables of the index
     static constexpr bool has_context_tables = requires(const idx_t& idx, bool& occurs) {
         idx.template search<query_support>(std::span<const sym_t>(), occurs);
     };
@@ -270,7 +270,7 @@ protected:
         }
     }
 
-    // whether the index provides its alphabet size, the number of runs in its BWT and the length of its text
+    // whether the index has methods for its alphabet size, the number of runs in its BWT and its text length
     static constexpr bool can_optimize = requires(const idx_t& idx) {
         idx.alphabet_size();
         idx.num_bwt_runs();
@@ -282,7 +282,7 @@ protected:
      *        number of occurrences of P[i, i + l), for l = 1, 2, ... until at most one occurrence has a distinct
      *        continuation (occ * share <= 1, see apm_search_cost), the substring does not occur, it has a position with
      *        a free symbol or P ends; a substring with a free symbol has no search context (a search that starts with it
-     *        starts at the root), it counts as n occurrences
+     *        starts at the root) and is counted as n occurrences
      * @param P the pattern
      * @param share r / n
      * @param steps increased by the number of extensions
@@ -348,19 +348,20 @@ protected:
      *        of each part; the optimization counts its own steps (an extension of a context, a cell or a transition of
      *        a dynamic program) and stops once they exceed the prediction for the best partition found:
      *
-     * 1. The partition of partition_dynamic; it stays if each of its parts has at most one occurrence with a distinct
-     *    continuation (occ * r / n <= 1, a rare part) or if apm_model_plan runs the anchored search for every partition;
-     *    it also stays, with the scheme or the mirror, whichever has the smaller prediction, if one of its parts is rare
-     *    or if the prediction is below the m * log_sigma(r) extensions of step 2.
+     * 1. The partition of partition_dynamic; it is kept if each of its parts has at most one occurrence with a distinct
+     *    continuation (occ * r / n <= 1, a rare part) or if apm_model_plan runs the anchored search for every
+     *    partition; it is also kept, with the scheme or the mirror, whichever has the smaller prediction, if one of its
+     *    parts is rare or if the prediction is below the m * log_sigma(r) extensions of step 2.
      * 2. The numbers of occurrences of the substrings of P (see occurrence_table); a longer substring is assumed to
      *    occur as often as its longest prefix in the table.
      * 3. For the scheme and for the mirror: a local search from the uniform partition, from the partition of step 1
-     *    and from minimal_bounds (if its cells do not exceed the budget), which moves one bound by one symbol, the move
-     *    that lowers the prediction most, until no move lowers it by more than the steps of trying the moves; a bound
-     *    next to a rare part does not move.
+     *    and from minimal_bounds (if the steps so far plus its p * m^2 cells are at most the best prediction). In each
+     *    round, the bound whose move by one symbol lowers the prediction most is moved, until a move lowers the
+     *    prediction by less than the steps of trying the moves; a bound next to a rare part is not moved.
      *
-     * A position has one symbol without an error, sigma - 1 substitutions and, under the edit distance, an insertion and
-     * sigma deletions; with an error model, its free symbols and the errors whose costs are within its bound.
+     * The prediction assumes one symbol without an error, sigma - 1 substitutions and, with the edit distance, an
+     * insertion and sigma deletions at each position; with an error model, the free symbols of the position and the
+     * errors at it with a cost of at most the cost bound.
      *
      * @param P the pattern
      * @param scheme the search scheme
@@ -418,8 +419,8 @@ protected:
         if (all_rare) return;
 
         /* if a position has a free symbol and every part is the first part of a search, every partition has a search that
-           starts without a search context, so apm_model_plan runs the anchored search if there is an anchor, whatever the
-           parts are; then the dynamic partition stays */
+           starts without a search context, so apm_model_plan runs the anchored search if there is an anchor, regardless
+           of the parts; then the dynamic partition is kept */
         if (_costs != nullptr && _costs->anchor().first < _costs->anchor().second) {
             bool has_free_symbol = false;
             for (uint64_t i = 0; i < m; i++) has_free_symbol |= is_free(i);
@@ -450,9 +451,10 @@ protected:
         std::vector<uint64_t> next_free(m + 1, m);
         for (uint64_t i = m; i-- > 0;) next_free[i] = is_free(i) ? i : next_free[i + 1];
 
-        /* returns the number of occurrences of P[b, e): at most that of each of its substrings without a free symbol, so
-           the smallest of those of its maximal ones (a substring longer than its row of the table occurs as often as the
-           longest prefix in the row), or n if every position of it has a free symbol */
+        /* returns the estimated number of occurrences of P[b, e): the smallest number of occurrences of its maximal
+           substrings without a free symbol, since P[b, e) occurs at most as often as each of them (a substring longer
+           than its row of the table occurs as often as the longest prefix in the row), or n if every position of
+           P[b, e) has a free symbol */
         auto occ_of = [&](uint64_t b, uint64_t e) {
             uint64_t smallest = n;
 
@@ -470,7 +472,8 @@ protected:
         // returns whether P[b, e) has at most one occurrence with a distinct continuation
         auto is_rare = [&](uint64_t b, uint64_t e) { return double(occ_of(b, e)) * double(r) <= double(n); };
 
-        // returns the prediction of cost[o] for the parts with the bounds; steps counts the work of all predictions
+        // returns the prediction of cost[o] for the parts with the bounds; steps is set to the steps of the table and of
+        // all predictions so far
         auto predict = [&](uint64_t o, const std::vector<uint64_t>& bounds) {
             for (uint64_t i = 0; i < p; i++) occ[i] = occ_of(bounds[i], bounds[i + 1]);
             const double c = cost[o].cost(bounds, occ);
@@ -508,7 +511,7 @@ protected:
                     bool move_right = false;
 
                     for (uint64_t i = 1; i < p; i++) {
-                        // a border between parts with at most one occurrence with a distinct continuation stays
+                        // a bound next to a part with at most one occurrence with a distinct continuation is not moved
                         if (is_rare(bounds[i - 1], bounds[i]) || is_rare(bounds[i], bounds[i + 1])) continue;
 
                         for (bool right : { false, true }) {
@@ -556,8 +559,9 @@ public:
 
     /**
      * @brief partitions a pattern into the parts of a search scheme and computes the search context of each part; with
-     *        _partition_optimized (if the index provides what it needs), the searches run with the mirror of the scheme
-     *        if mirrored(), else as with the constructor that takes p
+     *        _partition_optimized (if can_optimize), the parts are chosen with partition_optimized and the mirror of the
+     *        scheme is used for the searches if mirrored(); otherwise, the parts are chosen as with the constructor that
+     *        takes p
      * @param index the index to search in
      * @param P the pattern
      * @param scheme the search scheme (0 < scheme.p <= P.size())
@@ -601,7 +605,7 @@ public:
     // returns the number of parts
     uint64_t size() const { return _bounds.size() - 1; }
 
-    // returns whether the searches run with the mirror of the search scheme (see mirrored_scheme)
+    // returns whether the mirror of the search scheme is used for the searches (see mirrored_scheme)
     bool mirrored() const { return _mirrored; }
 
     // returns the bounds of the parts ([0..p], part i is P[bounds()[i], bounds()[i + 1]))

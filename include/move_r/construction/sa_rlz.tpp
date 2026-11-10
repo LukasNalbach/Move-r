@@ -34,8 +34,8 @@
 
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::SA_rlz_reader::step_right()
+template <move_r_support support>
+void move_r<support>::construction::SA_rlz_reader::step_right()
 {
     auto& phi_inv = build->idx._M_Phi_inv;
     prev_value = value;
@@ -45,8 +45,8 @@ void move_r<support, mlf_enc>::construction::SA_rlz_reader::step_right()
     pos++;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::SA_rlz_reader::seek(uint64_t target)
+template <move_r_support support>
+void move_r<support>::construction::SA_rlz_reader::seek(uint64_t target)
 {
     enter_run(first_interval_of_run_at(target));
 
@@ -62,8 +62,8 @@ void move_r<support, mlf_enc>::construction::SA_rlz_reader::seek(uint64_t target
     has_pos = true;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-uint64_t move_r<support, mlf_enc>::construction::SA_rlz_reader::SAd(uint64_t i)
+template <move_r_support support>
+uint64_t move_r<support>::construction::SA_rlz_reader::SAd(uint64_t i)
 {
     if (i == 0) {
         if (!has_pos || pos != 0) seek(0);
@@ -83,8 +83,8 @@ uint64_t move_r<support, mlf_enc>::construction::SA_rlz_reader::SAd(uint64_t i)
     return value + build->n - prev_value;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_SA_rlz() requires(has_SA_rlz)
+template <move_r_support support>
+void move_r<support>::construction::build_SA_rlz() requires(has_SA_rlz)
 {
     std::vector<SA_rlz_reader> readers; // [0..p-1] the reader of each thread
     std::chrono::steady_clock::time_point time_SA_rlz; // the start of the block "building SA_rlz"

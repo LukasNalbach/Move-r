@@ -114,7 +114,8 @@ struct apm_context_order_t {
  * 2. Each search matches its parts step by step: for each step, a depth-first search over the extensions of the
  *    search context in the direction of the step computes one row of the edit-distance matrix of the part per text
  *    symbol (see search_part and branch_and_bound). The cells of the last column of the matrix (the final column)
- *    of a path are collected in a cluster_t; its local minima continue in the next step (see flush_cluster).
+ *    of a path are collected in a cluster_t; the search continues from its local minima in the next step (see
+ *    flush_cluster).
  * 3. Each search context stores its matched text string as pieces (see matched_piece_t); after the search, the error
  *    and the length of each context are recomputed by aligning P against its string (see recompute_errors).
  * 4. Each suffix array position is reported once, with the context of the fewest errors that contains it (see
@@ -137,7 +138,7 @@ protected:
     template <query_support_t query_support>
     using search_context_t = typename base_t::template search_context_t<query_support>;
 
-    // true <=> the index can decode both text ends (see text_end); benchmark adapters cannot
+    // true <=> both text ends can be decoded with the index (see text_end); not with the benchmark adapters
     static constexpr bool can_decode_text_ends = requires(const idx_t& i) {
         i.backward_index().M_LF();
         i.forward_index().M_LF();
@@ -145,10 +146,10 @@ protected:
 
     // width of a piece index and of a position in P in a matched_piece_t in bits
     static constexpr uint64_t piece_bits = 8 * uint40_t::width;
-    // marks the end of a chain of pieces (the empty string); the largest piece index
+    // the prev of the first piece of a chain, and the last piece of the empty string; the largest piece index
     static constexpr uint64_t no_piece = (uint64_t(1) << piece_bits) - 1;
 
-    // marks an occurrence without a CIGAR
+    // the CIGAR index of an occurrence without a CIGAR
     static constexpr uint32_t no_cigar = std::numeric_limits<uint32_t>::max();
 
     /* a piece of a matched text string: a copy of P[pos, pos + len) or a single text symbol (a literal); the pieces
@@ -158,7 +159,7 @@ protected:
         using pos_field = next_bit_field_t<prev_field, piece_bits>;
 
         packed_bit_fields<bytes_of_bit_fields<pos_field>> bits; // prev and pos (in the layout of GCC bit-fields)
-        uint32_t len;       // copy: its length (>= 1); 0 marks a literal
+        uint32_t len;       // copy: its length (>= 1); 0 for a literal
         uint16_t refs;      // reference count: pieces whose prev is this one, plus piece_ref objects referring to it
         uint8_t sym;        // literal: the text symbol; unused for a copy
         direction_t dir;    // LEFT: the piece was prepended to the string, RIGHT: appended
@@ -181,9 +182,9 @@ protected:
     static_assert(sizeof(matched_piece_t) == 2 * uint40_t::width + sizeof(uint32_t) + sizeof(uint16_t)
         + sizeof(uint8_t) + sizeof(direction_t));
 
-    /* a reference-counted index of a piece in _matched_pieces of _piece_owner (or no_piece): a copy increments, a
-       destruction decrements the reference count of the piece; a piece whose count drops to 0 is freed, then its
-       prev in the same way (see dec_ref) */
+    /* a reference-counted index of a piece in _matched_pieces of _piece_owner (or no_piece): copying it increments and
+       destroying it decrements the reference count of the piece; a piece whose count drops to 0 is freed, and the
+       reference count of its prev is decremented in the same way (see dec_ref) */
     struct piece_ref {
         uint40_t idx = uint40_t(no_piece);
 
@@ -375,9 +376,9 @@ protected:
     };
 
     /* a context reached after a step of a search: its smallest error count (in node.ctx.errors()) and its smallest
-       cost (see apm_cost_band); covered <=> the next step continues it within the search from a shorter context;
-       members: empty if the context stands for its string only, else the alignments it stands for (its error count
-       and its cost are their smallest ones) */
+       cost (see apm_cost_band); covered <=> in the next step, the context is continued in the search from a shorter
+       context; members: empty if the context represents only its own string, else the alignments it represents (its
+       error count and its cost are their smallest ones) */
     struct model_entry_t {
         node_t node;
         uint16_t cost;
@@ -400,7 +401,7 @@ protected:
     // ############################# DATA MEMBERS #############################
 
     /* the apm_edit whose _matched_pieces the piece_ref objects of this thread refer to; set by search and search_model
-       before they create a piece_ref (a query runs on one thread) */
+       before they create a piece_ref (a query is run on one thread) */
     static inline thread_local const apm_edit* _piece_owner = nullptr;
 
     // the pieces of the matched strings of all contexts of a query: [0..number of pieces - 1] (see matched_piece_t)
@@ -495,10 +496,11 @@ protected:
         return _matched_pieces.size() - 1;
     }
 
-    // increments the reference count of a piece; at UINT16_MAX it stays (the piece is never freed)
+    // increments the reference count of a piece; a count of UINT16_MAX is not changed (the piece is never freed)
     void inc_ref(uint64_t idx) const { if (_matched_pieces[idx].refs != UINT16_MAX) _matched_pieces[idx].refs++; }
 
-    // decrements the reference count of a piece; a piece whose count drops to 0 is freed, then its prev in the same way
+    /* decrements the reference count of a piece; a piece whose count drops to 0 is freed, and the reference count of
+       its prev is decremented in the same way */
     void dec_ref(uint64_t idx) const;
 
     // appends a literal to the chain ending at prev (dir == LEFT: prepends it) and returns its index
@@ -517,8 +519,8 @@ protected:
         child.copy_dir = parent.copy_dir;
     }
 
-    // returns the child of a node with the extended context ctx: its matched length is the one of the node + 1, its
-    // matched string is the one of the node (see copy_matched_string)
+    // returns the child of a node with the extended context ctx: its matched length is that of the node plus 1, its
+    // matched string is that of the node (see copy_matched_string)
     node_t child_of(const node_t& node, const search_context_t<LOCATE>& ctx) const
     {
         node_t child(ctx);
@@ -527,8 +529,8 @@ protected:
         return child;
     }
 
-    // makes a node whose context was extended in place its own child: its matched length increases by 1, its matched
-    // string stays (see child_of)
+    // makes a node whose context was extended in place its own child: its matched length is increased by 1, its
+    // matched string is not changed (see child_of)
     static void descend(node_t& node)
     {
         node.set_match_len(node.match_len() + 1);
@@ -628,8 +630,8 @@ protected:
     bool extend_node(node_t& node, direction_t dir, push_fnc_t& push) const;
 
     /**
-     * @brief sets the input of a matrix to a part; with an error model, a free symbol of a position counts as equal
-     *        to its symbol in P
+     * @brief sets the input of a matrix to a part; with an error model, a free symbol of a position is treated as
+     *        equal to its symbol in P
      * @tparam matrix_word_t word type of the matrix
      * @param matrix the matrix
      * @param part the part
@@ -753,9 +755,9 @@ protected:
 
     /**
      * @brief adds the occurrences at the text ends that the search with unit costs misses (see locate_at_text_ends)
-     *        for a model whose errors cost the same: the cheapest alignment against a prefix of the first window, and
-     *        the one with the fewest errors against a suffix of the last window
-     * @tparam mode whether the occurrences carry a CIGAR index
+     *        for a model in which all errors have the same cost: the cheapest alignment against a prefix of the first
+     *        window, and the one with the fewest errors against a suffix of the last window
+     * @tparam mode whether the occurrences have a CIGAR index
      * @tparam word_t word type of the edit-distance matrix
      * @param P the pattern
      * @param strings the strings of the occurrences (see locate_model); the windows are appended
@@ -772,9 +774,9 @@ protected:
      *        has a reported occurrence at most 2 * max_errors() + 1 positions away whose cost is at most its own; the
      *        occurrences are reported in increasing order of their positions
      *
-     * If every error costs the same (see apm_costs_t::uniform_cost), the contexts are those of search, which drops
-     * the contexts that others cover; else those of search_model, which prunes them by their costs if the model asks
-     * for it (see apm_costs_t::prunes). The occurrences are then filtered as with unit costs (see
+     * If all errors have the same cost (see apm_costs_t::uniform_cost), the contexts are computed with search, which
+     * drops the contexts covered by others; else with search_model, which discards contexts by their costs if
+     * apm_costs_t::prunes() is true. The occurrences are then filtered as with unit costs (see
      * filter_edit_distance_occurrences); if no context was dropped, the occurrences that cover all others are kept
      * instead (see select_covering_occurrences).
      * @tparam mode whether each occurrence is reported with a CIGAR index
@@ -789,15 +791,15 @@ protected:
         report_fnc_t& report) const;
 
     /**
-     * @brief executes the searches of an error model (see apm_model_plan); every step continues each cell of the
-     *        final column of its part within the bounds of the step (a context that the search from a shorter one
-     *        reaches is continued in that search, see process_part), so the result contains every text string that a
-     *        valid alignment of P is aligned to
+     * @brief executes the searches of an error model (see apm_model_plan); in every step, the search is continued from
+     *        each cell of the final column of the part within the bounds of the step (a context reached by the search
+     *        from a shorter context is continued in that search, see process_part), so the result contains every text
+     *        string to which P has a valid alignment
      *
-     * After a step whose part ends P in its direction, the later steps extend the other end only: the cells of the
-     * final column of a path become members of the context of its first cell in the final column (see model_member_t),
-     * which the later steps continue once for all of them; the members of the contexts of the last step are then
-     * extended to their own contexts.
+     * After a step whose part is at the end of P in its direction, the later steps only extend the other end: the cells
+     * of the final column of a path become members of the context of its first cell in the final column (see
+     * model_member_t), and the later steps continue this context once for all of them; the members of the contexts of
+     * the last step are then extended to their own contexts.
      * @tparam matrix_word_t word type of the edit-distance matrix
      * @param P the pattern
      * @param scheme the search scheme
@@ -810,14 +812,15 @@ protected:
      * @brief matches a part from a context with an error count and a cost: inserts every context at which the part
      *        ends with an error count in [k_min, k_max] and a cost of at most the bound of the model into target
      *
-     * With prune, the cells of the final column of a path are pruned:
-     * 1. a cell is not inserted if an inserted cell above it on the path costs at most as much (plus
-     *    apm_costs_t::prune_slack) and, if dir is LEFT, is at most 2 * max_errors() + 1 rows away (every occurrence of
+     * With prune, cells of the final column of a path are discarded by their costs:
+     * 1. a cell is not inserted if an inserted cell above it on the path has a cost of at most its cost minus
+     *    apm_costs_t::prune_slack and, if dir is LEFT, is at most 2 * max_errors() + 1 rows away (every occurrence of
      *    its string then has an occurrence of the string of that cell at most that far to the right; at the same
      *    position if dir is RIGHT);
-     * 2. a path ends once no cell of its row costs less than such an inserted cell.
-     * Only an inserted cell whose counters (see apm_cost_band::final_counters) are within their bounds covers others,
-     * and with gap openings, a path prunes nothing after a restart.
+     * 2. a path is not extended further once every cell of its row outside the final column has a cost of at least
+     *    the cost of such an inserted cell plus apm_costs_t::prune_slack.
+     * Only an inserted cell whose counters (see apm_cost_band::final_counters) do not exceed their bounds covers other
+     * cells, and with affine gaps (see apm_costs_t::is_affine), no cell of a path is discarded after a restart.
      *
      * @tparam matrix_word_t word type of the edit-distance matrix
      * @param entry the context, its error count (at most k_max) and its cost
@@ -825,20 +828,21 @@ protected:
      * @param beg first position of the part
      * @param end end of the part (exclusive)
      * @param dir the direction of the step
-     * @param outer true <=> the part ends P in direction dir; then a context is extended past the end of the part
-     *        although only deletions remain (an alignment does not end with a deletion)
+     * @param outer true <=> the part is at the end of P in direction dir; then a context is extended past the end of
+     *        the part although only deletions remain (an alignment does not end with a deletion)
      * @param collect_as_members true <=> a cell of the final column is inserted as a member of the context of the
      *        first cell of the final column on its path (see search_model); entry and the contexts of step_contexts
      *        have no members then
-     * @param prune true <=> the step prunes its cells by their costs (see above); only if the step is the last one or
-     *        collect_as_members is true (then the model has no counters), and apm_costs_t::prunes()
+     * @param prune true <=> cells are discarded by their costs in this step (see above); only if the step is the last
+     *        one or collect_as_members is true (then the model has no counters), and apm_costs_t::prunes()
      * @param k_min the lower bound of the step
      * @param k_max the upper bound of the step
      * @param matrix the matrix of the part read in direction dir
-     * @param band the dynamic program over the cost, or nullptr if the cost is not bounded
-     * @param step_contexts the contexts of the step, which contain entry; a context of it that the search reaches at
-     *        most depth symbols after entry is continued in this search: the matrices restart in its row with its
-     *        error count and its cost, and it is marked covered
+     * @param band the dynamic program over the costs (see apm_cost_band), or nullptr if the costs are not computed in
+     *        the search (see apm_costs_t::bounds_costs)
+     * @param step_contexts the contexts of the step, which contain entry; a context of it reached by this search at
+     *        most depth symbols after entry is continued in this search: the matrices are restarted in its row with its
+     *        error count and its cost, and it is marked as covered
      * @param depth see step_contexts
      * @param target the map the contexts are inserted into
      */
@@ -858,7 +862,7 @@ public:
      */
     apm_edit(const idx_t& index, apm_params_t params = {}) : base_t(index, params)
     {
-        // the edit distance matrices rank the symbols with the map of the bytes (see move_r::map_int)
+        // in the edit-distance matrices, the symbols are ranked with the map of the bytes (see move_r::map_int)
         if (!index.forward_index().byte_alphabet)
             throw std::invalid_argument("apm_edit: the index does not have a byte alphabet (see move_r::byte_alphabet)");
     }

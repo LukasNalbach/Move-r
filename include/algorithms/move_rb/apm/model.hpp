@@ -48,8 +48,8 @@
 #include <misc/fasta.hpp>
 
 /**
- * @brief the operations of an alignment of a pattern P against a text window, as bits of a mask (the names follow
- *        the CIGAR operations)
+ * @brief the operations of an alignment of a pattern P against a text window, as bits of a mask (named after the
+ *        CIGAR operations)
  */
 enum apm_op_t : uint8_t {
     APM_SUB = 1,  // a symbol of P aligned to a different text symbol that it does not match (X)
@@ -64,19 +64,20 @@ static constexpr uint16_t apm_forbidden = std::numeric_limits<uint16_t>::max();
 // the counters of a model are packed into one word, one byte lane each
 static constexpr uint64_t apm_max_counters = sizeof(uint64_t);
 
-// the largest bound of a counter; a counter one above its bound sets the highest bit of its lane
+// the largest upper bound of a counter; with the bias of the lanes (see apm_costs_t::exceeds), the highest bit of a
+// lane is set iff its counter exceeds its bound
 static constexpr uint64_t apm_max_counter_bound = std::numeric_limits<int8_t>::max();
 
 /**
- * @brief returns a + b, or apm_forbidden if it exceeds a bound below apm_forbidden (then a forbidden summand exceeds
- *        it as well)
+ * @brief returns a + b, or apm_forbidden if a + b exceeds bound (bound < apm_forbidden, so the sum also exceeds it if
+ *        a summand is apm_forbidden)
  */
 inline uint16_t apm_bounded_sum(uint32_t a, uint32_t b, uint64_t bound)
 { return a + b > bound ? apm_forbidden : uint16_t(a + b); }
 
 /**
- * @brief a range [beg, end) of positions of P; a negative value counts from the end of P (-1 is the last position),
- *        as in a Python slice
+ * @brief a range [beg, end) of positions of P; negative values are counted from the end of P (-1 is the last
+ *        position), as in a Python slice
  */
 struct apm_range_t {
     int64_t beg = 0;
@@ -90,12 +91,12 @@ struct apm_range_t {
 };
 
 /**
- * @brief sets the cost of the operations ops in a range of P; ops is a mask of apm_op_t
+ * @brief a cost rule: the cost of the operations ops (a mask of apm_op_t) in a range of P
  *
  * A substitution of P[i] by the text symbol c is affected if i lies in range, P[i] is in from (or from is empty)
  * and c is in to (or to is empty); an insertion of P[i] if i lies in range and P[i] is in from (or from is empty);
- * a deletion between P[b - 1] and P[b] if b lies strictly inside range (see apm_costs_t::in_range); a gap opened by
- * an insertion or a deletion like that insertion or deletion.
+ * a deletion between P[b - 1] and P[b] if b lies strictly inside range (see apm_costs_t::in_range); the opening of a
+ * gap if the insertion or deletion that opens it is affected.
  */
 struct apm_cost_rule_t {
     uint8_t ops = 0;
@@ -105,48 +106,56 @@ struct apm_cost_rule_t {
     std::string to;   // text symbols (substitutions)
 };
 
-/** @brief bounds the number of operations ops (a mask of apm_op_t) in a range of P (see apm_cost_rule_t) */
+/** @brief a counter: an upper bound on the number of operations ops (a mask of apm_op_t) in a range of P (see
+ *         apm_cost_rule_t) */
 struct apm_counter_t {
     uint8_t ops = 0;
     uint8_t max = 0; // at most apm_max_counter_bound
     apm_range_t range;
 };
 
-/** @brief a symbol of P in from that lies in range also matches the text symbols in to */
+/** @brief a symbol class: a symbol of P in from at a position in range also matches the text symbols in to */
 struct apm_class_t {
     std::string from;
     std::string to;
     apm_range_t range;
 };
 
-/** @brief whether the edit-distance search bounds the cost of the alignments (see apm_cost_band) */
+/**
+ * @brief whether the edit-distance search computes lower bounds on the costs of the alignments with a dynamic program
+ *        next to the edit-distance matrix (see apm_cost_band)
+ */
 enum apm_cost_dp_t : uint8_t {
-    // if the costs allow at most two thirds of the errors of the search as insertions and deletions, or as
-    // substitutions at their median cost: PRUNE if the search can prune (see apm_costs_t::can_prune) and the occurrences
-    // are not written (see apm_model_t::writes_occurrences), else ON; else OFF
+    /* if at most 2/3 * apm_costs_t::max_errors() insertions and deletions, or substitutions at their median cost, fit
+       into the cost bound: PRUNE if contexts can be discarded by their costs (see apm_costs_t::can_prune) and the
+       occurrences are not written (see apm_model_t::writes_occurrences), else ON; else OFF */
     APM_COST_DP_AUTO = 0,
-    APM_COST_DP_ON = 1,   // the search bounds the cost
-    APM_COST_DP_OFF = 2,  // the search does not compute the cost
-    APM_COST_DP_PRUNE = 3  // ON, and the search prunes its contexts by their costs if it can
+    // the search computes the lower bounds and does not extend a text string once all of them exceed the cost bound
+    APM_COST_DP_ON = 1,
+    APM_COST_DP_OFF = 2,  // the search does not compute the costs
+    // ON, and the search also discards contexts by their costs (see apm_costs_t::prunes), if possible
+    APM_COST_DP_PRUNE = 3
 };
 
 /**
- * @brief an error model for approximate pattern matching: an alignment of P against a text window costs the sum of
- *        the costs of its operations and is valid if it costs at most the bound and no counter exceeds its bound
+ * @brief an error model for approximate pattern matching: the cost of an alignment of P against a text window is the
+ *        sum of the costs of its operations; the alignment is valid if its cost is at most the cost bound and no
+ *        counter exceeds its upper bound
  *
- * By default, every substitution, insertion and deletion costs 1, opening a gap costs 0, there are no counters and a
- * symbol only matches itself; the bound is the maximum number of errors k of the query. An alignment does not start
- * or end with a deletion.
+ * By default, each substitution, insertion and deletion has cost 1, opening a gap has cost 0, there are no counters,
+ * and a symbol only matches itself; the cost bound is the maximum number of errors k of the query. An alignment does
+ * not start or end with a deletion.
  */
 struct apm_model_t {
-    std::vector<apm_cost_rule_t> costs; // applied in this order (a later rule overrides an earlier one)
+    std::vector<apm_cost_rule_t> costs; // applied in this order (an operation has the cost of the last rule that applies to it)
     std::vector<apm_counter_t> counters; // at most apm_max_counters
     std::vector<apm_class_t> classes;
     bool iupac = false;   // an IUPAC code in P matches each of its bases (A, C, G, T)
-    bool quality = false; // a substitution of P[i] costs the Phred quality of P[i] (before the cost rules)
+    // the cost of substituting P[i] is the Phred quality score of P[i] (before the cost rules are applied)
+    bool quality = false;
     uint16_t tau = 0;     // the smallest cost of a substitution that the search counts as an error (see
                           // apm_costs_t::tau); 0: chosen for each pattern (see apm_costs_t::compile)
-    apm_cost_dp_t cost_dp = APM_COST_DP_AUTO; // whether the edit-distance search bounds the cost
+    apm_cost_dp_t cost_dp = APM_COST_DP_AUTO; // see apm_cost_dp_t
     bool writes_occurrences = false; // whether every reported occurrence is written to a file (see APM_COST_DP_AUTO)
 
     // returns whether the model is the default model
@@ -191,12 +200,13 @@ apm_class_t parse_apm_class(std::string_view str);
 
 /**
  * @brief an error model compiled for one pattern P and the alphabet of an index: the cost of every operation at every
- *        position of P, the counters each operation increments, and the bounds the search derives from them
+ *        position of P, the counters incremented by each operation, and the bounds on the numbers of errors in the
+ *        search derived from them
  *
  * Text symbols are addressed by their rank in the effective alphabet of the index (alph_map[c] - 1). A deletion lies
- * at a boundary b in [1, m - 1], between P[b - 1] and P[b]. The search counts a substitution as an error if it costs
- * at least tau (see tau()), and every insertion and deletion; the other substitutions and the matches by a class are
- * free. The counters of an alignment are packed into one word with one byte lane per counter (see
+ * at a boundary b in [1, m - 1], between P[b - 1] and P[b]. The search counts every insertion and deletion and every
+ * substitution with a cost of at least tau (see tau()) as an error; the other substitutions and the matches by a class
+ * are free. The counters of an alignment are packed into one word with one byte lane per counter (see
  * apm_max_counters).
  */
 class apm_costs_t {
@@ -259,7 +269,7 @@ protected:
     std::vector<uint16_t> _min_error_cost;
     // [0..m-1] the cost of the cheapest counted substitution of P[i] within the bound, or apm_forbidden
     std::vector<uint16_t> _min_sub_cost;
-    // [0..m-1] 1 <=> every error at P[i] within the bound increments a counter
+    // [0..m-1] 1 <=> each error at P[i] within the bound is counted by a counter
     std::vector<uint8_t> _all_errors_counted;
     uint64_t _num_counters = 0;
     /* the counters: [0.._num_counters-1] counter j counts the operations _counter_ops[j] (a mask of apm_op_t) in the
@@ -268,7 +278,8 @@ protected:
     uint64_t _counter_beg[apm_max_counters] = {};
     uint64_t _counter_end[apm_max_counters] = {};
     uint64_t _counter_max[apm_max_counters] = {};
-    // lane j: apm_max_counter_bound - _counter_max[j], so a counter above its bound sets the highest bit of its lane
+    // lane j: apm_max_counter_bound - _counter_max[j]; after adding it, the highest bit of lane j is set iff counter j
+    // exceeds its bound
     uint64_t _counter_bias = 0;
     bool _affine = false; // see is_affine
     bool _bounds_costs = false; // see bounds_costs
@@ -283,18 +294,19 @@ protected:
     /**
      * @brief returns an upper bound on the number of errors (or, if indels_only, of insertions and deletions) of a
      *        valid alignment in the range [beg, end) of P, counting the deletions at the boundaries strictly inside it;
-     *        with the counters, unless counters is false
+     *        the counters are taken into account unless counters is false
      */
     uint64_t max_num_errors(uint64_t beg, uint64_t end, bool indels_only, bool counters = true) const;
 
     // sets tau and computes the free symbols, the cheapest errors and the bounds of the search that depend on it
     void set_tau(uint16_t tau);
 
-    // sets whether the edit-distance search bounds the cost of the alignments
+    // chooses whether the edit-distance search computes the costs of the alignments and discards contexts by their
+    // costs (see apm_cost_dp_t)
     void choose_cost_dp(const apm_model_t& model);
 
-    // returns the cost of every error if all substitutions, insertions and deletions cost the same and neither
-    // counters nor gap openings apply, else 0
+    // returns the cost of each error if all substitutions, insertions and deletions have the same cost, there are no
+    // counters and opening a gap has cost 0 and is not counted, else 0
     uint16_t compute_uniform_cost() const;
 
     /**
@@ -433,22 +445,24 @@ public:
     // returns whether packed counters exceed the bound of a counter
     bool exceeds(uint64_t counters) const { return ((counters + _counter_bias) & lane_high_bits) != 0; }
 
-    // returns whether opening a gap has a cost or is counted (then insertions and deletions depend on their predecessor)
+    /* returns whether opening a gap has a cost or is counted (then the cost and the counters of an insertion or a
+       deletion depend on the preceding operation) */
     bool is_affine() const { return _affine; }
 
-    // returns whether the edit-distance search bounds the cost of the alignments (see apm_cost_band and apm_cost_dp_t)
+    // returns whether the edit-distance search computes the costs of the alignments with apm_cost_band (see apm_cost_dp_t)
     bool bounds_costs() const { return _bounds_costs; }
 
     /**
-     * @brief returns the cost of every error if every substitution, insertion and deletion costs the same (at least
-     *        tau), no counter applies and opening a gap is free, else 0; then the cost of an alignment is this cost
-     *        times its number of errors, where a match by a class is no error
+     * @brief returns the cost of each error if all substitutions, insertions and deletions have the same cost (at least
+     *        tau), there are no counters and opening a gap has cost 0, else 0; if it is not 0, the cost of an alignment
+     *        is this cost times its number of errors (a match by a class is not an error)
      */
     uint16_t uniform_cost() const { return _uniform_cost; }
 
     /**
-     * @brief returns whether the edit-distance search can prune its contexts by their costs: the errors do not all
-     *        cost the same (else it prunes them by their errors), and gap openings and counters do not both apply
+     * @brief returns whether the edit-distance search can discard contexts by their costs: the errors do not all have
+     *        the same cost (else contexts are discarded by their numbers of errors), and the model does not have both
+     *        affine gaps (see is_affine) and counters
      */
     bool can_prune() const { return _uniform_cost == 0 && !(_affine && _num_counters > 0); }
 
@@ -459,7 +473,7 @@ public:
      */
     uint16_t prune_slack() const { return _prune_slack; }
 
-    // returns whether the edit-distance search prunes its contexts by their costs (see apm_cost_dp_t)
+    // returns whether the edit-distance search discards contexts by their costs (see apm_cost_dp_t and prune_slack)
     bool prunes() const { return _prunes; }
 
     /**
@@ -476,10 +490,10 @@ public:
     // returns an upper bound on the number of insertions and deletions of a valid alignment of P
     uint64_t max_indels() const { return _max_indels; }
 
-    // returns whether P[i] admits no error and only matches P[i] itself
+    // returns whether no error is possible at P[i] and P[i] only matches itself
     bool is_literal(uint64_t i) const { return _min_error_cost[i] == apm_forbidden && !has_free(i); }
 
-    // returns the longest range [beg, end) of P whose positions are literal and admit no deletion between them (the anchor)
+    // returns the longest range [beg, end) of literal positions of P with no possible deletion between them (the anchor)
     std::pair<uint64_t, uint64_t> anchor() const
     {
         uint64_t best_beg = 0, best_end = 0, beg = 0;
@@ -494,8 +508,8 @@ public:
     }
 
     /**
-     * @brief returns whether boundary b (between P[b - 1] and P[b]) lies in the range [beg, end) of positions: it
-     *        does if beg < b < end
+     * @brief returns whether boundary b (between P[b - 1] and P[b]) lies in the range [beg, end) of positions, i.e.,
+     *        whether beg < b < end
      */
     static bool in_range(uint64_t b, uint64_t beg, uint64_t end) { return beg < b && b < end; }
 
@@ -514,8 +528,8 @@ public:
     { return align_reusing(M, cigar, 0); }
 
     /**
-     * @brief computes align_prefix for several strings; they are aligned in lexicographic order, and each reuses the
-     *        cells of the dynamic program of the preceding one that lie in their longest common prefix
+     * @brief computes align_prefix for several strings; they are aligned in lexicographic order, and for each string,
+     *        the cells of the dynamic program of the preceding string that lie in their longest common prefix are reused
      * @tparam str_t contiguous range type of the strings (one byte per symbol)
      * @param strings the concatenated strings: strings[beg[x], beg[x + 1]) is the x-th one
      * @param beg the start of each string in strings, followed by the size of strings
@@ -527,14 +541,14 @@ public:
 };
 
 /**
- * @brief a banded dynamic program over the cost of the alignments of a part P[beg, end) of a pattern, read in a
- *        direction, against a text that grows by one symbol per row; it omits the counters and the costs of opening
- *        the gaps that touch an end of the part, so each cell is at most the cost of the model of every alignment
- *        that ends in it
+ * @brief a banded dynamic program over the costs of the alignments of a part P[beg, end) of a pattern, read in a
+ *        direction, against a text that grows by one symbol per row; the counters and the costs of opening the gaps
+ *        at the ends of the part are omitted, so each cell is a lower bound on the cost (in the model) of every
+ *        alignment that ends in it
  *
- * Opening a gap of insertions is paid at its first position: when it is entered (read to the right) or left (read to
- * the left). Opening a gap of deletions is paid at its boundary. A row is a text symbol, a column c a number of
- * symbols of the part (in apm_costs_t, the rows are the positions of P).
+ * The cost of opening a gap of insertions is added at its first position: when the gap is entered (read to the right)
+ * or left (read to the left). The cost of opening a gap of deletions is added at its boundary. Row i corresponds to i
+ * text symbols, column c to c symbols of the part (in apm_costs_t, the rows correspond to the positions of P).
  */
 class apm_cost_band {
 protected:
@@ -565,9 +579,9 @@ protected:
     std::vector<uint16_t> _sub_vals;
     std::vector<uint16_t> _ins_vals;
     std::vector<uint16_t> _del_vals;
-    std::vector<uint16_t> _ins_open_in;  // [0.._len-1] paid when a gap of insertions is entered at the c-th symbol
-    std::vector<uint16_t> _ins_open_out; // [0.._len] paid when a gap of insertions is left after c symbols
-    std::vector<uint16_t> _del_open;     // [0.._len] paid when a gap of deletions is opened after c symbols
+    std::vector<uint16_t> _ins_open_in;  // [0.._len-1] added when a gap of insertions is entered at the c-th symbol
+    std::vector<uint16_t> _ins_open_out; // [0.._len] added when a gap of insertions is left after c symbols
+    std::vector<uint16_t> _del_open;     // [0.._len] added when a gap of deletions is opened after c symbols
 
     // ############################# INTERNAL METHODS #############################
 
@@ -621,8 +635,8 @@ public:
 
     /**
      * @brief returns the packed counters of an alignment with the cost of final_cost(i), if the model has counters
-     *        and no gap opening (else 0): the dynamic program keeps, for each cell, the counters of one of its
-     *        cheapest alignments, from counters_in and the counters of a restart on
+     *        and no gap opening (else 0): the dynamic program stores, for each cell, the counters of one of the cheapest
+     *        alignments that end in it, starting from counters_in and from the counters passed to restart
      */
     uint64_t final_counters(uint64_t i) const;
 

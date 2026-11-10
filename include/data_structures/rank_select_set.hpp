@@ -46,7 +46,7 @@
 /**
  * @brief a set of integers in [0, universe) with rank and select. A dense set is stored as a bit vector in blocks of
  *        one cache line (the layout of cache_line_rank_bit_vector): the first word of a block is the number of
- *        elements before the block, the other words store the bits; rank and membership read one block. A sparse set
+ *        elements before the block, the other words store the bits; a rank or membership query reads one block. A sparse set
  *        is stored with Elias-Fano coding (see elias_fano_bit_vector); the smaller of the two is used.
  */
 class rank_select_set {

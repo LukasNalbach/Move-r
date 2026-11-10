@@ -144,8 +144,8 @@ enum move_r_construction_mode {
     _suffix_array_space // builds the suffix array and stores some data structures on disk
 };
 
-// returns whether a construction mode builds the RLBWT and the samples into a runs file (see pfp_rlbwt::ext_runs)
-// instead of from the suffix array
+// returns whether, in a construction mode, the RLBWT and the samples are written to a runs file (see
+// pfp_rlbwt::ext_runs) instead of being computed from the suffix array
 inline constexpr bool move_r_builds_runs_file(move_r_construction_mode mode) { return mode == _pfp; }
 
 // ############################# PARAMETERS OF THE DATA STRUCTURES OVER L' #############################
@@ -269,7 +269,7 @@ struct move_r_params {
     uint64_t pso_occs_per_block = 16;
     // minimum alphabet size for which L_prev_min is built (see move_r::L_prev_min)
     uint64_t min_sigma_L_prev_min = 4096;
-    bool log = false; // controls, whether to print log messages
+    bool log = false; // true <=> log messages are printed
     std::ostream* measurement_file = nullptr; // measurement file for the index construction
     std::ostream* mf_mds = nullptr; // measurement file for the move data structure construction
     // suffix appended to every measurement_file key (e.g. "_fwd"/"_bwd" for the sub-indexes of a bidirectional index)
@@ -295,16 +295,15 @@ struct move_r_params {
     bool sample_run_ends = true;
 
     // the text is split into this many ranges, and the index stores a revert start in each range that contains a
-    // BWT run start (see move_r::revert_starts); 0 <=> the index stores none and reverts with one thread
+    // BWT run start (see move_r::revert_starts); 0 <=> the index stores none, and the text is reverted with one thread
     uint64_t revert_start_samples = default_revert_start_samples;
 
-    // (move_rb only) maximum size of the serialized context tables as a share of the size of the serialized index;
-    // 0 <=> none are built
-    // (see move_rb::build_context_tables)
+    // (move_rb only) maximum size of the serialized context tables as a fraction of the serialized index size;
+    // 0 <=> none are built (see move_rb::build_context_tables)
     double context_table_share = 0.05;
 
-    // (move_rb only) true <=> the context tables store only the patterns of the maximum length that
-    // context_table_share permits, instead of all lengths up to it (see context_tables::single_len)
+    // (move_rb only) true <=> the context tables store only the patterns of the largest length for which they fit
+    // into context_table_share, instead of all lengths up to it (see context_tables::single_length)
     bool context_tables_single_length = false;
 
     // (move_rb with _locate_move or _locate_rlzsa only) the documents of the text; if set, the index stores them (see
@@ -339,17 +338,16 @@ template <uint8_t tag> struct absent_field_t { };
  * The index stores M_LF, the move data structure for LF over the BWT L of T$, with L' (the symbol of each of its
  * r' input intervals) as row 0, and PSO_L' for the backward search steps. Depending on the locate support, it also
  * stores the suffix array samples at the starts (and ends) of the r BWT runs, M_Phi_inv with r'' and M_Phi with r'''
- * input intervals, or an rlz of the differential suffix array. The symbols of T are mapped to the internal symbols [1..sigma-1]; 0 is the terminator $.
+ * input intervals, or an rlz of the differential suffix array. The symbols of T are mapped to the internal symbols
+ * [1..sigma-1]; 0 is the terminator $.
  *
  * Symbols are passed to and returned by the index as uint64_t. Whether the input uses a byte or an integer
  * alphabet is stored in the index (see byte_alphabet); the symbol type of the input is a template parameter
  * of the constructors only.
  *
  * @tparam support type of locate support
- * @tparam mlf_enc M_LF's interval-position encoding type (default: ELIAS_FANO for _count to _locate_rlzsa, else CACHE_LINES); with
- *         ELIAS_FANO, the backward search moves (interval, offset)-pairs (see move_data_structure::move_offset)
  */
-template <move_r_support support = _locate_move, move_pos_encoding_t mlf_enc = (support <= _locate_rlzsa ? ELIAS_FANO : CACHE_LINES)>
+template <move_r_support support = _locate_move>
 class move_r {
 public:
     // ############################# TYPES, CONSTANTS AND PARAMETERS #############################
@@ -357,12 +355,13 @@ public:
     // true <=> M_Phi and M_Phi_inv are stored; M_Phi_inv stores the PLCP value at the start of each input interval
     // as row 0
     static constexpr bool has_mphi = support == _locate_move_bi;
-    static_assert(support < _count_bi || mlf_enc == CACHE_LINES,
-        "a sub-index of a bidirectional index stores the positional M_LF encoding");
 
     // true <=> the suffix array samples are the only locate data structure the index stores (see _locate_one_bi)
     static constexpr bool stores_only_SA_samples = support == _locate_one_bi;
 
+    /* encoding of M_LF (see move_pos_encoding_t): ELIAS_FANO for _count to _locate_rlzsa, else CACHE_LINES; with
+       ELIAS_FANO, the backward search moves (interval, offset)-pairs (see move_data_structure::move_offset) */
+    static constexpr move_pos_encoding_t mlf_enc = support <= _locate_rlzsa ? ELIAS_FANO : CACHE_LINES;
     // type of M_LF; it stores L' (the BWT run heads) as row 0
     using mlf_t = move_data_structure<mlf_enc, UNI>;
     // type of M_Phi and M_Phi_inv: the ELIAS_FANO encoding (see move_pos_encoding_t)
@@ -427,8 +426,8 @@ protected:
 
 public:
     /* true <=> the input uses a byte alphabet; the alphabet is then mapped with _map_int and _map_ext, else with
-       _alphabet (also for a byte input with more distinct bytes than the construction mode maps to internal symbols of
-       one byte, see move_r_min_mapped_symbol) */
+       _alphabet (also for a byte input with more distinct bytes than can be mapped to internal symbols of one byte in
+       the construction mode, see move_r_min_mapped_symbol) */
     bool byte_alphabet = true;
 
 protected:
@@ -597,9 +596,9 @@ public:
     /**
      * @brief constructs a move_r index of the input (consumed during the construction if passed as an rvalue)
      * @tparam input_t container type of the input: a contiguous container of an integral symbol type (e.g.,
-     *         std::string, std::vector<uint8_t> or std::vector<int32_t>); a symbol type of one byte
-     *         builds an index with a byte alphabet (unless too many distinct bytes occur), a wider one an index with an
-     *         integer alphabet (see byte_alphabet); signed symbols are reinterpreted (see symbol_idx)
+     *         std::string, std::vector<uint8_t> or std::vector<int32_t>); with a symbol type of one byte, the index
+     *         has a byte alphabet (unless too many distinct bytes occur), with a wider one, it has an integer
+     *         alphabet (see byte_alphabet); signed symbols are reinterpreted (see symbol_idx)
      * @param input the input
      * @param params construction parameters
      */
@@ -625,8 +624,8 @@ public:
      * @param input_file file the index is built from
      * @param mode construction mode
      * @param reversed whether the index of the reversed input is built (see move_r_params)
-     * @return input_file + ".bwt-runs" (or ".bwt-runs-rev" if reversed); empty if the mode writes no runs file or
-     *         input_file is empty
+     * @return input_file + ".bwt-runs" (or ".bwt-runs-rev" if reversed); empty if no runs file is written in the
+     *         mode or input_file is empty
      */
     static std::string pfp_cache_path(const std::string& input_file, move_r_construction_mode mode,
         bool reversed = false)
@@ -760,7 +759,7 @@ public:
     void log_auxiliary_structure_sizes() const;
 
     /**
-     * @brief adds the parameters the size of the index depends on to the facts of the info modes, one per line:
+     * @brief adds the parameters on which the index size depends to the facts of the info modes, one per line:
      *        n and sigma (with the terminator), r, n/r, k' of each move data structure, the number of phrases of the
      *        RLZ encoding and the number of FASTA sequences
      * @param facts the facts
@@ -991,7 +990,7 @@ public:
         STRING_UTILS_NO_UNIQUE_ADDRESS std::conditional_t<has_locate_move,
             phi_move_context_t, absent_field_t<1>> phi;
 
-        const move_r<support, mlf_enc>* idx; // index to query
+        const move_r<support>* idx; // index to query
 
         /**
          * @brief returns the current position in the suffix array interval
@@ -1019,7 +1018,7 @@ public:
          * @brief constructs a new query context for the index idx
          * @param idx an index
          */
-        query_context_t(const move_r<support, mlf_enc>& idx)
+        query_context_t(const move_r<support>& idx)
         {
             this->idx = &idx;
             reset();
@@ -1236,7 +1235,7 @@ public:
         uint64_t num_strands = default_sa_strands;
     };
 
-    // default of retrieve_params::max_bytes_alloc: the output buffers take 1 / this of the size of the output
+    // default of retrieve_params::max_bytes_alloc: the size of the output buffers is 1 / this of the output size
     static constexpr uint64_t retrieve_output_bytes_per_buffer_byte = 500;
     // minimum size of the output buffer of a thread in bytes: one sector (see retrieve_range)
     static constexpr uint64_t retrieve_min_buffer_bytes = direct_io_alignment;
@@ -1427,8 +1426,8 @@ public:
 
     /**
      * @brief reverts the input with up to num_threads threads and writes it to a file, sizeof(out_sym_t) bytes per
-     *        symbol (see revert_in_pieces); each strand slot writes through its own buffer, and the buffers of a
-     *        thread take huge_page_bytes bytes
+     *        symbol (see revert_in_pieces); each strand slot has its own output buffer, and the buffers of a thread
+     *        have a total size of huge_page_bytes bytes
      * @param file_name name of the file to write the reverted input to
      * @param num_threads maximum number of threads to use
      * @param num_strands the number of pieces each thread reverts alternately
@@ -1485,8 +1484,8 @@ public:
 
     /**
      * @brief writes the values in the suffix array of the input in the range [l,r] to the file file_name (0 <= l <= r <= input size),
-     * else if l > r, then the whole suffix array is written (default); each strand slot (see SA_range_in_pieces) writes
-     * through its own buffer
+     * else if l > r, then the whole suffix array is written (default); each strand slot (see SA_range_in_pieces) has
+     * its own output buffer
      * @param file_name name of the file to write the suffix array to
      * @param params parameters
      */

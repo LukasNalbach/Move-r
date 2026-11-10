@@ -140,7 +140,7 @@ class columba_apm_adapter {
     // the symbols of T are bytes (see move_r::byte_alphabet)
     static constexpr bool byte_alphabet = true;
 
-    // returns the index that answers exact count and locate queries (the adapter itself)
+    // returns the index for exact count and locate queries (the adapter itself)
     inline const columba_apm_adapter& forward_index() const { return *this; }
 
     // returns the length of the text without the terminator

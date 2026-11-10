@@ -175,7 +175,7 @@ inline void verify_index(
 
         #pragma omp parallel num_threads(max_num_threads)
         {
-            // the failure messages of every thread of the team name the index
+            // the failure messages of every thread of the team contain the label of the index
             if (&adapter_t::label != &index_label) adapter_t::label = index_label;
             std::mt19937_64 gen_thr(query_seed + omp_get_thread_num());
 
@@ -202,13 +202,11 @@ inline void verify_index(
  * @tparam support the locate support of the index
  * @tparam sym_t_ the symbol type of the input
  * @tparam inp_t_ the container of the input
- * @tparam mlf_enc the encoding of M_LF
  */
-template <move_r_support support, typename sym_t_, typename inp_t_,
-    move_pos_encoding_t mlf_enc = (support <= _locate_rlzsa ? ELIAS_FANO : CACHE_LINES)>
+template <move_r_support support, typename sym_t_, typename inp_t_>
 struct move_r_adapter {
     // the index type does not depend on the symbol type of the input
-    using index_t = move_r<support, mlf_enc>;
+    using index_t = move_r<support>;
     using sym_t = sym_t_;
     using inp_t = inp_t_;
     // container type of the symbols reported by the index (unsigned symbols of the width of sym_t)
@@ -257,8 +255,8 @@ struct move_r_adapter {
         params.mode = use_pfp ? _pfp
             : (gen() % 2 == 0 ? _suffix_array : _suffix_array_space);
 
-        // half of the constructions read the input from a file; the empty container symbol_type then passes the
-        // symbol type to the constructor
+        // half of the constructions read the input from a file; the symbol type is then passed to the constructor with
+        // the empty container symbol_type
         std::string input_file;
         inp_t symbol_type;
 
@@ -315,7 +313,7 @@ struct move_r_adapter {
             }
         }
 
-        // if a prepend() failed, the context belongs to the longest suffix of the pattern that occurs
+        // if a prepend() failed, the context is the context of the longest suffix of the pattern that occurs
         if (!fully_matched) {
             EXPECT_TRUE(correct_occurrences.empty());
             return;
@@ -384,8 +382,8 @@ struct move_r_adapter {
         compare_reverted_text(reported, input_size, expected, "revert(report), " + label);
 
         if constexpr (index_t::supports_multiple_locate) {
-            /* the input mapped to the internal symbols of the index (the index orders the suffixes by the internal
-               symbols): [0..input_size-1] mapped[i] = map_symbol(input[i]) */
+            /* the input mapped to the internal symbols of the index (in the index, the suffixes are ordered by the
+               internal symbols): [0..input_size-1] mapped[i] = map_symbol(input[i]) */
             std::vector<uint64_t> mapped;
             resize_for_overwrite(mapped, input_size);
 

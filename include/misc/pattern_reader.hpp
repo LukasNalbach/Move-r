@@ -129,7 +129,7 @@ inline const std::string patterns_file_help = "the patterns, in pizza&chili, FAS
 
 /**
  * @brief reads patterns in one of four formats, which is detected from the input: pizza&chili (a first line
- *        "# number=<k> length=<m> ..." followed by k patterns of length m, which a file has to hold), FASTQ (a first
+ *        "# number=<k> length=<m> ..." followed by k patterns of length m, which a file must contain), FASTQ (a first
  *        record of four lines: '@' and the name, the symbols, '+', as many qualities as symbols), FASTA (the input
  *        starts with '>') or one pattern per line (otherwise; empty lines are skipped). The lines read to detect the
  *        format are buffered, so the input may be stdin. A pattern without a name in its format is named pat<i>,
@@ -177,7 +177,7 @@ public:
             std::getline(*in, header);
             const int64_t num = header_value(header, "number=");
             const int64_t len = header_value(header, "length=");
-            // the bytes the header line and the patterns take in a file
+            // the number of bytes of the header line and the patterns in a file
             const uint64_t pattern_bytes = header.size() + 1
                 + uint64_t(std::max<int64_t>(num, 0)) * uint64_t(std::max<int64_t>(len, 0));
 

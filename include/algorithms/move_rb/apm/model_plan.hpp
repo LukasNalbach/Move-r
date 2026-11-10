@@ -47,11 +47,11 @@
  * The searches are those of the given scheme, with the upper bound of each step lowered to the number of errors a
  * valid alignment can have in the parts searched until then (see apm_costs_t::max_errors). A search whose lower bound
  * then exceeds its upper bound is dropped. For edit distance, all lower bounds are 0 once an upper bound is lowered or
- * the search bounds the cost (see apm_costs_t::bounds_costs).
+ * the costs are computed in the search (see apm_costs_t::bounds_costs).
  *
- * Instead, a single search runs if the pattern has a range of positions without errors and free symbols (an anchor)
- * that has at most as many occurrences as the first parts without errors of the searches together: it starts at the
- * anchor, extends it to the end of the pattern and then to its start.
+ * Instead, a single search is run if the pattern has a range of positions without errors and free symbols (an anchor)
+ * that occurs at most as often as the error-free first parts of all searches together: it starts at the anchor,
+ * extends it to the end of the pattern and then to its start.
  *
  * @tparam idx_t the bidirectional index type
  * @tparam query_support COUNT or LOCATE
@@ -64,7 +64,7 @@ public:
 
 protected:
     partition_t _partition;
-    std::optional<partition_t> _anchored; // the partition of the anchored search, if it runs
+    std::optional<partition_t> _anchored; // the partition of the anchored search, if it is run
     search_scheme_t _scheme;
 
 public:
@@ -82,7 +82,7 @@ public:
         const uint64_t m = P.size();
         const uint64_t p = scheme.p;
         if (scheme.k < costs.max_errors()) {
-            throw std::invalid_argument("the search scheme allows fewer errors than the model");
+            throw std::invalid_argument("the search scheme has fewer errors than the maximum number of errors of the model");
         }
 
         // the computed values of costs.max_errors(beg, end), as (beg, end, value)
@@ -98,8 +98,8 @@ public:
         const uint64_t no_limit = std::numeric_limits<uint64_t>::max();
         auto add_bounded = [&](uint64_t a, uint64_t b) { return a > no_limit - b ? no_limit : a + b; };
 
-        // the searches with lowered upper bounds; num_first_part_occ is the number of occurrences of their first
-        // parts without errors (no_limit if a first part can have errors)
+        // the searches with lowered upper bounds; num_first_part_occ is the total number of occurrences of their
+        // error-free first parts (no_limit if a first part can have errors)
         _scheme.k = scheme.k;
         _scheme.p = p;
         _scheme.S.clear();
@@ -128,8 +128,8 @@ public:
             _scheme.S.emplace_back(std::move(T));
         }
 
-        // for edit distance, a lower bound can exclude a valid alignment if an upper bound or the costs exclude the
-        // alignment of the same text string with the fewest errors; then the lower bounds are dropped
+        /* for edit distance, a valid alignment can be missed because of a lower bound if the alignment of the same text
+           string with the fewest errors exceeds an upper bound or the cost bound; then the lower bounds are set to 0 */
         if (costs.metric() == EDIT_DISTANCE && (lowered || costs.bounds_costs())) {
             for (search_t& S : _scheme.S) for (search_step_t& step : S) step.k_min = 0;
         }

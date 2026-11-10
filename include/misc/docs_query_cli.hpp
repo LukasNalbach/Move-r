@@ -33,6 +33,7 @@
 #define MOVE_R_MISC_DOCS_QUERY_CLI_HPP
 
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -64,7 +65,7 @@ struct docs_query_cli_t {
 // the files and the names of the document queries of a patterns file
 struct docs_query_run_t {
     query_options_t& options; // -p, -o, -m
-    direct_ofstream& output_file; // -o
+    std::ofstream& output_file; // -o
     const std::string& path_index_file;
     const std::string& path_patterns_file;
     std::string measurement_name; // the name of the index in the measurement file (algo = docs_<report>_<name>)
@@ -248,6 +249,7 @@ void run_docs_queries(const document_array& docs, uint64_t n, const docs_query_c
                     }
 
                     out << '\n';
+                    chunk.write(j);
                 }
             }
         });

@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -95,16 +96,16 @@ struct apm_query_cli_t {
     // the search schemes of the queries of the patterns file: [0..e] schemes_by_errors[e'] = the scheme for e'
     // errors, with e = max_errors, if -bestmap or an error model is given; else only the scheme for max_errors errors
     std::vector<search_scheme_t> schemes_by_errors;
-    direct_ofstream hist_file; // -hist
-    direct_ofstream sam_file; // -sam
-    direct_ofstream paf_file; // -paf
-    direct_ofstream bed_file; // -bed
+    std::ofstream hist_file; // -hist
+    std::ofstream sam_file; // -sam
+    std::ofstream paf_file; // -paf
+    std::ofstream bed_file; // -bed
 };
 
 // the files and the names of the approximate queries of a patterns file
 struct apm_query_run_t {
     query_options_t& options; // -p, -o, -m
-    direct_ofstream& output_file; // -o
+    std::ofstream& output_file; // -o
     const std::string& path_index_file;
     const std::string& path_patterns_file;
     std::string built_with; // how an index with sequences is built, e.g. "move-rb build in the FASTA mode"
@@ -165,9 +166,10 @@ inline bool read_apm_query_option(cli_arguments& args, const std::string& option
 
 /**
  * @brief builds the search schemes of the queries of the patterns file (see apm_query_cli_t::schemes_by_errors) from
- *        -scheme and -k; a scheme file sets max_errors
+ *        -scheme and -k; with a scheme file, max_errors is read from the file
  * @param apm the options of the approximate queries
- * @throws usage_error if -scheme names neither a built-in scheme nor a file, or with -bestmap and a scheme file
+ * @throws usage_error if the value of -scheme is neither the name of a built-in scheme nor a file, or with -bestmap
+ *         and a scheme file
  */
 inline void build_search_schemes(apm_query_cli_t& apm);
 
@@ -183,7 +185,8 @@ inline const search_scheme_t& scheme_for_errors(const apm_query_cli_t& apm, uint
  * @param apm the options of the approximate queries
  * @param errors the maximum number of errors
  * @param costs the error model compiled for the pattern (nullptr: none)
- * @throws std::runtime_error if the scheme allows fewer errors than the error model
+ * @throws std::runtime_error if the number of errors of the scheme is smaller than the largest number of errors of the
+ *         error model
  */
 inline const search_scheme_t& scheme_for_query(const apm_query_cli_t& apm, uint64_t errors, const apm_costs_t* costs);
 
@@ -250,8 +253,8 @@ inline bool apm_locate_with_cigar(const apm_query_cli_t& apm)
 }
 
 /**
- * @brief throws if an index cannot answer the approximate queries of a patterns file: the edit distance and the error
- *        models rank the symbols with the map of the bytes (see move_r::map_int)
+ * @brief throws if the index does not support the approximate queries of a patterns file: for the edit distance and
+ *        the error models, the symbols are ranked with the map of the bytes (see move_r::map_int)
  * @tparam index_t type of the index
  * @param apm the options of the approximate queries
  * @param index the index
@@ -287,7 +290,7 @@ void run_apm_count_queries(const index_t& index, apm_query_cli_t& apm, const apm
  * @brief locates the occurrences of a read on one strand (with -sam, -paf or -bed), sorts them by position and removes the
  *        edit-distance occurrences that overlap a better one (see filter_edit_distance_occurrences); a read with at
  *        most p symbols (p: the number of parts of the search scheme) has no occurrences
- * @tparam cm whether the occurrences carry a CIGAR
+ * @tparam cm whether the occurrences have a CIGAR
  * @tparam index_t type of the index
  * @param apm the options of the approximate queries
  * @param index the index
@@ -302,7 +305,7 @@ void locate_strand(const apm_query_cli_t& apm, const index_t& index, const std::
 
 /**
  * @brief locates the approximate occurrences of the patterns of the patterns file and prints the summary
- * @tparam cm whether the occurrences carry a CIGAR (with -sam or -paf without -no-cigar)
+ * @tparam cm whether the occurrences have a CIGAR (with -sam or -paf without -no-cigar)
  * @tparam index_t type of the index (a move_rb that supports approximate pattern matching and locates all occurrences)
  * @tparam log_sizes_fnc_t type of log_sizes
  * @param index the index

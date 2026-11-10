@@ -1,9 +1,9 @@
 # Move-rb in C++
 
 `move_rb<support>` (header `move_rb/move_rb.hpp`) is the bi-directional index of a text T: a move-r index of T and one
-of the reversed text T^R. A search context of a pattern P can be extended by a symbol on both sides. On top of this,
-it matches patterns approximately with search schemes and lists the documents containing a pattern. Link your target
-with `move_r` (see the [main README](../README.md#c-usage)).
+of the reversed text T^R. A search context of a pattern P can be extended by a symbol on both sides. With the index,
+patterns are matched approximately with search schemes, and the documents containing a pattern are listed. Link your
+target with `move_r` (see the [main README](../README.md#c-usage)).
 
 Every block below is a complete program. A comment `// -> x` at the end of a line or on the line above a statement
 shows the line the statement prints, `// ~> x` an output that depends on the build (e.g. a size).
@@ -23,11 +23,11 @@ shows the line the statement prints, `// ~> x` an output that depends on the bui
 The template parameter `support` is `_count`, `_locate_one` (one occurrence per pattern), `_locate_move` (default;
 locate with M_Phi_inv) or `_locate_rlzsa` (locate with an RLZ of the differential suffix array).
 
-The construction takes the parameters of move-r (`move_r_params`, see [move-r.md](move-r.md#construction)) and these:
+The construction parameters are those of move-r (`move_r_params`, see [move-r.md](move-r.md#construction)) and these:
 
-- `context_table_share`: the share of the index size used for a table of the search contexts of all short patterns,
-  at which a search starts (default 0.05, 0 builds none);
-- `context_tables_single_length`: `true` stores the table for one pattern length only;
+- `context_table_share`: the maximum size of a table of the search contexts of all short patterns, at which a search
+  starts, as a fraction of the index size (default 0.05; 0: no table);
+- `context_tables_single_length`: with `true`, the table is stored for one pattern length only;
 - `documents`: the documents of the text (`_locate_move` and `_locate_rlzsa` only, see [Documents](#documents)).
 
 ```cpp
@@ -153,8 +153,8 @@ int main()
     std::cout << ctx_a.is_prefix_of(ctx_acad) << " "
               << ctx_a.is_suffix_of(ctx_aca) << std::endl;
 
-    // a counting context only counts; extend_one_sided maintains the interval
-    // of one direction only
+    // with a counting context, the occurrences are only counted;
+    // extend_one_sided maintains the interval of one direction only
     auto [ctx_b, b_occurs] = index.empty_context<COUNT>().extend('b', RIGHT);
     auto [count_ctx, br_occurs] = ctx_b.extend('r', RIGHT);
     std::cout << count_ctx.num_occ() << std::endl; // -> 2
@@ -222,12 +222,13 @@ int main()
 
 ## Approximate pattern matching
 
-The index finds the occurrences of P with at most k errors under the Hamming distance (substitutions) or the edit
-distance (substitutions, insertions and deletions) with a search scheme (header `misc/search_schemes.hpp`), which
-splits P into parts and searches them in several orders. The built-in schemes for k errors are
+The occurrences of P with at most k errors under the Hamming distance (substitutions) or the edit distance
+(substitutions, insertions and deletions) are found with a search scheme (header `misc/search_schemes.hpp`): P is
+split into parts, which are searched in several orders. The built-in schemes for k errors are
 `pigeon_hole_scheme(k)`, `suffix_filter_scheme(k)`, `zero_one_scheme(k)` and `min_u_scheme(k)` (usually the fastest);
 `parse_search_scheme` reads one in the format of the files in [search_schemes/](../search_schemes/). An occurrence
-(`aprx_occ_t`) stores its position, its length and its number of errors. Counting supports only the Hamming distance.
+(`aprx_occ_t`) stores its position, its length and its number of errors. Counting is supported only for the Hamming
+distance.
 
 ```cpp
 #include <move_rb/move_rb.hpp>
@@ -289,10 +290,10 @@ int main()
 }
 ```
 
-An error model (header `algorithms/move_rb/apm/model.hpp`) replaces the unit costs: costs of substitutions,
-insertions, deletions and gap openings per range of P and per symbol, bounds on the number of operations in a range,
-symbol classes and IUPAC codes. It is compiled for a pattern; the cost of an occurrence is reported as its error
-count.
+Instead of unit costs, an error model (header `algorithms/move_rb/apm/model.hpp`) can be used: costs of
+substitutions, insertions, deletions and gap openings per range of P and per symbol, upper bounds on the number of
+operations in a range, symbol classes and IUPAC codes. It is compiled for a pattern; the cost of an occurrence is
+reported as its error count.
 
 ```cpp
 #include <move_rb/move_rb.hpp>
@@ -301,8 +302,8 @@ int main()
 {
     move_rb<> index("abracadabra");
 
-    // an insertion or a deletion costs 2, the last two symbols of P have no
-    // errors, an occurrence costs at most 2
+    // the cost of an insertion or a deletion is 2, the last two symbols of P
+    // have no errors, the cost of an occurrence is at most 2
     apm_model_t model;
     model.costs.push_back(parse_apm_cost_rule("id=2"));
     model.costs.push_back(parse_apm_cost_rule("sid=inf@-2:"));
@@ -324,8 +325,8 @@ int main()
 With `documents` (a `document_map`: the starting positions of ranges of the text and the document of each range), an
 index that locates all occurrences (`_locate_move` or `_locate_rlzsa`) stores the documents of the text.
 `document_query` (header `algorithms/documents.hpp`) lists, counts and ranks the documents containing a pattern from
-its occurrences: a query takes a function `occurrences`, called as `occurrences(report)`, that calls `report(occ)` for
-every occurrence.
+its occurrences: the occurrences are passed to each query as a function `occurrences`, called as
+`occurrences(report)`, that calls `report(occ)` for every occurrence.
 
 ```cpp
 #include <move_rb/move_rb.hpp>

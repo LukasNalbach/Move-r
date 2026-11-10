@@ -35,8 +35,8 @@
 #include <libsais40_types.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::choose_sa_samples_layout()
+template <move_r_support support>
+void move_r<support>::construction::choose_sa_samples_layout()
 {
     samples_layout = _at_run_boundaries;
 
@@ -49,8 +49,8 @@ void move_r<support, mlf_enc>::construction::choose_sa_samples_layout()
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::start_construction()
+template <move_r_support support>
+void move_r<support>::construction::start_construction()
 {
     time = now();
     time_start = time;
@@ -62,8 +62,8 @@ void move_r<support, mlf_enc>::construction::start_construction()
     if (params.log) peak_measurement.emplace();
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::limit_num_threads()
+template <move_r_support support>
+void move_r<support>::construction::limit_num_threads()
 {
     if (p > 1 && move_r_min_symbols_per_thread * p > n) {
         const uint64_t requested = p;
@@ -75,8 +75,8 @@ void move_r<support, mlf_enc>::construction::limit_num_threads()
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::log_phase_end(const std::string& mf_key)
+template <move_r_support support>
+void move_r<support>::construction::log_phase_end(const std::string& mf_key)
 {
     ::log_phase_end(params.log, time, params.measurement_file,
         mf_key.empty() ? mf_key : mf_key + params.measurement_key_suffix);
@@ -87,8 +87,8 @@ void move_r<support, mlf_enc>::construction::log_phase_end(const std::string& mf
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::log_phase_end_quiet(const std::string& mf_key)
+template <move_r_support support>
+void move_r<support>::construction::log_phase_end_quiet(const std::string& mf_key)
 {
     if (!params.log) return;
     const std::string key = mf_key + params.measurement_key_suffix;
@@ -102,8 +102,8 @@ void move_r<support, mlf_enc>::construction::log_phase_end_quiet(const std::stri
     note_peak();
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::log_mds_phase_end(const std::string& time_key, const std::string& count_key, uint64_t count)
+template <move_r_support support>
+void move_r<support>::construction::log_mds_phase_end(const std::string& time_key, const std::string& count_key, uint64_t count)
 {
     if (!params.log) return;
     if (params.mf_mds != nullptr) *params.mf_mds << std::endl;
@@ -114,15 +114,15 @@ void move_r<support, mlf_enc>::construction::log_mds_phase_end(const std::string
     log_block_end(true);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::log_peak_mem_usage()
+template <move_r_support support>
+void move_r<support>::construction::log_peak_mem_usage()
 {
     if (!params.log || !is_malloc_count_linked || params.peak_memory_usage != nullptr) return;
     log_peak_memory_usage("peak memory usage until now", overall_peak() - baseline_mem_usage, n);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-move_r<support, mlf_enc>::construction::construction(move_r<support, mlf_enc>& index,
+template <move_r_support support>
+move_r<support>::construction::construction(move_r<support>& index,
     move_r_input_view& T, bool delete_T, move_r_params params_)
     : inp_width(T.symbol_width())
     , byte_alphabet(T.byte_alphabet())
@@ -133,7 +133,7 @@ move_r<support, mlf_enc>::construction::construction(move_r<support, mlf_enc>& i
     this->delete_T = delete_T;
     p = params.num_threads;
     reversed = params.reversed;
-    pfp_prefix = params.pfp_cache ? move_r<support, mlf_enc>::pfp_cache_path(params, reversed) : "";
+    pfp_prefix = params.pfp_cache ? move_r<support>::pfp_cache_path(params, reversed) : "";
     pfp_cache = !pfp_prefix.empty();
     if (pfp_cache && std::filesystem::exists(pfp_prefix)) pfp_cache_descriptor.open(pfp_prefix);
     idx.byte_alphabet = byte_alphabet;
@@ -142,9 +142,9 @@ move_r<support, mlf_enc>::construction::construction(move_r<support, mlf_enc>& i
     start_construction();
 
     const std::string& input_file = params.input_file;
-    n = move_r<support, mlf_enc>::input_length(T, params);
+    n = move_r<support>::input_length(T, params);
 
-    // the suffix array modes build a suffix array with 40-bit entries (see move_r_max_input_length_sa)
+    // in the suffix array modes, a suffix array with 40-bit entries is built (see move_r_max_input_length_sa)
     if (!move_r_builds_runs_file(params.mode) && n - 1 > move_r_max_input_length_sa) {
         throw std::runtime_error("the input is too long for the construction modes sa and sa-space (at most 2^"
             + std::to_string(std::bit_width(move_r_max_input_length_sa)) + " - 1 input symbols); use the "
@@ -173,7 +173,8 @@ move_r<support, mlf_enc>::construction::construction(move_r<support, mlf_enc>& i
     } else {
         // without a cache, the RLBWT and its samples are written to files with the prefix prefix_tmp_files
         if (!uses_pfp_cache()) pfp_prefix = prefix_tmp_files;
-        // a FASTA file read once gets its alphabet map from the parsing (see build_rlbwt_pfp_fasta_once)
+        // for a FASTA file that is read once, the alphabet map is computed by the parsing (see
+        // build_rlbwt_pfp_fasta_once)
         if (idx.sigma == 0 && !reads_fasta_once()) preprocess_t(input_file);
 
         try {
@@ -194,8 +195,8 @@ move_r<support, mlf_enc>::construction::construction(move_r<support, mlf_enc>& i
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_index()
+template <move_r_support support>
+void move_r<support>::construction::build_index()
 {
     limit_num_threads();
 
@@ -249,7 +250,7 @@ void move_r<support, mlf_enc>::construction::build_index()
         build_SA_run_from_iphi_inv();
 
         if constexpr (has_locate_move) {
-            // M_LF and the data structures over L' stay in memory while M_Phi and M_Phi_inv are built, if M_Phi is
+            // M_LF and the data structures over L' are kept in memory while M_Phi and M_Phi_inv are built, if M_Phi is
             // built
             const bool spill_lf = spill && !has_mphi;
 
@@ -279,7 +280,7 @@ void move_r<support, mlf_enc>::construction::build_index()
             build_data_structures_over_l_();
             if (spill) store_data_structures_over_l_();
 
-            // M_LF and SA_run stay in memory, the rlz construction reads them (see SA_rlz_reader)
+            // M_LF and SA_run are kept in memory, since the rlz construction reads them (see SA_rlz_reader)
             sort_iphi_inv();
             build_SA_rlz();
 
@@ -292,14 +293,14 @@ void move_r<support, mlf_enc>::construction::build_index()
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::log_finished()
+template <move_r_support support>
+void move_r<support>::construction::log_finished()
 {
     if (!params.log) return;
     uint64_t time_construction = time_diff_ns(time_start, now());
     uint64_t peak_mem_usage = overall_peak() - baseline_mem_usage;
 
-    // a sub-index of a larger construction writes its summary only to the measurement file
+    // for a sub-index of a larger construction, the summary is written only to the measurement file
     if (!is_bidirectional && params.peak_memory_usage == nullptr) {
         // the sizes are a block of their own (see log_empty_line)
         log_empty_line(true);
@@ -320,8 +321,8 @@ void move_r<support, mlf_enc>::construction::log_finished()
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::log_statistics()
+template <move_r_support support>
+void move_r<support>::construction::log_statistics()
 {
     if (!params.log) return;
     double n_r = std::round(100.0 * ((n - 1) / (double)r)) / 100.0;
@@ -337,8 +338,8 @@ void move_r<support, mlf_enc>::construction::log_statistics()
         + ", sigma = " + format_number(idx.sigma) + "\n");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::end_grouped_phase(const std::string& message, uint64_t bytes, bool with_size, const std::string& mf_key,
+template <move_r_support support>
+void move_r<support>::construction::end_grouped_phase(const std::string& message, uint64_t bytes, bool with_size, const std::string& mf_key,
     bool logged)
 {
     const uint64_t ns = time_diff_ns(time, now());

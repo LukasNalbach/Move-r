@@ -345,8 +345,8 @@ void move_rb<support>::build_byte_alphabet(build_state_t& st)
             return;
         }
 
-        // the internal symbols [1..256] of all 256 bytes do not fit into a byte, so T gets two bytes per symbol (and
-        // space for the terminator that a sub-index appends)
+        // the internal symbols [1..256] of all 256 bytes do not fit into a byte, so T is stored with two bytes per
+        // symbol (and with space for the terminator that a sub-index appends)
         st.wide_input.reserve(n);
         move_r_widen_bytes(input, st.wide_input, p);
 

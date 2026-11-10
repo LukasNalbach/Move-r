@@ -34,8 +34,8 @@
 // smallest value run_fuzz reduces max_input_size to in TEST(test_move_r, index)
 constexpr uint64_t min_reduced_max_input_size = 512;
 
-// TEST(test_move_r, parallel_construction): inputs that give every thread twice the minimum number of symbols per
-// thread of the construction (see construction::limit_num_threads)
+// TEST(test_move_r, parallel_construction): inputs with twice the minimum number of symbols per thread of the
+// construction for every thread (see construction::limit_num_threads)
 constexpr uint64_t input_length_per_thread = 2 * move_r_min_symbols_per_thread;
 
 // TEST(test_move_r, retrieve_range_to_file): the retrieved range [range_beg, range_end]
@@ -87,14 +87,14 @@ static void verify_index_of_iteration(uint64_t i, uint64_t min_n = min_input_siz
     }
 }
 
-// builds one index per iteration and checks every query on it (serial: the checks run on all threads, see verify_index)
+// builds one index per iteration and checks every query on it (serial: the checks are run on all threads, see verify_index)
 TEST(test_move_r, index)
 {
     run_fuzz("move-r", { { "index", [](uint64_t i) { verify_index_of_iteration(i); } } },
         fuzz_iterations(), &max_input_size, min_reduced_max_input_size);
 }
 
-// inputs of length input_length_per_thread * max_num_threads, which the construction builds with all threads
+// inputs of length input_length_per_thread * max_num_threads, for which the index is built with all threads
 TEST(test_move_r, parallel_construction)
 {
     run_fuzz("move-r", { { "parallel-construction", [](uint64_t i) {
@@ -130,7 +130,7 @@ TEST(test_move_r, pfp_integer_alphabet)
                     + (from_file ? ", from a file" : ", from memory") + ", "
                     + std::to_string(params.num_threads) + " threads"
                     + (params.reorder_alphabet ? ", reordered" : ", not reordered");
-                // the empty container symbol_type passes the symbol type to the constructor
+                // the symbol type is passed to the constructor with the empty container symbol_type
                 std::vector<sym_t> symbol_type;
                 params.input_file = from_file ? write_temporary_input(input) : "";
                 const move_r<_locate_move> index(from_file ? symbol_type : input, params);

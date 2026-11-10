@@ -88,7 +88,7 @@ void move_rb<support>::log_direction_sizes() const
 template <move_r_support support>
 std::string move_rb<support>::context_tables_summary() const
 {
-    if (_context_tables.empty()) return "none, the budget is too small for one level";
+    if (_context_tables.empty()) return "none, one level does not fit into the size limit";
     std::ostringstream out;
 
     if (_context_tables.single_length() != 0) {

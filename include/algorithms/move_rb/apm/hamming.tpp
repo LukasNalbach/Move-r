@@ -131,7 +131,7 @@ std::vector<uint64_t> apm_hamming<idx_t>::count_histogram(const inp_t& P, const 
 
     std::vector<uint64_t> histogram(k + 1, 0);
 
-    // k >= m: every position matches; the total is counted with 0 errors
+    // k >= m: P occurs at each of the n - 1 text positions; all occurrences are counted in h[0]
     if (k >= m) { histogram[0] = _index.n - 1; return histogram; }
     if (k == 0) { histogram[0] = _index.forward_index().count(P); return histogram; }
 
@@ -211,7 +211,7 @@ auto apm_hamming<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) c
             state_t st = std::move(stack.back());
             stack.pop_back();
 
-            // a state with one child continues with it (see apm_dfs_children)
+            // a state with one child is continued with this child (see apm_dfs_children)
             while (true) {
                 auto& [ctx, position_idx, added_pos, num_errors, num_path_mismatches, added_sym] = st;
 
@@ -263,7 +263,7 @@ auto apm_hamming<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) c
                         break;
                     }
 
-                    // the only extension replaces the state
+                    // the state is replaced by the only extension
                     st = state_t{next_ctx, uint32_t(next_position_idx), uint32_t(no_mismatch), num_errors,
                         num_path_mismatches, uint8_t{}};
                 }
@@ -291,7 +291,7 @@ auto apm_hamming<idx_t>::search_model(const inp_t& P, const search_scheme_t& sch
         search_context_t<query_support> ctx;
         uint64_t counters; // the packed counters (see apm_costs_t)
         uint32_t position_idx; // index in positions of the next position to match
-        uint32_t added_pos; // the position at which this state differs from P, or no_mismatch (CIGAR mode)
+        uint32_t added_pos; // the position at which the symbol added with this state differs from P, or no_mismatch (CIGAR mode)
         uint16_t cost; // the cost so far
         uint8_t num_errors; // number of errors so far (see apm_costs_t::tau)
         uint8_t num_path_mismatches; // number of positions on the path of this state that differ from P (CIGAR mode)
@@ -324,7 +324,7 @@ auto apm_hamming<idx_t>::search_model(const inp_t& P, const search_scheme_t& sch
             model_state_t st = std::move(stack.back());
             stack.pop_back();
 
-            // a state with one child continues with it (see apm_dfs_children)
+            // a state with one child is continued with this child (see apm_dfs_children)
             while (true) {
                 if constexpr (query_support == LOCATE) if (_computes_cigars) {
                     _path_mismatches.resize(st.num_path_mismatches - (st.added_pos != no_mismatch ? 1 : 0));

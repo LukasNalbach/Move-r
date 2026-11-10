@@ -47,7 +47,7 @@ namespace {
 // the options of move-rb build
 struct move_rb_build_cli_t : build_cli_t {
     move_r_support support = _locate_move; // -s
-    // -context-table: the maximum size of the context tables as a share of the size of the index file
+    // -context-table: the maximum size of the context tables as a fraction of the index file size
     double context_table_share = move_r_params().context_table_share;
     // -context-table-one-length (see move_r_params::context_tables_single_length)
     bool context_tables_single_length = false;
@@ -62,7 +62,8 @@ struct move_rb_build_cli_t : build_cli_t {
 void print_help(std::ostream& out)
 {
     help_printer h(out);
-    h.intro("move-rb build: builds a bidirectional index of a text, which extends a pattern in both directions.",
+    h.intro("move-rb build: builds a bidirectional index of a text, with which a pattern can be extended in both "
+        "directions.",
         "move-rb build [options] <input_file>...");
     h.group("arguments");
     h.option("<input_file>...", "", "the text; in the FASTA mode one or more FASTA files, which are concatenated");
@@ -79,22 +80,22 @@ void print_help(std::ostream& out)
         "locate-move: all occurrences, with the suffix array in move data structures\n"
         "locate-rlzsa: all occurrences, with the suffix array compressed with relative Lempel-Ziv");
     h.option("-context-table <share>", "number >= 0 (default: " + help_value(move_r_params().context_table_share) + ")",
-        "the maximum size of the table of the suffix-array intervals of short patterns, as a share of the size of "
-        "the index file; 0: no table");
+        "the maximum size of the table of the suffix-array intervals of short patterns, as a fraction of the index "
+        "file size; 0: no table");
     h.option("-context-table-one-length", "", "store the table for one pattern length only");
     h.option("-docs <docs>", "records | files | <file>",
         "in the FASTA mode, with -s locate-move or locate-rlzsa: also store the documents of the text "
         "(see move-rb docs)\n"
         "records: every FASTA record is a document\n"
         "files: every input file is a document\n"
-        "<file>: one line \"<record name> <document name>\" per record groups the records into documents");
+        "<file>: the document of each record, one line \"<record name> <document name>\" per record");
     h.group("output");
     h.option("-o <base_name>", "a path (default: <input_file>)", "the index is written to "
         "<base_name>.move-rb-<support>, with <support> = count, locate-one, locate (for -s locate-move) or rlzsa");
     h.group("execution");
     print_execution_options(h, "the BWTs are built with the prefix-free parsing (pfp-rlbwt) and stored in "
-        "<input_file>.bwt-runs and <input_file>.bwt-runs-rev, which later builds reuse without checking them "
-        "against the input");
+        "<input_file>.bwt-runs and <input_file>.bwt-runs-rev, which are reused by later builds without being "
+        "checked against the input");
     h.group("measurement");
     print_build_measurement_options(h, true);
 }

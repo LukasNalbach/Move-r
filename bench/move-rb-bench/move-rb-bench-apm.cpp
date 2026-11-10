@@ -79,7 +79,7 @@ enum cigar_sel_t : uint8_t {
     CIGAR_ONLY = 2 // locate with CIGAR strings
 };
 
-// a pattern file; its name gives one of the four operations count/locate x hamming/edit
+// a pattern file; its operation, one of count/locate x hamming/edit, is given by its name
 struct bench_job_t {
     bench_op_t op; // count or locate
     distance_metric_t metric; // HAMMING_DISTANCE or EDIT_DISTANCE
@@ -720,8 +720,8 @@ void measure_move_rb_rlzsa(const bench_config_t& cfg)
     std::cout << "usage: move-rb-bench-apm [...] <index flags...> <text_name> <patterns_path>" << std::endl;
     std::cout << "   -s <scheme>          search scheme to use (default: min_u): one of" << std::endl;
     std::cout << "                        pigeon_hole, suffix_filter, min_u, 01, or a path to a search-scheme file." << std::endl;
-    std::cout << "                        For the built-in schemes the number of errors k is taken from each pattern" << std::endl;
-    std::cout << "                        file name; a scheme file fixes k itself." << std::endl;
+    std::cout << "                        With a built-in scheme, the number of errors k is read from each pattern" << std::endl;
+    std::cout << "                        file name; with a scheme file, k is read from the scheme file." << std::endl;
     std::cout << "   --metric <metric>    (optional) run only one distance metric: all|hamming|edit (default: all)" << std::endl;
     std::cout << "   --algo <selection>   (optional) which algorithm(s) to run: native|non-native|both (default: both)." << std::endl;
     std::cout << "                        native     = each index's own algorithm: move_rb (move/rlzsa) and the" << std::endl;
@@ -732,8 +732,8 @@ void measure_move_rb_rlzsa(const bench_config_t& cfg)
     std::cout << "   --k <list>           (optional) measure only pattern files with these error counts k (comma-separated)" << std::endl;
     std::cout << "   --m <list>           (optional) measure only pattern files with these pattern lengths m (comma-separated)" << std::endl;
     std::cout << "   --partitioning <s>   (optional) strategy for partitioning a pattern into the parts of the search" << std::endl;
-    std::cout << "                        scheme: uniform|dynamic|optimized|all (default: optimized). all measures uniform" << std::endl;
-    std::cout << "                        without seeding (see --no-seed), uniform, dynamic and optimized." << std::endl;
+    std::cout << "                        scheme: uniform|dynamic|optimized|all (default: optimized). With all, uniform" << std::endl;
+    std::cout << "                        without seeding (see --no-seed), uniform, dynamic and optimized are measured." << std::endl;
     std::cout << "   --no-seed            (optional) match the first part of each search symbol by symbol (default: start" << std::endl;
     std::cout << "                        with the exact match of the first part computed by the partitioning)" << std::endl;
     std::cout << "   --best               (optional) measure all-best mapping: locate with 0, 1, 2, ... errors until an" << std::endl;
@@ -745,26 +745,26 @@ void measure_move_rb_rlzsa(const bench_config_t& cfg)
     std::cout << "   -m <file>            append machine-readable RESULT lines to <file>" << std::endl;
     std::cout << "   --cigar [mode]       (optional) which CIGAR variant of locate to measure: off|both|only" << std::endl;
     std::cout << "                        (bare --cigar = both; default: off). off = only the plain locate; both = the" << std::endl;
-    std::cout << "                        plain locate and additionally a CIGAR-producing locate (RESULT field cigar=1);" << std::endl;
-    std::cout << "                        only = just the CIGAR locate. Applies to locate only (count has no CIGAR) and" << std::endl;
-    std::cout << "                        to the indexes that emit a CIGAR (move_rb and columba-native); the others are" << std::endl;
-    std::cout << "                        skipped for locate under 'only'." << std::endl;
+    std::cout << "                        plain locate and a locate that computes CIGARs (RESULT field cigar=1);" << std::endl;
+    std::cout << "                        only = only the CIGAR locate. Only for locate (count has no CIGAR) and for" << std::endl;
+    std::cout << "                        the indexes that compute CIGARs (move_rb and columba-native); with only," << std::endl;
+    std::cout << "                        locate is skipped for the other indexes." << std::endl;
     std::cout << "   --time <s>           (optional) replay each pattern file's query set until at least <s> seconds" << std::endl;
     std::cout << "                        have been measured for it (>= one pass); the reported time_* is then the" << std::endl;
-    std::cout << "                        average time for one pass over the set (num_patterns and num_occurrences stay" << std::endl;
-    std::cout << "                        per-pass). 0 = a single pass; default: 10" << std::endl;
+    std::cout << "                        average time for one pass over the set (num_patterns and num_occurrences are" << std::endl;
+    std::cout << "                        per pass). 0 = a single pass; default: 10" << std::endl;
     std::cout << "   index flags          (all optional, all independent) the location of each index to measure;" << std::endl;
     std::cout << "                        an index is measured only if its flag is given. At least one is required:" << std::endl;
     std::cout << "     --move-rb <file>         move_rb index using move data structures" << std::endl;
     std::cout << "     --move-rb-rlzsa <file>   move_rb index using an rlzsa" << std::endl;
-    std::cout << "     --bri <file>             br-index (.bri); drives both br_index and br_index_native" << std::endl;
+    std::cout << "     --bri <file>             br-index (.bri); used for both br_index and br_index_native" << std::endl;
     std::cout << "     --columba <base>         columba FM-index base name (columba is ACGT-only)" << std::endl;
     std::cout << "     --columba-rlc <base>     columba-rlc (b-move) index base name (ACGT-only)" << std::endl;
     std::cout << "     --sassy <text_file>      sassy (online matcher without an index); <text_file> is the plain" << std::endl;
     std::cout << "                              text (as written by fasta-to-text). sassy supports only locate" << std::endl;
     std::cout << "                              queries under the edit distance." << std::endl;
     std::cout << "   --sassy-profile <list>  (optional) alphabet profiles of sassy to measure, comma-separated:" << std::endl;
-    std::cout << "                        ascii, dna, iupac (default: ascii). dna maps every byte to {A,C,G,T}." << std::endl;
+    std::cout << "                        ascii, dna, iupac (default: ascii). With dna, every byte is mapped to {A,C,G,T}." << std::endl;
     std::cout << "   --sassy-patterns <N> (optional) maximum number of patterns per pattern set measured with sassy" << std::endl;
     std::cout << "                        (default: 3); the pattern sets are not replayed for sassy" << std::endl;
     std::cout << "   --sassy-chunk <bytes> (optional) size of the text chunks sassy is run on (default: 256 MiB);" << std::endl;
@@ -964,7 +964,7 @@ int main(int argc, char** argv)
 
     std::cerr << "found " << cfg.jobs.size() << " pattern file(s) for text '" << cfg.text_name << "'" << std::endl;
 
-    // --bri measures both the algorithm of move_rb on the br-index and the algorithm of the br-index
+    // with --bri, both the algorithm of move_rb on the br-index and the algorithm of the br-index are measured
     if (!cfg.br_index_path.empty() && cfg.run_non_native())
         run_guarded("br-index (apm)", measure_br_index, cfg);
     if (!cfg.columba_rlc_path.empty() || !cfg.columba_path.empty())

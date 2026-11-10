@@ -38,8 +38,8 @@
 
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_mlf()
+template <move_r_support support>
+void move_r<support>::construction::build_mlf()
 {
     begin_mds_result("build_mlf");
     log_mds_phase_start("M_LF");
@@ -61,8 +61,8 @@ void move_r<support, mlf_enc>::construction::build_mlf()
     log_mds_phase_end("time_build_mlf", "r_", r_);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_SA_run_from_iphi_inv()
+template <move_r_support support>
+void move_r<support>::construction::build_SA_run_from_iphi_inv()
 {
     /* SA_run is built here from I_Phi_inv (its pairs contain the SA values at the run boundaries), if the RLBWT
        has been read from the output of the prefix-free parsing and the samples are stored in SA_run */
@@ -112,8 +112,8 @@ void move_r<support, mlf_enc>::construction::build_SA_run_from_iphi_inv()
     release_rlbwt();
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_data_structures_over_l_()
+template <move_r_support support>
+void move_r<support>::construction::build_data_structures_over_l_()
 {
     // true <=> the smaller symbols in a range of L' are counted with a wavelet tree
     const bool wavelet = is_bidirectional && idx.sigma > max_sigma_num_smaller_psb;
@@ -169,8 +169,8 @@ void move_r<support, mlf_enc>::construction::build_data_structures_over_l_()
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_ilf()
+template <move_r_support support>
+void move_r<support>::construction::build_ilf()
 {
     log_phase_start("building I_LF");
 
@@ -208,8 +208,8 @@ void move_r<support, mlf_enc>::construction::build_ilf()
     log_phase_end("time_build_ilf");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::choose_revert_starts()
+template <move_r_support support>
+void move_r<support>::construction::choose_revert_starts()
 {
     if (!chooses_revert_starts()) return;
     log_phase_start("choosing the revert starts");

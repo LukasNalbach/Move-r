@@ -47,12 +47,13 @@
 /**
  * @brief the predicted number of steps of the searches of a search scheme for a partition of a pattern (the number of
  *        nodes of the search trees in a random text, Kucherov et al., Kianfar et al.): after its first part, a search
- *        extends the occurrences of the part by the strings that respect its error bounds; A(t) of these strings have
- *        t symbols, where position i of the pattern has match(i) symbols without an error and error(i) errors. Of the
- *        occ occurrences of the first part, occ * r / n have distinct continuations (r runs in the BWT of a text with
- *        n symbols), and at most occ * r / n / sigma^t of the A(t) strings occur, so a search takes
- *        sum_t A(t) * min(1, occ * r / n / sigma^t) steps. With an error model, the prediction is that of the searches
- *        that apm_model_plan runs (with the error bounds it lowers), and the strings respect the counters of the model.
+ *        extends the occurrences of the part by the strings whose numbers of errors lie within its error bounds; A(t)
+ *        of these strings have t symbols, where position i of the pattern has match(i) symbols without an error and
+ *        error(i) errors. Of the occ occurrences of the first part, occ * r / n have distinct continuations (r runs in
+ *        the BWT of a text with n symbols), and at most occ * r / n / sigma^t of the A(t) strings occur, so the number
+ *        of steps of a search is sum_t A(t) * min(1, occ * r / n / sigma^t). With an error model, the prediction is
+ *        made for the searches that apm_model_plan runs (with their lowered error bounds), and only strings whose
+ *        counters do not exceed the bounds of the counters of the model are counted.
  */
 class apm_search_cost {
     const search_scheme_t& _scheme;
@@ -66,7 +67,7 @@ class apm_search_cost {
        and of all errors */
     std::vector<double> _match, _sub, _ins, _del, _error;
 
-    // the operations that append a position: a match, a substitution, an insertion and a deletion
+    // the operations with which a position is appended: a match, a substitution, an insertion and a deletion
     static constexpr uint64_t num_operations = 4;
 
     // a string of t symbols after the first part: its number of errors, its counters and its last operation
@@ -101,9 +102,9 @@ class apm_search_cost {
     }
 
     /**
-     * @brief appends position i to the strings with counters (see for_each_step): a match, a substitution, an insertion
-     *        and a deletion each add their counter increments (and those of opening a gap), and strings whose counters
-     *        exceed their bounds or that have more than k_max errors are dropped
+     * @brief appends position i to the strings with counters (see for_each_step): for a match, a substitution, an
+     *        insertion and a deletion, the counter increments of the operation (and those of opening a gap) are added,
+     *        and strings whose counters exceed their bounds or that have more than k_max errors are dropped
      */
     void append_counted(std::vector<counted_t>& cnt, std::vector<counted_t>& next, uint64_t i, uint64_t k_max) const
     {
@@ -311,10 +312,10 @@ public:
     }
 
     /**
-     * @brief returns the predicted number of steps of the searches that run: all searches of the scheme, or with an
-     *        error model those that apm_model_plan keeps, or the anchored search if the plan runs it instead (if the
-     *        anchor occurs at most as often as the first parts of the kept searches together, where a first part that
-     *        admits errors or has a free symbol counts as occurring unboundedly often)
+     * @brief returns the predicted number of steps of the searches that are run: all searches of the scheme; with an
+     *        error model, the searches that apm_model_plan keeps, or the anchored search if apm_model_plan runs it
+     *        instead (if the anchor occurs at most as often as the first parts of the kept searches together, where a
+     *        first part with a free symbol or in which errors are possible is treated as occurring unboundedly often)
      * @param bounds [0..p] the bounds of the parts
      * @param occ [0..p-1] the numbers of occurrences of the parts
      */
@@ -326,7 +327,7 @@ public:
             return c;
         }
 
-        // the searches that the plan keeps, and whether it runs the anchored search instead
+        // the searches kept by apm_model_plan, and whether apm_model_plan runs the anchored search instead
         std::vector<const search_t*> kept;
         double first_occ = 0;
         bool unbounded = false;

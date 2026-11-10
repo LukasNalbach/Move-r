@@ -40,8 +40,8 @@
 #include <move_r/construction/pfp_output.hpp>
 #include <move_r/move_r.hpp>
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_sa()
+template <move_r_support support>
+void move_r<support>::construction::build_sa()
 {
     if (!byte_alphabet && idx.symbols_remapped) {
         log_phase_start("mapping T");
@@ -62,8 +62,8 @@ void move_r<support, mlf_enc>::construction::build_sa()
     log_phase_end("time_build_sa");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::build_rlbwt_c()
+template <move_r_support support>
+void move_r<support>::construction::build_rlbwt_c()
 {
     log_phase_start(rlbwt_from_pfp ? (idx._rlbwt_from_cache ? "reading RLBWT (from the PFP cache)" : "reading RLBWT")
         : "building RLBWT");
@@ -189,8 +189,8 @@ void move_r<support, mlf_enc>::construction::build_rlbwt_c()
     log_phase_end("time_build_rlbwt");
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::compute_C()
+template <move_r_support support>
+void move_r<support>::construction::compute_C()
 {
     uint64_t max_symbol = num_symbol_values();
 
@@ -216,8 +216,8 @@ void move_r<support, mlf_enc>::construction::compute_C()
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::store_rlbwt()
+template <move_r_support support>
+void move_r<support>::construction::store_rlbwt()
 {
     store_to_tmp_file("RLBWT", ".rlbwt", "time_store_rlbwt", [&](direct_ofstream& file) {
         for (uint64_t i = 0; i < p_; i++) RLBWT[i].serialize(file);
@@ -225,8 +225,8 @@ void move_r<support, mlf_enc>::construction::store_rlbwt()
     });
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::construction::load_rlbwt()
+template <move_r_support support>
+void move_r<support>::construction::load_rlbwt()
 {
     load_from_tmp_file("RLBWT", ".rlbwt", "time_load_rlbwt", true, [&](direct_ifstream& file) {
         RLBWT.resize(p_);

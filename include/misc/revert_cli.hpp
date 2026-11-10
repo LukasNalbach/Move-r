@@ -93,8 +93,8 @@ inline void print_revert_help(std::ostream& out, const revert_mode_t& mode)
 }
 
 /**
- * @brief calls fnc(index) with the move_r index that reverts the text: the index itself, or the index of the text
- *        (the reversed text, with -rev) of a move_rb
+ * @brief calls fnc(index) with the move_r index with which the text is reverted: the index itself, or the index of
+ *        the text (the reversed text, with -rev) of a move_rb
  * @tparam index_t type of the index
  * @param index the index
  * @param reversed true <=> the reversed text is reverted

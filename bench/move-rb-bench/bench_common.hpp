@@ -340,7 +340,8 @@ replay_result_t replay_pattern_set(double min_time_seconds, uint64_t num_pattern
 // ############################# INDEXES #############################
 
 /**
- * @brief loads an index (and stores the heap memory it takes in g_index_mem) and removes its file from the page cache
+ * @brief loads an index (and stores the heap memory allocated for it in g_index_mem) and removes its file from the
+ *        page cache
  * @param index the index
  * @param path path of the index file
  * @param name name of the index in the messages
@@ -400,7 +401,7 @@ void with_columba_plugin(const std::string& base, const std::string& plugin_base
               << (width ? width * std::numeric_limits<uint8_t>::digits : std::numeric_limits<uint64_t>::digits)
               << "-bit; loading " << so_name << std::endl;
 
-    // RTLD_LOCAL keeps the symbols of the plugin private, so that the plugins of both columba variants can be loaded
+    // with RTLD_LOCAL, the symbols of the plugin are private, so that the plugins of both columba variants can be loaded
     const std::string so_path = executable_dir() + "/" + so_name;
     void* lib = dlopen(so_path.c_str(), RTLD_NOW | RTLD_LOCAL);
 

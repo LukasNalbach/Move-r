@@ -70,7 +70,8 @@ struct print_cli_t {
     move_r_support support = _locate_move; // -s: the support type (move-r and move-rb)
     uint64_t max_depth = default_logged_tree_depth; // -depth: the depth up to which trees are printed
     uint64_t max_entries = default_logged_entries; // -entries: the maximum number of printed entries per table or tree
-    // -context-table: the maximum size of the context tables of move-rb and context_tables as a share of the index
+    // -context-table: the maximum size of the context tables of move-rb and context_tables as a fraction of the index
+    // size
     double context_table_share = 1;
     bool context_tables_single_length = false; // -context-table-one-length
 } cli;
@@ -106,7 +107,7 @@ void print_help(std::ostream& out)
     h.option("-rlz-ref <len>", "integer >= 0 (default: " + std::to_string(defaults.rlz_max_reference_len)
         + ", chosen by the construction)", "sa_rlz: the number of values of SA^d in the reference");
     h.option("-context-table <share>", "number >= 0 (default: " + help_value(defaults.context_table_share) + ")",
-        "move-rb and context_tables: the maximum size of the context tables as a share of the size of the index");
+        "move-rb and context_tables: the maximum size of the context tables as a fraction of the index size");
     h.option("-context-table-one-length", "", "move-rb and context_tables: store the context tables for one pattern "
         "length only");
     h.group("output");

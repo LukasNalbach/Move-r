@@ -93,7 +93,7 @@ inline void require_storable_occurrence_length(uint64_t max_len)
  *        the index cig_idx of its CIGAR in the vector of CIGARs returned by locate (one CIGAR per SA interval, which
  *        all occurrences of the SA interval share); 10 bytes without and 14 bytes with a CIGAR index. The bit-fields
  *        have the layout of a packed struct of GCC (see packed_bit_fields).
- * @tparam mode whether the occurrence also carries a CIGAR alignment
+ * @tparam mode whether the occurrence also has a CIGAR alignment
  */
 template <cigar_mode_t mode = NO_CIGAR>
 struct __attribute__((packed)) aprx_occ_t {
@@ -324,10 +324,10 @@ static std::vector<aprx_occ_t<>> locate_edit_dist(const inp_t& T, const inp_t& P
             const int64_t j_max = std::min(l_max, n - i);
 
             for (int64_t j = 1; j <= j_max; j++) {
-                // once the whole band exceeds k, no longer window can come back under the budget
+                // once all cells of the band exceed k, no longer window has at most k errors
                 if (!mat.compute_row(j, T[i + j - 1])) [[unlikely]] break;
 
-                // a final-column cell holds ed(T[i..i+j), P) and is exact whenever it is within the budget
+                // a cell of the final column contains ed(T[i..i+j), P), which is exact if it is at most k
                 if (j >= l_min && mat.is_in_final_column(j)) {
                     int64_t err = mat(j, m);
 
@@ -353,7 +353,7 @@ static std::vector<aprx_occ_t<>> locate_edit_dist(const inp_t& T, const inp_t& P
  * @brief removes redundant approximate occurrences in place: an occurrence is dropped if the previous kept occurrence
  *        and the next occurrence both have an error count at most its own and their positions differ by at most
  *        2k + 3
- * @tparam mode whether the occurrences carry a CIGAR alignment (moved along with the kept occurrences)
+ * @tparam mode whether the occurrences have a CIGAR alignment (moved along with the kept occurrences)
  * @param Occ the occurrences (sorted by position); filtered in place
  * @param k the maximum number of errors
  */
@@ -427,7 +427,7 @@ inline bool verify_edit_distance_coverage(
  *        count within max_dist positions: the error counts are processed in increasing order, and the leftmost
  *        occurrence of the current error count that is not covered yet is covered by keeping the rightmost occurrence
  *        at most max_dist positions after it whose error count is at most its own
- * @tparam mode whether the occurrences carry a CIGAR alignment (moved along with the kept occurrences)
+ * @tparam mode whether the occurrences have a CIGAR alignment (moved along with the kept occurrences)
  * @param Occ the occurrences (sorted by position); filtered in place
  * @param max_dist the maximum distance between an occurrence and a kept occurrence covering it
  */
@@ -520,11 +520,11 @@ struct apm_params_t {
        partitioning; false <=> it matches its first part symbol by symbol */
     bool start_at_part_contexts = true;
 
-    /* the error model compiled for the pattern (see apm_costs_t); nullptr: every error costs 1 and the bound is the k
-       of the search scheme. With a model, the k of the search scheme must be at least costs->max_errors(), and an
-       occurrence is reported with its cost as its error count, in increasing order of the positions; for edit distance,
-       every alignment within the bound that starts at a position i has a reported occurrence at most
-       2 * costs->max_errors() + 1 positions away from i whose cost is at most its own */
+    /* the error model compiled for the pattern (see apm_costs_t); nullptr: each error has cost 1, and the maximum cost
+       of an alignment is the k of the search scheme. With a model, the k of the search scheme must be at least
+       costs->max_errors(), and an occurrence is reported with its cost as its error count, in increasing order of the
+       positions. For edit distance, for every valid alignment that starts at a position i, an occurrence with at most
+       the same cost is reported whose start is at most 2 * costs->max_errors() + 1 positions away from i */
     const apm_costs_t* costs = nullptr;
 };
 
@@ -536,7 +536,7 @@ struct apm_params_t {
  * k is increased by x + 2 for k < 5 and by x + 4 for k >= 5 (the steps of Columba, Renders et al.). If then
  * best + x > k, locate_k is called once more with k = min(best + x, max_k).
  *
- * @tparam mode whether the occurrences carry a CIGAR alignment
+ * @tparam mode whether the occurrences have a CIGAR alignment
  * @tparam locate_fnc_t type of locate_k
  * @param max_k the maximum number of errors
  * @param x the number of error counts above best that are also reported

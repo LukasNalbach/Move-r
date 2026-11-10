@@ -52,13 +52,13 @@
  * @brief a wavelet tree over a sequence of symbols with weights, supporting the query smaller(i, j, c): the
  *        sum of the weights of the entries in [i, j) whose symbol is smaller than c
  *
- * A node represents a range of the alphabet and contains the entries whose symbol lies in it. It splits its
- * range at the symbol that divides its entries most evenly; an internal node is identified by this symbol,
- * and the leaves are in symbol order. A level stores the blocks (the entries) of its internal nodes
- * concatenated in symbol order: a bit vector marking the entries that belong to a right child, and the prefix
- * sums of the weights of the entries after each block has been partitioned stably into the entries of the
- * left and of the right child. The entries of a leaf are not stored. A query descends from the root to a
- * leaf and adds, wherever it descends to a right child, the weights of the entries of the left child.
+ * A node represents a range of the alphabet and contains the entries whose symbol lies in it. Its range is split
+ * at the symbol that divides its entries most evenly; an internal node is identified by this symbol, and the
+ * leaves are in symbol order. A level stores the blocks (the entries) of its internal nodes concatenated in
+ * symbol order: a bit vector marking the entries that belong to a right child, and the prefix sums of the
+ * weights of the entries after each block has been partitioned stably into the entries of the left and of the
+ * right child. The entries of a leaf are not stored. A query descends from the root to a leaf; at each descent
+ * to a right child, the weights of the entries of the left child are added.
  */
 class wavelet_tree_prefix_sum {
 public:
@@ -79,7 +79,7 @@ protected:
     uint64_t num_entries = 0; // length of the sequence
     uint64_t total = 0; // sum of all weights
     uint64_t sigma = 0; // the largest symbol + 1
-    uint32_t root = leaf; // the symbol at which the root splits its alphabet range
+    uint32_t root = leaf; // the symbol at which the alphabet range of the root is split
     uint32_t height = 0; // number of levels
 
     /* the bit vectors of the levels: [0..height-1] _bits[l][i] = 1 <=> the entry at position i of level l (the blocks of
@@ -93,7 +93,7 @@ protected:
        the sum of the weights of the first k entries of level l after each block has been partitioned */
     std::vector<elias_fano_bit_vector> _weight_prefix_sums;
 
-    // [1..sigma-1] the internal nodes, indexed by the symbol at which they split their range; fields: the
+    // [1..sigma-1] the internal nodes, indexed by the symbol at which their range is split; fields: the
     // left and the right child (leaf <=> the child is a leaf), the starting position of the block of the
     // node in its level and the number of ones in its level before the block
     interleaved_bit_aligned_vectors _nodes;

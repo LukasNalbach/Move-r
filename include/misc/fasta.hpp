@@ -131,7 +131,8 @@ struct fasta_chunk_t : pfp_rlbwt::fasta_chunk {
     std::string continued_name;
     bool continued_name_ends = false; // the name of the header line that the chunk starts inside ends in the chunk
 
-    // the '>' of a header line; it yields a separator (see pfp_rlbwt::fasta_transform::separator_before_first_record)
+    // the '>' of a header line, which is transformed into a separator (see
+    // pfp_rlbwt::fasta_transform::separator_before_first_record)
     void header_start()
     {
         seq_starts.emplace_back(text_size + 1);
@@ -192,7 +193,7 @@ struct fasta_sequence_collector {
  * @brief scans a FASTA file in parallel (see pfp_rlbwt::scan_fasta_lines) and appends the start positions and the names
  *        of its sequences (see fasta_sequence_collector)
  * @param path the FASTA file
- * @param transform the transformation; each header line has to yield a separator
+ * @param transform the transformation; each header line must be transformed into a separator
  * @param prm the parameters of the scan
  * @param text_start the position in the text of the first symbol of the text of the file
  * @param seq_starts (appended) the positions in the text directly after the separators of the headers
@@ -240,7 +241,7 @@ inline void read_fasta_text(const std::string& path, const pfp_rlbwt::fasta_tran
  *        describe (see pfp_rlbwt::fasta_transform), without writing the text
  * @param in_paths the FASTA files; they are concatenated into one text as in process_fasta
  * @param alphabet the bytes that are kept verbatim; a run of other bytes becomes one @p separator
- * @param separator the byte a header line and a masked run each yield
+ * @param separator the byte by which each header line and each masked run are replaced
  * @param to_upper whether to upper-case a body byte before looking it up in @p alphabet
  * @param num_threads the maximum number of threads to use
  * @param progress if not nullptr, counts the bytes scanned
@@ -269,7 +270,7 @@ inline fasta_scan_t scan_fasta(const std::vector<std::string>& in_paths,
         if (prm.sample_period != 0) result.samples = std::move(file.samples);
     }
 
-    // the index appends one sentinel to the text, so its length is text_size + 1
+    // one sentinel is appended to the text, so its length is text_size + 1
     result.data.set_sequences(result.text_size + 1, seq_starts, std::move(seq_names), separator);
     return result;
 }
@@ -304,7 +305,7 @@ inline uint64_t read_fasta_into(const std::vector<std::string>& in_paths, uint8_
  * @param in_paths the FASTA files; they are concatenated into one text
  * @param dst the buffer; its size has to be at least the text size computed by scan_fasta for the same files
  * @param alphabet the bytes that are kept verbatim; a run of other bytes becomes one @p separator
- * @param separator the byte a header line and a masked run each yield
+ * @param separator the byte by which each header line and each masked run are replaced
  * @param to_upper whether to upper-case a body byte before looking it up in @p alphabet
  * @param num_threads the maximum number of threads to use
  * @return the number of symbols written
@@ -325,7 +326,7 @@ inline uint64_t read_fasta_into(const std::vector<std::string>& in_paths, uint8_
  *        of the earlier ones
  * @param out_path the file the text is written to
  * @param alphabet the bytes that are kept verbatim; a run of other bytes becomes one @p separator
- * @param separator the byte a header line and a masked run each yield; it must not be in @p alphabet
+ * @param separator the byte by which each header line and each masked run are replaced; it must not be in @p alphabet
  * @param to_upper whether to upper-case a body byte before looking it up in @p alphabet
  * @param num_threads the maximum number of threads of the scans
  * @return the names and the start positions of the sequences
@@ -368,7 +369,7 @@ inline fasta_sequence_data process_fasta(const std::vector<std::string>& in_path
 
     out.close();
 
-    // the index appends one sentinel to the text, so its length is text_size + 1
+    // one sentinel is appended to the text, so its length is text_size + 1
     fasta_sequence_data seq_data;
     seq_data.set_sequences(text_size + 1, seq_starts, std::move(seq_names), separator);
     return seq_data;

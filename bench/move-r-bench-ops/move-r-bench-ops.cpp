@@ -160,7 +160,7 @@ void print_access(std::string_view profile, const move_r_bench_ops::access_grid_
 
     if (access.has_sa && access.sa.queries < access.bwt.queries)
         std::cout << "  SA was stopped after " << access.sa.queries << " of the "
-                  << access.bwt.queries << " positions (time budget reached)\n";
+                  << access.bwt.queries << " positions (time limit reached)\n";
 }
 
 // writes one RESULT line per operation and pattern length to the measurement file

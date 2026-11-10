@@ -56,7 +56,7 @@ struct move_rb<support>::search_context_t {
     // ############################# DATA MEMBERS #############################
 
 protected:
-    const move_rb<support>* idx = nullptr; // the index this context queries
+    const move_rb<support>* idx = nullptr; // the index of the context
 
     uint64_t b, e; // [b, e] = suffix array interval of P in T
     uint64_t b_R, e_R; // [b_R, e_R] = suffix array interval of the reversed P in T^R

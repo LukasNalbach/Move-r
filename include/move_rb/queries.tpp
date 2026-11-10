@@ -54,7 +54,7 @@ inline uint64_t move_rb<support>::input_interval_near(uint64_t i, uint64_t x) co
     const auto& M_LF = index<dir>().M_LF();
     auto p = [&](uint64_t y) { return M_LF.p(y); };
 
-    // a bidirectional M_LF searches near x itself (see move_data_structure::interval_near)
+    // with a bidirectional M_LF, the input interval near x is found with M_LF.interval_near (see move_data_structure)
     if constexpr (std::remove_cvref_t<decltype(M_LF)>::has_inverse) {
         uint64_t near = M_LF.interval_near(i, x);
         if (near != M_LF.num_intervals()) [[likely]] return near;

@@ -64,7 +64,7 @@ protected:
     // the names of the sequences: [0..num_sequences()-1] _seq_names[i] is the name of sequence i (RNAME in SAM output)
     std::vector<std::string> _seq_names;
 
-    uint8_t _separator_sym {}; // symbol separating the sequences; a search never extends with it
+    uint8_t _separator_sym {}; // symbol separating the sequences; a search never extends a context with it
 
 public:
     // ############################# MISC PUBLIC METHODS #############################

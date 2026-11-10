@@ -110,7 +110,7 @@ void apm_edit<idx_t>::insert_members(string_map_t& map, const node_t& node,
     bool inserted;
     model_entry_t& entry = entry_of(map, node, members.front().err, members.front().cost, inserted);
 
-    // an entry without members stands for its own string: it becomes the member with the empty extension
+    // an entry without members represents its own string; this string becomes the member with the empty extension
     if (!inserted && entry.members.empty()) {
         entry.members.emplace_back(model_member_t{0, uint16_t(entry.node.ctx.errors()), entry.cost});
     }
@@ -142,7 +142,7 @@ void apm_edit<idx_t>::locate_at_text_ends_model(const inp_t& P, inp_t& strings, 
     add(0, left);
 
     // the suffix of the last window with the fewest errors, from the matrix of the reversed pattern (a free symbol of
-    // P[i] counts as equal to it)
+    // P[i] is treated as equal to P[i])
     inp_t P_rev(P.rbegin(), P.rend()), right_rev(right.rbegin(), right.rend());
     directional_substring<inp_t> P_rev_col(P_rev, 0, m - 1, RIGHT);
     static thread_local edit_distance_matrix<word_t> mat;
@@ -231,8 +231,8 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate_model(const inp_t& P, cons
         occ.resize(write_idx);
     }
 
-    // every valid alignment starting at p is at most as cheap as the occurrence located at p, so the occurrences
-    // kept by select_covering_occurrences cover all of them, unless contexts were dropped
+    // no valid alignment starting at p is cheaper than the occurrence located at p, so the occurrences kept by
+    // select_covering_occurrences cover all valid alignments, unless contexts were dropped
     if (uniform || costs.prunes()) filter_edit_distance_occurrences<mode>(occ, costs.max_errors());
     else select_covering_occurrences<mode>(occ, 2 * costs.max_errors() + 1);
 
@@ -285,8 +285,8 @@ auto apm_edit<idx_t>::search_model(const inp_t& P, const search_scheme_t& scheme
     string_map_t result, step_contexts, next_step_contexts;
     std::vector<model_entry_t*> order;
 
-    // the dynamic program over the cost, if the model asks for it (see apm_costs_t::bounds_costs); if the model prunes
-    // (see apm_costs_t::prunes), the last step and the steps that collect members prune their cells (see process_part)
+    // the dynamic program over the costs, if apm_costs_t::bounds_costs(); if apm_costs_t::prunes(), cells are
+    // discarded by their costs in the last step and in the steps that collect members (see process_part)
     apm_cost_band cost_band;
     apm_cost_band* band = costs.bounds_costs() ? &cost_band : nullptr;
     const bool prune = band != nullptr && costs.prunes();
@@ -319,13 +319,13 @@ auto apm_edit<idx_t>::search_model(const inp_t& P, const search_scheme_t& scheme
             if (!matrix.is_initialized()) set_matrix_input(matrix, part);
             next_step_contexts.clear();
 
-            // no later step extends the text beyond a part that ends the pattern in its direction
+            // no later step extends the text beyond a part at the end of the pattern in its direction
             bool outer = dirs[p_idx] == LEFT ? partition.beg(S[p_idx].part) == 0 : partition.end(S[p_idx].part) == m;
             const bool collect_as_members = outer && p_idx + 1 < p;
             if (collect_as_members) member_dir = dirs[p_idx];
 
-            // the contexts in increasing order of their lengths; a search from a context continues the longer
-            // contexts it reaches at most depth symbols after it (see process_part)
+            // the contexts in increasing order of their lengths; a longer context reached by the search from a context
+            // at most depth symbols after it is continued in that search (see process_part)
             order.clear();
             for (auto& entry : step_contexts) order.emplace_back(&entry.second);
 
@@ -398,7 +398,7 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
     start.set_match_len(0);
 
     /* the members along the paths: member_lists[x] is a list of members, stack_member_list[y] the index of the list of
-       the path of stack[y], or no_list if the path stands for the string of its node only (with the error count and
+       the path of stack[y], or no_list if the path represents only the string of its node (with the error count and
        the cost of its cell) */
     static constexpr uint32_t no_list = std::numeric_limits<uint32_t>::max();
     std::vector<std::vector<path_member_t>> member_lists;
@@ -442,8 +442,8 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
     // [0..stack.size()-1] 1 <=> the path of stack[y] has restarted (see the restart below)
     std::vector<uint8_t> stack_restarted;
 
-    // no further error: the part is matched by free symbols only, which cost what their substitutions cost (the
-    // cost bounds the search only with the dynamic program over it)
+    // no further error: the part is matched by free symbols only, each with the cost of its substitution (the cost
+    // bound is checked only with the dynamic program over the costs)
     if (err_in == k_max) {
         if (err_in < k_min && root_list == no_list) return;
 
@@ -454,7 +454,7 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
             uint64_t counters;
         };
 
-        // the current node with the cost and the counters of its path; a node with one extension continues with it
+        // the current node with the cost and the counters of its path; a node with one extension is continued with it
         // (see apm_dfs_children)
         node_t node = std::move(start);
         uint16_t cost = entry.cost;
@@ -511,7 +511,7 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
     matrix.init(k_max, {uint16_t(err_in)}, depth > 0 ? depth + k_max : 0);
     if (band != nullptr) band->init(costs, beg, end, dir, entry.cost, entry.counters, matrix.num_rows(), depth);
 
-    // the cost of the cell of a row in which the whole part is aligned (0 if the cost is not bounded)
+    // the cost of the cell of a row in which the whole part is aligned (0 if the costs are not computed)
     auto final_cost = [&](uint64_t row) -> uint16_t { return band != nullptr ? band->final_cost(row) : 0; };
 
     // the context of the step that equals a context reached in a row in [1..depth], or nullptr
@@ -542,7 +542,7 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
             && (dir == RIGHT || row - best_row[row] <= max_shift);
     };
 
-    // whether the path of a node with a list of members and the restart flag restarted is pruned (see prune)
+    // whether cells on the path of a node with a list of members and the restart flag restarted are discarded (see prune)
     auto path_prunes = [&](uint32_t list, bool restarted) {
         return prune && list == no_list && !(restarted && costs.is_affine());
     };
@@ -575,8 +575,8 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
 
     if (matrix.is_in_final_column(0)) insert_final(start, root_list, false, 0);
 
-    // the current node with the list of members and the restart flag of its path; a node with one extension continues
-    // with it (see extend_node)
+    // the current node with the list of members and the restart flag of its path; a node with one extension is
+    // continued with it (see extend_node)
     node_t node = std::move(start);
     uint32_t list = root_list;
     bool restarted = false;
@@ -610,8 +610,9 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
         best_cost[row] = best_cost[row - 1];
         best_row[row] = best_row[row - 1];
 
-        // a context of the step whose error count leaves its cells of this row in the band restarts the matrices;
-        // its members join the members of the path
+        // at a context of the step with an error count for which its cells of this row lie in the band (see
+        // edit_distance_matrix::add_alignment_start), the matrices are restarted; its members are added to the members
+        // of the path
         model_entry_t* step_ctx = context_of_step(node, row);
         const uint64_t step_err = step_ctx != nullptr ? step_ctx->node.ctx.errors() : k_max + 1;
         const bool restart = step_err <= k_max && step_err + row >= err_in;
@@ -643,8 +644,8 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
         if (!terminal && matrix.is_in_final_column(row)) {
             insert_final(node, list, restarted, row);
 
-            // with a bounded cost, a longer text string can have a cheaper alignment than the matrix shows; a context
-            // of the step may continue in a longer one
+            // with the dynamic program over the costs, a longer text string can have a cheaper alignment than the
+            // matrix shows; a context of the step may be continued in a longer one
             terminal = (!outer && band == nullptr && step_ctx == nullptr && matrix.only_vertical_gaps_left(row))
                 || is_pruned(row, list, restarted);
         }

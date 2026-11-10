@@ -41,7 +41,7 @@ inline void print_apm_search_options(help_printer& h, bool locate)
     if (locate) h.option("-d <distance>", "hamming | edit (default: hamming)", "edit: k <= "
         + std::to_string(max_edit_errors));
     h.option("-scheme <scheme>", "min-u | pigeon-hole | suffix-filter | 01 | <file> (default: "
-        + std::string(default_scheme_name) + ")", "the search scheme; a file also sets k");
+        + std::string(default_scheme_name) + ")", "the search scheme (with a file, k is read from the file)");
     h.option("-bestmap", "", "increase the number of errors from 0 up to k until an occurrence is found and report "
         "only the occurrences with the fewest errors");
     h.option("-x <strata>", "integer >= 0 (default: " + std::to_string(apm_query_cli_t().bestmap_strata) + ")",
@@ -50,37 +50,44 @@ inline void print_apm_search_options(help_printer& h, bool locate)
 
 inline void print_apm_model_options(help_printer& h, bool locate)
 {
-    h.group("error model (by default, every error costs 1; -k bounds the total cost of an alignment)");
-    h.option("-cost <rule>", "<ops>=<cost>[@<range>][/<from>,<to>], repeatable", "sets the cost of the operations "
+    h.group("error model (by default, each error has cost 1; an alignment is valid if its total cost is at most k)");
+    h.option("-cost <rule>", "<ops>=<cost>[@<range>][/<from>,<to>], repeatable", "set the cost of the operations "
         "<ops> in <range> (for substitutions of a pattern symbol in <from> by a text symbol in <to>; empty: all); "
-        "a later rule overrides an earlier one");
+        "where rules overlap, the later one applies");
     h.option("-max <counter>", "<ops>=<n>[@<range>], n <= " + std::to_string(apm_max_counter_bound) + ", at most "
         + std::to_string(apm_max_counters), "at most n of the operations <ops> in <range>");
     h.option("-exact <range>", "", "no errors in <range> (as -cost sid=inf@<range>)");
     h.option("-class <class>", "<from>,<to>[@<range>], repeatable", "a pattern symbol in <from> also matches the text "
         "symbols in <to>");
     h.option("-iupac", "", "an IUPAC code in a pattern matches each of its bases");
-    h.option("-qual", "", "a substitution costs the Phred quality of the pattern symbol (FASTQ patterns), before -cost");
-    h.option("-tau <cost>", "auto | integer >= 1 (default: auto)", "a substitution cheaper than this is no error for "
-        "the search scheme (its cost still counts); auto: chosen per pattern, such that the part of a search without "
-        "errors has the most symbols without free alternatives");
+    h.option("-qual", "", "FASTQ patterns: the cost of substituting a pattern symbol is its Phred quality Q from the "
+        "quality line of the FASTQ record (the character Q + 33), unless a rule of -cost applies to it");
+    h.option("-tau <cost>", "auto | integer >= 1 (default: auto)", "a substitution with a lower cost is not counted "
+        "as an error in the search scheme, but its cost is added to the cost of the alignment\n"
+        "auto: chosen per pattern such that the error-free part of a search has, on average, as many positions as "
+        "possible at which every other text symbol counts as an error");
 
     if (locate) {
-        h.option("-cost-dp <mode>", "auto | on | prune | off (default: auto)", "with -d edit: whether the search "
-            "bounds the cost by a dynamic program next to its matrix of errors (on), and also prunes out its contexts "
-            "by their costs if not every error costs the same and gap openings and counters do not both apply "
-            "(prune); auto: if the costs allow at most two thirds of the errors of the search as insertions and "
-            "deletions, or as substitutions at their median cost: prune if it can prune and no occurrences are written "
-            "to a file, else on; else off");
+        h.option("-cost-dp <mode>", "auto | on | prune | off (default: auto)", "with -d edit\n"
+            "on: next to the edit-distance matrix, a dynamic program computes lower bounds on the costs of the "
+            "alignments, and a text string is not extended further once all of them exceed k\n"
+            "prune: as on, and a text string is also not extended further once no alignment against a longer string "
+            "can have a lower cost than one already found against a shorter one (only if not all errors have the "
+            "same cost and not both gap opening costs and -max are given)\n"
+            "off: no dynamic program over the costs\n"
+            "auto: prune (if possible and no occurrences are written to a file) or on if at most 2e/3 insertions and "
+            "deletions, or at most 2e/3 substitutions at their median cost, fit into k, where e is the number of "
+            "errors of the search scheme; else off");
     }
 
     h.text(std::string("<ops>: letters s (substitution), i (insertion: a pattern symbol absent from the text), d "
         "(deletion: a text symbol absent from the pattern), o (opening a gap of insertions or deletions); <cost>: an "
         "integer, or inf (the operation is not allowed). <range>: <a>:<b>, <a>:, :<b> or <i>, positions of the "
-        "pattern") + (locate ? " (of the read with -sam or -paf)" : "") + "; a negative value counts from the end "
-        "(-5: the last 5 symbols). With an error model, the error count of an occurrence is its cost"
-        + (locate ? "; with -d edit, every valid alignment has a reported occurrence at most 2e + 1 positions away "
-        "from its start whose cost is not higher, where e is the largest number of errors of a valid alignment." : "."));
+        "pattern") + (locate ? " (of the read with -sam or -paf)" : "") + "; negative values are counted from the end "
+        "(-5: the last 5 symbols). With an error model, the cost of an occurrence is reported as its number of errors"
+        + (locate ? ". With -d edit, for every valid alignment, an occurrence with at most the same cost is reported "
+        "whose start is at most 2e + 1 positions away from the start of the alignment, where e is the largest number "
+        "of errors in a valid alignment." : "."));
 }
 
 inline void print_apm_output_options(help_printer& h, bool locate, const std::string& built_with)
@@ -105,8 +112,8 @@ inline void print_apm_output_options(help_printer& h, bool locate, const std::st
 inline void print_apm_execution_options(help_printer& h)
 {
     h.option("-partition <partitioning>", "optimized | dynamic | uniform (default: optimized)",
-        "how a pattern is partitioned into the parts of the search scheme; optimized also chooses the direction of "
-        "the scheme, so that the predicted number of steps of the searches is small");
+        "how a pattern is partitioned into the parts of the search scheme; with optimized, the direction of the "
+        "scheme is also chosen per pattern, such that the searches are predicted to need few steps");
     h.option("-no-seed", "", "match the first part of each search symbol by symbol instead of starting at its search "
         "context computed by the partitioning");
 }
@@ -234,8 +241,8 @@ inline const search_scheme_t& scheme_for_query(const apm_query_cli_t& apm, uint6
 {
     if (!costs) return scheme_for_errors(apm, errors);
     const search_scheme_t& scheme = scheme_for_errors(apm, costs->max_errors());
-    if (scheme.k < costs->max_errors()) throw std::runtime_error("the search scheme allows fewer errors than the "
-        "error model");
+    if (scheme.k < costs->max_errors()) throw std::runtime_error("the search scheme has fewer errors than the "
+        "largest number of errors of the error model");
     return scheme;
 }
 
@@ -256,7 +263,7 @@ inline void check_apm_query_options(apm_query_cli_t& apm)
     build_search_schemes(apm);
 
     if (apm.metric == EDIT_DISTANCE && apm.max_errors > max_edit_errors)
-        throw usage_error("the edit distance allows at most " + std::to_string(max_edit_errors) + " errors");
+        throw usage_error("with -d edit, -k is at most " + std::to_string(max_edit_errors));
     if (apm.best_only && apm.path_sam_file.empty()) throw usage_error("-best needs -sam");
 }
 
@@ -481,6 +488,7 @@ inline void run_apm_locate_queries(const index_t& index, apm_query_cli_t& apm, c
                         write_bed_records<cm>(bed, sequences, st.last_sequence_bed, qname, st.rc, true);
                     }
 
+                    chunk.write(j);
                     continue;
                 }
 
@@ -514,6 +522,7 @@ inline void run_apm_locate_queries(const index_t& index, apm_query_cli_t& apm, c
                     out << qname << '\t' << occurrences.size();
                     for (const auto& occ : occurrences) out << '\t' << occ.pos() << ':' << occ.len() << ':' << occ.err();
                     out << '\n';
+                    chunk.write(j);
                 }
 
                 st.checksum += occurrences.size();

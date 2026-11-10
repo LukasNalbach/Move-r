@@ -31,8 +31,8 @@
  *          <text_name>.patterns-count-hamming-k<k>-m<m>
  *          <text_name>.patterns-locate-hamming-k<k>-m<m>
  *          <text_name>.patterns-locate-edit-k<k>-m<m>
- *        of substrings of the text at random positions. Patterns are added to a file until their queries on a move_rb
- *        index take the target time (--time) in total.
+ *        of substrings of the text at random positions. Patterns are added to a file until the total time of their
+ *        queries on a move_rb index reaches the target time (--time).
  */
 
 #include <algorithm>
@@ -104,9 +104,9 @@ struct query_type_t {
 [[noreturn]] void help(const std::string& msg = "")
 {
     if (msg != "") std::cout << msg << std::endl;
-    std::cout << "move-rb-gen-apm-queries: generate the query (pattern) sets for move-rb-bench-apm, auto-calibrating" << std::endl;
-    std::cout << "                 the number of patterns per file (against a move_rb index) so that" << std::endl;
-    std::cout << "                 running that file's operation takes ~<time> seconds (see --time)." << std::endl << std::endl;
+    std::cout << "move-rb-gen-apm-queries: generate the query (pattern) sets for move-rb-bench-apm; the number of" << std::endl;
+    std::cout << "                 patterns per file is calibrated with a move_rb index, so that the operation of a" << std::endl;
+    std::cout << "                 file runs for ~<time> seconds (see --time)." << std::endl << std::endl;
     std::cout << "                 For every (k, m) it writes three files, one per benchmark operation:" << std::endl;
     std::cout << "                 <text_name>.patterns-count-hamming, -locate-hamming and -locate-edit (-k<k>-m<m>)" << std::endl << std::endl;
     std::cout << "usage: move-rb-gen-apm-queries [options] <input_file> <move_rb_index>" << std::endl;
@@ -125,8 +125,8 @@ struct query_type_t {
     std::cout << "   --min <N>         minimum number of patterns per file (default: " << default_min_patterns << ")"
               << std::endl;
     std::cout << "   --seed <s>        seed for the random pattern positions (default: random)" << std::endl;
-    std::cout << "   --timeout <s>     per-pattern query timeout in seconds; a query runs in a forked worker that is" << std::endl;
-    std::cout << "                     killed if it exceeds the timeout, then the pattern is discarded (0 = off, default: "
+    std::cout << "   --timeout <s>     per-pattern query timeout in seconds; each query is run in a forked worker, which" << std::endl;
+    std::cout << "                     is killed after the timeout, and the pattern is discarded (0 = off, default: "
               << default_timeout_seconds << ")" << std::endl;
     std::cout << "   --max-skips <N>   give up on a (k,m) after this many consecutive timeouts (default: "
               << default_max_consecutive_skips << ")" << std::endl;
@@ -138,8 +138,8 @@ struct query_type_t {
 // ############################# GENERATION #############################
 
 /**
- * @brief generates and writes all pattern files; patterns are added to a file until their queries on the index take
- *        target_seconds in total
+ * @brief generates and writes all pattern files; patterns are added to a file until the total time of their queries on
+ *        the index reaches target_seconds
  * @tparam support the locate support of the index
  */
 template <move_r_support support>
@@ -209,7 +209,7 @@ void generate()
                 std::optional<timeout_runner<decltype(timed_query)>> runner;
                 if (timeout_ns != 0) runner.emplace(timed_query, m);
 
-                // add patterns until their queries take target_ns in total (but at least min_patterns patterns)
+                // add patterns until the total time of their queries reaches target_ns (at least min_patterns patterns)
                 while (n < min_patterns || total_ns < target_ns) {
                     tf.seekg(pos_distrib(rng), std::ios::beg);
                     tf.read(pattern.data(), m);

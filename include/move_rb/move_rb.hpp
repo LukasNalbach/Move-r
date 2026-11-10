@@ -88,8 +88,8 @@ enum locate_output_t : uint8_t { _occ = 0, _occ_and_sa_pos = 1 };
 /**
  * @brief bidirectional move-r index of size O(r * (a / (a - 1))) words: a move_r index over T (idx_fwd) and one over
  *        T^R (idx_bwd). Template arguments and members of a direction refer to T for LEFT and *_fwd, and to T^R for
- *        RIGHT and *_bwd. A search keeps the suffix array interval of the pattern in T and of the reversed pattern in
- *        T^R (see search_context_t).
+ *        RIGHT and *_bwd. During a search, the suffix array interval of the pattern in T and that of the reversed
+ *        pattern in T^R are maintained (see search_context_t).
  * @tparam support type of locate support (_count, _locate_one, _locate_move or _locate_rlzsa)
  */
 template <move_r_support support = _locate_move>
@@ -105,15 +105,15 @@ class move_rb {
     // (see _SA_pos); else, they are computed with Phi_inv (see compute_center)
     static constexpr bool stores_SA_pos = support == _locate_rlzsa;
 
-    // type of idx_fwd; its M_LF uses the CACHE_LINES encoding (absolute input interval starting positions)
+    // type of idx_fwd; its M_LF is stored in the CACHE_LINES encoding (absolute input interval starting positions)
     using move_r_fwd_t = constexpr_switch_t<
-        constexpr_case<support == _locate_move,  move_r<_locate_move_bi, CACHE_LINES>>,
-        constexpr_case<support == _locate_rlzsa, move_r<_locate_rlzsa_bi, CACHE_LINES>>,
-        constexpr_case<support == _locate_one,   move_r<_locate_one_bi, CACHE_LINES>>,
-     /* constexpr_case<support == _count, */     move_r<_count_bi, CACHE_LINES>>;
+        constexpr_case<support == _locate_move,  move_r<_locate_move_bi>>,
+        constexpr_case<support == _locate_rlzsa, move_r<_locate_rlzsa_bi>>,
+        constexpr_case<support == _locate_one,   move_r<_locate_one_bi>>,
+     /* constexpr_case<support == _count, */     move_r<_count_bi>>;
 
     // type of idx_bwd; it stores M_LF and the SA-samples
-    using move_r_bwd_t = std::conditional_t<support == _count, move_r<_count_bi, CACHE_LINES>, move_r<_locate_one_bi, CACHE_LINES>>;
+    using move_r_bwd_t = std::conditional_t<support == _count, move_r<_count_bi>, move_r<_locate_one_bi>>;
 
     // true <=> the index supports locate
     static constexpr bool supports_locate = move_r_fwd_t::supports_locate;
@@ -165,12 +165,12 @@ protected:
      *   its position is b + o
      * - d == RIGHT: the sample is n - v - (m - i + 1), where v is SA_run_start(x) resp. SA_run_end(x) of idx_bwd;
      *   its position is reached from SA_pos with m - i LF-steps (see compute_center)
-     * - d == NO_DIR: the sample is x; its position is b + o (only kept if stores_SA_pos)
+     * - d == NO_DIR: the sample is x; its position is b + o (only used if stores_SA_pos)
      * - d == BOTH_DIRS: the sample has not been computed yet; the interval contains an SA-sample of the index,
      *   which sample_at_run_boundary computes (the state of a context loaded from the context tables)
      *
      * o, x and i store values up to n (48 bits, see uint48_t; i is at most m). The fields are bit-fields in
-     * the layout of a packed struct of GCC (see packed_bit_fields): d and t share the first byte, o, i and x take 6
+     * the layout of a packed struct of GCC (see packed_bit_fields): d and t are in the first byte, o, i and x have 6
      * bytes each.
      */
     struct sample_info_pack_t {
@@ -242,8 +242,8 @@ protected:
     // marks a non-existing entry of the context tables (see context_tables::no_entry)
     static constexpr uint32_t no_ctx_entry = ::context_tables::no_entry;
 
-    // direction, by which the context tables group their entries; they also group them by ctx_secondary_dir (see
-    // context_tables)
+    // the direction by which the entries of the context tables are grouped; they are also grouped by ctx_secondary_dir
+    // (see context_tables)
     static constexpr direction_t ctx_primary_dir = LEFT;
     static constexpr direction_t ctx_secondary_dir = RIGHT;
     // keys of the context tables used for extensions in direction dir (see context_extension_t)
@@ -392,7 +392,7 @@ protected:
     // reads the input file into memory or writes the input to a temporary file for the prefix-free parsing
     void prepare_input(build_state_t& st);
     /* maps the bytes of the input to the effective alphabet (byte alphabet); with more distinct bytes than internal
-       symbols of one byte, it leaves the alphabet to build_integer_alphabet or to the sub-indexes (see
+       symbols of one byte, the alphabet is computed by build_integer_alphabet or by the sub-indexes (see
        build_state_t::sub_indexes_compute_alphabet) */
     void build_byte_alphabet(build_state_t& st);
     // maps the symbols of the input to the effective alphabet (integer alphabet)
@@ -641,8 +641,8 @@ public:
         uint64_t max_entries = default_logged_entries) const;
 
     /**
-     * @brief adds the parameters the size of the index depends on to the facts of the info modes (see
-     *        move_r::add_parameters; the quantities of the index of the reversed text get the suffix ^R)
+     * @brief adds the parameters on which the index size depends to the facts of the info modes (see
+     *        move_r::add_parameters; the quantities of the index of the reversed text have the suffix ^R)
      * @param facts the facts
      */
     void add_parameters(index_facts& facts) const;
@@ -845,7 +845,7 @@ public:
      * @param share maximum size of the serialized tables as a fraction of base (0: the tables are deleted)
      * @param base size in bytes that share refers to (0: the size of the serialized index)
      * @param single_length true <=> store only the short patterns and the patterns of the maximum length
-     *        that fits into the budget, the latter with the pattern as the key (see context_tables)
+     *        that fits into share * base bytes, the latter with the pattern as the key (see context_tables)
      * @param p number of threads to use
      */
     void build_context_tables(double share, uint64_t base = 0, bool single_length = false, uint64_t p = 1);

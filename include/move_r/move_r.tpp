@@ -37,9 +37,9 @@
 
 // ############################# INTERNAL METHODS #############################
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename move_r_t>
-void move_r<support, mlf_enc>::assign_from(move_r_t&& other)
+void move_r<support>::assign_from(move_r_t&& other)
 {
     n = other.n; sigma = other.sigma; r = other.r; r_ = other.r_; r__ = other.r__; r___ = other.r___;
     a = other.a; omega_idx = other.omega_idx;
@@ -67,9 +67,9 @@ void move_r<support, mlf_enc>::assign_from(move_r_t&& other)
     _plcp_row_width = other._plcp_row_width;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename input_t>
-void move_r<support, mlf_enc>::construct_from_input(input_t& input, bool delete_input, move_r_params params)
+void move_r<support>::construct_from_input(input_t& input, bool delete_input, move_r_params params)
 {
     if (!params.input_file.empty()) {
         move_r_input_buffer_t<input_t> file_buffer;
@@ -82,8 +82,8 @@ void move_r<support, mlf_enc>::construct_from_input(input_t& input, bool delete_
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::assign_alphabet(const std::vector<uint64_t>& symbols, const std::vector<uint64_t>& order)
+template <move_r_support support>
+void move_r<support>::assign_alphabet(const std::vector<uint64_t>& symbols, const std::vector<uint64_t>& order)
 {
     _alphabet_has_max = !symbols.empty() && symbols.back() == std::numeric_limits<uint64_t>::max();
     uint64_t num_stored = symbols.size() - uint64_t(_alphabet_has_max);
@@ -95,8 +95,8 @@ void move_r<support, mlf_enc>::assign_alphabet(const std::vector<uint64_t>& symb
 
 // ############################# MISC PUBLIC METHODS #############################
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-uint64_t move_r<support, mlf_enc>::input_length(const move_r_input_view& T, const move_r_params& params)
+template <move_r_support support>
+uint64_t move_r<support>::input_length(const move_r_input_view& T, const move_r_params& params)
 {
     if (params.input_file.empty()) return T.size() + 1;
     // the length of the text of a FASTA file (without headers and line breaks, see fasta_input_t)
@@ -109,8 +109,8 @@ uint64_t move_r<support, mlf_enc>::input_length(const move_r_input_view& T, cons
     return bytes / T.symbol_width() + 1;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::set_alphabet_maps(const std::vector<uint8_t>& map_int,
+template <move_r_support support>
+void move_r<support>::set_alphabet_maps(const std::vector<uint8_t>& map_int,
     const std::vector<uint8_t>& map_ext) requires(is_bidirectional)
 {
     symbols_remapped = true;
@@ -120,8 +120,8 @@ void move_r<support, mlf_enc>::set_alphabet_maps(const std::vector<uint8_t>& map
     _map_ext = map_ext;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::set_alphabet(const std::vector<uint64_t>& symbols,
+template <move_r_support support>
+void move_r<support>::set_alphabet(const std::vector<uint64_t>& symbols,
     const std::vector<uint64_t>& order) requires(is_bidirectional)
 {
     symbols_remapped = true;
@@ -129,8 +129,8 @@ void move_r<support, mlf_enc>::set_alphabet(const std::vector<uint64_t>& symbols
     assign_alphabet(symbols, order);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::set_alphabet_order(const std::vector<uint64_t>& order)
+template <move_r_support support>
+void move_r<support>::set_alphabet_order(const std::vector<uint64_t>& order)
 {
     if (order.empty()) {
         _alphabet_order = interleaved_bit_aligned_vectors();
@@ -150,8 +150,8 @@ void move_r<support, mlf_enc>::set_alphabet_order(const std::vector<uint64_t>& o
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-uint64_t move_r<support, mlf_enc>::size_in_bytes() const
+template <move_r_support support>
+uint64_t move_r<support>::size_in_bytes() const
 {
     return _M_LF.size_in_bytes() +
         map_ext_bytes() +
@@ -166,8 +166,8 @@ uint64_t move_r<support, mlf_enc>::size_in_bytes() const
         _revert_starts.size_in_bytes();
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::log_data_structures() const
+template <move_r_support support>
+void move_r<support>::log_data_structures() const
 {
     if (n > max_logged_input_length) {
         std::cout << "cannot log the contents for n > " << max_logged_input_length << std::endl;
@@ -261,8 +261,8 @@ void move_r<support, mlf_enc>::log_data_structures() const
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::log_data_structure_sizes() const
+template <move_r_support support>
+void move_r<support>::log_data_structure_sizes() const
 {
     const bool owner = begin_listing(size_in_bytes());
     log_main_structure_sizes();
@@ -270,8 +270,8 @@ void move_r<support, mlf_enc>::log_data_structure_sizes() const
     if (owner) end_listing();
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::log_main_structure_sizes() const
+template <move_r_support support>
+void move_r<support>::log_main_structure_sizes() const
 {
     uint64_t size_l_ = (_M_LF.template row_width<0>() * (r_ + 1)) / 8;
     log_component("M_LF", _M_LF.size_in_bytes() - size_l_);
@@ -288,8 +288,8 @@ void move_r<support, mlf_enc>::log_main_structure_sizes() const
     if (!_SA_rlz.empty()) _SA_rlz.log_data_structure_sizes();
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::log_auxiliary_structure_sizes() const
+template <move_r_support support>
+void move_r<support>::log_auxiliary_structure_sizes() const
 {
     if (!byte_alphabet && symbols_remapped) {
         log_component("alphabet", _alphabet.size_in_bytes() + _alphabet_order.size_in_bytes()
@@ -300,8 +300,8 @@ void move_r<support, mlf_enc>::log_auxiliary_structure_sizes() const
     if (!_revert_starts.empty()) log_component("revert starts", _revert_starts.size_in_bytes());
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::add_parameters(index_facts& facts, const std::string& suffix) const
+template <move_r_support support>
+void move_r<support>::add_parameters(index_facts& facts, const std::string& suffix) const
 {
     // n, r, n/r and sigma; then k' of the move data structures in a line of their own
     facts.new_line();
@@ -321,8 +321,8 @@ void move_r<support, mlf_enc>::add_parameters(index_facts& facts, const std::str
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::log_data_structure_sizes(std::ostream& out, std::string suffix) const
+template <move_r_support support>
+void move_r<support>::log_data_structure_sizes(std::ostream& out, std::string suffix) const
 {
     out << " size_index" << suffix << "=" << size_in_bytes();
     out << " a" << suffix << "=" << a;
@@ -360,8 +360,8 @@ void move_r<support, mlf_enc>::log_data_structure_sizes(std::ostream& out, std::
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-std::pair<std::vector<uint64_t>, std::vector<uint64_t>> move_r<support, mlf_enc>::split_into_run_parts(
+template <move_r_support support>
+std::pair<std::vector<uint64_t>, std::vector<uint64_t>> move_r<support>::split_into_run_parts(
     uint64_t num_parts, uint64_t p) const
 {
     std::vector<uint64_t> part_begin(num_parts + 1, r_);
@@ -390,8 +390,8 @@ std::pair<std::vector<uint64_t>, std::vector<uint64_t>> move_r<support, mlf_enc>
 
 // ############################# ACCESS METHODS #############################
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline uint64_t move_r<support, mlf_enc>::SA_run_start(uint64_t x) const requires(builds_SA_samples)
+template <move_r_support support>
+inline uint64_t move_r<support>::SA_run_start(uint64_t x) const requires(builds_SA_samples)
 {
     if constexpr (support == _locate_move) {
         return M_Phi_inv().q(SA_Phi_inv(x));
@@ -405,8 +405,8 @@ inline uint64_t move_r<support, mlf_enc>::SA_run_start(uint64_t x) const require
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline uint64_t move_r<support, mlf_enc>::SA_run_end(uint64_t x) const
+template <move_r_support support>
+inline uint64_t move_r<support>::SA_run_end(uint64_t x) const
     requires(support != _count && support != _count_bi && support != _locate_rlzsa && support != _locate_one)
 {
     if constexpr (support == _locate_move) {
@@ -426,9 +426,9 @@ inline uint64_t move_r<support, mlf_enc>::SA_run_end(uint64_t x) const
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
+template <move_r_support support>
 template <typename sym_t>
-inline uint64_t move_r<support, mlf_enc>::map_symbol(sym_t sym) const
+inline uint64_t move_r<support>::map_symbol(sym_t sym) const
 {
     if (symbol_idx(sym) == TERMINATOR_SYMBOL) [[unlikely]] return 0;
     if (byte_alphabet) return _map_int[symbol_idx(sym)];
@@ -449,8 +449,8 @@ inline uint64_t move_r<support, mlf_enc>::map_symbol(sym_t sym) const
     return alphabet_reordered() ? _alphabet_order.template get<0, uint64_t>(rank - 1) : rank;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-bool move_r<support, mlf_enc>::alphabet_in_input_order() const
+template <move_r_support support>
+bool move_r<support>::alphabet_in_input_order() const
 {
     if (alphabet_reordered()) return false;
     if (!byte_alphabet) return true;
@@ -467,8 +467,8 @@ bool move_r<support, mlf_enc>::alphabet_in_input_order() const
     return true;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-inline uint64_t move_r<support, mlf_enc>::unmap_symbol(uint64_t sym) const
+template <move_r_support support>
+inline uint64_t move_r<support>::unmap_symbol(uint64_t sym) const
 {
     if (sym == 0) [[unlikely]] return TERMINATOR_SYMBOL;
     if (byte_alphabet) return _map_ext[sym];
@@ -487,8 +487,8 @@ inline uint64_t move_r<support, mlf_enc>::unmap_symbol(uint64_t sym) const
 
 // ############################# SERIALIZATION METHODS #############################
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::serialize_SA_samples(std::ostream& out) const
+template <move_r_support support>
+void move_r<support>::serialize_SA_samples(std::ostream& out) const
 {
     const sa_samples_layout_t layout = support != _locate_move && !_SA_Phi_inv.empty()
         ? _as_phi_inv_intervals : _at_run_boundaries;
@@ -503,8 +503,8 @@ void move_r<support, mlf_enc>::serialize_SA_samples(std::ostream& out) const
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::read_SA_samples(std::istream& in)
+template <move_r_support support>
+void move_r<support>::read_SA_samples(std::istream& in)
 {
     uint8_t layout = 0;
     in.read((char*) &layout, 1);
@@ -521,8 +521,8 @@ void move_r<support, mlf_enc>::read_SA_samples(std::istream& in)
     }
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-move_r_support move_r<support, mlf_enc>::peek_support(std::istream& in)
+template <move_r_support support>
+move_r_support move_r<support>::peek_support(std::istream& in)
 {
     std::streampos pos = in.tellg();
     move_r_support _support;
@@ -531,8 +531,8 @@ move_r_support move_r<support, mlf_enc>::peek_support(std::istream& in)
     return _support;
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::serialize(std::ostream& out) const
+template <move_r_support support>
+void move_r<support>::serialize(std::ostream& out) const
 {
     move_r_support _support = support;
     out.write((char*) &_support, sizeof(move_r_support));
@@ -592,8 +592,8 @@ void move_r<support, mlf_enc>::serialize(std::ostream& out) const
     _revert_starts.serialize(out);
 }
 
-template <move_r_support support, move_pos_encoding_t mlf_enc>
-void move_r<support, mlf_enc>::load(std::istream& in)
+template <move_r_support support>
+void move_r<support>::load(std::istream& in)
 {
     move_r_support _support;
     in.read((char*) &_support, sizeof(move_r_support));

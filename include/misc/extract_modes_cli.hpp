@@ -191,9 +191,9 @@ void with_selected_index(const index_t& index, const extract_cli_t& cli, fnc_t f
 /**
  * @brief writes n values to the output file; they are reported by retrieve(report) as report(w, i, value) for every i
  *        in [0..n-1], by at most cli.num_threads threads, with the slot w in [0..cli.num_threads * slots_per_thread -
- *        1]; each slot writes through its own buffer, and the reports of a slot that follow each other are buffered if
- *        their positions increase by one; the buffers of a thread take about one huge page; the
- *        progress over the values is shown in the line of the running phase
+ *        1]. Each slot has its own output buffer, and consecutive reports of a slot are buffered if their positions
+ *        increase by one; the buffers of a thread have a total size of about one huge page. The progress over the
+ *        values is shown in the line of the running phase
  * @tparam bytes_per_value the number of bytes per value
  * @tparam retrieve_fnc_t type of retrieve
  * @param cli the options

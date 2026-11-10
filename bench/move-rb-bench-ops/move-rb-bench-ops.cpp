@@ -69,7 +69,7 @@ constexpr int locate_column_width = 12;
         << "                  measured once on each pattern (default: " << bench_ops::default_num_patterns << ")\n"
         << "   -r <integer>   seed for sampling the patterns\n"
         << "   -M <integer>   largest pattern length m (default: " << default_max_pattern_length << ")\n"
-        << "   -m <file>      appends RESULT lines to the file\n"
+        << "   -m <file>      append RESULT lines to the file\n"
         << "   <index_file>   index built by move-rb build\n\n"
         << "The operations are measured for the pattern lengths m = 1, 2, 3, 4, 6, 8, ..., 64, 96,\n"
         << "128, 256, ... up to -M. The patterns are sampled from the index, so no input file is needed:\n"
