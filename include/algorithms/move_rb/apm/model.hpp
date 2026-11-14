@@ -36,6 +36,7 @@
 #include <cstdint>
 #include <limits>
 #include <numeric>
+#include <ratio>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -61,11 +62,11 @@ enum apm_op_t : uint8_t {
 // the cost of an operation that is not allowed
 static constexpr uint16_t apm_forbidden = std::numeric_limits<uint16_t>::max();
 
-// the counters of a model are packed into one word, one byte lane each
+// the largest number of counters: the counters of an alignment are packed into one word, one byte lane per counter
 static constexpr uint64_t apm_max_counters = sizeof(uint64_t);
 
-// the largest upper bound of a counter; with the bias of the lanes (see apm_costs_t::exceeds), the highest bit of a
-// lane is set iff its counter exceeds its bound
+/* the largest upper bound of a counter; with the bias of the lanes (see apm_costs_t::exceeds), the highest bit of a
+   lane is set iff its counter exceeds its bound */
 static constexpr uint64_t apm_max_counter_bound = std::numeric_limits<int8_t>::max();
 
 /**
@@ -121,14 +122,19 @@ struct apm_class_t {
     apm_range_t range;
 };
 
+/* with APM_COST_DP_AUTO, the cost DP runs if the cost bound allows at most this share of apm_costs_t::max_errors()
+   errors as insertions and deletions, or as substitutions at their median cost */
+using apm_cost_dp_auto_share = std::ratio<2, 3>;
+
 /**
  * @brief whether the edit-distance search computes lower bounds on the costs of the alignments with a dynamic program
  *        next to the edit-distance matrix (see apm_cost_band)
  */
 enum apm_cost_dp_t : uint8_t {
-    /* if at most 2/3 * apm_costs_t::max_errors() insertions and deletions, or substitutions at their median cost, fit
-       into the cost bound: PRUNE if contexts can be discarded by their costs (see apm_costs_t::can_prune) and the
-       occurrences are not written (see apm_model_t::writes_occurrences), else ON; else OFF */
+    /* if the cost bound allows at most 2/3 * apm_costs_t::max_errors() insertions and deletions, or at most that many
+       substitutions at their median cost (see apm_cost_dp_auto_share): PRUNE if contexts can be discarded by their costs (see
+       apm_costs_t::can_prune) and the occurrences are not written (see apm_model_t::writes_occurrences), else ON;
+       otherwise OFF */
     APM_COST_DP_AUTO = 0,
     // the search computes the lower bounds and does not extend a text string once all of them exceed the cost bound
     APM_COST_DP_ON = 1,
@@ -153,8 +159,9 @@ struct apm_model_t {
     bool iupac = false;   // an IUPAC code in P matches each of its bases (A, C, G, T)
     // the cost of substituting P[i] is the Phred quality score of P[i] (before the cost rules are applied)
     bool quality = false;
-    uint16_t tau = 0;     // the smallest cost of a substitution that the search counts as an error (see
-                          // apm_costs_t::tau); 0: chosen for each pattern (see apm_costs_t::compile)
+    /* the smallest cost of a substitution that the search counts as an error (see apm_costs_t::tau); 0: chosen for
+       each pattern (see apm_costs_t::compile) */
+    uint16_t tau = 0;
     apm_cost_dp_t cost_dp = APM_COST_DP_AUTO; // see apm_cost_dp_t
     bool writes_occurrences = false; // whether every reported occurrence is written to a file (see APM_COST_DP_AUTO)
 
@@ -213,7 +220,8 @@ class apm_costs_t {
 protected:
     // ############################# TYPES AND CONSTANTS #############################
 
-    static constexpr uint64_t lane_bits = std::numeric_limits<uint8_t>::digits; // the width of a counter lane
+    static constexpr uint64_t num_byte_values = uint64_t(std::numeric_limits<uint8_t>::max()) + 1; // the number of byte values
+    static constexpr uint64_t lane_bits = std::numeric_limits<uint8_t>::digits; // the width of a counter lane in bits
     // the highest bit of each lane
     static constexpr uint64_t lane_high_bits = (~uint64_t(0) / std::numeric_limits<uint8_t>::max()) << (lane_bits - 1);
 
@@ -226,25 +234,25 @@ protected:
         uint64_t counters; // packed counters
     };
 
-    static constexpr uint32_t no_label = std::numeric_limits<uint32_t>::max();
+    static constexpr uint32_t no_label = std::numeric_limits<uint32_t>::max(); // the index of a missing label
 
     // ############################# DATA MEMBERS #############################
 
-    uint64_t _m = 0; // m, the length of P
-    uint16_t _bound = 0; // the maximum cost of an alignment
+    uint64_t _m = 0; // m = |P|
+    uint16_t _bound = 0; // the cost bound: the largest cost of a valid alignment
     uint16_t _tau = 1; // see tau()
     distance_metric_t _metric = EDIT_DISTANCE;
     uint64_t _num_ranks = 0; // the size of the effective alphabet of the index
     std::vector<uint8_t> _pattern; // [0..m-1] P
     const std::vector<uint8_t>* _alph_map = nullptr; // the alphabet map of the last call of compile
-    // the ranks of the bytes: [0..255] the zero-based rank of byte c in the effective alphabet, or _num_ranks
+    // [0..255] _rank[c] = the zero-based rank of byte c in the effective alphabet, or _num_ranks if c does not occur
     std::vector<uint8_t> _rank;
-    // the bytes of the ranks: [0.._num_ranks-1] the byte of rank r
+    // [0.._num_ranks-1] _unrank[x] = the byte of rank x
     std::vector<uint8_t> _unrank;
     // the matches: [0..m * _num_ranks - 1] _matches[i * _num_ranks + r] = 1 <=> P[i] matches the text symbol of rank r
     std::vector<uint8_t> _matches;
-    // the substitutions: [0..m * _num_ranks - 1] _sub[i * _num_ranks + r] = cost of aligning P[i] to rank r (0 if it
-    // matches)
+    /* the substitutions: [0..m * _num_ranks - 1] _sub[i * _num_ranks + r] = the cost of aligning P[i] to the text
+       symbol of rank r (0 if it matches) */
     std::vector<uint16_t> _sub;
     /* the costs of the insertions, the deletions and of opening their gaps: [0..m-1] _ins[i] and _ins_open[i] of
        P[i]; [0..m] _del[b] and _del_open[b] of boundary b (_del[0] = _del[m] = apm_forbidden) */
@@ -260,16 +268,16 @@ protected:
     std::vector<uint64_t> _del_counts;
     std::vector<uint64_t> _ins_open_counts;
     std::vector<uint64_t> _del_open_counts;
-    // the free bytes of all positions: [0.._free_beg[m]-1]; those of P[i] are _free_syms[_free_beg[i], _free_beg[i + 1]),
-    // P[i] first
+    /* the free bytes of all positions: [0.._free_beg[m]-1]; those of P[i] are _free_syms[_free_beg[i], _free_beg[i + 1]),
+       P[i] first */
     std::vector<uint8_t> _free_syms;
     std::vector<uint32_t> _free_beg; // [0..m] see _free_syms
-    // [0..m-1] the cost of the cheapest error at P[i] (a counted substitution or an insertion) within the bound, or
-    // apm_forbidden
+    /* [0..m-1] the cost of the cheapest error at P[i] (a counted substitution or an insertion) within the cost bound,
+       or apm_forbidden */
     std::vector<uint16_t> _min_error_cost;
-    // [0..m-1] the cost of the cheapest counted substitution of P[i] within the bound, or apm_forbidden
+    // [0..m-1] the cost of the cheapest counted substitution of P[i] within the cost bound, or apm_forbidden
     std::vector<uint16_t> _min_sub_cost;
-    // [0..m-1] 1 <=> each error at P[i] within the bound is counted by a counter
+    // [0..m-1] 1 <=> each error at P[i] within the cost bound is counted by a counter
     std::vector<uint8_t> _all_errors_counted;
     uint64_t _num_counters = 0;
     /* the counters: [0.._num_counters-1] counter j counts the operations _counter_ops[j] (a mask of apm_op_t) in the
@@ -278,8 +286,8 @@ protected:
     uint64_t _counter_beg[apm_max_counters] = {};
     uint64_t _counter_end[apm_max_counters] = {};
     uint64_t _counter_max[apm_max_counters] = {};
-    // lane j: apm_max_counter_bound - _counter_max[j]; after adding it, the highest bit of lane j is set iff counter j
-    // exceeds its bound
+    /* lane j: apm_max_counter_bound - _counter_max[j]; after adding it, the highest bit of lane j is set iff counter j
+       exceeds its bound */
     uint64_t _counter_bias = 0;
     bool _affine = false; // see is_affine
     bool _bounds_costs = false; // see bounds_costs
@@ -301,16 +309,17 @@ protected:
     // sets tau and computes the free symbols, the cheapest errors and the bounds of the search that depend on it
     void set_tau(uint16_t tau);
 
-    // chooses whether the edit-distance search computes the costs of the alignments and discards contexts by their
-    // costs (see apm_cost_dp_t)
+    /* chooses whether the edit-distance search computes the costs of the alignments and discards contexts by their
+       costs (see apm_cost_dp_t) */
     void choose_cost_dp(const apm_model_t& model);
 
-    // returns the cost of each error if all substitutions, insertions and deletions have the same cost, there are no
-    // counters and opening a gap has cost 0 and is not counted, else 0
+    /* returns the cost of each error if all substitutions, insertions and deletions have the same cost, there are no
+       counters and opening a gap has cost 0 and is not counted, else 0 */
     uint16_t compute_uniform_cost() const;
 
     /**
-     * @brief align_prefix, reusing the cells of the dynamic program in the columns [0..reuse] of the previous string
+     * @brief computes align_prefix, reusing the cells of the dynamic program in the columns [0..reuse] of the previous
+     *        string
      *
      * The cells are kept in thread_local storage: with reuse > 0, the previous call of align_reusing on this thread
      * must have been for this object and a string whose first reuse symbols are those of M (as align_prefixes calls
@@ -324,7 +333,8 @@ protected:
     std::pair<uint64_t, uint64_t> align_reusing(const str_t& M, cigar_t<uint8_t>* cigar, uint64_t reuse) const;
 
     /**
-     * @brief align_reusing without the counters: one cost per cell and state of the DP
+     * @brief computes align_reusing without the bounds of the counters: one cost per cell and state of the dynamic
+     *        program
      * @tparam str_t contiguous range type of M (one byte per symbol)
      * @param M the text window
      * @param cigar if not nullptr, the CIGAR of the alignment is written to it
@@ -346,7 +356,8 @@ public:
      * @param quality the Phred+33 qualities of the read P was taken from (if model.quality)
      * @param reverse_strand true <=> P is the reverse complement of the read the ranges, the qualities and the
      *        symbols of the rules refer to
-     * @param bound the maximum cost of an alignment (at most the largest error count of an occurrence)
+     * @param bound the cost bound: the largest cost of a valid alignment (at most the largest error count that an
+     *        occurrence can store, see aprx_occ_err_bits)
      * @param metric HAMMING_DISTANCE (only substitutions) or EDIT_DISTANCE
      * @param alph_map [0..255] maps a byte to its one-based rank in the effective alphabet of the index (0: absent)
      */
@@ -377,7 +388,7 @@ public:
     // returns P[i]
     uint8_t symbol(uint64_t i) const { return _pattern[i]; }
 
-    // returns the maximum cost of an alignment
+    // returns the cost bound: the largest cost of a valid alignment
     uint16_t bound() const { return _bound; }
 
     // returns the distance metric the model was compiled for
@@ -398,8 +409,8 @@ public:
     // returns the cost of substituting P[i] by the text symbol of rank r (not a match)
     uint16_t sub(uint64_t i, uint64_t r) const { return r < _num_ranks ? _sub[i * _num_ranks + r] : apm_forbidden; }
 
-    // returns whether P[i] aligned to the text symbol of rank r is free in the search (a match or a substitution
-    // cheaper than tau)
+    /* returns whether P[i] aligned to the text symbol of rank r is free in the search (a match or a substitution
+       cheaper than tau) */
     bool is_free(uint64_t i, uint64_t r) const { return matches(i, r) || sub(i, r) < _tau; }
 
     // returns the bytes that are free at P[i] in the search, P[i] first
@@ -554,16 +565,16 @@ class apm_cost_band {
 protected:
     // ############################# DATA MEMBERS #############################
 
-    const apm_costs_t* _costs = nullptr;
-    uint64_t _bound = 0;
+    const apm_costs_t* _costs = nullptr; // the compiled model
+    uint64_t _bound = 0; // the cost bound of the model
     uint64_t _beg = 0, _len = 0; // the part is P[_beg, _beg + _len)
     uint64_t _num_ranks = 0; // costs.num_ranks() + 1 (the last rank is a symbol that does not occur in the index)
     // row i stores the columns [i - _cols_before, i + _cols_after]; _band = _cols_before + _cols_after + 1
     uint64_t _cols_before = 0, _cols_after = 0, _band = 0;
     uint64_t _states = 1; // 1, or 3 with gaps (0: match or substitution, 1: insertion, 2: deletion)
     bool _reads_right = true; // whether the part is read to the right
-    // the cells: [0..num_rows * _band * _states - 1] _rows[(i * _band + c + _cols_before - i) * _states + q] is the
-    // cost of cell (i, c) in state q
+    /* the cells: [0..num_rows * _band * _states - 1] _rows[(i * _band + c + _cols_before - i) * _states + q] is the
+       cost of cell (i, c) in state q */
     std::vector<uint16_t> _rows;
     bool _counts = false; // whether the counters of the cells are kept (see final_counters)
     // the counters of the cells: [0..num_rows * _band - 1] _counters[i * _band + c + _cols_before - i] of cell (i, c)

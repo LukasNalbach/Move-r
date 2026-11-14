@@ -36,13 +36,13 @@
 #include "search_schemes.hpp"
 
 // the minU search schemes for k = 0, ..., 13 errors (k + 1 parts each)
-static const search_scheme_t min_u_scheme_0 {
+inline const search_scheme_t min_u_scheme_0 {
     .k = 0,
     .p = 1,
     .S = {{{0,0,0}}}
 };
 
-static const search_scheme_t min_u_scheme_1 {
+inline const search_scheme_t min_u_scheme_1 {
     .k = 1,
     .p = 2,
     .S = {
@@ -51,7 +51,7 @@ static const search_scheme_t min_u_scheme_1 {
     }
 };
 
-static const search_scheme_t min_u_scheme_2 {
+inline const search_scheme_t min_u_scheme_2 {
     .k = 2,
     .p = 3,
     .S = {
@@ -61,7 +61,7 @@ static const search_scheme_t min_u_scheme_2 {
     }
 };
 
-static const search_scheme_t min_u_scheme_3 {
+inline const search_scheme_t min_u_scheme_3 {
     .k = 3,
     .p = 4,
     .S = {
@@ -72,7 +72,7 @@ static const search_scheme_t min_u_scheme_3 {
     }
 };
 
-static const search_scheme_t min_u_scheme_4 {
+inline const search_scheme_t min_u_scheme_4 {
     .k = 4,
     .p = 5,
     .S = {
@@ -84,7 +84,7 @@ static const search_scheme_t min_u_scheme_4 {
     }
 };
 
-static const search_scheme_t min_u_scheme_5 {
+inline const search_scheme_t min_u_scheme_5 {
     .k = 5,
     .p = 6,
     .S = {
@@ -97,7 +97,7 @@ static const search_scheme_t min_u_scheme_5 {
     }
 };
 
-static const search_scheme_t min_u_scheme_6 {
+inline const search_scheme_t min_u_scheme_6 {
     .k = 6,
     .p = 7,
     .S = {
@@ -111,7 +111,7 @@ static const search_scheme_t min_u_scheme_6 {
     }
 };
 
-static const search_scheme_t min_u_scheme_7 {
+inline const search_scheme_t min_u_scheme_7 {
     .k = 7,
     .p = 8,
     .S = {
@@ -126,7 +126,7 @@ static const search_scheme_t min_u_scheme_7 {
     }
 };
 
-static const search_scheme_t min_u_scheme_8 {
+inline const search_scheme_t min_u_scheme_8 {
     .k = 8,
     .p = 9,
     .S = {
@@ -142,7 +142,7 @@ static const search_scheme_t min_u_scheme_8 {
     }
 };
 
-static const search_scheme_t min_u_scheme_9 = {
+inline const search_scheme_t min_u_scheme_9 = {
     .k = 9,
     .p = 10,
     .S = {
@@ -159,7 +159,7 @@ static const search_scheme_t min_u_scheme_9 = {
     }
 };
 
-static const search_scheme_t min_u_scheme_10 {
+inline const search_scheme_t min_u_scheme_10 {
     .k = 10,
     .p = 11,
     .S = {
@@ -177,7 +177,7 @@ static const search_scheme_t min_u_scheme_10 {
     }
 };
 
-static const search_scheme_t min_u_scheme_11 {
+inline const search_scheme_t min_u_scheme_11 {
     .k = 11,
     .p = 12,
     .S = {
@@ -196,7 +196,7 @@ static const search_scheme_t min_u_scheme_11 {
     }
 };
 
-static const search_scheme_t min_u_scheme_12 {
+inline const search_scheme_t min_u_scheme_12 {
     .k = 12,
     .p = 13,
     .S = {
@@ -216,7 +216,7 @@ static const search_scheme_t min_u_scheme_12 {
     }
 };
 
-static const search_scheme_t min_u_scheme_13 {
+inline const search_scheme_t min_u_scheme_13 {
     .k = 13,
     .p = 14,
     .S = {
@@ -244,25 +244,27 @@ static const search_scheme_t min_u_scheme_13 {
  * @param k the maximum number of errors
  * @return a generated minU search scheme for k errors
  */
-static const search_scheme_t generate_min_u_scheme(uint8_t k)
+inline search_scheme_t generate_min_u_scheme(uint8_t k)
 {
     const uint64_t p = k + 1;
 
-    auto profile_c = [](int16_t m) -> int16_t {
-        switch (m) {
+    // returns the c for which each step j > turn (after the change of direction, see turn) has the lower bound j - c
+    auto lower_bound_offset = [](int16_t turn) -> int16_t {
+        switch (turn) {
             case 0: return 0;
             case 1: return 1;
             case 2: return 4;
             case 3: return 3;
             case 4: return 2;
         }
-        return (m & 1) ? m + 1 : m - 1;
+        return (turn & 1) ? turn + 1 : turn - 1;
     };
 
-    auto profile_l0 = [](int16_t m) -> int16_t {
-        if (m == 4) return 2;
-        if (m == 3) return 1;
-        if (m >= 6 && (m & 1) == 0) return 1;
+    // returns the lower bound of step turn, the last step before the change of direction (see turn)
+    auto lower_bound_at_turn = [](int16_t turn) -> int16_t {
+        if (turn == 4) return 2;
+        if (turn == 3) return 1;
+        if (turn >= 6 && (turn & 1) == 0) return 1;
         return 0;
     };
 
@@ -270,9 +272,10 @@ static const search_scheme_t generate_min_u_scheme(uint8_t k)
     S.reserve(p);
 
     for (int16_t i = 0; uint64_t(i) < p; i++) {
-        // m, the number of parts that search i matches after part i before it changes its direction
-        const int16_t m = (k & 1) ? (k - i) : i;
-        const int16_t R = (m - 1) / 2;
+        /* turn: the number of parts that search i matches after part i before it changes its direction, so steps
+           1, ..., turn are before the change and steps turn + 1, ..., k after it */
+        const int16_t turn = (k & 1) ? (k - i) : i;
+        const int16_t half = (turn - 1) / 2; // each step j in [1, half] has the upper bound j
 
         // [0..p-1] the parts in the order in which search i matches them
         std::vector<uint8_t> pi;
@@ -289,22 +292,23 @@ static const search_scheme_t generate_min_u_scheme(uint8_t k)
         search_t s;
         s.reserve(p);
 
+        // the lower bound l and the upper bound u of step j
         for (int16_t j = 0; uint64_t(j) < p; j++) {
             int16_t l, u;
 
             if (j == 0) {
                 l = 0;
                 u = 0;
-            } else if (j <= m) {
-                int16_t base = (j <= R) ? j : m;
-                if ((m == 2 || m == 4 || m == 6) && j == m / 2) base = m - 1;
-                u = std::min<int16_t>(base, k);
-                l = (j == m) ? profile_l0(m) : 0;
+            } else if (j <= turn) {
+                int16_t upper = (j <= half) ? j : turn; // the upper bound before it is limited to k
+                if ((turn == 2 || turn == 4 || turn == 6) && j == turn / 2) upper = turn - 1;
+                u = std::min<int16_t>(upper, k);
+                l = (j == turn) ? lower_bound_at_turn(turn) : 0;
             } else {
-                int16_t base = (j == m + 1) ? (m <= 2 ? 2 * (m + 1) : 2 * m + 1)
-                                            : (2 * j - 1);
-                u = std::min<int16_t>(base, k);
-                l = std::max<int16_t>(0, j - profile_c(m));
+                int16_t upper = (j == turn + 1) ? (turn <= 2 ? 2 * (turn + 1) : 2 * turn + 1)
+                                                : (2 * j - 1);
+                u = std::min<int16_t>(upper, k);
+                l = std::max<int16_t>(0, j - lower_bound_offset(turn));
             }
 
             s.emplace_back(search_step_t{.part = pi[j], .k_min = (uint8_t)l, .k_max = (uint8_t)u});
@@ -325,7 +329,8 @@ static const search_scheme_t generate_min_u_scheme(uint8_t k)
  * @param k the maximum number of errors
  * @return the minU search scheme for k errors
  */
-inline const search_scheme_t min_u_scheme(uint8_t k) {
+inline search_scheme_t min_u_scheme(uint8_t k)
+{
     switch (k) {
         case 0:  return min_u_scheme_0;
         case 1:  return min_u_scheme_1;

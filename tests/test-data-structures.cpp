@@ -31,7 +31,10 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
+#include <charconv>
 #include <clocale>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -53,6 +56,7 @@
 #include <data_structures/pred_succ_block.hpp>
 #include <data_structures/interleaved_bit_aligned_vectors.hpp>
 #include <data_structures/uint_bytes_array.hpp>
+#include <data_structures/document_map.hpp>
 #include <misc/utils.hpp>
 #include <misc/parse.hpp>
 #include <misc/portable_layout.hpp>
@@ -80,7 +84,7 @@ constexpr uint64_t num_iterations_wavelet_tree_prefix_sum = 500;
 constexpr uint64_t num_iterations_pred_succ_occ = 600;
 constexpr uint64_t num_iterations_symbol_groups = 600;
 constexpr uint64_t num_iterations_pred_succ_block = 6000;
-constexpr uint64_t num_iterations_packed_bit_fields = 10000;
+constexpr uint64_t num_iterations_packed_values = 10000;
 
 // maximum input size of a fuzz test relative to max_input_size (the tests without an entry use max_input_size)
 constexpr double size_factor_interleaved_bit_aligned_vectors = 0.36;
@@ -120,6 +124,12 @@ constexpr uint64_t max_log_group_size = 8;
 // verify_pred_succ_block: the largest alphabet size and number of queries
 constexpr int32_t psb_max_sigma = 60;
 constexpr uint64_t psb_max_num_queries = 4000;
+// verify_parse_double: the locale with a comma as the decimal separator, which the check sets with probability 1/2
+// (malloc_count sets LC_NUMERIC to the locale of the user)
+constexpr const char* comma_locale = "de_DE.UTF-8";
+// verify_document_map: the number of queried positions, and the inverse of the probability of invalid ranges
+constexpr uint64_t document_map_num_queries = 200;
+constexpr uint64_t invalid_document_map_inverse_probability = 8;
 
 // serializes ds and loads it into loaded
 template <typename ds_t>
@@ -757,22 +767,141 @@ void verify_pattern_reader(uint64_t max_size)
     }
 }
 
-// parse_double expects a point as the decimal separator, also under a locale with a comma (malloc_count sets
-// LC_NUMERIC to the locale of the user)
-TEST(test_data_structures, parse_double_ignores_locale)
+/**
+ * @brief returns a random value of a field of width bits: 0, the largest value or a uniformly drawn value (each with
+ *        probability 1/3)
+ * @param width the width of the field in bits (at most 64)
+ */
+static uint64_t random_field_value(uint64_t width)
 {
-    const std::string before = std::setlocale(LC_NUMERIC, nullptr);
-    const bool comma_locale = std::setlocale(LC_NUMERIC, "de_DE.UTF-8") != nullptr;
-    double value = 0;
-    EXPECT_TRUE(parse_double("0.1", value));
-    EXPECT_EQ(value, 0.1);
-    EXPECT_TRUE(parse_double("-2.5e3", value));
-    EXPECT_EQ(value, -2500.0);
-    EXPECT_FALSE(parse_double("0,1", value));
-    EXPECT_FALSE(parse_double("1.5x", value));
-    EXPECT_FALSE(parse_double("", value));
-    std::setlocale(LC_NUMERIC, before.c_str());
-    if (!comma_locale) GTEST_SKIP() << "the locale de_DE.UTF-8 is not installed; only the C locale was tested";
+    enum value_kind_t : uint64_t { zero, largest, uniform, num_kinds };
+    const uint64_t max_value = low_bits_mask(width);
+
+    switch (value_kind_t(std::uniform_int_distribution<uint64_t>(0, num_kinds - 1)(gen))) {
+        case zero: return 0;
+        case largest: return max_value;
+        default: return std::uniform_int_distribution<uint64_t>(0, max_value)(gen);
+    }
+}
+
+/**
+ * @brief checks parse_double on a random number in the general or the scientific form with enough digits to restore
+ *        it, which is changed with probability 1/2 (its decimal point replaced by a comma, a character removed or
+ *        inserted, or the empty string); the comma locale is set with probability 1/2 (if it is installed); the
+ *        reference is std::from_chars over the whole string, which ignores the locale
+ */
+static void verify_parse_double()
+{
+    // a random bit pattern, as a double or as an integer shifted to the right by a random number of bits
+    const uint64_t bits = std::uniform_int_distribution<uint64_t>()(gen);
+    const double value = std::bernoulli_distribution()(gen) ? std::bit_cast<double>(bits)
+        : double(int64_t(bits) >> std::uniform_int_distribution<uint64_t>(0, 8 * sizeof(int64_t) - 1)(gen));
+    if (!std::isfinite(value)) return;
+
+    std::ostringstream formatted;
+    formatted.precision(std::numeric_limits<double>::max_digits10);
+    if (gen() % 2 == 0) formatted << std::scientific;
+    formatted << value;
+    std::string text = formatted.str();
+    const bool changed = std::bernoulli_distribution()(gen);
+
+    if (changed) {
+        enum change_t : uint64_t { comma, removal, insertion, empty, num_changes };
+        const uint64_t pos = std::uniform_int_distribution<uint64_t>(0, text.size() - 1)(gen);
+
+        switch (change_t(std::uniform_int_distribution<uint64_t>(0, num_changes - 1)(gen))) {
+            case comma: std::replace(text.begin(), text.end(), '.', ','); break;
+            case removal: text.erase(pos, 1); break;
+            case insertion: text.insert(text.begin() + pos, char(gen())); break;
+            default: text.clear(); break;
+        }
+    }
+
+    double expected = 0;
+    const auto [stop, error] = std::from_chars(text.data(), text.data() + text.size(), expected);
+    const bool valid = !text.empty() && error == std::errc() && stop == text.data() + text.size();
+
+    const std::string locale_before = std::setlocale(LC_NUMERIC, nullptr);
+    if (std::bernoulli_distribution()(gen)) std::setlocale(LC_NUMERIC, comma_locale);
+    double parsed = 0;
+    const bool parsed_valid = parse_double(text, parsed);
+    const std::string locale = std::setlocale(LC_NUMERIC, nullptr);
+    std::setlocale(LC_NUMERIC, locale_before.c_str());
+
+    ASSERT_EQ(parsed_valid, valid) << "\"" << text << "\", locale " << locale;
+    if (valid) ASSERT_EQ(parsed, expected) << "\"" << text << "\", locale " << locale;
+    if (!changed) ASSERT_EQ(parsed, value) << "\"" << text << "\", locale " << locale;
+}
+
+/**
+ * @brief checks a document_map of random ranges (gaps up to 2^48, see verify_blocked_positions) against a binary search
+ *        over the starting positions, before and after serialize/load; with probability 1 /
+ *        invalid_document_map_inverse_probability the starting positions are not strictly increasing or a range has no
+ *        document, and the construction must throw std::invalid_argument;
+ *        check_num_ids must throw std::length_error iff a number exceeds max_num_ids (numbers drawn around the limit)
+ * @param max_size the largest number of ranges
+ */
+static void verify_document_map(uint64_t max_size)
+{
+    auto uniform = [](uint64_t min, uint64_t max) { return std::uniform_int_distribution<uint64_t>(min, max)(gen); };
+    const uint64_t num_ranges = random_log_uniform_size(1, max_size, gen);
+    const uint64_t max_position = uint48_t::max;
+    const uint64_t max_gap = random_log_uniform_size(1, max_position / num_ranges, gen);
+    // [0..num_ranges-1] the starting positions and the documents of the ranges
+    std::vector<uint64_t> starts { 0 };
+    for (uint64_t k = 1; k < num_ranges; k++) starts.push_back(starts.back() + uniform(1, max_gap));
+    const uint64_t num_documents = uniform(1, num_ranges);
+    std::vector<uint32_t> documents(num_ranges);
+    for (uint32_t& document : documents) document = uint32_t(uniform(0, num_documents - 1));
+    std::vector<std::string> names;
+    for (uint64_t d = 0; d < num_documents; d++) names.push_back("d" + std::to_string(d));
+
+    // a number of ids around the limit or below it
+    const uint64_t num_ids = gen() % 2 == 0 ? document_map::max_num_ids - 1 + uniform(0, 2)
+        : random_log_uniform_size(1, document_map::max_num_ids, gen);
+    if (num_ids > document_map::max_num_ids) {
+        EXPECT_THROW(document_map::check_num_ids(num_ids, "documents"), std::length_error);
+    } else {
+        EXPECT_NO_THROW(document_map::check_num_ids(num_ids, "documents"));
+    }
+
+    if (gen() % invalid_document_map_inverse_probability == 0) {
+        if (num_ranges > 1 && gen() % 2 == 0) starts[uniform(1, num_ranges - 1)] = starts[0];
+        else documents[uniform(0, num_ranges - 1)] = uint32_t(num_documents);
+        EXPECT_THROW(document_map(starts, documents, names), std::invalid_argument);
+        return;
+    }
+
+    document_map built(starts, documents, names);
+    document_map loaded;
+    serialize_and_load(built, loaded);
+
+    for (const document_map* map : { &built, &loaded }) {
+        ASSERT_EQ(map->num_documents(), num_documents);
+        ASSERT_EQ(map->num_ranges(), num_ranges);
+
+        for (uint64_t q = 0; q < document_map_num_queries; q++) {
+            // a position at the start or the end of a range, or a random one up to max_gap beyond the last start
+            const uint64_t k = uniform(0, num_ranges - 1);
+            const uint64_t position = gen() % 2 == 0 ? (k > 0 && gen() % 2 == 0 ? starts[k] - 1 : starts[k])
+                : uniform(0, starts.back() + max_gap);
+            const uint64_t range = std::upper_bound(starts.begin(), starts.end(), position) - starts.begin() - 1;
+            ASSERT_EQ(map->range_of(position), range) << "range_of(" << position << ")";
+            ASSERT_EQ(map->document_of(position), documents[range]) << "document_of(" << position << ")";
+        }
+    }
+}
+
+TEST(test_data_structures, parse_double)
+{
+    run_fuzz("parse-double", { { "verify", [](uint64_t) { verify_parse_double(); } } });
+}
+
+TEST(test_data_structures, document_map)
+{
+    run_fuzz("document-map", {
+        { "verify", [](uint64_t) { verify_document_map(max_input_size); }, true },
+    }, fuzz_iterations(), &max_input_size, min_fuzz_input_size);
 }
 
 TEST(test_data_structures, pattern_reader)
@@ -859,7 +988,8 @@ TEST(test_data_structures, pred_succ_block)
 }
 
 // packed_bit_fields stores bit-fields at the bit positions of the bit-fields of a packed struct of GCC and clang on an
-// Itanium-ABI target (the Microsoft ABI lays out bit-fields differently, so there is nothing to compare with there)
+// Itanium-ABI target (the Microsoft ABI lays out bit-fields differently, so there is nothing to compare with there);
+// uint40_t and uint48_t store their largest values
 #ifndef _MSC_VER
 namespace {
 
@@ -875,7 +1005,7 @@ struct __attribute__((packed)) gcc_sample_layout_t {
 
 } // namespace
 
-TEST(test_data_structures, packed_bit_fields_layout)
+TEST(test_data_structures, packed_values)
 {
     using d_field = next_bit_field_t<void, sample_dir_bits>;
     using t_field = next_bit_field_t<d_field, sample_kind_bits>;
@@ -885,18 +1015,14 @@ TEST(test_data_structures, packed_bit_fields_layout)
 
     static_assert(sizeof(packed_bit_fields<bytes_of_bit_fields<x_field>>) == sizeof(gcc_sample_layout_t));
 
-    // a random value of a field of width bits
-    auto random_value = [](uint64_t width) {
-        return std::uniform_int_distribution<uint64_t>(0, low_bits_mask(width))(gen);
-    };
-
-    for (uint64_t iteration = 0; iteration < num_iterations_packed_bit_fields; iteration++) {
+    // packed_bit_fields against the packed struct, and uint40_t and uint48_t, with random values (see random_field_value)
+    run_fuzz("packed-values", { { "verify", [](uint64_t) {
         gcc_sample_layout_t gcc_sample;
         std::memset(&gcc_sample, 0, sizeof(gcc_sample));
         packed_bit_fields<bytes_of_bit_fields<x_field>> sample {};
-        const uint64_t d = random_value(d_field::width), t = random_value(t_field::width);
-        const uint64_t o = random_value(o_field::width), i = random_value(i_field::width);
-        const uint64_t x = random_value(x_field::width);
+        const uint64_t d = random_field_value(d_field::width), t = random_field_value(t_field::width);
+        const uint64_t o = random_field_value(o_field::width), i = random_field_value(i_field::width);
+        const uint64_t x = random_field_value(x_field::width);
         gcc_sample.d = d; gcc_sample.t = t; gcc_sample.o = o; gcc_sample.i = i; gcc_sample.x = x;
         sample.set<d_field>(d); sample.set<t_field>(t); sample.set<o_field>(o); sample.set<i_field>(i);
         sample.set<x_field>(x);
@@ -908,10 +1034,15 @@ TEST(test_data_structures, packed_bit_fields_layout)
         EXPECT_EQ(sample.get<x_field>(), x);
 
         // setting a field again changes only its bits
-        const uint64_t o_new = random_value(o_field::width);
+        const uint64_t o_new = random_field_value(o_field::width);
         gcc_sample.o = o_new;
         sample.set<o_field>(o_new);
         ASSERT_EQ(std::memcmp(&gcc_sample, sample.bytes, sizeof(gcc_sample)), 0);
-    }
+
+        const uint64_t value_40 = random_field_value(8 * uint40_t::width);
+        const uint64_t value_48 = random_field_value(8 * uint48_t::width);
+        EXPECT_EQ(uint64_t(uint40_t(value_40)), value_40);
+        EXPECT_EQ(uint64_t(uint48_t(value_48)), value_48);
+    }, true } }, fuzz_iterations(num_iterations_packed_values));
 }
 #endif

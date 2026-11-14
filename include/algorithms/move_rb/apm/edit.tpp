@@ -37,13 +37,14 @@
 // ############################# CLUSTERS #############################
 
 template <typename idx_t>
-auto apm_edit<idx_t>::cluster_t::local_minima() -> std::vector<node_t>
+template <typename sep_fnc_t>
+auto apm_edit<idx_t>::cluster_t::local_minima(sep_fnc_t& at_separator) -> std::vector<node_t>
 {
     std::vector<node_t> minima;
     minima.reserve(_last_cell + 1);
 
     for (uint64_t i = 0; i <= _last_cell; i++) {
-        if (!_nodes[i].reported() && _dists[i] <= _k_max && is_local_min(i)) {
+        if (!_nodes[i].taken() && _dists[i] <= _k_max && is_local_min(i, at_separator)) {
             minima.emplace_back(take_cell(i));
         }
     }
@@ -52,8 +53,9 @@ auto apm_edit<idx_t>::cluster_t::local_minima() -> std::vector<node_t>
 }
 
 template <typename idx_t>
+template <typename sep_fnc_t>
 auto apm_edit<idx_t>::cluster_t::choose_center(uint16_t k_min, std::vector<node_t>& descendants,
-    std::vector<uint16_t>& init_dists) -> std::tuple<node_t, bool>
+    std::vector<uint16_t>& init_dists, sep_fnc_t& at_separator) -> std::tuple<node_t, bool>
 {
     descendants.reserve(_dists.size());
     init_dists.reserve(_dists.size());
@@ -62,11 +64,11 @@ auto apm_edit<idx_t>::cluster_t::choose_center(uint16_t k_min, std::vector<node_
 
     for (uint64_t j = 0; j <= _last_cell; j++) {
         if (_dists[j] < k_min || _dists[j] > _k_max) continue;
-        if (is_local_min(j)) { i = j; break; }
+        if (is_local_min(j, at_separator)) { i = j; break; }
     }
 
     if (i <= _last_cell) {
-        // the cell is taken even if it was reported (take_cell returns a new copy)
+        // the cell is taken even if it was taken before (take_cell returns a new copy)
         node = take_cell(i);
         init_dists.emplace_back(_dists[i]);
 
@@ -75,48 +77,45 @@ auto apm_edit<idx_t>::cluster_t::choose_center(uint16_t k_min, std::vector<node_
             init_dists.emplace_back(_dists[j]);
         }
 
-        /* every local minimum below k_min is raised: the values of its valley [valley_beg, valley_end], in which the
-           values decrease by 1 per position towards it, are replaced by values that rise by 1 per position from the
-           values next to the valley (at most _k_max + 1); a valley that reaches one end of the column rises from its
-           other end */
-        for (uint64_t k = 1; k < init_dists.size(); k++) {
-            if (init_dists[k] < k_min && init_dists[k] <= init_dists[k - 1] &&
-               (k == init_dists.size() - 1 || init_dists[k] <= init_dists[k + 1])
-            ) {
-                uint64_t valley_beg = 0;
-                uint64_t valley_end = init_dists.size() - 1;
+        /* raise every local minimum x below k_min: [lo, hi] is the range of cells around x in which the distances
+           decrease by 1 per cell towards x. It starts after cell 0 (the center, whose distance is the error count of
+           node) and after the last cell before x with at least k_min errors whose string has an occurrence followed by
+           the separator (see ends_at_separator; this occurrence is not an occurrence of the string of x, so its
+           alignment cannot be continued through x). Its distances are replaced by distances that grow by 1 per cell
+           from the cells next to the range (at most _k_max + 1); if the range reaches the last cell, they grow from
+           the cell left of the range */
+        const uint64_t last = init_dists.size() - 1;
 
-                for (uint64_t l = k; l-- > 0;) {
-                    if (init_dists[l] != init_dists[l + 1] + 1) {
-                        valley_beg = l + 1;
+        for (uint64_t x = 1; x <= last; x++) {
+            if (init_dists[x] < k_min && init_dists[x] <= init_dists[x - 1] && (x == last || init_dists[x] <= init_dists[x + 1])) {
+                uint64_t lo = 1;
+                uint64_t hi = last;
+
+                for (uint64_t l = x; l-- > 1;) {
+                    if (init_dists[l] != init_dists[l + 1] + 1 || (init_dists[l] >= k_min && ends_at_separator(i + l, at_separator))) {
+                        lo = l + 1;
                         break;
                     }
                 }
 
-                for (uint64_t l = k + 1; l < init_dists.size(); l++) {
+                for (uint64_t l = x + 1; l <= last; l++) {
                     if (init_dists[l] != init_dists[l - 1] + 1) {
-                        valley_end = l - 1;
+                        hi = l - 1;
                         break;
                     }
                 }
 
-                if (valley_beg != 0 && valley_end != init_dists.size() - 1) {
-                    uint64_t left_base = init_dists[valley_beg - 1];
-                    uint64_t right_base = init_dists[valley_end + 1];
+                if (hi != last) {
+                    const uint64_t left_dist = init_dists[lo - 1];
+                    const uint64_t right_dist = init_dists[hi + 1];
 
-                    for (uint64_t l = valley_beg; l <= valley_end; l++) {
-                        uint64_t from_left = left_base + (l - (valley_beg - 1));
-                        uint64_t from_right = right_base + ((valley_end + 1) - l);
+                    for (uint64_t l = lo; l <= hi; l++) {
+                        const uint64_t from_left = left_dist + (l - (lo - 1));
+                        const uint64_t from_right = right_dist + ((hi + 1) - l);
                         init_dists[l] = std::min<uint64_t>(_k_max + 1, std::min(from_left, from_right));
                     }
-                } else if (valley_beg == 0 && valley_end != init_dists.size() - 1) {
-                    for (uint64_t l = valley_end; l-- > 0;) {
-                        init_dists[l] = init_dists[l + 1] + 1;
-                    }
-                } else if (valley_beg != 0 && valley_end == init_dists.size() - 1) {
-                    for (uint64_t l = valley_beg; l < init_dists.size(); l++) {
-                        init_dists[l] = init_dists[l - 1] + 1;
-                    }
+                } else {
+                    for (uint64_t l = lo; l <= last; l++) init_dists[l] = init_dists[l - 1] + 1;
                 }
             }
         }
@@ -134,30 +133,41 @@ template <typename sub_t>
 auto apm_edit<idx_t>::text_end(const sub_t& sub, uint64_t length) -> inp_t
 {
     inp_t end(length);
-    uint64_t x = 0, d = 0;
+
+    // the BWT position pos in the input interval x of M_LF; the BWT symbol at position 0 is the last symbol of the text
+    uint64_t x = 0, pos = 0;
 
     for (uint64_t i = length; i-- > 0;) {
         end[i] = sub.unmap_symbol(sub.L_(x));
-        if (i != 0) sub.M_LF().move(d, x);
+        if (i != 0) sub.M_LF().move(pos, x);
     }
 
     return end;
 }
 
 template <typename idx_t>
-auto apm_edit<idx_t>::text_end_windows(uint64_t m, uint64_t k) const -> std::pair<inp_t, inp_t>
+auto apm_edit<idx_t>::text_end_windows(uint64_t m, uint64_t k) const -> std::tuple<uint64_t, inp_t, inp_t>
 {
     const uint64_t n = _index.n - 1;
-    const uint64_t w = std::min<uint64_t>(n, m + k);
+    const uint64_t w = std::min<uint64_t>(n, m + k); // the length of a window
     const auto& seqs = _index.seq_data();
-    const uint64_t left_end = seqs.has_sequences() ? std::min<uint64_t>(seqs.sequence_length(0), w) : w;
+    const uint64_t left_beg = seqs.has_sequences() ? seqs.sequence_start(0) : 0;
+    const uint64_t left_end = left_beg + (seqs.has_sequences() ? std::min<uint64_t>(seqs.sequence_length(0), w) : w);
     const uint64_t right_beg = seqs.has_sequences()
         ? std::max<uint64_t>(seqs.sequence_start(seqs.num_sequences() - 1), n - w) : n - w;
 
-    // the first window is the end of T^R
+    // the first window is decoded from the end of T^R, without the symbols before the first sequence
     inp_t left = text_end(_index.backward_index(), left_end);
     std::reverse(left.begin(), left.end());
-    return {std::move(left), text_end(_index.forward_index(), n - right_beg)};
+    left.erase(left.begin(), left.begin() + left_beg);
+    inp_t right = text_end(_index.forward_index(), n - right_beg);
+
+    // an occurrence contains no separator (of a masked run): the first window ends before its first separator, the
+    // last window starts after its last one
+    auto is_sep = [&](uint8_t c) { return this->is_separator(c); };
+    left.erase(std::find_if(left.begin(), left.end(), is_sep), left.end());
+    right.erase(right.begin(), std::find_if(right.rbegin(), right.rend(), is_sep).base());
+    return {left_beg, std::move(left), std::move(right)};
 }
 
 template <typename idx_t>
@@ -175,27 +185,38 @@ void apm_edit<idx_t>::locate_at_text_ends_impl(const inp_t& P, uint64_t m, uint6
 {
     const uint64_t n = _index.n - 1;
     if (m == 0 || n == 0) return;
-    auto [left, right] = text_end_windows(m, k);
-    static thread_local edit_distance_matrix<word_t> mat;
+    auto [left_beg, left, right] = text_end_windows(m, k);
+    static thread_local edit_distance_matrix<word_t> mat, mat_any;
+    const auto& ranks = _index.forward_index().map_int();
 
-    // reports the alignment of Q against a prefix of W with the fewest errors; pos_of maps its length to its position
-    auto report_window = [&](const inp_t& Q, const inp_t& W, auto pos_of, bool rev_cig) {
+    // whether an alignment of Q against a prefix of W that starts with a deletion has fewer than err errors (W without
+    // its first symbol then has fewer errors)
+    auto dominated = [&](const inp_t& Q, const inp_t& W, bool first_matches, uint64_t err) {
+        if (first_matches) return false;
+        mat_any.set_input(directional_substring<inp_t>(Q, 0, m - 1, RIGHT), _index.sigma, ranks);
+        return edit_dist_prefix(mat_any, W, m, k).first < err;
+    };
+
+    /* reports the alignment of Q against a prefix of W with the fewest errors that does not start with a deletion (see
+       recompute_errors); pos_of maps its length to its position, and reverse_cigar is true for the reversed last window */
+    auto report_window = [&](const inp_t& Q, const inp_t& W, auto pos_of, bool reverse_cigar) {
+        const bool first_matches = !W.empty() && W[0] == Q[0];
+
         if constexpr (mode == CIGAR) {
             auto [err, len, cig] = edit_cigar_prefix(Q, m, W, W.size(), k);
-            if (err > k) return;
-            if (rev_cig) std::reverse(cig.begin(), cig.end());
+            if (err > k || dominated(Q, W, first_matches, err)) return;
+            if (reverse_cigar) std::reverse(cig.begin(), cig.end());
             cigars.push_back(std::move(cig));
             report({pos_of(len), len, err, uint32_t(cigars.size() - 1)});
         } else {
-            directional_substring<inp_t> Q_col(Q, 0, m - 1, RIGHT);
-            mat.set_input(Q_col, _index.sigma, _index.forward_index().map_int());
-            auto [err, len] = edit_dist_prefix(mat, W, m, k);
-            if (err > k) return;
+            mat.set_input(directional_substring<inp_t>(Q, 1, m - 1, RIGHT), _index.sigma, ranks);
+            auto [err, len] = edit_dist_anchored_prefix(mat, W, m, k, first_matches);
+            if (err > k || dominated(Q, W, first_matches, err)) return;
             report({pos_of(len), len, err});
         }
     };
 
-    report_window(P, left, [](uint64_t) { return uint64_t(0); }, false);
+    report_window(P, left, [left_beg](uint64_t) { return left_beg; }, false);
     inp_t P_rev(P.rbegin(), P.rend()), right_rev(right.rbegin(), right.rend());
     report_window(P_rev, right_rev, [n](uint64_t len) { return n - len; }, true);
 }
@@ -237,53 +258,62 @@ uint64_t apm_edit<idx_t>::append_copy(uint64_t prev, uint64_t pos, uint64_t len,
 template <typename idx_t>
 void apm_edit<idx_t>::append_pattern_symbol(node_t& node, uint64_t pos, direction_t dir) const
 {
-    bool contig = node.copy_len > 0 && node.copy_dir == dir &&
+    bool continues_copy = node.copy_len > 0 && node.copy_dir == dir &&
         (dir == RIGHT ? pos == node.copy_pos + node.copy_len : pos + 1 == node.copy_pos);
-    if (contig) { if (dir == LEFT) node.copy_pos = pos; node.copy_len++; }
+    if (continues_copy) { if (dir == LEFT) node.copy_pos = pos; node.copy_len++; }
     else { commit_copy(node); node.copy_pos = pos; node.copy_len = 1; node.copy_dir = dir; }
 }
 
 template <typename idx_t>
 void apm_edit<idx_t>::append_last_symbol(node_t& node, const directional_substring<inp_t>& part, direction_t dir) const
 {
-    uint8_t s = node.ctx.last_added_symbol();
+    uint8_t sym = node.ctx.last_added_symbol();
     const inp_t& P = part.underlying();
     const uint64_t m = P.size();
 
+    // append sym to the pending copy if sym equals the symbol of P that continues the copy
     if (node.copy_len > 0 && node.copy_dir == dir) {
-        uint64_t cont = dir == RIGHT ? node.copy_pos + node.copy_len : node.copy_pos - 1;
-        if (cont < m && P[cont] == s) { if (dir == LEFT) node.copy_pos = cont; node.copy_len++; return; }
+        uint64_t next_pos = dir == RIGHT ? node.copy_pos + node.copy_len : node.copy_pos - 1;
+        if (next_pos < m && P[next_pos] == sym) { if (dir == LEFT) node.copy_pos = next_pos; node.copy_len++; return; }
     }
 
-    // the position of P on the diagonal of the node, and the closest j to it with P[j] = s
-    const int64_t pp = int64_t(part.pos(node.match_len() - 1));
-    auto match_at = [&](int64_t x) { return x >= 0 && x < int64_t(m) && P[x] == s; };
+    /* diag_pos: the position of P on the diagonal of the row of the node; j: the position closest to diag_pos with
+       P[j] = sym and |j - diag_pos| <= _max_diagonal_shift (diag_pos + d before diag_pos - d), or no_piece if there is
+       none */
+    const int64_t diag_pos = int64_t(part.pos(node.match_len() - 1));
+    auto match_at = [&](int64_t x) { return x >= 0 && x < int64_t(m) && P[x] == sym; };
     uint64_t j = no_piece;
-    if (match_at(pp)) j = uint64_t(pp);
-    else for (int64_t d = 1; d <= int64_t(_max_diagonal_shift) && j == no_piece; d++) {
-        if (match_at(pp + d)) j = uint64_t(pp + d);
-        else if (match_at(pp - d)) j = uint64_t(pp - d);
+
+    if (match_at(diag_pos)) {
+        j = uint64_t(diag_pos);
+    } else {
+        for (int64_t d = 1; d <= int64_t(_max_diagonal_shift) && j == no_piece; d++) {
+            if (match_at(diag_pos + d)) j = uint64_t(diag_pos + d);
+            else if (match_at(diag_pos - d)) j = uint64_t(diag_pos - d);
+        }
     }
 
     commit_copy(node);
     if (j != no_piece) { node.copy_pos = j; node.copy_len = 1; node.copy_dir = dir; }
-    else node.set_last_piece(append_literal(node.last_piece_idx(), s, dir));
+    else node.set_last_piece(append_literal(node.last_piece_idx(), sym, dir));
 }
 
 template <typename idx_t>
 void apm_edit<idx_t>::decode_matched_string(const inp_t& P, uint64_t last, inp_t& out) const
 {
-    // the pieces of the chain, from the last one to the first one
+    // the indices of the pieces of the chain, from the last one to the first one
     static thread_local std::vector<uint64_t> pieces;
     pieces.clear();
+
+    // total: the length of the string; n_left: the number of its symbols in prepended pieces
     uint64_t total = 0, n_left = 0;
 
     for (uint64_t i = last; i != no_piece; i = _matched_pieces[i].prev()) {
-        const matched_piece_t& c = _matched_pieces[i];
+        const matched_piece_t& piece = _matched_pieces[i];
         pieces.emplace_back(i);
-        uint64_t l = c.len > 0 ? c.len : 1;
-        total += l;
-        if (c.dir == LEFT) n_left += l;
+        uint64_t piece_len = piece.len > 0 ? piece.len : 1;
+        total += piece_len;
+        if (piece.dir == LEFT) n_left += piece_len;
     }
 
     // the prepended pieces fill out[0, n_left) from right to left, the appended ones out[n_left, total)
@@ -291,13 +321,13 @@ void apm_edit<idx_t>::decode_matched_string(const inp_t& P, uint64_t last, inp_t
     uint64_t lo = n_left, hi = n_left;
 
     for (auto it = pieces.rbegin(); it != pieces.rend(); ++it) {
-        const matched_piece_t& c = _matched_pieces[*it];
-        if (c.dir == LEFT) {
-            if (c.len > 0) { lo -= c.len; for (uint64_t j = 0; j < c.len; j++) out[lo + j] = P[c.pos() + j]; }
-            else out[--lo] = c.sym;
+        const matched_piece_t& piece = _matched_pieces[*it];
+        if (piece.dir == LEFT) {
+            if (piece.len > 0) { lo -= piece.len; for (uint64_t j = 0; j < piece.len; j++) out[lo + j] = P[piece.pos() + j]; }
+            else out[--lo] = piece.sym;
         } else {
-            if (c.len > 0) { for (uint64_t j = 0; j < c.len; j++) out[hi + j] = P[c.pos() + j]; hi += c.len; }
-            else out[hi++] = c.sym;
+            if (piece.len > 0) { for (uint64_t j = 0; j < piece.len; j++) out[hi + j] = P[piece.pos() + j]; hi += piece.len; }
+            else out[hi++] = piece.sym;
         }
     }
 }
@@ -307,32 +337,37 @@ template <cigar_mode_t mode, typename word_t>
 void apm_edit<idx_t>::recompute_errors(node_set_t& ctxts, const inp_t& P, uint64_t m, uint64_t k,
     std::vector<context_ref_t<mode>>& ctxts_sorted, std::vector<cigar_t<uint8_t>>& cigars) const
 {
-    static thread_local edit_distance_matrix<word_t> mat;
-    if constexpr (mode == NO_CIGAR) {
-        directional_substring<inp_t> P_col(P, 0, m - 1, RIGHT);
-        mat.set_input(P_col, _index.sigma, _index.forward_index().map_int());
-    }
+    static thread_local edit_distance_matrix<word_t> mat, mat_any;
 
+    // mat: the alignments that do not start with a deletion (see edit_dist_anchored_prefix); mat_any: all alignments
+    const auto& ranks = _index.forward_index().map_int();
+    if constexpr (mode == NO_CIGAR) mat.set_input(directional_substring<inp_t>(P, 1, m - 1, RIGHT), _index.sigma, ranks);
+    mat_any.set_input(directional_substring<inp_t>(P, 0, m - 1, RIGHT), _index.sigma, ranks);
     inp_t match;
 
-    for (const node_t& node : ctxts) {
+    for (node_t& node : ctxts) {
         decode_matched_string(P, node.last_piece_idx(), match);
+        const bool first_matches = !match.empty() && match[0] == P[0];
+
+        /* a context is not reported if an alignment against a prefix of its string that starts with a deletion has
+           fewer errors (its string without the first symbol has fewer errors); if P[0] matches the first symbol, an
+           alignment that starts with a deletion has at least as many errors as one that does not */
+        auto dominated = [&](uint64_t e) { return !first_matches && edit_dist_prefix(mat_any, match, m, k).first < e; };
 
         uint64_t err, len;
         if constexpr (mode == CIGAR) {
             auto [e, l, cig] = edit_cigar_prefix(P, m, match, match.size(), k);
-            if (e > k) continue;
+            if (e > k || dominated(e)) continue;
             err = e; len = l;
             cigars.emplace_back(std::move(cig));
         } else {
-            auto [e, l] = edit_dist_prefix(mat, match, m, k);
-            if (e > k) continue;
+            auto [e, l] = edit_dist_anchored_prefix(mat, match, m, k, first_matches);
+            if (e > k || dominated(e)) continue;
             err = e; len = l;
         }
 
-        node_t& mut = const_cast<node_t&>(node);
-        mut.ctx.set_errors(err);
-        mut.set_match_len(len);
+        node.ctx.set_errors(err);
+        node.set_match_len(len);
         if constexpr (mode == CIGAR) ctxts_sorted.emplace_back(&node, uint32_t(cigars.size() - 1));
         else                         ctxts_sorted.emplace_back(&node);
     }
@@ -387,6 +422,8 @@ void apm_edit<idx_t>::report_contexts(std::vector<context_ref_t<mode>>& ctxts_so
         });
 
         iv_idx = std::max<uint64_t>(iv_idx, iv_idx_center);
+
+        // skip the contexts nested in this one (their positions are reported with this one)
         do {it++;} while (it != ctxts_sorted.end() && std::get<0>(node_of<mode>(*it).ctx.forward_sa_interval()) <= end);
     }
 }
@@ -399,12 +436,11 @@ auto apm_edit<idx_t>::effective_intervals(const std::vector<context_ref_t<mode>>
     std::vector<occurrence_interval_t> ivs;
     ivs.reserve(ctxts_sorted.size());
 
-    /* the suffix array intervals are nested or disjoint: a sweep over their starting and end positions keeps the open
-       intervals on a stack, the innermost one on top; at each such position, the segment since the previous one
-       becomes an interval with the best open context (the fewest errors, the longest on ties) */
+    /* the suffix array intervals are nested or disjoint: in a sweep over their starting and end positions, the open
+       intervals are kept on a stack, the innermost one on top; at each such position, the segment since the previous
+       position becomes an interval with the best open context (the fewest errors, the longest on ties) */
     struct open_t {uint64_t end_excl; uint64_t len; uint64_t err; uint32_t cigar_idx;};
     std::vector<open_t> open;
-    open.reserve(16);
     uint64_t seg_beg = 0;
 
     for (uint64_t i = 0; i < ctxts_sorted.size() || !open.empty();) {
@@ -485,7 +521,7 @@ auto apm_edit<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) cons
     node_set_t result;
     const node_t empty_node { search_context_t<LOCATE>(_index) };
     if (m == 0) { result.insert(empty_node.key(), empty_node); return result; }
-    if (p >= m) throw std::runtime_error("p >= m");
+    if (!fits_search_scheme(m, scheme)) throw std::invalid_argument(too_short_for_scheme("the pattern", m, scheme));
 
     _piece_owner = this; _matched_pieces.clear(); _free_pieces.clear();
     _max_diagonal_shift = scheme.k;
@@ -545,17 +581,23 @@ auto apm_edit<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) cons
                 }
 
                 for (uint64_t i = 0; match && i < part.size(); i++) {
-                    auto [ctx_nxt, match_nxt] = node.ctx.extend(part[i], part.direction());
-                    if (match_nxt) {
-                        node.ctx = ctx_nxt;
+                    auto [next_ctx, occurs] = node.ctx.extend(part[i], part.direction());
+                    if (occurs) {
+                        node.ctx = next_ctx;
                         node.set_match_len(node.match_len() + 1);
                         append_pattern_symbol(node, part.pos(i), part.direction());
                     }
-                    match = match_nxt;
+                    match = occurs;
                 }
             }
 
             if (!match) continue;
+        }
+
+        // the steps without errors matched every part (all upper bounds of the search are 0)
+        if (p_idx == p) {
+            add_result(result, with_committed_copy(node));
+            continue;
         }
 
         search_part<matrix_word_t>(node, p_idx, data, {}, {}, {}, {});
@@ -593,11 +635,11 @@ void apm_edit<idx_t>::search_part(node_t& node, uint64_t p_idx, search_data_t<ma
         init_dists.emplace_back(node.ctx.errors());
     } else {
         uint16_t prev_dist = dir_switch ? *min_element(dists.begin(), dists.end()) : dists[0];
-        uint16_t add = node.ctx.errors() - prev_dist;
+        uint16_t added_errors = node.ctx.errors() - prev_dist;
         init_dists.reserve(dists.size());
 
         for (uint64_t i = 0; i < dists.size(); i++) {
-            init_dists.emplace_back(dists[i] + add);
+            init_dists.emplace_back(dists[i] + added_errors);
         }
     }
 
@@ -611,7 +653,8 @@ void apm_edit<idx_t>::search_part(node_t& node, uint64_t p_idx, search_data_t<ma
         cluster.set_cell(0, with_committed_copy(node_copy), matrix(0, part.size()));
     }
 
-    uint64_t old_depth = 0;
+    // the row of node at the start of the depth-first search (the row of the last descendant, if there is one)
+    uint64_t node_row = 0;
 
     // the descendants are the first rows of the matrix
     if (!descendants.empty()) {
@@ -623,11 +666,11 @@ void apm_edit<idx_t>::search_part(node_t& node, uint64_t p_idx, search_data_t<ma
 
         if (descendants.back().match_len() == uint64_t(matrix.num_rows() - 1)) return;
         if (!dir_switch) node = descendants.back();
-        old_depth = descendants.back().match_len();
+        node_row = descendants.back().match_len();
     }
 
-    // the node is in the row old_depth; without an extension, the part ends there
-    node.set_match_len(old_depth);
+    // the node is in the row node_row; without an extension, the part ends there
+    node.set_match_len(node_row);
     auto push = [&](node_t&& child) { stack.emplace_back(std::move(child)); };
     bool has_node = extend_node(node, dir, push);
 
@@ -652,38 +695,41 @@ void apm_edit<idx_t>::search_part(node_t& node, uint64_t p_idx, search_data_t<ma
 }
 
 template <typename idx_t>
+void apm_edit<idx_t>::add_result(node_set_t& result, const node_t& node)
+{
+    const string_key_t key = node.key();
+    node_t* node_old = result.find(key);
+
+    if (node_old == nullptr) {
+        result.insert(key, node);
+        return;
+    }
+
+    uint16_t cur_err = node.ctx.errors();
+    uint16_t old_err = node_old->ctx.errors();
+
+    if (cur_err  < old_err ||
+       (cur_err == old_err && node_old->ctx.s.d() == RIGHT && node.ctx.s.d() == LEFT)
+    ) {
+        *node_old = node;
+    }
+}
+
+template <typename idx_t>
 template <typename matrix_word_t>
 void apm_edit<idx_t>::flush_cluster(cluster_t& cluster, uint64_t p_idx, search_data_t<matrix_word_t>& data,
     const std::vector<uint16_t>& dists_rev, const std::vector<node_t>& descendants_rev,
     const std::vector<node_t>& remaining_descendants) const
 {
     auto& [steps, parts, stacks, matrices_fwd, matrices_bwd, result] = data;
-    const auto& k_min = steps.k_min(p_idx);
+    const uint16_t k_min = steps.k_min(p_idx);
+    const direction_t dir = steps.dir(p_idx);
+    auto at_separator = [&](const node_t& node) { return this->extends_with_separator(node.ctx, dir); };
 
-    // adds the local minima with at least k_min errors to the result; of two contexts of the same string, the one
-    // with fewer errors is kept, on ties the one whose last extension is to the left
+    // adds the local minima with at least k_min errors to the result (see add_result)
     auto report_at_end = [&]() {
-        auto minima = cluster.local_minima();
-
-        for (auto& node_cur : minima) {
-            if (node_cur.ctx.errors() < k_min) continue;
-            const string_key_t key = node_cur.key();
-            node_t* node_old = result.find(key);
-
-            if (node_old == nullptr) {
-                result.insert(key, node_cur);
-                continue;
-            }
-
-            uint16_t cur_err = node_cur.ctx.errors();
-            uint16_t old_err = node_old->ctx.errors();
-
-            if (cur_err  < old_err ||
-               (cur_err == old_err && node_old->ctx.s.d() == RIGHT && node_cur.ctx.s.d() == LEFT)
-            ) {
-                *node_old = node_cur;
-            }
-        }
+        auto minima = cluster.local_minima(at_separator);
+        for (auto& node_cur : minima) if (node_cur.ctx.errors() >= k_min) add_result(result, node_cur);
     };
 
     // after the last step, at an outer part or before a direction switch, continue from each local minimum
@@ -693,7 +739,7 @@ void apm_edit<idx_t>::flush_cluster(cluster_t& cluster, uint64_t p_idx, search_d
         if (p_idx + 1 == parts.size()) {
             report_at_end();
         } else {
-            auto minima = cluster.local_minima();
+            auto minima = cluster.local_minima(at_separator);
 
             for (auto& node : minima)
                 if (node.ctx.errors() >= k_min)
@@ -706,7 +752,7 @@ void apm_edit<idx_t>::flush_cluster(cluster_t& cluster, uint64_t p_idx, search_d
     // else continue in the same direction from one cell, with the cells after it as descendants
     std::vector<node_t> descendants;
     std::vector<uint16_t> dists;
-    auto [center, found] = cluster.choose_center(k_min, descendants, dists);
+    auto [center, found] = cluster.choose_center(k_min, descendants, dists, at_separator);
 
     // no local minimum with at least k_min errors: the alignments on this path are found by another search
     if (!found) return;
@@ -717,6 +763,7 @@ void apm_edit<idx_t>::flush_cluster(cluster_t& cluster, uint64_t p_idx, search_d
         descendants[i].set_match_len(i + 1);
     }
 
+    // remove the distances above the upper bound of the next step from the end of the first column of the next matrix
     uint64_t k_max = steps.k_max(p_idx + 1);
     while (dists.back() > k_max) dists.pop_back();
 
@@ -733,15 +780,15 @@ bool apm_edit<idx_t>::branch_and_bound(edit_distance_matrix<matrix_word_t>& matr
     uint64_t row = node.match_len();
 
     if (row >= matrix.num_rows()) return true;
-    bool valid_dist = matrix.compute_row(row, node.ctx.last_added_symbol());
+    bool alive = matrix.compute_row(row, node.ctx.last_added_symbol());
 
     if (matrix.is_in_final_column(row)) {
         uint64_t cluster_idx = row - (matrix.num_rows() - cluster.size());
         cluster.set_cell(cluster_idx, with_committed_copy(node), matrix(row, matrix.num_cols() - 1));
 
-        // the cell is terminal if no cell of its row is within k_max, if only insertions remain, or if the context
-        // cannot be extended (its only extension can be the separator)
-        bool terminal = !valid_dist || matrix.only_vertical_gaps_left(row);
+        // the cell is terminal if no cell of its row has at most k_max errors, if only deletions remain, or if the
+        // context cannot be extended (its only extension can be the separator)
+        bool terminal = !alive || matrix.only_vertical_gaps_left(row);
 
         if (!terminal) {
             node_t node_ext = node;
@@ -757,7 +804,7 @@ bool apm_edit<idx_t>::branch_and_bound(edit_distance_matrix<matrix_word_t>& matr
         }
     }
 
-    return !valid_dist;
+    return !alive;
 }
 
 // ############################# QUERY METHODS #############################

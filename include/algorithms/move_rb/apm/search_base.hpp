@@ -26,7 +26,7 @@
 
 /**
  * @file search_base.hpp
- * @brief the parts of the searches with search schemes that the Hamming and the edit distance share
+ * @brief the functions and classes that the searches with Hamming distance and with edit distance share
  */
 
 #ifndef MOVE_R_ALGORITHMS_MOVE_RB_APM_SEARCH_BASE_HPP
@@ -34,6 +34,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <tuple>
 #include <vector>
 
 #include <gtl/phmap.hpp>
@@ -56,7 +57,7 @@ inline std::vector<direction_t> apm_step_directions(const search_t& S)
 
 /**
  * @brief a set of search contexts with distinct keys, in the order of their insertion: the contexts are stored in a
- *        vector and a hash map maps the key of each one to its index, so that an insertion moves no context
+ *        vector, and a hash map maps the key of each context to its index in the vector
  * @tparam ctx_t type of a context
  * @tparam key_t type of the key of a context (the values that identify it)
  * @tparam key_hash_t hash function of the keys
@@ -68,7 +69,7 @@ protected:
     gtl::flat_hash_map<key_t, uint32_t, key_hash_t> _index_of; // maps the key of each context to its index in _contexts
 
 public:
-    // returns the context with a key, or nullptr if there is none
+    // returns the context with a key, or nullptr if there is none (the pointer is valid until the next insertion)
     ctx_t* find(const key_t& key)
     {
         auto it = _index_of.find(key);
@@ -102,10 +103,10 @@ public:
 };
 
 /**
- * @brief the children of a node of a depth-first search in the order of their creation: the first child is kept; when
- *        a second one is added, both are pushed onto the stack in this order, as is every further child. A node with
- *        one child is continued with this child without the stack; the nodes are visited in the same order as if
- *        every child was pushed
+ * @brief the children of a node of a depth-first search in the order of their creation: the first child is kept, and
+ *        once a second child is added, both and every further child are pushed onto the stack in this order; a node
+ *        with one child is continued with this child without the stack, so the nodes are visited in the same order as
+ *        if every child was pushed
  * @tparam child_t type of a child
  */
 template <typename child_t>
@@ -137,8 +138,8 @@ public:
 };
 
 /**
- * @brief the members of apm_hamming and apm_edit: the index, the query parameters, the locate query without errors
- *        and the test for the separator of the sequences
+ * @brief the base class of apm_hamming and apm_edit: the index, the query parameters, the locate query without errors
+ *        and the tests for the separator of the sequences
  * @tparam idx_t the bidirectional index type (move_rb, or a benchmark adapter with the same interface)
  */
 template <typename idx_t>
@@ -185,12 +186,31 @@ protected:
     }
 
     /**
+     * @brief returns whether a search context can be extended with the separator of the sequences of the index in
+     *        direction dir, i.e., whether an occurrence of its string is followed (dir == RIGHT) or preceded
+     *        (dir == LEFT) by the separator (always false for an index without sequences)
+     * @tparam ctx_t type of the search context
+     * @param ctx a search context
+     * @param dir the direction
+     */
+    template <typename ctx_t>
+    bool extends_with_separator(ctx_t ctx, direction_t dir) const
+    {
+        if constexpr (requires (const idx_t& ix) { ix.seq_data(); }) {
+            if (!_index.seq_data().has_sequences()) return false;
+            return std::get<1>(ctx.extend(_index.seq_data().separator_sym(), dir));
+        } else {
+            return false;
+        }
+    }
+
+    /**
      * @brief locates the occurrences of P without errors
      * @tparam mode whether each occurrence is reported with a CIGAR index
      * @tparam report_fnc_t type of the report function
      * @param P the pattern
      * @param report called as report({pos, m, 0}) or, in CIGAR mode, report({pos, m, 0, 0}) for each occurrence
-     * @return in CIGAR mode, the CIGAR of the occurrences (m matches); empty in NO_CIGAR mode
+     * @return in CIGAR mode, the CIGAR of all occurrences (m matches, its index is 0); empty in NO_CIGAR mode
      */
     template <cigar_mode_t mode, typename report_fnc_t>
     std::vector<cigar_t<uint8_t>> locate_exact(const inp_t& P, report_fnc_t& report) const

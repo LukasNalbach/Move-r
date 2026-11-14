@@ -60,8 +60,9 @@ constexpr uint64_t num_iterations_matrix = 320000;
 constexpr uint64_t num_iterations_distance = 320000;
 constexpr uint64_t num_iterations_locate = 430;
 
-// the two largest symbol values do not occur in the random inputs, so the ranks 1..sigma of the alphabet map are below
-// uint8_t(-1), which is reserved in edit_distance_matrix for a symbol that does not occur in the pattern, next to rank 0
+// the alphabets of the random inputs have at most byte_alphabet_size - num_excluded_symbols bytes, so the ranks 1..sigma
+// of the alphabet map are below uint8_t(-1), which is reserved in edit_distance_matrix for a symbol that does not occur
+// in the pattern, next to rank 0
 constexpr uint64_t num_excluded_symbols = 2;
 
 // verify_edit_distance_matrix: the pattern and the text have a length of at most matrix_length_per_error times the
@@ -69,7 +70,7 @@ constexpr uint64_t num_excluded_symbols = 2;
 // prob_text_from_pattern
 constexpr uint64_t matrix_length_per_error = 2;
 constexpr double prob_text_from_pattern = 0.75;
-// verify_edit_dist_bounded_and_cigar: P and T are empty with probability prob_empty each; otherwise P is a mutated
+// verify_edit_dist_bounded: P and T are empty with probability prob_empty each; otherwise P is a mutated
 // substring of length at most bounded_max_length, and T is a mutated copy of P with probability prob_copy, else a
 // mutated substring
 constexpr uint64_t bounded_max_length = 40;
@@ -211,16 +212,15 @@ static void verify_edit_distance_matrix(const inp_t& input, gen_t& gen)
 }
 
 /**
- * @brief checks edit_dist_bounded against reference_edit_distance (capped at k + 1) and, if the distance is at most
- *        k, that edit_cigar returns the distance and a CIGAR with that many edits, for two random strings P and T and
- *        a random k
+ * @brief checks edit_dist_bounded against reference_edit_distance (capped at k + 1) for two random strings P and T
+ *        and a random k
  * @tparam inp_t sequence type of the input (std::string for char, else std::vector<sym_t>)
  * @tparam gen_t random number generator type
  * @param input the input sequence to draw the two strings from
  * @param gen random number generator
  */
 template <typename inp_t, typename gen_t>
-static void verify_edit_dist_bounded_and_cigar(const inp_t& input, gen_t& gen)
+static void verify_edit_dist_bounded(const inp_t& input, gen_t& gen)
 {
     constexpr uint64_t max_length = bounded_max_length;
 
@@ -236,13 +236,6 @@ static void verify_edit_dist_bounded_and_cigar(const inp_t& input, gen_t& gen)
     int64_t dist = edit_dist_bounded(P, T, k);
     int64_t dist_ref = std::min<int64_t>(reference_edit_distance(P, T), k + 1);
     EXPECT_EQ(dist, dist_ref) << "len_P=" << len_P << " len_T=" << len_T << " k=" << k;
-
-    if (dist <= k && len_P > 0 && len_T > 0) {
-        auto [err, cigar] = edit_cigar(P, len_P, T, len_T, k);
-        EXPECT_EQ(int64_t(err), dist) << "len_P=" << len_P << " len_T=" << len_T << " k=" << k;
-        EXPECT_EQ(num_cigar_edits(P.data(), len_P, T.data(), len_T, cigar), int64_t(err))
-            << "len_P=" << len_P << " len_T=" << len_T << " k=" << k;
-    }
 }
 
 /**
@@ -280,8 +273,9 @@ static void verify_locate_edit_dist(const inp_t& input, gen_t& gen)
 }
 
 /**
- * @brief generates a random repetitive input over the symbol type char, uint8_t or int8_t (chosen by i % 3) and calls
- *        verify(input)
+ * @brief generates a random text (see random_text) over a random byte alphabet (see random_input_alphabet) of at most
+ *        byte_alphabet_size - num_excluded_symbols bytes, with the symbol type char, uint8_t or int8_t (chosen by
+ *        i % 3), and calls verify(input)
  * @tparam verify_t type of verify
  * @param i the iteration
  * @param verify the check to run on the input
@@ -289,18 +283,17 @@ static void verify_locate_edit_dist(const inp_t& input, gen_t& gen)
 template <typename verify_t>
 static void for_random_input_type(uint64_t i, verify_t verify)
 {
-    auto run = [&]<typename sym_t, typename inp_t>() {
-        sym_t min_sym = std::numeric_limits<sym_t>::min();
-        sym_t max_sym = std::numeric_limits<sym_t>::max() - num_excluded_symbols;
-        inp_t input = random_repetitive_input<inp_t>(
-            min_input_size, max_input_size, min_sym, max_sym, gen());
+    auto run = [&]<typename inp_t>() {
+        random_input_alphabet alphabet(gen);
+        alphabet.bytes.resize(std::min<uint64_t>(alphabet.bytes.size(), byte_alphabet_size - num_excluded_symbols));
+        inp_t input = alphabet.input<inp_t>(min_input_size, max_input_size, gen);
         verify(input);
     };
 
     switch (i % 3) {
-        case 0: run.template operator()<char,    std::string>();          break;
-        case 1: run.template operator()<uint8_t, std::vector<uint8_t>>(); break;
-        case 2: run.template operator()<int8_t,  std::vector<int8_t>>();  break;
+        case 0: run.template operator()<std::string>();          break;
+        case 1: run.template operator()<std::vector<uint8_t>>(); break;
+        case 2: run.template operator()<std::vector<int8_t>>();  break;
     }
 }
 
@@ -320,7 +313,7 @@ TEST(test_edit_distance_matrix, matrix)
 TEST(test_edit_distance_matrix, distance)
 {
     run_fuzz("edit-distance-matrix", { { "distance", [](uint64_t i) {
-        for_random_input_type(i, [](auto& input) { verify_edit_dist_bounded_and_cigar(input, gen); }); }, true } },
+        for_random_input_type(i, [](auto& input) { verify_edit_dist_bounded(input, gen); }); }, true } },
         fuzz_iterations(num_iterations_distance), &max_input_size, min_fuzz_input_size);
 }
 

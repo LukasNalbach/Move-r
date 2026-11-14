@@ -27,7 +27,7 @@
 /**
  * @file alignment_output_cli.hpp
  * @brief writes the occurrences of reads as SAM, PAF and BED records: the approximate ones (move-rb locate -sam, -paf,
- *        -bed) and the exact ones (move-r locate -sam, -bed)
+ *        -bed, and grouped by their alignments with -strings) and the exact ones (move-r locate -sam, -bed)
  */
 
 #ifndef MOVE_R_MISC_ALIGNMENT_OUTPUT_CLI_HPP
@@ -37,7 +37,10 @@
 #include <cstdint>
 #include <fstream>
 #include <limits>
+#include <numeric>
 #include <string>
+#include <string_view>
+#include <tuple>
 #include <vector>
 
 #include <data_structures/fasta_sequence_data.hpp>
@@ -49,11 +52,11 @@
 #include <misc/parallel_patterns.hpp>
 #include <misc/query_cli.hpp>
 
-// MAPQ of the primary SAM record of a read with exactly one occurrence with the fewest errors
+// MAPQ of the primary SAM record of a read with exactly one occurrence with the fewest errors (as in BWA)
 inline constexpr uint16_t unique_mapq = 60;
 
-// SAM flags (FLAG column): the record is a secondary alignment, the read is aligned as its reverse complement, the
-// read is unmapped
+/* SAM flags (FLAG column): the record is a secondary alignment, the read is aligned as its reverse complement, the
+   read is unmapped */
 inline constexpr uint16_t sam_flag_secondary = 0x100;
 inline constexpr uint16_t sam_flag_reverse = 0x10;
 inline constexpr uint16_t sam_flag_unmapped = 0x4;
@@ -68,8 +71,8 @@ inline constexpr uint16_t paf_mapq = 255;
 template <cigar_mode_t cm>
 struct strand_occurrences_t {
     std::vector<aprx_occ_t<cm>> occurrences; // the occurrences, sorted by position
-    // the alignments of the occurrences: [0..c-1] CIGAR of the c distinct alignments; occurrences[i].cig_idx is an
-    // index into it (only with cm == CIGAR)
+    /* the alignments of the occurrences: [0..c-1] the CIGARs of the c distinct alignments; occurrences[i].cig_idx is
+       an index into it (only with cm == CIGAR) */
     std::vector<cigar_t<uint8_t>> cigars;
 
     // removes the occurrences and the CIGARs
@@ -264,8 +267,124 @@ template <cigar_mode_t cm>
 void write_bed_records(string_appender& bed, const fasta_sequence_data& sequences, uint64_t& last_sequence,
     const std::string& qname, const strand_occurrences_t<cm>& strand, bool reverse)
 {
-    for (const auto& occ : strand.occurrences)
-        write_bed_record(bed, sequences, last_sequence, qname, occ.pos(), occ.len(), reverse);
+    for (const auto& occ : strand.occurrences) write_bed_record(bed, sequences, last_sequence, qname, occ.pos(), occ.len(), reverse);
+}
+
+// ############################# STRINGS #############################
+
+// the occurrences of a read on one strand that have the same alignment (see write_string_records)
+struct string_group_t {
+    uint32_t cigar_idx = 0; // the index of its CIGAR in strand_occurrences_t::cigars
+    uint64_t errors = 0; // the number of errors (with an error model, the cost) of the occurrences
+    uint64_t occurrences = 0; // the number of occurrences
+    uint64_t sequences = 0; // the number of sequences that contain an occurrence
+    uint64_t last_sequence = 0; // the index of the sequence of the last occurrence
+    std::string names; // the names of these sequences, separated by commas (only if they are written)
+};
+
+// the buffers of write_string_records (one per thread)
+struct string_groups_t {
+    std::vector<uint32_t> cigar_order; // [0..c-1] the indices of the c CIGARs, sorted by their runs
+    std::vector<uint32_t> group_of_cigar; // [0..c-1] the group of the occurrences with the c-th CIGAR
+    std::vector<string_group_t> groups; // the groups, in the order of their CIGARs
+    std::vector<uint32_t> group_order; // the groups with occurrences, in the order of their lines
+};
+
+/**
+ * @brief writes the text string of an alignment: the read symbol at each matching position, the text symbol of each
+ *        mismatch and deletion, and nothing for an insertion
+ * @param out the output
+ * @param read the read as it was searched
+ * @param cigar the alignment of the read
+ */
+inline void append_text_string(string_appender& out, std::string_view read, const cigar_t<uint8_t>& cigar)
+{
+    uint64_t i = 0; // the next position in the read
+
+    for (const cigar_run_t<uint8_t>& run : cigar) {
+        switch (run.op) {
+            case cigar_op_t::MATCH:    out << read.substr(i, run.len); i += run.len; break;
+            case cigar_op_t::MISMATCH: out << run.sym; i++; break;
+            case cigar_op_t::INS:      i++; break;
+            case cigar_op_t::DEL:      out << run.sym; break;
+            default: __builtin_unreachable();
+        }
+    }
+}
+
+/**
+ * @brief writes one line per alignment of a read on one strand; the occurrences with the same CIGAR (including the
+ *        symbols of its mismatches and deletions) share a line. Columns: qname, strand, the text string (at a position
+ *        that matches through a class, the read symbol), the number of errors (with an error model, the cost), CIGAR,
+ *        the number of occurrences, the number of sequences that contain one and, with list_sequences, the names of
+ *        these sequences separated by commas. The lines are ordered by the number of errors, then by decreasing
+ *        number of occurrences.
+ * @param out the output
+ * @param sequences the sequences of the text
+ * @param last_sequence index of the sequence of the previous occurrence (sequence_index searches from it)
+ * @param qname the name of the read
+ * @param read the read as it was searched (forward strand or reverse complement)
+ * @param strand the occurrences of the read on the strand
+ * @param reverse whether strand is the reverse strand
+ * @param list_sequences whether the names of the sequences are written
+ * @param buf the buffers
+ */
+inline void write_string_records(string_appender& out, const fasta_sequence_data& sequences, uint64_t& last_sequence,
+    const std::string& qname, const std::string& read, const strand_occurrences_t<CIGAR>& strand, bool reverse,
+    bool list_sequences, string_groups_t& buf)
+{
+    const std::vector<cigar_t<uint8_t>>& cigars = strand.cigars;
+    // orders runs by operation, length and symbol
+    auto run_less = [](const cigar_run_t<uint8_t>& a, const cigar_run_t<uint8_t>& b) {
+        return std::make_tuple(a.op, a.len, a.sym) < std::make_tuple(b.op, b.len, b.sym); };
+    buf.cigar_order.resize(cigars.size());
+    std::iota(buf.cigar_order.begin(), buf.cigar_order.end(), 0);
+
+    std::sort(buf.cigar_order.begin(), buf.cigar_order.end(), [&](uint32_t a, uint32_t b) {
+        return std::lexicographical_compare(cigars[a].begin(), cigars[a].end(), cigars[b].begin(), cigars[b].end(),
+            run_less); });
+
+    buf.group_of_cigar.resize(cigars.size());
+    buf.groups.clear();
+
+    for (uint64_t i = 0; i < cigars.size(); i++) {
+        const uint32_t c = buf.cigar_order[i];
+        if (i == 0 || cigars[c] != cigars[buf.cigar_order[i - 1]]) buf.groups.emplace_back(string_group_t{.cigar_idx = c});
+        buf.group_of_cigar[c] = uint32_t(buf.groups.size() - 1);
+    }
+
+    for (const aprx_occ_t<CIGAR>& occ : strand.occurrences) {
+        string_group_t& group = buf.groups[buf.group_of_cigar[occ.cig_idx]];
+        const uint64_t seq_idx = sequences.sequence_index(occ.pos(), last_sequence);
+        group.errors = occ.err();
+        group.occurrences++;
+        if (group.sequences != 0 && group.last_sequence == seq_idx) continue;
+        group.sequences++;
+        group.last_sequence = seq_idx;
+        if (!list_sequences) continue;
+        if (group.sequences > 1) group.names += ',';
+        group.names += sequences.sequence_name(seq_idx);
+    }
+
+    buf.group_order.clear();
+    for (uint32_t g = 0; g < buf.groups.size(); g++) if (buf.groups[g].occurrences != 0) buf.group_order.emplace_back(g);
+
+    std::stable_sort(buf.group_order.begin(), buf.group_order.end(), [&](uint32_t a, uint32_t b) {
+        const string_group_t& x = buf.groups[a];
+        const string_group_t& y = buf.groups[b];
+        return x.errors != y.errors ? x.errors < y.errors : x.occurrences > y.occurrences; });
+
+    for (uint32_t g : buf.group_order) {
+        const string_group_t& group = buf.groups[g];
+        const cigar_t<uint8_t>& cigar = cigars[group.cigar_idx];
+        out << qname << '\t' << (reverse ? '-' : '+') << '\t';
+        append_text_string(out, read, cigar);
+        out << '\t' << group.errors << '\t';
+        append_cigar(out, cigar);
+        out << '\t' << group.occurrences << '\t' << group.sequences;
+        if (list_sequences) out << '\t' << group.names;
+        out << '\n';
+    }
 }
 
 // ############################# EXACT OCCURRENCES #############################
@@ -345,7 +464,7 @@ inline void close_exact_alignment_files(exact_alignment_cli_t& exact)
  * @param sequences the sequences of the text
  * @param last_sequence index of the sequence of the previous occurrence (sequence_index searches from it)
  * @param name the name of the pattern
- * @param m the length of the pattern
+ * @param m the pattern length
  * @param count the number of occurrences of the pattern and of its reverse complement (unique_mapq if it is 1)
  * @param occurrences the text positions of the occurrences of the pattern (strand +)
  * @param rc_occurrences the text positions of the occurrences of its reverse complement (strand -)

@@ -45,7 +45,7 @@
 
 /**
  * @brief a set of integers in [0, universe) with rank and select. A dense set is stored as a bit vector in blocks of
- *        one cache line (the layout of cache_line_rank_bit_vector): the first word of a block is the number of
+ *        one line (data_line_bytes, the layout of cache_line_rank_bit_vector): the first word of a block is the number of
  *        elements before the block, the other words store the bits; a rank or membership query reads one block. A sparse set
  *        is stored with Elias-Fano coding (see elias_fano_bit_vector); the smaller of the two is used.
  */
@@ -55,8 +55,8 @@ protected:
 
     // the number of bits of a word
     static constexpr uint64_t word_bits = 8 * sizeof(uint64_t);
-    // the number of words of a block, which fills one cache line
-    static constexpr uint64_t words_per_block = cache_aligned_no_init_allocator<uint64_t>::alignment / sizeof(uint64_t);
+    // the number of words of a block, which fills one line (data_line_bytes)
+    static constexpr uint64_t words_per_block = data_line_bytes / sizeof(uint64_t);
     // the number of bits of a block (its first word stores the number of elements before it)
     static constexpr uint64_t bits_per_block = (words_per_block - 1) * word_bits;
     // the number of elements between two select samples (as many as a block can hold)

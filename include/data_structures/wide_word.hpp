@@ -43,6 +43,7 @@
 #include <immintrin.h>
 #endif
 
+// forces a function to be inlined
 #define WIDE_WORD_INLINE __attribute__((always_inline)) inline
 
 #if defined(__AVX2__)
@@ -53,10 +54,14 @@
  */
 template <uint16_t num_bits>
 class wide_word {
-    static_assert(num_bits % 256 == 0);
+    static constexpr uint16_t bits_per_limb = 8 * sizeof(uint64_t); // number of bits of a 64-bit part (a limb)
+    static constexpr uint16_t bits_per_vec = 8 * sizeof(__m256i); // number of bits of a 256-bit part (an AVX2 vector)
+    static constexpr uint16_t limbs_per_vec = bits_per_vec / bits_per_limb;
 
-    static constexpr uint16_t num_vecs = num_bits / 256;
-    static constexpr uint16_t num_limbs = num_bits / 64;
+    static_assert(num_bits % bits_per_vec == 0);
+
+    static constexpr uint16_t num_vecs = num_bits / bits_per_vec;
+    static constexpr uint16_t num_limbs = num_bits / bits_per_limb;
 
     __m256i vecs[num_vecs]; // the 256-bit parts, the least significant first
 
@@ -66,16 +71,20 @@ class wide_word {
         for (uint16_t i = 0; i < num_vecs; i++) _mm256_store_si256(reinterpret_cast<__m256i*>(limbs) + i, vecs[i]);
     }
 
+    // reads the 64-bit parts from limbs, the least significant first
     WIDE_WORD_INLINE void load(const uint64_t* limbs)
     {
         for (uint16_t i = 0; i < num_vecs; i++) vecs[i] = _mm256_load_si256(reinterpret_cast<const __m256i*>(limbs) + i);
     }
 
-    // shifts by shift < 64 bits towards the most significant bit
+    /* shifts by shift < bits_per_limb bits towards the most significant bit: each limb is shifted, and the bits shifted
+       out of the limb below it are added; these carries are rotated by one lane towards the more significant lanes
+       (0b10010011), and the lowest lane takes the carry of the highest limb of the previous vector (blend mask
+       0b00000011) */
     WIDE_WORD_INLINE void shift_left_bits(uint32_t shift)
     {
         const __m128i count = _mm_cvtsi32_si128(shift);
-        const __m128i rest = _mm_cvtsi32_si128(64 - shift);
+        const __m128i rest = _mm_cvtsi32_si128(bits_per_limb - shift);
         __m256i lower = _mm256_setzero_si256(); // the rotated carries of the next less significant part
 
         for (uint16_t i = 0; i < num_vecs; i++) {
@@ -85,11 +94,14 @@ class wide_word {
         }
     }
 
-    // shifts by shift < 64 bits towards the least significant bit
+    /* shifts by shift < bits_per_limb bits towards the least significant bit: each limb is shifted, and the bits
+       shifted out of the limb above it are added; these carries are rotated by one lane towards the less significant
+       lanes (0b00111001), and the highest lane takes the carry of the lowest limb of the next vector (blend mask
+       0b11000000) */
     WIDE_WORD_INLINE void shift_right_bits(uint32_t shift)
     {
         const __m128i count = _mm_cvtsi32_si128(shift);
-        const __m128i rest = _mm_cvtsi32_si128(64 - shift);
+        const __m128i rest = _mm_cvtsi32_si128(bits_per_limb - shift);
         __m256i higher = _mm256_setzero_si256(); // the rotated carries of the next more significant part
 
         for (uint16_t i = num_vecs; i-- > 0;) {
@@ -102,6 +114,7 @@ class wide_word {
 public:
     wide_word() = default;
 
+    // converts a 64-bit value
     WIDE_WORD_INLINE wide_word(uint64_t value)
     {
         vecs[0] = _mm256_set_epi64x(0, 0, 0, static_cast<int64_t>(value));
@@ -154,23 +167,28 @@ public:
     {
         const __m256i sign = _mm256_set1_epi64x(INT64_MIN);
         const __m256i ones = _mm256_set1_epi64x(-1);
-        uint32_t generate = 0;
-        uint32_t propagate = 0;
+        uint32_t generate = 0; // bit x: limb x overflows
+        uint32_t propagate = 0; // bit x: all bits of limb x are set
 
         for (uint16_t i = 0; i < num_vecs; i++) {
             const __m256i sum = _mm256_add_epi64(vecs[i], other.vecs[i]);
+
+            // a limb overflows if its sum is smaller than its first summand (unsigned comparison by flipping the sign bits)
             const __m256i overflow = _mm256_cmpgt_epi64(_mm256_xor_si256(vecs[i], sign), _mm256_xor_si256(sum, sign));
-            generate |= uint32_t(_mm256_movemask_pd(_mm256_castsi256_pd(overflow))) << (4 * i);
-            propagate |= uint32_t(_mm256_movemask_pd(_mm256_castsi256_pd(_mm256_cmpeq_epi64(sum, ones)))) << (4 * i);
+            generate |= uint32_t(_mm256_movemask_pd(_mm256_castsi256_pd(overflow))) << (limbs_per_vec * i);
+            propagate |= uint32_t(_mm256_movemask_pd(_mm256_castsi256_pd(_mm256_cmpeq_epi64(sum, ones)))) << (limbs_per_vec * i);
             vecs[i] = sum;
         }
 
+        // bit x: limb x receives a carry; the carry of lane l of vector i is bit l of carries >> (limbs_per_vec * i)
         const uint32_t carries = ((generate << 1) + propagate) ^ propagate;
-        const __m256i lanes = _mm256_set_epi64x(3, 2, 1, 0);
+        const __m256i lanes = _mm256_set_epi64x(3, 2, 1, 0); // the index of each lane
         const __m256i one = _mm256_set1_epi64x(1);
+        const uint32_t vec_carries_mask = (uint32_t(1) << limbs_per_vec) - 1; // the bits of the limbs of one vector
 
         for (uint16_t i = 0; i < num_vecs; i++) {
-            const __m256i carry = _mm256_and_si256(_mm256_srlv_epi64(_mm256_set1_epi64x((carries >> (4 * i)) & 0b1111), lanes), one);
+            const __m256i carry = _mm256_and_si256(
+                _mm256_srlv_epi64(_mm256_set1_epi64x((carries >> (limbs_per_vec * i)) & vec_carries_mask), lanes), one);
             vecs[i] = _mm256_add_epi64(vecs[i], carry);
         }
 
@@ -185,13 +203,14 @@ public:
 
     WIDE_WORD_INLINE wide_word& operator<<=(uint32_t shift)
     {
-        if (shift >= 64) {
-            alignas(32) uint64_t limbs[num_limbs];
+        // shift by whole limbs, then by the remaining bits
+        if (shift >= bits_per_limb) {
+            alignas(__m256i) uint64_t limbs[num_limbs];
             store(limbs);
-            const uint32_t limb_shift = shift / 64;
+            const uint32_t limb_shift = shift / bits_per_limb;
             for (int32_t i = num_limbs - 1; i >= 0; i--) limbs[i] = uint32_t(i) >= limb_shift ? limbs[i - limb_shift] : 0;
             load(limbs);
-            shift %= 64;
+            shift %= bits_per_limb;
         }
 
         shift_left_bits(shift);
@@ -200,13 +219,14 @@ public:
 
     WIDE_WORD_INLINE wide_word& operator>>=(uint32_t shift)
     {
-        if (shift >= 64) {
-            alignas(32) uint64_t limbs[num_limbs];
+        // shift by whole limbs, then by the remaining bits
+        if (shift >= bits_per_limb) {
+            alignas(__m256i) uint64_t limbs[num_limbs];
             store(limbs);
-            const uint32_t limb_shift = shift / 64;
+            const uint32_t limb_shift = shift / bits_per_limb;
             for (uint32_t i = 0; i < num_limbs; i++) limbs[i] = i + limb_shift < num_limbs ? limbs[i + limb_shift] : 0;
             load(limbs);
-            shift %= 64;
+            shift %= bits_per_limb;
         }
 
         shift_right_bits(shift);
@@ -231,15 +251,15 @@ public:
     // returns whether bit b is set
     WIDE_WORD_INLINE bool bit(uint32_t b) const
     {
-        alignas(32) uint64_t limbs[num_limbs];
+        alignas(__m256i) uint64_t limbs[num_limbs];
         store(limbs);
-        return (limbs[b / 64] >> (b % 64)) & 1;
+        return (limbs[b / bits_per_limb] >> (b % bits_per_limb)) & 1;
     }
 
     // returns the number of set bits
     WIDE_WORD_INLINE int32_t count_ones() const
     {
-        alignas(32) uint64_t limbs[num_limbs];
+        alignas(__m256i) uint64_t limbs[num_limbs];
         store(limbs);
         int32_t count = 0;
         for (uint16_t i = 0; i < num_limbs; i++) count += std::popcount(limbs[i]);
@@ -255,15 +275,18 @@ public:
  */
 template <uint16_t num_bits>
 class wide_word {
-    static_assert(num_bits % 64 == 0);
+    static constexpr uint16_t bits_per_limb = 8 * sizeof(uint64_t); // number of bits of a 64-bit part (a limb)
 
-    static constexpr uint16_t num_limbs = num_bits / 64;
+    static_assert(num_bits % bits_per_limb == 0);
+
+    static constexpr uint16_t num_limbs = num_bits / bits_per_limb;
 
     uint64_t limbs[num_limbs]; // the 64-bit parts, the least significant first
 
 public:
     wide_word() = default;
 
+    // converts a 64-bit value
     WIDE_WORD_INLINE constexpr wide_word(uint64_t value) : limbs{}
     {
         limbs[0] = value;
@@ -315,7 +338,7 @@ public:
             carry += limbs[i];
             carry += other.limbs[i];
             limbs[i] = static_cast<uint64_t>(carry);
-            carry >>= 64;
+            carry >>= bits_per_limb;
         }
 
         return *this;
@@ -328,15 +351,15 @@ public:
 
     WIDE_WORD_INLINE constexpr wide_word& operator<<=(uint32_t shift)
     {
-        const uint32_t limb_shift = shift / 64;
-        const uint32_t bit_shift = shift % 64;
+        const uint32_t limb_shift = shift / bits_per_limb;
+        const uint32_t bit_shift = shift % bits_per_limb;
 
         for (int32_t i = num_limbs - 1; i >= 0; i--) {
             uint64_t value = 0;
 
             if (uint32_t(i) >= limb_shift) {
                 value = limbs[i - limb_shift] << bit_shift;
-                if (bit_shift != 0 && uint32_t(i) > limb_shift) value |= limbs[i - limb_shift - 1] >> (64 - bit_shift);
+                if (bit_shift != 0 && uint32_t(i) > limb_shift) value |= limbs[i - limb_shift - 1] >> (bits_per_limb - bit_shift);
             }
 
             limbs[i] = value;
@@ -347,15 +370,15 @@ public:
 
     WIDE_WORD_INLINE constexpr wide_word& operator>>=(uint32_t shift)
     {
-        const uint32_t limb_shift = shift / 64;
-        const uint32_t bit_shift = shift % 64;
+        const uint32_t limb_shift = shift / bits_per_limb;
+        const uint32_t bit_shift = shift % bits_per_limb;
 
         for (uint32_t i = 0; i < num_limbs; i++) {
             uint64_t value = 0;
 
             if (i + limb_shift < num_limbs) {
                 value = limbs[i + limb_shift] >> bit_shift;
-                if (bit_shift != 0 && i + limb_shift + 1 < num_limbs) value |= limbs[i + limb_shift + 1] << (64 - bit_shift);
+                if (bit_shift != 0 && i + limb_shift + 1 < num_limbs) value |= limbs[i + limb_shift + 1] << (bits_per_limb - bit_shift);
             }
 
             limbs[i] = value;
@@ -382,7 +405,7 @@ public:
     // returns whether bit b is set
     WIDE_WORD_INLINE constexpr bool bit(uint32_t b) const
     {
-        return (limbs[b / 64] >> (b % 64)) & 1;
+        return (limbs[b / bits_per_limb] >> (b % bits_per_limb)) & 1;
     }
 
     // returns the number of set bits

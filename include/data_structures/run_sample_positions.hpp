@@ -55,7 +55,7 @@
  * start of a run starting at x is the rank(2x)-th, and the sample at the end of a run ending at x is the
  * (rank(2x + 2) - 1)-th (for a run of length 1, this is the sample at its start).
  *
- * The bits are stored in blocks of one cache line (the layout of cache_line_rank_bit_vector): the first word of a
+ * The bits are stored in blocks of one line (data_line_bytes, the layout of cache_line_rank_bit_vector): the first word of a
  * block stores the number of ones before the block, the other seven words store 448 bits.
  */
 class run_sample_positions {
@@ -63,7 +63,7 @@ protected:
     // ############################# TYPES AND PARAMETERS #############################
 
     static constexpr uint64_t word_bits = 8 * sizeof(uint64_t); // number of bits of a word
-    static constexpr uint64_t words_per_block = cache_aligned_no_init_allocator<uint64_t>::alignment / sizeof(uint64_t); // one cache line
+    static constexpr uint64_t words_per_block = data_line_bytes / sizeof(uint64_t); // one line
     static constexpr uint64_t bits_per_block = word_bits * (words_per_block - 1); // number of bits of b per block
     static constexpr uint64_t intervals_per_block = bits_per_block / 2; // number of input intervals per block
 

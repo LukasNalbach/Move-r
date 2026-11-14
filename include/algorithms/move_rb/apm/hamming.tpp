@@ -65,7 +65,7 @@ auto apm_hamming<idx_t>::search_positions(const search_t& S, const partition_t& 
         const uint64_t beg = partition.beg(S[step].part);
         const uint64_t end = partition.end(S[step].part);
         const uint64_t len = end - beg;
-        if (step > 0) positions.back().num_left = len;
+        if (step > 0) positions.back().num_remaining = len;
 
         for (uint64_t i = 0; i < len; i++) {
             const uint64_t pos = dirs[step] == RIGHT ? beg + i : end - 1 - i;
@@ -97,7 +97,6 @@ void apm_hamming<idx_t>::add_result(search_context_set_t<query_support>& result,
 template <typename idx_t>
 uint64_t apm_hamming<idx_t>::count(const inp_t& P, const search_scheme_t& scheme) const
 {
-    uint64_t m = P.size();
     uint64_t k = scheme.k;
 
     if (_params.costs != nullptr) {
@@ -106,7 +105,6 @@ uint64_t apm_hamming<idx_t>::count(const inp_t& P, const search_scheme_t& scheme
         return count;
     }
 
-    if (k >= m) return _index.n - 1;
     if (k == 0) return _index.forward_index().count(P);
 
     uint64_t count = 0;
@@ -120,7 +118,6 @@ uint64_t apm_hamming<idx_t>::count(const inp_t& P, const search_scheme_t& scheme
 template <typename idx_t>
 std::vector<uint64_t> apm_hamming<idx_t>::count_histogram(const inp_t& P, const search_scheme_t& scheme) const
 {
-    uint64_t m = P.size();
     uint64_t k = scheme.k;
 
     if (_params.costs != nullptr) {
@@ -131,8 +128,6 @@ std::vector<uint64_t> apm_hamming<idx_t>::count_histogram(const inp_t& P, const 
 
     std::vector<uint64_t> histogram(k + 1, 0);
 
-    // k >= m: P occurs at each of the n - 1 text positions; all occurrences are counted in h[0]
-    if (k >= m) { histogram[0] = _index.n - 1; return histogram; }
     if (k == 0) { histogram[0] = _index.forward_index().count(P); return histogram; }
 
     // the occurrences of a search context have the same number of mismatches
@@ -177,7 +172,7 @@ auto apm_hamming<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) c
     search_context_set_t<query_support> result;
     const search_context_t<query_support> empty_ctx(_index);
     if (m == 0) { result.insert(0, empty_ctx); return result; }
-    if (p >= m) throw std::runtime_error("p >= m");
+    if (!fits_search_scheme(m, scheme)) throw std::invalid_argument(too_short_for_scheme("the pattern", m, scheme));
     using state_t = search_state_t<query_support>;
 
     if constexpr (query_support == LOCATE) if (_computes_cigars) { _path_mismatches.clear(); _cigars.clear(); }
@@ -196,6 +191,13 @@ auto apm_hamming<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) c
         stack.reserve(m);
         auto push = [&](state_t&& child) { stack.emplace_back(std::move(child)); };
         uint64_t len_first_part = partition.length(S[0].part);
+
+        /* returns whether a path with e errors after the position cur can still meet the lower bounds: that of the
+           step of cur if cur is its last position, and that of the next step by the end of the next step */
+        auto meets_lower_bounds = [&](const search_position_t& cur, uint64_t next_step, uint64_t e) {
+            if (next_step != cur.step && e < S[cur.step].k_min) return false;
+            return next_step == p || S[next_step].k_min <= e + cur.num_remaining;
+        };
 
         // a first part without errors starts at its search context (see apm_params_t::start_at_part_contexts); the search is
         // skipped if the part does not occur
@@ -225,7 +227,7 @@ auto apm_hamming<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) c
                 uint64_t next_step = next_position_idx == m ? p : positions[next_position_idx].step;
 
                 // P[cur.pos] can be a mismatch: extend with every symbol
-                if (num_errors < S[cur.step].k_max && (next_step == p || S[next_step].k_min <= num_errors + 1 + cur.num_left)) {
+                if (num_errors < S[cur.step].k_max && meets_lower_bounds(cur, next_step, num_errors + 1)) {
                     apm_dfs_children<state_t> children;
                     auto ext_ctx = ctx.extend_phase();
                     ext_ctx.template prepare_extend_all<NO_TERM>(cur.dir);
@@ -236,6 +238,7 @@ auto apm_hamming<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) c
                         bool is_mismatch = next_ctx.last_added_symbol() != P[cur.pos];
                         uint8_t sym = next_ctx.last_added_symbol();
                         uint64_t next_num_errors = num_errors + is_mismatch;
+                        if (!meets_lower_bounds(cur, next_step, next_num_errors)) continue;
 
                         if (next_step == p) {
                             next_ctx.set_errors(next_num_errors);
@@ -244,7 +247,7 @@ auto apm_hamming<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) c
                             add_ctx(next_ctx);
                             if constexpr (query_support == LOCATE)
                                 if (_computes_cigars && is_mismatch) _path_mismatches.pop_back();
-                        } else if (is_mismatch || S[next_step].k_min <= next_num_errors + cur.num_left) {
+                        } else {
                             children.add(state_t{next_ctx, uint32_t(next_position_idx),
                                 uint32_t(is_mismatch ? cur.pos : no_mismatch), uint8_t(next_num_errors),
                                 uint8_t(num_path_mismatches + (is_mismatch ? 1 : 0)), is_mismatch ? sym : uint8_t(0)}, push);
@@ -254,6 +257,7 @@ auto apm_hamming<idx_t>::search(const inp_t& P, const search_scheme_t& scheme) c
                     if (!children.has_one()) break;
                     st = std::move(children.only());
                 } else {
+                    if (!meets_lower_bounds(cur, next_step, num_errors)) break;
                     auto [next_ctx, occurs] = ctx.extend(P[cur.pos], cur.dir);
                     if (!occurs) break;
 
@@ -284,17 +288,17 @@ auto apm_hamming<idx_t>::search_model(const inp_t& P, const search_scheme_t& sch
     search_context_set_t<query_support> result;
     const search_context_t<query_support> empty_ctx(_index);
     if (m == 0) { result.insert(0, empty_ctx); return result; }
-    if (scheme.p >= m) throw std::runtime_error("p >= m");
+    if (!fits_search_scheme(m, scheme)) throw std::invalid_argument(too_short_for_scheme("the pattern", m, scheme));
 
     // an entry of the stack of the depth-first search
     struct model_state_t {
         search_context_t<query_support> ctx;
-        uint64_t counters; // the packed counters (see apm_costs_t)
+        uint64_t counters; // the packed counters of the path of this state (see apm_costs_t)
         uint32_t position_idx; // index in positions of the next position to match
         uint32_t added_pos; // the position at which the symbol added with this state differs from P, or no_mismatch (CIGAR mode)
-        uint16_t cost; // the cost so far
-        uint8_t num_errors; // number of errors so far (see apm_costs_t::tau)
-        uint8_t num_path_mismatches; // number of positions on the path of this state that differ from P (CIGAR mode)
+        uint16_t cost; // the cost of the path of this state
+        uint8_t num_errors; // the number of substitutions on the path of this state that count as errors (see apm_costs_t::tau)
+        uint8_t num_path_mismatches; // the number of positions on the path of this state that differ from P (CIGAR mode)
         uint8_t added_sym; // the text symbol at added_pos (CIGAR mode)
     };
 
@@ -338,24 +342,24 @@ auto apm_hamming<idx_t>::search_model(const inp_t& P, const search_scheme_t& sch
                 bool part_ends = next_step != cur.step;
                 apm_dfs_children<model_state_t> children;
 
-                // extends the state by the text symbol last added to next_ctx
+                // adds the child of the state for the extension next_ctx, whose last added symbol is the text symbol at cur.pos
                 auto add_child = [&](search_context_t<query_support>& next_ctx) {
                     uint8_t sym = next_ctx.last_added_symbol();
                     uint64_t r = costs.rank(sym);
                     uint16_t cost = st.cost;
                     uint64_t counters = st.counters;
-                    bool counted = false;
+                    bool counts_as_error = false; // whether the substitution counts as an error (see apm_costs_t::tau)
 
                     if (!costs.matches(cur.pos, r)) {
-                        uint16_t c = costs.sub(cur.pos, r);
-                        if (c > costs.bound() - cost) return;
-                        cost += c;
+                        uint16_t sub_cost = costs.sub(cur.pos, r);
+                        if (sub_cost > costs.bound() - cost) return;
+                        cost += sub_cost;
                         counters += costs.sub_count(cur.pos);
                         if (costs.exceeds(counters)) return;
-                        counted = c >= costs.tau();
+                        counts_as_error = sub_cost >= costs.tau();
                     }
 
-                    uint64_t next_num_errors = st.num_errors + counted;
+                    uint64_t next_num_errors = st.num_errors + counts_as_error;
                     if (next_num_errors > S[cur.step].k_max || (part_ends && next_num_errors < S[cur.step].k_min)) return;
                     bool differs = !costs.matches(cur.pos, r);
 
@@ -364,15 +368,16 @@ auto apm_hamming<idx_t>::search_model(const inp_t& P, const search_scheme_t& sch
                         if constexpr (query_support == LOCATE) if (_computes_cigars && differs) _path_mismatches.emplace_back(cur.pos, sym);
                         add_result<query_support>(result, next_ctx, m);
                         if constexpr (query_support == LOCATE) if (_computes_cigars && differs) _path_mismatches.pop_back();
-                    } else if (next_k_min <= next_num_errors + cur.num_left) {
+                    } else if (next_k_min <= next_num_errors + cur.num_remaining) {
                         children.add(model_state_t{next_ctx, counters, uint32_t(next_position_idx),
                             uint32_t(differs ? cur.pos : no_mismatch), cost, uint8_t(next_num_errors),
                             uint8_t(st.num_path_mismatches + (differs ? 1 : 0)), differs ? sym : uint8_t(0)}, push);
                     }
                 };
 
-                // P[cur.pos] can be an error: extend with every symbol; else with its free symbols only
-                if (st.num_errors < S[cur.step].k_max && next_k_min <= st.num_errors + 1 + cur.num_left) {
+                // P[cur.pos] can be an error: extend with every symbol; else with its free symbols only (never with the
+                // separator of the sequences)
+                if (st.num_errors < S[cur.step].k_max && next_k_min <= st.num_errors + 1 + cur.num_remaining) {
                     auto ext_ctx = st.ctx.extend_phase();
                     ext_ctx.template prepare_extend_all<NO_TERM>(cur.dir);
 
@@ -383,6 +388,7 @@ auto apm_hamming<idx_t>::search_model(const inp_t& P, const search_scheme_t& sch
                     }
                 } else {
                     for (uint8_t c : costs.free_symbols(cur.pos)) {
+                        if (this->is_separator(c)) continue;
                         auto [next_ctx, ok] = st.ctx.extend(c, cur.dir);
                         if (ok) add_child(next_ctx);
                     }

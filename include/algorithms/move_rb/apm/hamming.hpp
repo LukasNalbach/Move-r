@@ -61,7 +61,7 @@ protected:
     template <query_support_t query_support>
     using search_context_t = typename base_t::template search_context_t<query_support>;
 
-    // the value of search_state_t::added_pos for a state without an added mismatch; its largest value
+    // the value of search_state_t::added_pos for a state without an added mismatch (the largest uint32_t)
     static constexpr uint64_t no_mismatch = std::numeric_limits<uint32_t>::max();
 
     // the value of located_context_t::cigar_idx for a located context without a CIGAR
@@ -87,7 +87,7 @@ protected:
         uint64_t step; // the step of the search that matches pos
         direction_t dir; // the direction of the step
         uint64_t pos; // the position in P
-        uint64_t num_left; // the number of positions after pos that the step of the next position matches
+        uint64_t num_remaining; // the number of positions matched after pos up to the end of the step of the next position
     };
 
     // an entry of the stack of the depth-first search of search
@@ -96,8 +96,8 @@ protected:
         search_context_t<query_support> ctx;
         uint32_t position_idx; // index in positions of the next position to match
         uint32_t added_pos; // the position of the mismatch added to the path with this state, or no_mismatch (CIGAR mode)
-        uint8_t num_errors; // number of mismatches so far (at most k)
-        uint8_t num_path_mismatches; // number of mismatches on the path of this state (CIGAR mode)
+        uint8_t num_errors; // the number of mismatches on the path of this state (at most k)
+        uint8_t num_path_mismatches; // the number of mismatches on the path of this state (CIGAR mode)
         uint8_t added_sym; // the text symbol of the added mismatch (CIGAR mode)
     };
 
@@ -134,20 +134,20 @@ protected:
 
     /**
      * @brief returns the positions of P in the order a search matches them: step by step, each part from its end
-     *        that is adjacent to the previous parts; num_left of the last position of a step is the length of the part
-     *        of the next step, else the number of positions of its step after it
+     *        that is adjacent to the previous parts; num_remaining of the last position of a step is the length of the
+     *        part of the next step, else the number of positions of its step after it
      * @tparam partition_t type of the partition
      * @param S the search
      * @param partition the partition of P into the parts of the search
      * @param m the length of P
-     * @return [0..m-1] the i-th position the search matches
+     * @return the positions of P in the order of the search: [0..m-1] the i-th position the search matches
      */
     template <typename partition_t>
     static std::vector<search_position_t> search_positions(const search_t& S, const partition_t& partition, uint64_t m);
 
     /**
-     * @brief adds a search context that matches all of P to the result; of two located contexts with the same suffix
-     *        array interval, the one whose last extension is to the left is kept
+     * @brief adds a search context that matches all of P to the result; of two contexts with the same suffix array
+     *        interval, the one whose last extension is to the left is kept (LOCATE) or the first one (COUNT)
      * @tparam query_support COUNT or LOCATE
      * @param result the result of a search
      * @param ctx the search context
@@ -182,8 +182,7 @@ public:
      *        model: by their costs)
      * @param P the pattern
      * @param scheme the search scheme (provides k)
-     * @return [0..k] (with an error model [0..bound]) h[e] is the number of occurrences with e mismatches (cost e);
-     *         for k >= m, all n - 1 occurrences are counted in h[0]
+     * @return [0..k] (with an error model [0..bound]) h[e] is the number of occurrences with e mismatches (cost e)
      */
     std::vector<uint64_t> count_histogram(const inp_t& P, const search_scheme_t& scheme) const;
 

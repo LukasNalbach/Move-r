@@ -226,9 +226,14 @@ The occurrences of P with at most k errors under the Hamming distance (substitut
 (substitutions, insertions and deletions) are found with a search scheme (header `misc/search_schemes.hpp`): P is
 split into parts, which are searched in several orders. The built-in schemes for k errors are
 `pigeon_hole_scheme(k)`, `suffix_filter_scheme(k)`, `zero_one_scheme(k)` and `min_u_scheme(k)` (usually the fastest);
-`parse_search_scheme` reads one in the format of the files in [search_schemes/](../search_schemes/). An occurrence
-(`aprx_occ_t`) stores its position, its length and its number of errors. Counting is supported only for the Hamming
-distance.
+`parse_search_scheme` reads one in the format of the files in [search_schemes/](../search_schemes/). A scheme of your
+own must be complete for the edit distance: for every distribution of at most k errors over the parts and the
+boundaries of adjacent parts, some search accepts the numbers of errors it counts per part (after each step, their sum
+over the parts matched so far lies within the bounds of the step). An error inside a part is counted in this part; a
+deletion of text symbols between the last symbol of a part and the first symbol of the next part is counted in the one
+of the two parts that the search matches later. The built-in schemes and the files in search_schemes/ are complete. An
+occurrence (`aprx_occ_t`) stores its position, its length and its number of errors; with the edit distance, its
+alignment does not start or end with a deletion. Counting is supported only for the Hamming distance.
 
 ```cpp
 #include <move_rb/move_rb.hpp>

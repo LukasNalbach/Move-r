@@ -40,18 +40,31 @@
 
 #include <algorithms/move_rb/apm/model.hpp>
 #include <algorithms/move_rb/apm/partition.hpp>
+#include <algorithms/move_rb/apm/step_prediction.hpp>
 
 /**
  * @brief the partition of a pattern and the search scheme of a query with an error model
  *
- * The searches are those of the given scheme, with the upper bound of each step lowered to the number of errors a
- * valid alignment can have in the parts searched until then (see apm_costs_t::max_errors). A search whose lower bound
- * then exceeds its upper bound is dropped. For edit distance, all lower bounds are 0 once an upper bound is lowered or
- * the costs are computed in the search (see apm_costs_t::bounds_costs).
+ * One of three alternatives is run:
+ * 1. The searches of the given scheme with lowered upper bounds: the upper bound of each step is lowered to the
+ *    largest number of errors that a valid alignment can have in the parts searched until then (see
+ *    apm_costs_t::max_errors), and a search with a lower bound above its upper bound is dropped. For the edit
+ *    distance, all lower bounds are 0 if an upper bound is lowered or if the costs are computed in the search (see
+ *    apm_costs_t::bounds_costs).
+ * 2. The searches of the given scheme with the bounds of the scheme. For the edit distance, all lower bounds are 0 if
+ *    the costs are computed in the search.
+ * 3. The anchored search, if the pattern has an anchor, i.e., a range of positions without possible errors and without
+ *    free symbols (see apm_costs_t::anchor): a single search that starts with the anchor, extends it to the end of the
+ *    pattern and then to its start. Its lower bounds are 0, and its upper bounds are lowered as in alternative 1.
  *
- * Instead, a single search is run if the pattern has a range of positions without errors and free symbols (an anchor)
- * that occurs at most as often as the error-free first parts of all searches together: it starts at the anchor,
- * extends it to the end of the pattern and then to its start.
+ * The alternative with the smallest predicted number of steps is run (see apm_step_prediction::choose). Alternative 2 is
+ * considered only for the edit distance if lowering an upper bound sets lower bounds to 0 that are kept otherwise.
+ * The prediction counts the occurrences near the pattern (see apm_step_prediction) if the partition has computed the
+ * numbers of occurrences of the substrings of the pattern (see apm_partition::occurrences) or if computing them takes
+ * fewer steps than the predicted searches. With apm_params_t::lower_upper_bounds = false, alternative 2 replaces alternative
+ * 1, and the upper bounds of the anchored search are not lowered; with apm_params_t::anchored_search = false,
+ * alternative 3 is not considered. For an index without the alphabet size, n and r (see apm_partition::can_optimize),
+ * nothing is predicted: alternative 1 is run, or alternative 2 if apm_params_t::lower_upper_bounds is false.
  *
  * @tparam idx_t the bidirectional index type
  * @tparam query_support COUNT or LOCATE
@@ -63,9 +76,9 @@ public:
     using partition_t = apm_partition<idx_t, query_support>;
 
 protected:
-    partition_t _partition;
+    partition_t _partition;               // the partition of the pattern for the searches of the scheme
     std::optional<partition_t> _anchored; // the partition of the anchored search, if it is run
-    search_scheme_t _scheme;
+    search_scheme_t _scheme;              // the searches that are run, over the parts of partition()
 
 public:
     /**
@@ -73,7 +86,7 @@ public:
      * @param index the index to search in
      * @param P the pattern
      * @param scheme the search scheme (its k must be at least params.costs->max_errors())
-     * @param params query parameters (the error model must be set)
+     * @param params the query parameters (params.costs must be set)
      */
     apm_model_plan(const idx_t& index, const inp_t& P, const search_scheme_t& scheme, const apm_params_t& params)
         : _partition(index, P, scheme, params.costs->metric(), params)
@@ -82,7 +95,7 @@ public:
         const uint64_t m = P.size();
         const uint64_t p = scheme.p;
         if (scheme.k < costs.max_errors()) {
-            throw std::invalid_argument("the search scheme has fewer errors than the maximum number of errors of the model");
+            throw std::invalid_argument("the search scheme has fewer errors than the largest number of errors of the error model");
         }
 
         // the computed values of costs.max_errors(beg, end), as (beg, end, value)
@@ -95,37 +108,88 @@ public:
             return std::get<2>(max_errors.back());
         };
 
-        const uint64_t no_limit = std::numeric_limits<uint64_t>::max();
-        auto add_bounded = [&](uint64_t a, uint64_t b) { return a > no_limit - b ? no_limit : a + b; };
-
-        // the searches with lowered upper bounds; num_first_part_occ is the total number of occurrences of their
-        // error-free first parts (no_limit if a first part can have errors)
-        _scheme.k = scheme.k;
-        _scheme.p = p;
-        _scheme.S.clear();
-        bool lowered = false;
-        uint64_t num_first_part_occ = 0;
-
         // the searches of the scheme or of its mirror (see apm_partition::mirrored)
         const search_scheme_t mirror = _partition.mirrored() ? mirrored_scheme(scheme) : search_scheme_t();
         const search_scheme_t& oriented = _partition.mirrored() ? mirror : scheme;
 
-        for (const search_t& S : oriented.S) {
-            search_t T = S;
-            uint64_t beg = _partition.beg(S[0].part), end = _partition.end(S[0].part);
-            bool feasible = true;
+        // whether the upper bounds of the searches of the scheme are lowered
+        bool lower = params.lower_upper_bounds;
 
-            for (uint64_t t = 0; t < p; t++) {
-                beg = std::min(beg, _partition.beg(S[t].part));
-                end = std::max(end, _partition.end(S[t].part));
-                T[t].k_max = uint8_t(std::min<uint64_t>(S[t].k_max, max_errors_in(beg, end)));
-                lowered |= T[t].k_max < S[t].k_max;
-                feasible &= T[t].k_min <= T[t].k_max;
+        if constexpr (partition_t::can_optimize) {
+            bool anchored = false; // whether the anchored search is run
+            auto [a_beg, a_end] = costs.anchor();
+            const bool has_anchor = a_beg < a_end && params.anchored_search;
+
+            // the alternative with the smallest prediction, if there are several (see apm_step_prediction::choose)
+            if (has_anchor || (lower && costs.metric() == EDIT_DISTANCE && !costs.bounds_costs())) {
+                std::vector<uint64_t> occ(p); // [0..p-1] the number of occurrences of part i
+                for (uint64_t i = 0; i < p; i++) occ[i] = _partition.num_occ(i);
+                apm_step_prediction predictor(oriented, &costs, costs.metric(), P, index.alphabet_size(),
+                    _partition.symbol_probabilities(), index.num_bwt_runs(), index.input_size(),
+                    has_anchor ? _partition.num_occ_of(P, a_beg, a_end) : 0, params);
+                apm_step_prediction::choice_t choice = predictor.choose(_partition.bounds(), occ);
+
+                /* the prediction is repeated with the occurrences near the pattern if the partition has computed the
+                   numbers of occurrences of the substrings of P or if computing them takes fewer steps than predicted */
+                if (_partition.has_occurrences() || choice.steps > _partition.occurrences_steps(m)) {
+                    predictor.set_occurrences(&_partition.occurrences(P));
+                    choice = predictor.choose(_partition.bounds(), occ);
+                }
+
+                lower = choice.lowered;
+                anchored = choice.anchored;
             }
 
-            if (!feasible) continue;
-            num_first_part_occ = add_bounded(num_first_part_occ, T[0].k_max == 0 ? _partition.num_occ(T[0].part) : no_limit);
-            _scheme.S.emplace_back(std::move(T));
+            /* the anchored search: the anchor, then the parts to its right, then the parts to its left, with the bounds of
+               the parts of _partition outside the anchor */
+            if (anchored) {
+                std::vector<uint64_t> bounds { 0, a_beg, a_end, m };
+                for (uint64_t b : _partition.bounds()) if (b < a_beg || b > a_end) bounds.emplace_back(b);
+                std::sort(bounds.begin(), bounds.end());
+                bounds.erase(std::unique(bounds.begin(), bounds.end()), bounds.end());
+                const uint64_t anchor_part = std::find(bounds.begin(), bounds.end(), a_beg) - bounds.begin();
+                const partition_t& parts = _anchored.emplace(index, P, std::move(bounds), params);
+                search_t search;
+                uint64_t beg = a_beg, end = a_end; // the positions searched so far are P[beg, end)
+
+                // appends the step that searches the part with index part
+                auto add_step = [&](uint64_t part) {
+                    beg = std::min(beg, parts.beg(part));
+                    end = std::max(end, parts.end(part));
+                    const uint64_t k_max = lower ? std::min<uint64_t>(scheme.k, max_errors_in(beg, end)) : scheme.k;
+                    search.emplace_back(search_step_t{.part = uint8_t(part), .k_min = 0, .k_max = uint8_t(k_max)});
+                };
+
+                for (uint64_t part = anchor_part; part < parts.size(); part++) add_step(part);
+                for (uint64_t part = anchor_part; part-- > 0;) add_step(part);
+
+                _scheme.k = scheme.k;
+                _scheme.p = parts.size();
+                _scheme.S = { std::move(search) };
+                return;
+            }
+        }
+
+        // the searches of the scheme, with lowered upper bounds if lower
+        _scheme.k = scheme.k;
+        _scheme.p = p;
+        _scheme.S.clear();
+        bool lowered = false; // whether an upper bound is lowered
+
+        for (const search_t& S : oriented.S) {
+            search_t search = S;
+            uint64_t beg = _partition.beg(S[0].part), end = _partition.end(S[0].part); // the positions searched so far
+            bool feasible = true; // whether no step has a lower bound above its upper bound
+
+            for (uint64_t j = 0; j < p; j++) {
+                beg = std::min(beg, _partition.beg(S[j].part));
+                end = std::max(end, _partition.end(S[j].part));
+                if (lower) search[j].k_max = uint8_t(std::min<uint64_t>(S[j].k_max, max_errors_in(beg, end)));
+                lowered |= search[j].k_max < S[j].k_max;
+                feasible &= search[j].k_min <= search[j].k_max;
+            }
+
+            if (feasible) _scheme.S.emplace_back(std::move(search));
         }
 
         /* for edit distance, a valid alignment can be missed because of a lower bound if the alignment of the same text
@@ -133,37 +197,6 @@ public:
         if (costs.metric() == EDIT_DISTANCE && (lowered || costs.bounds_costs())) {
             for (search_t& S : _scheme.S) for (search_step_t& step : S) step.k_min = 0;
         }
-
-        // the anchored search
-        auto [a_beg, a_end] = costs.anchor();
-        if (a_beg == a_end) return;
-
-        std::vector<uint64_t> bounds { 0, a_beg, a_end, m };
-        for (uint64_t x : _partition.bounds()) if (x < a_beg || x > a_end) bounds.emplace_back(x);
-        std::sort(bounds.begin(), bounds.end());
-        bounds.erase(std::unique(bounds.begin(), bounds.end()), bounds.end());
-
-        partition_t anchored(index, P, bounds, params);
-        const uint64_t q = std::find(bounds.begin(), bounds.end(), a_beg) - bounds.begin();
-        if (anchored.num_occ(q) > num_first_part_occ) return;
-
-        // the anchor, then the parts to its right, then the parts to its left
-        search_t T;
-        uint64_t beg = a_beg, end = a_end;
-
-        auto add_step = [&](uint64_t part) {
-            beg = std::min(beg, anchored.beg(part));
-            end = std::max(end, anchored.end(part));
-            const uint64_t k_max = std::min<uint64_t>(scheme.k, max_errors_in(beg, end));
-            T.emplace_back(search_step_t{.part = uint8_t(part), .k_min = 0, .k_max = uint8_t(k_max)});
-        };
-
-        for (uint64_t part = q; part < anchored.size(); part++) add_step(part);
-        for (uint64_t part = q; part-- > 0;) add_step(part);
-
-        _scheme.p = anchored.size();
-        _scheme.S = { std::move(T) };
-        _anchored.emplace(std::move(anchored));
     }
 
     // returns the partition of the pattern

@@ -23,6 +23,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
 /**
  * @file apm_query_cli.hpp
  * @brief the approximate queries of the modes count and locate of move-rb: their options, their help
@@ -38,9 +39,11 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <ips2ra.hpp>
@@ -64,11 +67,11 @@ inline constexpr uint64_t max_scheme_errors = std::numeric_limits<decltype(searc
 // the largest number of errors of the edit distance (-k with -d edit)
 inline constexpr uint64_t max_edit_errors = edit_distance_max_errors;
 
-// the search scheme without -scheme and of the approximate queries of the interactive mode of move-rb
+// the default of -scheme, also the search scheme of the approximate queries of the interactive mode of move-rb
 inline constexpr std::string_view default_scheme_name = "min-u";
 
-// the error of the edit distance and of the error models for an index without a byte alphabet (more distinct bytes
-// than internal symbols of one byte, see move_r::byte_alphabet)
+/* the error message for the edit distance and the error models on an index without a byte alphabet (with more
+   distinct bytes than internal symbols of one byte, see move_r::byte_alphabet) */
 inline const std::string edit_distance_needs_byte_alphabet = "has more distinct bytes than internal symbols of one "
     "byte; only the Hamming distance without an error model is supported";
 
@@ -81,33 +84,38 @@ struct apm_query_cli_t {
     std::string scheme_name = std::string(default_scheme_name); // -scheme: the name of a built-in scheme or a file
     bool bestmap = false; // -bestmap: the number of errors is increased from 0 up to -k until an occurrence is found
     uint64_t bestmap_strata = 0; // -x: with -bestmap, the number of further error counts that are reported
-    apm_params_t apm_params; // -partition, -no-seed
-    apm_model_t apm_model; // -cost, -max, -exact, -class, -iupac, -qual, -tau, -cost-dp
+    apm_model_t apm_model; // -cost, -max, -exact, -class, -iupac, -qual, -tau
+    // -models: the rules (-cost, -max, -exact, -class) of each pattern by its name, applied after those of apm_model
+    std::unordered_map<std::string, apm_model_t> pattern_models;
     std::string path_hist_file; // -hist
     std::string path_sam_file; // -sam
     std::string path_paf_file; // -paf
     std::string path_bed_file; // -bed
+    std::string path_strings_file; // -strings
+    bool strings_sequences = false; // -strings-seqs: with -strings, the names of the sequences are written too
     bool write_seq = false; // -seq: SEQ and QUAL are written in the primary SAM record of a read
-    bool reverse_complements = true; // -rc: with -sam, -paf or -bed, the reverse complement of each pattern is searched too
+    bool reverse_complements = true; // -rc: with -sam, -paf, -bed or -strings, the reverse complement of each pattern is searched too
     bool best_only = false; // -best: only the primary SAM record of a read is written
     bool no_cigar = false; // -no-cigar: no CIGAR is computed or written
     std::string tool; // the name of the tool, e.g. move-rb (for the program line of a SAM file)
     std::string command_line; // the command line (for the program line of a SAM file)
-    // the search schemes of the queries of the patterns file: [0..e] schemes_by_errors[e'] = the scheme for e'
-    // errors, with e = max_errors, if -bestmap or an error model is given; else only the scheme for max_errors errors
+    /* the search schemes of the queries of the patterns file: with a built-in scheme and -bestmap or an error model,
+       [0..k] schemes_by_errors[e] is the scheme for e errors (k = max_errors); otherwise only the scheme for
+       max_errors errors */
     std::vector<search_scheme_t> schemes_by_errors;
     std::ofstream hist_file; // -hist
     std::ofstream sam_file; // -sam
     std::ofstream paf_file; // -paf
     std::ofstream bed_file; // -bed
+    std::ofstream strings_file; // -strings
 };
 
 // the files and the names of the approximate queries of a patterns file
 struct apm_query_run_t {
     query_options_t& options; // -p, -o, -m
     std::ofstream& output_file; // -o
-    const std::string& path_index_file;
-    const std::string& path_patterns_file;
+    const std::string& path_index_file; // the index file
+    const std::string& path_patterns_file; // the patterns file
     std::string built_with; // how an index with sequences is built, e.g. "move-rb build in the FASTA mode"
     std::string measurement_name; // the name of the index in the measurement file (algo = <mode>_<measurement_name>)
 };
@@ -120,8 +128,9 @@ struct apm_query_run_t {
  */
 inline void print_apm_input_options(help_printer& h)
 {
-    print_reverse_complements_option(h, true, "with -sam, -paf or -bed: also search the reverse complement of each "
-        "pattern; its occurrences are written with the SAM flag 0x10 and the PAF and BED strand -");
+    print_reverse_complements_option(h, apm_query_cli_t().reverse_complements, "with -sam, -paf, -bed or -strings: also "
+        "search the reverse complement of each pattern; its occurrences are written with the SAM flag 0x10 and the "
+        "strand -");
 }
 
 /**
@@ -132,7 +141,7 @@ inline void print_apm_input_options(help_printer& h)
 inline void print_apm_search_options(help_printer& h, bool locate);
 
 /**
- * @brief prints the group of the options of the error model
+ * @brief prints the options of the error model as a group of the help
  * @param h the help printer
  * @param locate true <=> the help of locate
  */
@@ -145,12 +154,6 @@ inline void print_apm_model_options(help_printer& h, bool locate);
  * @param built_with how an index with sequences is built, e.g. "move-rb build in the FASTA mode"
  */
 inline void print_apm_output_options(help_printer& h, bool locate, const std::string& built_with);
-
-/**
- * @brief prints the options -partition and -no-seed
- * @param h the help printer
- */
-inline void print_apm_execution_options(help_printer& h);
 
 /**
  * @brief reads an option of the approximate queries
@@ -196,6 +199,7 @@ inline const search_scheme_t& scheme_for_query(const apm_query_cli_t& apm, uint6
  * @tparam index_t type of the index
  * @param apm the options of the approximate queries
  * @param index the index
+ * @param name the name of the pattern (for its rules of -models)
  * @param pattern the pattern as it is searched
  * @param qual the qualities of the read the pattern was taken from
  * @param reverse true <=> the pattern is the reverse complement of the read
@@ -203,11 +207,15 @@ inline const search_scheme_t& scheme_for_query(const apm_query_cli_t& apm, uint6
  * @param metric the distance metric
  */
 template <typename index_t>
-apm_params_t query_params(const apm_query_cli_t& apm, const index_t& index, const std::string& pattern,
-    const std::string& qual, bool reverse, uint64_t bound, distance_metric_t metric);
+apm_params_t query_params(const apm_query_cli_t& apm, const index_t& index, const std::string& name,
+    const std::string& pattern, const std::string& qual, bool reverse, uint64_t bound, distance_metric_t metric);
 
-// returns the details of the patterns line of the query summary, e.g. "search scheme min-u, at most 1 error (edit
-// distance)"
+// returns whether a query has an error model (on the command line or for a pattern in -models)
+inline bool has_error_model(const apm_query_cli_t& apm)
+{ return !apm.apm_model.is_default() || !apm.pattern_models.empty(); }
+
+/* returns the details of the patterns line of the query summary, e.g. "search scheme min-u, at most 1 error (edit
+   distance)" */
 inline std::string search_description(const apm_query_cli_t& apm)
 {
     return "search scheme " + apm.scheme_name + ", at most " + format_number(apm.max_errors)
@@ -215,7 +223,7 @@ inline std::string search_description(const apm_query_cli_t& apm)
         + (apm.metric == HAMMING_DISTANCE ? " (Hamming distance)" : " (edit distance)");
 }
 
-// returns the memory allocated during the queries in bytes (0 if malloc_count is not linked)
+// returns the peak of the memory allocated during the queries minus baseline, in bytes (0 if malloc_count is not linked)
 inline uint64_t additional_memory(uint64_t baseline)
 {
     return is_malloc_count_linked ? malloc_count_peak() - baseline : 0;
@@ -228,28 +236,30 @@ inline uint64_t additional_memory(uint64_t baseline)
  */
 inline void check_apm_query_options(apm_query_cli_t& apm);
 
-// opens the files of -hist, -sam, -paf and -bed (see open_output_file)
+// opens the files of -hist, -sam, -paf, -bed and -strings (see open_output_file)
 inline void open_apm_query_files(apm_query_cli_t& apm)
 {
     open_output_file(apm.hist_file, apm.path_hist_file);
     open_output_file(apm.sam_file, apm.path_sam_file);
     open_output_file(apm.paf_file, apm.path_paf_file);
     open_output_file(apm.bed_file, apm.path_bed_file);
+    open_output_file(apm.strings_file, apm.path_strings_file);
 }
 
-// closes the files of -hist, -sam, -paf and -bed (see close_output_file)
+// closes the files of -hist, -sam, -paf, -bed and -strings (see close_output_file)
 inline void close_apm_query_files(apm_query_cli_t& apm)
 {
     close_output_file(apm.hist_file, apm.path_hist_file);
     close_output_file(apm.sam_file, apm.path_sam_file);
     close_output_file(apm.paf_file, apm.path_paf_file);
     close_output_file(apm.bed_file, apm.path_bed_file);
+    close_output_file(apm.strings_file, apm.path_strings_file);
 }
 
-// returns whether locate computes the CIGARs of the occurrences: with -sam or -paf, without -no-cigar
+// returns whether locate computes the CIGARs of the occurrences: with -sam or -paf, without -no-cigar, and with -strings
 inline bool apm_locate_with_cigar(const apm_query_cli_t& apm)
 {
-    return (apm.sam_file.is_open() || apm.paf_file.is_open()) && !apm.no_cigar;
+    return ((apm.sam_file.is_open() || apm.paf_file.is_open()) && !apm.no_cigar) || apm.strings_file.is_open();
 }
 
 /**
@@ -264,7 +274,7 @@ inline bool apm_locate_with_cigar(const apm_query_cli_t& apm)
 template <typename index_t>
 void require_apm_alphabet(const apm_query_cli_t& apm, const index_t& index, const std::string& path_index_file)
 {
-    if (!index.forward_index().byte_alphabet && (apm.metric == EDIT_DISTANCE || !apm.apm_model.is_default()))
+    if (!index.forward_index().byte_alphabet && (apm.metric == EDIT_DISTANCE || has_error_model(apm)))
         throw std::runtime_error(path_index_file + " " + edit_distance_needs_byte_alphabet);
 }
 
@@ -287,21 +297,23 @@ void run_apm_count_queries(const index_t& index, apm_query_cli_t& apm, const apm
 // ############################# LOCATE #############################
 
 /**
- * @brief locates the occurrences of a read on one strand (with -sam, -paf or -bed), sorts them by position and removes the
- *        edit-distance occurrences that overlap a better one (see filter_edit_distance_occurrences); a read with at
- *        most p symbols (p: the number of parts of the search scheme) has no occurrences
+ * @brief locates the occurrences of a read on one strand (with -sam, -paf, -bed or -strings), sorts them by position
+ *        and removes the edit-distance occurrences that overlap a better one (see filter_edit_distance_occurrences);
+ *        with k > 0 or an error model, std::runtime_error is thrown if the read is too short for the search scheme
+ *        (see fits_search_scheme)
  * @tparam cm whether the occurrences have a CIGAR
  * @tparam index_t type of the index
  * @param apm the options of the approximate queries
  * @param index the index
+ * @param name the name of the read
  * @param read the read as it is searched
  * @param qual the qualities of the read
- * @param reverse whether read is the reverse complement of the read
+ * @param reverse whether read is the reverse complement of the original read
  * @param strand is set to the occurrences and their CIGARs
  */
 template <cigar_mode_t cm, typename index_t>
-void locate_strand(const apm_query_cli_t& apm, const index_t& index, const std::string& read, const std::string& qual,
-    bool reverse, strand_occurrences_t<cm>& strand);
+void locate_strand(const apm_query_cli_t& apm, const index_t& index, const std::string& name, const std::string& read,
+    const std::string& qual, bool reverse, strand_occurrences_t<cm>& strand);
 
 /**
  * @brief locates the approximate occurrences of the patterns of the patterns file and prints the summary

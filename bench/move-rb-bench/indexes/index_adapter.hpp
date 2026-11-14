@@ -100,21 +100,9 @@ concept search_context = requires(C ctx, const C cctx, uint8_t sym, direction_t 
     { cctx < cctx } -> std::convertible_to<bool>;
 };
 
-/**
- * @brief a search context that also supports the locate phase and stores the depth, shift and reported flag used by
- *        the edit-distance algorithm (see adapter_locate_sample_t)
- */
+// a search context that also supports the locate phase
 template <typename C>
-concept locate_search_context = search_context<C> &&
-    requires(C ctx, const C cctx, uint64_t p, bool b) {
-        { cctx.depth() } -> std::convertible_to<uint64_t>;
-        ctx.set_depth(p);
-        { cctx.shift() } -> std::convertible_to<uint64_t>;
-        ctx.set_shift(p);
-        { cctx.reported() } -> std::convertible_to<bool>;
-        ctx.set_reported(b);
-        cctx.locate_phase();
-    };
+concept locate_search_context = search_context<C> && requires(const C cctx) { cctx.locate_phase(); };
 
 /**
  * @brief the interface of an index adapter: the text length, the alphabet maps, the creation of empty query
@@ -158,7 +146,7 @@ concept index_adapter =
 // the members of a LOCATE search context of an adapter (the same as in move_rb's search_context_t)
 struct adapter_locate_sample_t {
     direction_t dir = LEFT; // direction of the last extension
-    uint64_t dpth = 0; // depth, the number of symbols added to the context (used by apm_edit)
+    uint64_t dpth = 0; // depth, the number of symbols added to the context
     uint64_t shft = 0; // shift, added to each reported occurrence
     bool rprtd = false; // true <=> the occurrences of the context have been reported
 

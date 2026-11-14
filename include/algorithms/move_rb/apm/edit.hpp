@@ -50,10 +50,10 @@
 // the steps of one search of a search scheme: their parts, error bounds and directions
 class apm_search_steps {
 protected:
-    const search_scheme_t& _scheme;
+    const search_scheme_t& _scheme; // the search scheme
     const std::vector<search_step_t>& _steps; // [0..p-1] the steps of the search
     std::vector<direction_t> _dirs; // [0..p-1] the direction of step i (see apm_step_directions)
-    std::vector<bool> _switches_dir; // [0..p-1] 1 <=> step i has another direction than step i - 1 (0 for i = 0)
+    std::vector<bool> _switches_dir; // [0..p-1] true <=> step i has another direction than step i - 1 (false for i = 0)
 
 public:
     /**
@@ -69,10 +69,10 @@ public:
         for (uint8_t i = 1; i < _dirs.size(); i++) _switches_dir.emplace_back(_dirs[i] != _dirs[i - 1]);
     }
 
-    // returns the minimum number of errors after step i
+    // returns the lower bound of step i (the minimum number of errors after step i)
     uint8_t k_min(uint8_t i) const { return _steps[i].k_min; }
 
-    // returns the maximum number of errors after step i
+    // returns the upper bound of step i (the maximum number of errors after step i)
     uint8_t k_max(uint8_t i) const { return _steps[i].k_max; }
 
     // returns the part of P that step i matches
@@ -88,8 +88,9 @@ public:
     bool is_outer_part(uint8_t i) const { return _steps[i].part == 0 || _steps[i].part == _scheme.p - 1; }
 };
 
-// sort key of a search context: a suffix array interval [beg, end] of it (in T, or of its reversed string in T^R), a
-// length (its match length or the length of its string) and its index in the unsorted vector of contexts
+/* sort key of a search context: its suffix array interval [beg, end] in T, its occurrence length (see recompute_errors)
+   and its index in the unsorted vector of contexts; the keys are ordered by beg, then by decreasing end (an interval
+   before the intervals nested in it), then by len and idx */
 struct apm_context_order_t {
     uint64_t beg;
     uint64_t end;
@@ -114,13 +115,16 @@ struct apm_context_order_t {
  * 2. Each search matches its parts step by step: for each step, a depth-first search over the extensions of the
  *    search context in the direction of the step computes one row of the edit-distance matrix of the part per text
  *    symbol (see search_part and branch_and_bound). The cells of the last column of the matrix (the final column)
- *    of a path are collected in a cluster_t; the search continues from its local minima in the next step (see
+ *    of a path are collected in a cluster_t; the next step continues from the local minima of the final column (see
  *    flush_cluster).
  * 3. Each search context stores its matched text string as pieces (see matched_piece_t); after the search, the error
- *    and the length of each context are recomputed by aligning P against its string (see recompute_errors).
- * 4. Each suffix array position is reported once, with the context of the fewest errors that contains it (see
- *    report_contexts); the occurrences that overlap a text end are found separately (see locate_at_text_ends), and
- *    of a search occurrence and a text-end occurrence at the same position only the one with fewer errors is reported.
+ *    count and the length of each context are recomputed by aligning P against its string (see recompute_errors). As
+ *    with an error model, an alignment does not start or end with a deletion.
+ * 4. Each suffix array position is reported once, with the context with the fewest errors that contains it (see
+ *    report_contexts). The occurrences that overlap a text end are found separately (see locate_at_text_ends); of an
+ *    occurrence found by the search and one found at a text end at the same position, only the one with fewer errors
+ *    is reported. An occurrence that ends at a separator of the sequences is found by the search (see
+ *    cluster_t::is_local_min).
  *
  * @tparam idx_t the bidirectional index type (move_rb, or a benchmark adapter with the same interface)
  */
@@ -138,15 +142,15 @@ protected:
     template <query_support_t query_support>
     using search_context_t = typename base_t::template search_context_t<query_support>;
 
-    // true <=> both text ends can be decoded with the index (see text_end); not with the benchmark adapters
+    // true <=> both text ends can be decoded with the index (see text_end); false for the benchmark adapters
     static constexpr bool can_decode_text_ends = requires(const idx_t& i) {
         i.backward_index().M_LF();
         i.forward_index().M_LF();
     };
 
-    // width of a piece index and of a position in P in a matched_piece_t in bits
+    // number of bits of a piece index and of a position in P in a matched_piece_t
     static constexpr uint64_t piece_bits = 8 * uint40_t::width;
-    // the prev of the first piece of a chain, and the last piece of the empty string; the largest piece index
+    // the largest piece index: the prev of the first piece of a chain, and the last piece of an empty chain
     static constexpr uint64_t no_piece = (uint64_t(1) << piece_bits) - 1;
 
     // the CIGAR index of an occurrence without a CIGAR
@@ -159,9 +163,9 @@ protected:
         using pos_field = next_bit_field_t<prev_field, piece_bits>;
 
         packed_bit_fields<bytes_of_bit_fields<pos_field>> bits; // prev and pos (in the layout of GCC bit-fields)
-        uint32_t len;       // copy: its length (>= 1); 0 for a literal
-        uint16_t refs;      // reference count: pieces whose prev is this one, plus piece_ref objects referring to it
-        uint8_t sym;        // literal: the text symbol; unused for a copy
+        uint32_t len;       // copy: its length (>= 1); literal: 0
+        uint16_t refs;      // reference count: the number of pieces whose prev is this piece and of piece_ref objects that refer to it
+        uint8_t sym;        // literal: the text symbol; copy: unused
         direction_t dir;    // LEFT: the piece was prepended to the string, RIGHT: appended
 
         matched_piece_t() = default;
@@ -170,11 +174,11 @@ protected:
             : len(len), refs(refs), sym(sym), dir(dir)
         { bits.template assign<prev_field, pos_field>(prev, pos); }
 
-        // the index of the piece appended before this one in _matched_pieces, or no_piece
+        // the index in _matched_pieces of the piece added to the string before this one, or no_piece
         uint64_t prev() const { return bits.template get<prev_field>(); }
         void set_prev(uint64_t value) { bits.template set<prev_field>(value); }
 
-        // copy: the start of the copied substring of P; unused for a literal
+        // copy: the start of the copied substring of P; literal: unused
         uint64_t pos() const { return bits.template get<pos_field>(); }
         void set_pos(uint64_t value) { bits.template set<pos_field>(value); }
     };
@@ -225,6 +229,7 @@ protected:
         bool operator==(const string_key_t&) const = default;
     };
 
+    // the hash function of a string_key_t
     struct string_key_hash {
         uint64_t operator()(const string_key_t& key) const
         {
@@ -235,24 +240,25 @@ protected:
         }
     };
 
-    /* a search context with its matched text string: the chain of pieces ending at last_piece, followed by the
-       pending copy P[copy_pos, copy_pos + copy_len) that is not yet a piece (see commit_copy); m + k <= aprx_occ_max_len */
+    /* a search context with its matched text string: the chain of pieces ending at last_piece, together with the
+       pending copy P[copy_pos, copy_pos + copy_len) that is not yet a piece (see commit_copy); the lengths and positions
+       fit into 32 bits, since m + k <= aprx_occ_max_len */
     struct node_t {
         search_context_t<LOCATE> ctx;
-        uint32_t len = 0;      // the matched length (the row in the matrix of the current part), in [0, m + k]
+        uint32_t len = 0;      // the matched length, in [0, m + k] (during a step, the row in the matrix of the part)
         uint32_t copy_pos = 0; // the start of the pending copy in P
         uint32_t copy_len = 0; // the length of the pending copy (0 <=> there is none)
         piece_ref last_piece;  // the last piece of the chain
         uint8_t copy_dir : 2;  // the direction in which the pending copy was matched (LEFT or RIGHT)
-        uint8_t was_reported : 1; // whether the context has been reported (see cluster_t)
+        uint8_t was_taken : 1; // whether the cell of the node in a cluster_t has been taken (see cluster_t::take_cell)
 
-        node_t() : copy_dir(RIGHT), was_reported(false) {}
-        node_t(const search_context_t<LOCATE>& c) : ctx(c), copy_dir(RIGHT), was_reported(false) {}
+        node_t() : copy_dir(RIGHT), was_taken(false) {}
+        node_t(const search_context_t<LOCATE>& c) : ctx(c), copy_dir(RIGHT), was_taken(false) {}
 
         uint64_t match_len() const { return len; }
         void set_match_len(uint64_t d) { len = d; }
-        bool reported() const { return was_reported; }
-        void set_reported(bool r) { was_reported = r; }
+        bool taken() const { return was_taken; }
+        void set_taken(bool t) { was_taken = t; }
         uint64_t last_piece_idx() const { return last_piece.idx; }
         void set_last_piece(uint64_t i) { last_piece = piece_ref(i); }
 
@@ -274,12 +280,12 @@ protected:
     // the data structures of one search of the scheme that search_part, flush_cluster and branch_and_bound share
     template <typename matrix_word_t>
     struct search_data_t {
-        const apm_search_steps& steps;
+        const apm_search_steps& steps; // the steps of the search
         const std::vector<directional_substring<inp_t>>& parts; // [0..p-1] the parts of P
         std::vector<std::vector<node_t>>& stacks; // [0..p-1] the stack of the depth-first search of step i
         std::vector<edit_distance_matrix<matrix_word_t>>& matrices_fwd; // [0..p-1] the matrix of part i read to the right
         std::vector<edit_distance_matrix<matrix_word_t>>& matrices_bwd; // [0..p-1] the matrix of part i read to the left
-        node_set_t& result;
+        node_set_t& result; // the contexts found by the searches
     };
 
     /* a range [beg, end] of suffix array positions in T that are reported with the same occurrence length, error
@@ -312,21 +318,22 @@ protected:
     class cluster_t {
     protected:
         uint64_t _start_depth; // the matched length before the part
-        uint16_t _k_max; // the maximum number of errors of the step
-        uint64_t _last_cell; // the last set cell, or uint64_t(-1) if none is set
+        uint16_t _k_max; // the upper bound of the step
+        uint64_t _last_cell; // the cell set last, or uint64_t(-1) if none is set (the cells after it belong to other paths)
         std::vector<node_t> _nodes; // [0..size()-1] the context of cell i
         std::vector<uint16_t> _dists; // [0..size()-1] the edit distance of cell i (_k_max + 1 if it is not set)
 
     public:
+        // creates a final column with size cells, none of them set, for a step with the upper bound k_max
         cluster_t(uint64_t size, uint64_t k_max, uint64_t start_depth)
             : _start_depth(start_depth), _k_max(k_max), _last_cell(uint64_t(-1)),
               _nodes(size), _dists(size, k_max + 1) {}
 
-        // sets cell idx to a context (not reported) and its edit distance
+        // sets cell idx to a context (not taken) and its edit distance
         void set_cell(uint64_t idx, node_t node, uint16_t dist)
         {
             _nodes[idx] = std::move(node);
-            _nodes[idx].set_reported(false);
+            _nodes[idx].set_taken(false);
             _dists[idx] = dist;
             _last_cell = idx;
         }
@@ -334,74 +341,110 @@ protected:
         // returns the number of cells of the column
         uint64_t size() const { return _dists.size(); }
 
-        // returns whether the distance of cell i is at most those of its neighbours up to _last_cell
-        bool is_local_min(uint64_t i) const
+        /**
+         * @brief returns whether the distance of cell i is at most the distances of its neighbours (up to _last_cell); a
+         *        smaller distance in cell i + 1 is ignored if an occurrence of the string of cell i is followed by the
+         *        separator in the direction of the step (the string of cell i + 1 does not contain this occurrence)
+         * @tparam sep_fnc_t type of the function at_separator
+         * @param i the cell
+         * @param at_separator returns whether the string of a node can be extended with the separator in the
+         *        direction of the step (see apm_search_base::extends_with_separator)
+         */
+        template <typename sep_fnc_t>
+        bool is_local_min(uint64_t i, sep_fnc_t& at_separator)
         {
-            return (i == 0 || _dists[i] <= _dists[i - 1]) && (i == _last_cell || _dists[i] <= _dists[i + 1]);
+            if (i != 0 && _dists[i] > _dists[i - 1]) return false;
+            if (i == _last_cell || _dists[i] <= _dists[i + 1]) return true;
+            return ends_at_separator(i, at_separator);
         }
 
-        // marks cell i reported and returns a copy of its node with its distance as the error count and the matched
-        // length increased by _start_depth
+        /**
+         * @brief returns whether an occurrence of the string of cell i (i < _last_cell) is followed by the separator in
+         *        the direction of the step; the string of cell i + 1 then does not contain this occurrence
+         * @tparam sep_fnc_t type of the function at_separator
+         * @param i the cell
+         * @param at_separator see is_local_min
+         */
+        template <typename sep_fnc_t>
+        bool ends_at_separator(uint64_t i, sep_fnc_t& at_separator)
+        {
+            /* the string of cell i + 1 extends the string of cell i; if it has as many occurrences, no occurrence of the
+               string of cell i is followed by the separator */
+            return num_occ(_nodes[i]) > num_occ(_nodes[i + 1]) && at_separator(_nodes[i]);
+        }
+
+        // returns the number of occurrences of the string of a node
+        static uint64_t num_occ(const node_t& node)
+        {
+            auto [b, e] = node.ctx.forward_sa_interval();
+            return e - b + 1;
+        }
+
+        // marks cell i as taken and returns a copy of its node, with the distance of the cell as its error count and with
+        // its matched length increased by _start_depth
         node_t take_cell(uint64_t i)
         {
-            _nodes[i].set_reported(true);
+            _nodes[i].set_taken(true);
             node_t node = _nodes[i];
             node.ctx.set_errors(_dists[i]);
             node.set_match_len(node.match_len() + _start_depth);
             return node;
         }
 
-        // takes the cells that are local minima with at most _k_max errors and were not reported (see take_cell)
-        std::vector<node_t> local_minima();
+        // takes (see take_cell) and returns the cells up to _last_cell that are local minima (see is_local_min) with at
+        // most _k_max errors and were not taken before
+        template <typename sep_fnc_t>
+        std::vector<node_t> local_minima(sep_fnc_t& at_separator);
 
         /**
          * @brief chooses the cell from which the next step continues in the same direction: the first local minimum
-         *        with a distance in [k_min, _k_max]
-         * @param k_min the minimum number of errors of the step
+         *        (see is_local_min) with a distance in [k_min, _k_max]
+         * @param k_min the lower bound of the step
          * @param descendants is set to the contexts of the cells after it
          * @param init_dists is set to the first column of the matrix of the next step: the distances of the cell and
          *        of the cells after it, with every local minimum below k_min raised (see the body)
+         * @param at_separator see is_local_min
          * @return the cell (see take_cell) and true, or false if there is no such cell
          */
+        template <typename sep_fnc_t>
         std::tuple<node_t, bool> choose_center(uint16_t k_min, std::vector<node_t>& descendants,
-            std::vector<uint16_t>& init_dists);
+            std::vector<uint16_t>& init_dists, sep_fnc_t& at_separator);
     };
 
-    /* an alignment that ends at the text string of a context extended by the extension ext (see _ext_trie_parent) in
-       the direction of the members of the search (see search_model), with its error count and its cost */
+    /* a member of a context in search_model: an alignment against the string of the context extended by the extension
+       ext (see _ext_trie_parent) in the direction of the members of the search (see search_model) */
     struct model_member_t {
-        uint32_t ext;
-        uint16_t err;
-        uint16_t cost;
+        uint32_t ext; // the extension
+        uint16_t err; // the error count of the alignment
+        uint16_t cost; // the cost of the alignment
     };
 
-    /* a context reached after a step of a search: its smallest error count (in node.ctx.errors()) and its smallest
-       cost (see apm_cost_band); covered <=> in the next step, the context is continued in the search from a shorter
-       context; members: empty if the context represents only its own string, else the alignments it represents (its
-       error count and its cost are their smallest ones) */
+    // a context reached after a step of a search in search_model
     struct model_entry_t {
-        node_t node;
-        uint16_t cost;
-        bool covered = false;
+        node_t node; // the context; node.ctx.errors() is its smallest error count
+        uint16_t cost; // its smallest cost (see apm_cost_band)
+        bool covered = false; // true <=> in the next step, the context is continued in the search from a shorter context
+        // empty if the entry represents only the string of the context, else the alignments it represents (node.ctx.errors()
+        // and cost are their smallest error count and cost)
         std::vector<model_member_t> members;
         uint64_t counters = 0; // without members: the packed counters of an alignment with the cost (see apm_cost_band)
     };
 
-    // a member along a path of a search step: its error count and its cost exceed those of the cell of the path by
-    // err_offset and cost_offset
+    // a member of the contexts on a path of process_part: its error count and its cost are those of the cell of the path
+    // plus err_offset and cost_offset
     struct path_member_t {
-        uint32_t ext;
+        uint32_t ext; // the extension (see model_member_t)
         uint16_t err_offset;
         uint16_t cost_offset;
     };
 
-    // the contexts reached after a step of a search, by their text strings
+    // the contexts reached after a step of a search, by the keys of their text strings (see string_key_t)
     using string_map_t = gtl::flat_hash_map<string_key_t, model_entry_t, string_key_hash>;
 
     // ############################# DATA MEMBERS #############################
 
-    /* the apm_edit whose _matched_pieces the piece_ref objects of this thread refer to; set by search and search_model
-       before they create a piece_ref (a query is run on one thread) */
+    /* the apm_edit whose _matched_pieces the piece_ref objects of this thread refer to; set by locate, search and
+       search_model before they create a piece_ref (a query is run on one thread) */
     static inline thread_local const apm_edit* _piece_owner = nullptr;
 
     // the pieces of the matched strings of all contexts of a query: [0..number of pieces - 1] (see matched_piece_t)
@@ -410,8 +453,9 @@ protected:
     // the indices of the freed pieces in _matched_pieces, which are reused first (a stack)
     mutable std::vector<uint64_t> _free_pieces;
 
-    /* the largest distance |j - diagonal| at which append_last_symbol looks for a copy of P[j] (see there); set by
-       search (k) and search_model (max_errors()) */
+    /* the largest distance between a position j of P and the position of P on the diagonal of a node at which
+       append_last_symbol looks for a P[j] that equals the appended symbol; set by search (k) and search_model
+       (max_errors()) */
     mutable uint64_t _max_diagonal_shift = 0;
 
     /* the extensions of the members of search_model (see model_member_t), a trie: [0..number of extensions - 1]
@@ -435,16 +479,18 @@ protected:
 
     /**
      * @brief returns the windows of the text in which an occurrence with at most k errors can overlap a text end:
-     *        the first and the last min(n, m + k) symbols (within the first and the last sequence), in text order
+     *        the first and the last min(n, m + k) symbols (of the first and the last sequence), in text order; the
+     *        first window ends before its first separator, the last one starts after its last separator
      * @param m the length of P
      * @param k the maximum number of errors
-     * @return the first window and the last window
+     * @return the position of the first window in the text, the first window and the last window (it ends at the text
+     *         end)
      */
-    std::pair<inp_t, inp_t> text_end_windows(uint64_t m, uint64_t k) const;
+    std::tuple<uint64_t, inp_t, inp_t> text_end_windows(uint64_t m, uint64_t k) const;
 
     /**
-     * @brief reports the occurrences that overlap a text end (search misses them) by aligning P against the
-     *        windows of text_end_windows
+     * @brief reports the occurrences that overlap a text end (the search can miss them) by aligning P against the
+     *        windows of text_end_windows (as in recompute_errors)
      * @tparam mode whether a CIGAR is computed for each occurrence
      * @tparam report_fnc_t type of the report function
      * @param P the pattern
@@ -530,11 +576,11 @@ protected:
     }
 
     // makes a node whose context was extended in place its own child: its matched length is increased by 1, its
-    // matched string is not changed (see child_of)
+    // matched string is not changed (see child_of), and it is not taken (see cluster_t::take_cell)
     static void descend(node_t& node)
     {
         node.set_match_len(node.match_len() + 1);
-        node.set_reported(false);
+        node.set_taken(false);
     }
 
     // appends the pending copy of a node (if there is one) to its chain as a piece
@@ -559,8 +605,9 @@ protected:
 
     /**
      * @brief appends the symbol of the last extension of a node in direction dir: to the pending copy if it continues
-     *        it; else as a new pending copy of P[j] for the j closest to the diagonal of the node with P[j] = the
-     *        symbol and |j - diagonal| <= _max_diagonal_shift; else as a literal
+     *        the copy, else as a new pending copy of P[j] for the position j with P[j] = the symbol that is closest to
+     *        the position of P on the diagonal of the node (at most _max_diagonal_shift positions away), else as a
+     *        literal
      * @param node the node
      * @param part the part of the current step
      * @param dir the direction of the step
@@ -576,8 +623,10 @@ protected:
     void decode_matched_string(const inp_t& P, uint64_t last, inp_t& out) const;
 
     /**
-     * @brief computes the error count and the matched length of each context by aligning P against a prefix of its
-     *        matched string, and collects the contexts with at most k errors
+     * @brief computes the error count and the occurrence length of each context: P is aligned against the prefix of the
+     *        matched string of the context with the fewest errors (the shortest one on ties, so the alignment does not
+     *        end with a deletion), without a deletion before P[0]; the contexts with at most k errors are collected,
+     *        except those whose matched string without its first symbol has fewer errors
      * @tparam mode whether a CIGAR is computed for each context
      * @tparam word_t word type of the edit-distance matrix
      * @param ctxts the contexts
@@ -655,7 +704,7 @@ protected:
      *        (see cluster_t::choose_center) are the first rows
      * @tparam matrix_word_t word type of the edit-distance matrix
      * @param node the context
-     * @param p_idx the step
+     * @param p_idx the index of the step
      * @param data the data structures of the search
      * @param descendants_prev_dir the descendants carried in the direction of step p_idx - 1
      * @param descendants_other_dir the descendants carried in the other direction
@@ -668,12 +717,22 @@ protected:
         const std::vector<uint16_t>& dists_prev_dir, const std::vector<uint16_t>& dists_other_dir) const;
 
     /**
-     * @brief continues from the final column of a part on one path: after the last step, it adds the local minima to
-     *        the result; at an outer part or before a direction switch, the next step starts at each local minimum;
-     *        else at the cell chosen by cluster_t::choose_center, with the cells after it as descendants
+     * @brief adds a context at which the last step of a search ends to the result; of two contexts of the same string,
+     *        the one with fewer errors is kept, on ties the one whose last extension is to the left
+     * @param result the contexts found by the searches
+     * @param node the context, without a pending copy (see commit_copy)
+     */
+    static void add_result(node_set_t& result, const node_t& node);
+
+    /**
+     * @brief continues the search from the final column of a part on one path
+     *
+     * After the last step, the local minima of the final column are added to the result. At an outer part or before a
+     * direction switch, the next step starts at each local minimum, else at the cell chosen by
+     * cluster_t::choose_center, with the cells after it as descendants.
      * @tparam matrix_word_t word type of the edit-distance matrix
      * @param cluster the final column
-     * @param p_idx the step
+     * @param p_idx the index of the step
      * @param data the data structures of the search
      * @param dists_rev the distances of descendants_rev
      * @param descendants_rev the descendants carried in the direction other than that of step p_idx
@@ -685,18 +744,21 @@ protected:
         const std::vector<node_t>& remaining_descendants) const;
 
     /**
-     * @brief computes the row of the matrix of a node; if the row has a cell in the final column, it is set in the
-     *        cluster, and the cluster is flushed if no row after it can have one (see flush_cluster)
+     * @brief computes the row of a node in the matrix of the part (the row node.match_len()); if the row has a cell in
+     *        the final column, the cell is set in the cluster, and the cluster is flushed (see flush_cluster) if the
+     *        cell is terminal: no cell of the row has at most k_max errors, only deletions remain (see
+     *        edit_distance_matrix::only_vertical_gaps_left), or the context cannot be extended
      * @tparam matrix_word_t word type of the edit-distance matrix
      * @param matrix the matrix of the part of step p_idx
      * @param cluster the final column
      * @param node the node
-     * @param p_idx the step
+     * @param p_idx the index of the step
      * @param data the data structures of the search
      * @param dists_rev see flush_cluster
      * @param descendants_rev see flush_cluster
      * @param remaining_descendants see flush_cluster
-     * @return true <=> the node is not extended (no cell of the row is within k_max, or the cluster was flushed)
+     * @return true <=> the node is not extended (no cell of the row has at most k_max errors, or the cluster was
+     *         flushed)
      */
     template <typename matrix_word_t>
     bool branch_and_bound(edit_distance_matrix<matrix_word_t>& matrix, cluster_t& cluster, const node_t& node,
@@ -761,7 +823,7 @@ protected:
      * @tparam word_t word type of the edit-distance matrix
      * @param P the pattern
      * @param strings the strings of the occurrences (see locate_model); the windows are appended
-     * @param beg the starts of the strings, followed by the size of strings
+     * @param beg [0..number of strings] beg[x] is the start of string x in strings, beg.back() is strings.size()
      * @param occ the occurrences; in CIGAR mode, the CIGAR index of an added one is the index of its window in strings
      */
     template <cigar_mode_t mode, typename word_t>
@@ -769,9 +831,9 @@ protected:
         std::vector<aprx_occ_t<mode>>& occ) const;
 
     /**
-     * @brief locates P with the error model params.costs: every reported occurrence (pos, len, err) is a valid
-     *        alignment of P against T[pos, pos + len) with cost err, and every valid alignment starting at a position p
-     *        has a reported occurrence at most 2 * max_errors() + 1 positions away whose cost is at most its own; the
+     * @brief locates P with the error model params.costs: for every reported occurrence (pos, len, err), P has a valid
+     *        alignment against T[pos, pos + len) with cost err, and for every valid alignment that starts at a position
+     *        p, an occurrence with at most its cost is reported at most 2 * max_errors() + 1 positions away; the
      *        occurrences are reported in increasing order of their positions
      *
      * If all errors have the same cost (see apm_costs_t::uniform_cost), the contexts are computed with search, which
@@ -813,11 +875,11 @@ protected:
      *        ends with an error count in [k_min, k_max] and a cost of at most the bound of the model into target
      *
      * With prune, cells of the final column of a path are discarded by their costs:
-     * 1. a cell is not inserted if an inserted cell above it on the path has a cost of at most its cost minus
-     *    apm_costs_t::prune_slack and, if dir is LEFT, is at most 2 * max_errors() + 1 rows away (every occurrence of
-     *    its string then has an occurrence of the string of that cell at most that far to the right; at the same
-     *    position if dir is RIGHT);
-     * 2. a path is not extended further once every cell of its row outside the final column has a cost of at least
+     * 1. A cell is not inserted if an inserted cell above it on the path has a cost of at most its cost minus
+     *    apm_costs_t::prune_slack and, if dir is LEFT, is at most 2 * max_errors() + 1 rows away. Every occurrence of
+     *    the string of the cell then has an occurrence of the string of the inserted cell at the same position (dir is
+     *    RIGHT) or at most that far to the right (dir is LEFT).
+     * 2. A path is not extended further once every cell of its row outside the final column has a cost of at least
      *    the cost of such an inserted cell plus apm_costs_t::prune_slack.
      * Only an inserted cell whose counters (see apm_cost_band::final_counters) do not exceed their bounds covers other
      * cells, and with affine gaps (see apm_costs_t::is_affine), no cell of a path is discarded after a restart.
@@ -825,8 +887,8 @@ protected:
      * @tparam matrix_word_t word type of the edit-distance matrix
      * @param entry the context, its error count (at most k_max) and its cost
      * @param part the part, read in the direction dir
-     * @param beg first position of the part
-     * @param end end of the part (exclusive)
+     * @param beg the first position of the part in P
+     * @param end the position after the last position of the part in P
      * @param dir the direction of the step
      * @param outer true <=> the part is at the end of P in direction dir; then a context is extended past the end of
      *        the part although only deletions remain (an alignment does not end with a deletion)
@@ -870,10 +932,12 @@ public:
     // ############################# QUERY METHODS #############################
 
     /**
-     * @brief locates P with at most k errors: every reported (pos, len, err) has ed(P, T[pos, pos + len)) = err <= k,
-     *        and for every p' and L with ed(P, T[p', p' + L)) = e <= k, an occurrence with at most e errors is reported
-     *        at most 2k + 1 positions away from p' (with an error model, see locate_model); each position is reported
-     *        at most once
+     * @brief locates P with at most k errors (with an error model, see locate_model); each position is reported at most
+     *        once
+     *
+     * Every reported (pos, len, err) has ed(P, T[pos, pos + len)) = err <= k, with an alignment that does not start or
+     * end with a deletion (as with an error model). For every p' and L with ed(P, T[p', p' + L)) = e <= k, an occurrence
+     * with at most e errors is reported at most 2k + 1 positions away from p'.
      * @tparam mode whether each occurrence is reported with a CIGAR index
      * @tparam report_fnc_t type of the report function (called with {pos, len, err} or, in CIGAR mode,
      *         {pos, len, err, cigar index})

@@ -26,7 +26,8 @@
 
 /**
  * @file apm_query_cli.tpp
- * @brief the approximate queries of move-rb: printing and reading their options and building the search schemes
+ * @brief the approximate queries of move-rb: printing and reading their options, building the search schemes and
+ *        running the queries of a patterns file
  */
 
 #ifndef MOVE_R_MISC_APM_QUERY_CLI_TPP
@@ -39,9 +40,10 @@ inline void print_apm_search_options(help_printer& h, bool locate)
     h.option("-k <errors>", "integer in [0, " + std::to_string(max_scheme_errors) + "] (default: "
         + std::to_string(apm_query_cli_t().max_errors) + ")", "the maximum number of errors");
     if (locate) h.option("-d <distance>", "hamming | edit (default: hamming)", "edit: k <= "
-        + std::to_string(max_edit_errors));
+        + std::to_string(max_edit_errors) + "; an alignment does not start or end with a deletion");
     h.option("-scheme <scheme>", "min-u | pigeon-hole | suffix-filter | 01 | <file> (default: "
-        + std::string(default_scheme_name) + ")", "the search scheme (with a file, k is read from the file)");
+        + std::string(default_scheme_name) + ")", "the search scheme (with a file, k is read from the file, and the "
+        "scheme must be complete as defined in docs/move-rb.md, section Approximate pattern matching)");
     h.option("-bestmap", "", "increase the number of errors from 0 up to k until an occurrence is found and report "
         "only the occurrences with the fewest errors");
     h.option("-x <strata>", "integer >= 0 (default: " + std::to_string(apm_query_cli_t().bestmap_strata) + ")",
@@ -59,6 +61,9 @@ inline void print_apm_model_options(help_printer& h, bool locate)
     h.option("-exact <range>", "", "no errors in <range> (as -cost sid=inf@<range>)");
     h.option("-class <class>", "<from>,<to>[@<range>], repeatable", "a pattern symbol in <from> also matches the text "
         "symbols in <to>");
+    h.option("-models <file>", "a path", "a file with one line \"<name> <rules>\" per pattern: the rules (-cost, -max, "
+        "-exact and -class with their values, separated by white space) apply to the pattern <name> after those of the "
+        "command line");
     h.option("-iupac", "", "an IUPAC code in a pattern matches each of its bases");
     h.option("-qual", "", "FASTQ patterns: the cost of substituting a pattern symbol is its Phred quality Q from the "
         "quality line of the FASTQ record (the character Q + 33), unless a rule of -cost applies to it");
@@ -66,19 +71,6 @@ inline void print_apm_model_options(help_printer& h, bool locate)
         "as an error in the search scheme, but its cost is added to the cost of the alignment\n"
         "auto: chosen per pattern such that the error-free part of a search has, on average, as many positions as "
         "possible at which every other text symbol counts as an error");
-
-    if (locate) {
-        h.option("-cost-dp <mode>", "auto | on | prune | off (default: auto)", "with -d edit\n"
-            "on: next to the edit-distance matrix, a dynamic program computes lower bounds on the costs of the "
-            "alignments, and a text string is not extended further once all of them exceed k\n"
-            "prune: as on, and a text string is also not extended further once no alignment against a longer string "
-            "can have a lower cost than one already found against a shorter one (only if not all errors have the "
-            "same cost and not both gap opening costs and -max are given)\n"
-            "off: no dynamic program over the costs\n"
-            "auto: prune (if possible and no occurrences are written to a file) or on if at most 2e/3 insertions and "
-            "deletions, or at most 2e/3 substitutions at their median cost, fit into k, where e is the number of "
-            "errors of the search scheme; else off");
-    }
 
     h.text(std::string("<ops>: letters s (substitution), i (insertion: a pattern symbol absent from the text), d "
         "(deletion: a text symbol absent from the pattern), o (opening a gap of insertions or deletions); <cost>: an "
@@ -102,20 +94,49 @@ inline void print_apm_output_options(help_printer& h, bool locate, const std::st
         h.option("-seq", "", "with -sam: write the read (SEQ) and its qualities (QUAL) in the primary record");
         h.option("-best", "", "with -sam: write only the primary record of each read (an occurrence with the fewest "
             "errors)");
-        h.option("-no-cigar", "", "with -sam or -paf: no CIGAR is computed or written");
+        h.option("-no-cigar", "", "with -sam or -paf: do not compute or write CIGARs");
+        h.option("-strings <file>", "a path", "write one line per alignment of a read on a strand (index built with "
+            + built_with + "): the name of the read, the strand, the text string, the number of errors, the CIGAR, "
+            "the number of occurrences and the number of sequences that contain one; occurrences with the same CIGAR "
+            "share a line, and a text symbol that matches through a class (-class, -iupac) is written as the read "
+            "symbol");
+        h.option("-strings-seqs", "", "with -strings: also write the names of these sequences, separated by commas");
     } else {
         h.option("-hist <file>", "a path", "write one line \"<name>\\t<c_0>\\t<c_1>...\\t<c_k>\" per pattern, c_e = "
             "the number of occurrences with e errors");
     }
 }
 
-inline void print_apm_execution_options(help_printer& h)
+// returns the cost rule of -exact <range>
+inline apm_cost_rule_t exact_rule(const std::string& range)
+{ return apm_cost_rule_t{.ops = APM_SUB | APM_INS | APM_DEL, .cost = apm_forbidden, .range = parse_apm_range(range)}; }
+
+// reads the file of -models (see apm_query_cli_t::pattern_models)
+inline void read_pattern_models(const std::string& path, apm_query_cli_t& apm)
 {
-    h.option("-partition <partitioning>", "optimized | dynamic | uniform (default: optimized)",
-        "how a pattern is partitioned into the parts of the search scheme; with optimized, the direction of the "
-        "scheme is also chosen per pattern, such that the searches are predicted to need few steps");
-    h.option("-no-seed", "", "match the first part of each search symbol by symbol instead of starting at its search "
-        "context computed by the partitioning");
+    std::ifstream in(path);
+    if (!in) throw usage_error("-models: cannot read " + path);
+    std::string line;
+
+    for (uint64_t line_number = 1; std::getline(in, line); line_number++) {
+        std::istringstream words(line);
+        std::string name, option, value;
+        if (!(words >> name)) continue;
+        apm_model_t& rules = apm.pattern_models[name];
+
+        try {
+            while (words >> option) {
+                if (!(words >> value)) throw std::runtime_error(option + " has no value");
+                if (option == "-cost") rules.costs.emplace_back(parse_apm_cost_rule(value));
+                else if (option == "-max") rules.counters.emplace_back(parse_apm_counter(value));
+                else if (option == "-exact") rules.costs.emplace_back(exact_rule(value));
+                else if (option == "-class") rules.classes.emplace_back(parse_apm_class(value));
+                else throw std::runtime_error("unknown rule " + option);
+            }
+        } catch (const std::exception& error) {
+            throw usage_error("-models: " + path + ", line " + std::to_string(line_number) + ": " + error.what());
+        }
+    }
 }
 
 inline bool read_apm_query_option(cli_arguments& args, const std::string& option, apm_query_cli_t& apm)
@@ -142,14 +163,6 @@ inline bool read_apm_query_option(cli_arguments& args, const std::string& option
         apm.scheme_name = args.value(option);
     } else if (option == "-k") {
         apm.max_errors = args.integer(option, 0, max_scheme_errors);
-    } else if (option == "-partition") {
-        const std::string partitioning = args.value(option);
-        if (partitioning == "uniform") apm.apm_params.partitioning = _partition_uniform;
-        else if (partitioning == "dynamic") apm.apm_params.partitioning = _partition_dynamic;
-        else if (partitioning == "optimized") apm.apm_params.partitioning = _partition_optimized;
-        else throw usage_error("-partition expects optimized, dynamic or uniform");
-    } else if (option == "-no-seed") {
-        apm.apm_params.start_at_part_contexts = false;
     } else if (option == "-bestmap") {
         apm.bestmap = true;
     } else if (option == "-x") {
@@ -162,6 +175,10 @@ inline bool read_apm_query_option(cli_arguments& args, const std::string& option
         apm.path_paf_file = args.value(option);
     } else if (option == "-bed" && apm.locate) {
         apm.path_bed_file = args.value(option);
+    } else if (option == "-strings" && apm.locate) {
+        apm.path_strings_file = args.value(option);
+    } else if (option == "-strings-seqs" && apm.locate) {
+        apm.strings_sequences = true;
     } else if (option == "-seq" && apm.locate) {
         apm.write_seq = true;
     } else if (option == "-rc" && apm.locate) {
@@ -180,16 +197,9 @@ inline bool read_apm_query_option(cli_arguments& args, const std::string& option
         read_model_option([&](const std::string& value) {
             model.tau = value == "auto" ? 0 : uint16_t(parse_apm_value(value, "tau")); });
     } else if (option == "-exact") {
-        read_model_option([&](const std::string& value) {
-            model.costs.emplace_back(apm_cost_rule_t{.ops = APM_SUB | APM_INS | APM_DEL,
-                .cost = apm_forbidden, .range = parse_apm_range(value)}); });
-    } else if (option == "-cost-dp" && apm.locate) {
-        const std::string mode = args.value(option);
-        if (mode == "auto") model.cost_dp = APM_COST_DP_AUTO;
-        else if (mode == "on") model.cost_dp = APM_COST_DP_ON;
-        else if (mode == "prune") model.cost_dp = APM_COST_DP_PRUNE;
-        else if (mode == "off") model.cost_dp = APM_COST_DP_OFF;
-        else throw usage_error("-cost-dp expects auto, on, prune or off");
+        read_model_option([&](const std::string& value) { model.costs.emplace_back(exact_rule(value)); });
+    } else if (option == "-models") {
+        read_pattern_models(args.value(option), apm);
     } else if (option == "-iupac") {
         model.iupac = true;
     } else if (option == "-qual") {
@@ -230,7 +240,7 @@ inline void build_search_schemes(apm_query_cli_t& apm)
         else return zero_one_scheme(errors);
     };
 
-    if (apm.bestmap || !apm.apm_model.is_default()) {
+    if (apm.bestmap || has_error_model(apm)) {
         for (uint64_t e = 0; e < apm.max_errors; e++) apm.schemes_by_errors.push_back(scheme_of(e));
     }
 
@@ -247,13 +257,27 @@ inline const search_scheme_t& scheme_for_query(const apm_query_cli_t& apm, uint6
 }
 
 template <typename index_t>
-inline apm_params_t query_params(const apm_query_cli_t& apm, const index_t& index, const std::string& pattern,
-    const std::string& qual, bool reverse, uint64_t bound, distance_metric_t metric)
+inline apm_params_t query_params(const apm_query_cli_t& apm, const index_t& index, const std::string& name,
+    const std::string& pattern, const std::string& qual, bool reverse, uint64_t bound, distance_metric_t metric)
 {
-    apm_params_t params = apm.apm_params;
-    if (apm.apm_model.is_default()) return params;
+    apm_params_t params;
+    const auto rules = apm.pattern_models.find(name);
+    if (rules == apm.pattern_models.end() && apm.apm_model.is_default()) return params;
     static thread_local apm_costs_t costs;
-    costs.compile(apm.apm_model, pattern, qual, reverse, uint16_t(bound), metric, index.forward_index().map_int());
+    static thread_local apm_model_t model;
+    model = apm.apm_model;
+
+    // the rules of the pattern in -models are applied after those of the command line
+    if (rules != apm.pattern_models.end()) {
+        const apm_model_t& pattern_rules = rules->second;
+        model.costs.insert(model.costs.end(), pattern_rules.costs.begin(), pattern_rules.costs.end());
+        model.counters.insert(model.counters.end(), pattern_rules.counters.begin(), pattern_rules.counters.end());
+        model.classes.insert(model.classes.end(), pattern_rules.classes.begin(), pattern_rules.classes.end());
+        if (model.counters.size() > apm_max_counters) throw std::runtime_error("the pattern " + name + " has more "
+            "than " + std::to_string(apm_max_counters) + " counters (-max)");
+    }
+
+    costs.compile(model, pattern, qual, reverse, uint16_t(bound), metric, index.forward_index().map_int());
     params.costs = &costs;
     return params;
 }
@@ -265,6 +289,8 @@ inline void check_apm_query_options(apm_query_cli_t& apm)
     if (apm.metric == EDIT_DISTANCE && apm.max_errors > max_edit_errors)
         throw usage_error("with -d edit, -k is at most " + std::to_string(max_edit_errors));
     if (apm.best_only && apm.path_sam_file.empty()) throw usage_error("-best needs -sam");
+    if (apm.strings_sequences && apm.path_strings_file.empty()) throw usage_error("-strings-seqs needs -strings");
+    if (apm.no_cigar && !apm.path_strings_file.empty()) throw usage_error("-strings needs the CIGARs (no -no-cigar)");
 }
 
 template <typename index_t, typename log_sizes_fnc_t>
@@ -296,18 +322,17 @@ inline void run_apm_count_queries(const index_t& index, apm_query_cli_t& apm, co
             thread_state_t& st = states[thread];
 
             for (uint64_t j = 0; j < chunk.size(); j++) {
-                const pattern_reader::pattern_t& p = chunk.pattern(j);
-                const std::string& pattern = p.seq;
+                const pattern_reader::pattern_t& record = chunk.pattern(j);
+                const std::string& pattern = record.seq;
                 uint64_t count = 0;
                 auto start = now();
-                apm_params_t params = query_params(apm, index, pattern, p.quality, false, apm.max_errors,
-                    HAMMING_DISTANCE);
+                apm_params_t params = query_params(apm, index, record.name, pattern, record.quality, false,
+                    apm.max_errors, HAMMING_DISTANCE);
                 const apm_costs_t* costs = params.costs;
                 const search_scheme_t& scheme = scheme_for_query(apm, apm.max_errors, costs);
 
-                if (pattern.size() < scheme.p || (costs && pattern.size() == scheme.p)) {
-                    throw std::runtime_error("the pattern " + p.name + " has fewer symbols than the search scheme "
-                        "has parts");
+                if ((apm.max_errors > 0 || costs) && !fits_search_scheme(pattern.size(), scheme)) {
+                    throw std::runtime_error(too_short_for_scheme("the pattern " + record.name, pattern.size(), scheme));
                 }
 
                 // with -hist, the count is the sum of the histogram
@@ -323,12 +348,12 @@ inline void run_apm_count_queries(const index_t& index, apm_query_cli_t& apm, co
 
                 if (run.output_file.is_open()) {
                     string_appender out(chunk.out(j, occurrences_out));
-                    out << p.name << '\t' << count << '\n';
+                    out << record.name << '\t' << count << '\n';
                 }
 
                 if (write_hist) {
                     string_appender out(chunk.out(j, hist_out));
-                    out << p.name;
+                    out << record.name;
                     for (uint64_t c : st.hist) out << '\t' << c;
                     out << '\n';
                 }
@@ -344,8 +369,7 @@ inline void run_apm_count_queries(const index_t& index, apm_query_cli_t& apm, co
         time_count += st.time_count;
     }
 
-    if (num_patterns == 0) throw std::runtime_error(run.path_patterns_file + " contains no patterns");
-    const uint64_t pattern_length = totals.symbols / num_patterns;
+    const uint64_t pattern_length = num_patterns == 0 ? 0 : totals.symbols / num_patterns;
     print_query_summary(totals, threads, query_summary_t {
         .pattern_details = search_description(apm),
         .results = { format_count_line("occurrences", num_occurrences, num_patterns) },
@@ -373,17 +397,20 @@ inline void run_apm_count_queries(const index_t& index, apm_query_cli_t& apm, co
 }
 
 template <cigar_mode_t cm, typename index_t>
-inline void locate_strand(const apm_query_cli_t& apm, const index_t& index, const std::string& read, const std::string& qual,
-    bool reverse, strand_occurrences_t<cm>& strand)
+inline void locate_strand(const apm_query_cli_t& apm, const index_t& index, const std::string& name,
+    const std::string& read, const std::string& qual, bool reverse, strand_occurrences_t<cm>& strand)
 {
     strand.clear();
 
     // locates the occurrences with at most the given number of errors (or the cost bound of the error model) into occ
     auto locate_with_bound = [&](uint64_t errors, std::vector<aprx_occ_t<cm>>& occ) {
-        apm_params_t params = query_params(apm, index, read, qual, reverse, errors, apm.metric);
+        apm_params_t params = query_params(apm, index, name, read, qual, reverse, errors, apm.metric);
         const apm_costs_t* costs = params.costs;
         const search_scheme_t& scheme = scheme_for_query(apm, errors, costs);
-        if ((errors > 0 || costs) && read.size() <= scheme.p) return;
+        if ((errors > 0 || costs) && !fits_search_scheme(read.size(), scheme)) {
+            throw std::runtime_error(too_short_for_scheme("the read " + name, read.size(), scheme));
+        }
+
         strand.cigars = index.template locate<cm>(read, scheme, apm.metric, occ, params);
         // the edit-distance occurrences of an error model are already sorted and selected (see apm_params_t)
         if (costs != nullptr && apm.metric == EDIT_DISTANCE) return;
@@ -403,15 +430,16 @@ inline void run_apm_locate_queries(const index_t& index, apm_query_cli_t& apm, c
     const bool write_sam = apm.sam_file.is_open();
     const bool write_paf = apm.paf_file.is_open();
     const bool write_bed = apm.bed_file.is_open();
-    // true <=> the patterns are reads aligned on both strands
-    const bool write_alignments = write_sam || write_paf || write_bed;
+    const bool write_strings = apm.strings_file.is_open();
+    // true <=> the patterns are reads whose occurrences are written as alignments
+    const bool write_alignments = write_sam || write_paf || write_bed || write_strings;
     apm.apm_model.writes_occurrences = write_alignments || run.output_file.is_open();
     const uint64_t threads = run.options.threads;
     const fasta_sequence_data& sequences = index.seq_data();
 
     if (write_alignments && !sequences.has_sequences()) {
-        throw std::runtime_error(std::string(write_sam ? "-sam" : write_paf ? "-paf" : "-bed") + " needs an index "
-            "built with " + run.built_with + " (" + run.path_index_file + " stores no sequences)");
+        throw std::runtime_error(std::string(write_sam ? "-sam" : write_paf ? "-paf" : write_bed ? "-bed" : "-strings")
+            + " needs an index built with " + run.built_with + " (" + run.path_index_file + " stores no sequences)");
     }
 
     if (write_sam) write_sam_header(apm.sam_file, sequences, apm.tool, apm.command_line);
@@ -420,24 +448,28 @@ inline void run_apm_locate_queries(const index_t& index, apm_query_cli_t& apm, c
 
     // the counters and buffers of a thread
     struct alignas(cache_line_bytes) thread_state_t {
-        std::vector<aprx_occ_t<>> occurrences; // the occurrences of the current pattern (without -sam, -paf and -bed)
-        strand_occurrences_t<cm> fwd; // with -sam, -paf or -bed: the occurrences of the current read
-        strand_occurrences_t<cm> rc; // with -sam, -paf or -bed: the occurrences of the reverse complement of the read
+        std::vector<aprx_occ_t<>> occurrences; // the occurrences of the current pattern (without -sam, -paf, -bed and -strings)
+        strand_occurrences_t<cm> fwd; // with -sam, -paf, -bed or -strings: the occurrences of the current read
+        strand_occurrences_t<cm> rc; // with -sam, -paf, -bed or -strings: the occurrences of the reverse complement of the read
         uint64_t last_sequence_sam = 0; // index of the sequence of the previous SAM record (see sequence_index)
         uint64_t last_sequence_paf = 0; // index of the sequence of the previous PAF record (see sequence_index)
         uint64_t last_sequence_bed = 0; // index of the sequence of the previous BED record (see sequence_index)
+        uint64_t last_sequence_strings = 0; // index of the sequence of the previous -strings occurrence
+        string_groups_t string_groups; // the buffers of -strings
         uint64_t num_occurrences = 0;
         uint64_t time_locate = 0;
         uint64_t checksum = 0;
     };
 
     std::vector<thread_state_t> states(threads);
-    enum output_t : uint64_t { occurrences_out, sam_out, paf_out, bed_out }; // the order of processing.outputs
+    // the order of processing.outputs
+    enum output_t : uint64_t { occurrences_out, sam_out, paf_out, bed_out, strings_out };
     pattern_processing_t processing { .threads = threads, .outputs = {
         run.output_file.is_open() ? &run.output_file : nullptr,
         write_sam ? &apm.sam_file : nullptr,
         write_paf ? &apm.paf_file : nullptr,
-        write_bed ? &apm.bed_file : nullptr } };
+        write_bed ? &apm.bed_file : nullptr,
+        write_strings ? &apm.strings_file : nullptr } };
 
     const pattern_totals_t totals = process_patterns(patterns, processing,
         [&](const pattern_chunk& chunk, uint64_t thread) {
@@ -445,20 +477,20 @@ inline void run_apm_locate_queries(const index_t& index, apm_query_cli_t& apm, c
             std::vector<aprx_occ_t<>>& occurrences = st.occurrences;
 
             for (uint64_t j = 0; j < chunk.size(); j++) {
-                const pattern_reader::pattern_t& p = chunk.pattern(j);
-                const std::string& qname = p.name;
-                const std::string& qual = p.quality;
-                const std::string& pattern = p.seq;
+                const pattern_reader::pattern_t& record = chunk.pattern(j);
+                const std::string& qname = record.name;
+                const std::string& qual = record.quality;
+                const std::string& pattern = record.seq;
 
-                // -sam, -paf or -bed: the read is aligned on both strands
+                // -sam, -paf, -bed or -strings: the read is aligned on both strands (with -rc)
                 if (write_alignments) {
                     auto start = now();
-                    locate_strand<cm>(apm, index, pattern, qual, false, st.fwd);
+                    locate_strand<cm>(apm, index, qname, pattern, qual, false, st.fwd);
                     std::string rc_seq;
 
                     if (apm.reverse_complements) {
                         rc_seq = reverse_complement(pattern);
-                        locate_strand<cm>(apm, index, rc_seq, qual, true, st.rc);
+                        locate_strand<cm>(apm, index, qname, rc_seq, qual, true, st.rc);
                     } else {
                         st.rc.clear();
                     }
@@ -488,23 +520,33 @@ inline void run_apm_locate_queries(const index_t& index, apm_query_cli_t& apm, c
                         write_bed_records<cm>(bed, sequences, st.last_sequence_bed, qname, st.rc, true);
                     }
 
+                    if constexpr (cm == CIGAR) if (write_strings) {
+                        string_appender strings(chunk.out(j, strings_out));
+                        write_string_records(strings, sequences, st.last_sequence_strings, qname, pattern, st.fwd,
+                            false, apm.strings_sequences, st.string_groups);
+                        write_string_records(strings, sequences, st.last_sequence_strings, qname, rc_seq, st.rc, true,
+                            apm.strings_sequences, st.string_groups);
+                    }
+
                     chunk.write(j);
                     continue;
                 }
 
                 auto start = now();
 
-                // locates the occurrences with at most the given number of errors (or the cost bound of the error
-                // model) into occ
+                /* locates the occurrences with at most the given number of errors (or the cost bound of the error
+                   model) into occ */
                 auto locate_with_bound = [&](uint64_t errors, std::vector<aprx_occ_t<>>& occ) {
-                    apm_params_t params = query_params(apm, index, pattern, qual, false, errors, apm.metric);
+                    apm_params_t params = query_params(apm, index, qname, pattern, qual, false, errors, apm.metric);
                     const apm_costs_t* costs = params.costs;
                     const search_scheme_t& scheme = scheme_for_query(apm, errors, costs);
-                    if (costs && pattern.size() <= scheme.p) return;
+                    if ((errors > 0 || costs) && !fits_search_scheme(pattern.size(), scheme)) {
+                        throw std::runtime_error(too_short_for_scheme("the pattern " + qname, pattern.size(), scheme));
+                    }
+
                     index.locate(pattern, scheme, apm.metric, occ, params);
 
-                    // with an error model, the edit-distance occurrences are already sorted and selected (see
-                    // apm_params_t)
+                    // with an error model, the edit-distance occurrences are already sorted and selected (see apm_params_t)
                     if (apm.metric == EDIT_DISTANCE && costs == nullptr) {
                         ips2ra::sort(occ.begin(), occ.end(), key_of_pos {});
                         filter_edit_distance_occurrences<>(occ, errors);
@@ -575,6 +617,7 @@ inline void run_apm_locate_queries(const index_t& index, apm_query_cli_t& apm, c
     if (write_sam) std::cout << "wrote SAM output to " << apm.path_sam_file << std::endl;
     if (write_paf) std::cout << "wrote PAF output to " << apm.path_paf_file << std::endl;
     if (write_bed) std::cout << "wrote BED output to " << apm.path_bed_file << std::endl;
+    if (write_strings) std::cout << "wrote the strings to " << apm.path_strings_file << std::endl;
 }
 
 #endif // MOVE_R_MISC_APM_QUERY_CLI_TPP

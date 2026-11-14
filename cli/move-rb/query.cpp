@@ -61,9 +61,9 @@ struct query_cli_t {
     bool locate = true; // move-rb locate (else move-rb count)
     query_options_t options; // -p, -o, -m
     apm_query_cli_t apm; // the options of the approximate queries (see read_apm_query_option)
-    std::vector<std::string> options_given; // the options given, in their order (for the warning without patterns)
-    std::string path_index_file;
-    std::string path_patterns_file; // empty: the queries are read from stdin
+    std::vector<std::string> options_given; // the options given, in their order (for the warning without <patterns_file>)
+    std::string path_index_file; // <index_file>
+    std::string path_patterns_file; // <patterns_file>; empty: the queries are read from stdin
     std::ofstream output_file; // -o
 } cli;
 
@@ -105,7 +105,6 @@ void print_help(std::ostream& out)
     print_apm_output_options(h, locate, "move-rb build in the FASTA mode");
     h.group("execution");
     h.option_threads();
-    print_apm_execution_options(h);
     h.group("measurement");
     h.option_measurement();
     h.group("queries from stdin (one per line)");
@@ -381,9 +380,8 @@ void answer_query(const move_rb<support>& index, const std::string& line, uint64
 
         const search_scheme_t scheme = min_u_scheme(max_errors);
 
-        if (pattern.size() < scheme.p) {
-            std::cout << "error: the pattern has fewer symbols than the search scheme has parts (" << scheme.p << ")"
-                      << std::endl;
+        if (max_errors > 0 && !fits_search_scheme(pattern.size(), scheme)) {
+            std::cout << "error: " << too_short_for_scheme("the pattern", pattern.size(), scheme) << std::endl;
             return;
         }
 

@@ -127,7 +127,7 @@ void apm_edit<idx_t>::locate_at_text_ends_model(const inp_t& P, inp_t& strings, 
     const uint64_t m = P.size(), k = costs.max_errors();
     const uint64_t n = _index.n - 1;
     if (m == 0 || n == 0) return;
-    auto [left, right] = text_end_windows(m, k);
+    auto [left_beg, left, right] = text_end_windows(m, k);
 
     // adds the cheapest alignment of P against a prefix of a window W at position pos
     auto add = [&](uint64_t pos, const inp_t& W) {
@@ -139,12 +139,13 @@ void apm_edit<idx_t>::locate_at_text_ends_model(const inp_t& P, inp_t& strings, 
         beg.emplace_back(strings.size());
     };
 
-    add(0, left);
+    add(left_beg, left);
 
-    // the suffix of the last window with the fewest errors, from the matrix of the reversed pattern (a free symbol of
-    // P[i] is treated as equal to P[i])
+    /* the suffix of the last window against which P has an alignment with the fewest errors that does not end with a
+       deletion: the reversed window is aligned against the reversed pattern, whose first symbol P[m - 1] is handled by
+       the first column of the matrix (see edit_dist_anchored_prefix); a free symbol of P[i] is treated as equal to P[i] */
     inp_t P_rev(P.rbegin(), P.rend()), right_rev(right.rbegin(), right.rend());
-    directional_substring<inp_t> P_rev_col(P_rev, 0, m - 1, RIGHT);
+    directional_substring<inp_t> P_rev_col(P_rev, 1, m - 1, RIGHT);
     static thread_local edit_distance_matrix<word_t> mat;
 
     mat.set_input(P_rev_col, _index.sigma, _index.forward_index().map_int(), [&](uint64_t pos, auto report_rank) {
@@ -154,7 +155,8 @@ void apm_edit<idx_t>::locate_at_text_ends_model(const inp_t& P, inp_t& strings, 
         }
     });
 
-    auto [err, len] = edit_dist_prefix(mat, right_rev, m, k);
+    const bool last_matches = !right.empty() && costs.is_free(m - 1, costs.rank(uint8_t(right.back())));
+    auto [err, len] = edit_dist_anchored_prefix(mat, right_rev, m, k, last_matches);
     if (err <= k) add(n - len, inp_t(right.end() - len, right.end()));
 }
 
@@ -186,10 +188,12 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate_model(const inp_t& P, cons
         beg.emplace_back(strings.size());
     }
 
-    // the cheapest valid alignment of P against a prefix of each string; ctxts contains each valid context, in CIGAR
-    // mode with its index in nodes in place of a CIGAR index
+    /* the cheapest valid alignment of P against a prefix of each string: [0..nodes.size()-1] aligned[x] is the cost and
+       the length of the alignment for the string of nodes[x] */
     std::vector<std::pair<uint64_t, uint64_t>> aligned;
     costs.align_prefixes(strings, beg, aligned);
+
+    // the contexts with a valid alignment; in CIGAR mode, each with its index in nodes in place of a CIGAR index
     std::vector<context_ref_t<mode>> ctxts;
 
     for (uint64_t x = 0; x < nodes.size(); x++) {
@@ -204,7 +208,7 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate_model(const inp_t& P, cons
     std::vector<aprx_occ_t<mode>> occ;
     auto collect = [&](const aprx_occ_t<mode>& o) { occ.emplace_back(o); };
     report_contexts<mode>(ctxts, collect);
-    const uint64_t located = occ.size();
+    const uint64_t located = occ.size(); // the number of occurrences of the contexts (the ones at the text ends follow)
 
     if (uniform) {
         if constexpr (can_decode_text_ends) {
@@ -237,18 +241,19 @@ std::vector<cigar_t<uint8_t>> apm_edit<idx_t>::locate_model(const inp_t& P, cons
     else select_covering_occurrences<mode>(occ, 2 * costs.max_errors() + 1);
 
     if constexpr (mode == CIGAR) {
+        // [0..number of strings - 1] cigar_idx[x] is the index in cigars of the CIGAR of string x, or no_cigar
         std::vector<uint32_t> cigar_idx(beg.size() - 1, no_cigar);
 
         for (const aprx_occ_t<CIGAR>& o : occ) {
-            uint32_t& c = cigar_idx[o.cig_idx];
+            uint32_t& cig = cigar_idx[o.cig_idx];
 
-            if (c == no_cigar) {
+            if (cig == no_cigar) {
                 const uint64_t x = o.cig_idx;
                 costs.align_prefix(std::span(strings.data() + beg[x], beg[x + 1] - beg[x]), &cigars.emplace_back());
-                c = uint32_t(cigars.size() - 1);
+                cig = uint32_t(cigars.size() - 1);
             }
 
-            report({o.pos(), o.len(), o.err(), c});
+            report({o.pos(), o.len(), o.err(), cig});
         }
     } else {
         for (const aprx_occ_t<NO_CIGAR>& o : occ) report({o.pos(), o.len(), o.err()});
@@ -263,10 +268,10 @@ auto apm_edit<idx_t>::search_model(const inp_t& P, const search_scheme_t& scheme
 {
     const apm_costs_t& costs = *_params.costs;
     const uint64_t m = P.size();
-    if (scheme.p >= m) throw std::runtime_error("p >= m");
+    if (!fits_search_scheme(m, scheme)) throw std::invalid_argument(too_short_for_scheme("the pattern", m, scheme));
     _piece_owner = this; _matched_pieces.clear(); _free_pieces.clear();
     _max_diagonal_shift = costs.max_errors();
-    _ext_trie_parent.assign(1, 0);
+    _ext_trie_parent.assign(1, 0); // extension 0: the empty extension
     _ext_trie_symbol.assign(1, 0);
     _ext_trie_child.clear();
 
@@ -279,9 +284,10 @@ auto apm_edit<idx_t>::search_model(const inp_t& P, const search_scheme_t& scheme
     parts.reserve(p);
     for (uint64_t part = 0; part < p; part++) parts.emplace_back(P, partition.beg(part), partition.end(part) - 1);
 
-    // [0..2p-1] the matrix of part i read to the right (2i) and to the left (2i + 1) (see set_matrix_input)
+    // the matrices of the parts: [0..2p-1] matrices[2i] is the matrix of part i read to the right, matrices[2i + 1] read to the left
     std::vector<edit_distance_matrix<matrix_word_t>> matrices(2 * p);
 
+    // the contexts found by the searches, the contexts reached after the previous step and after the current step
     string_map_t result, step_contexts, next_step_contexts;
     std::vector<model_entry_t*> order;
 
@@ -319,7 +325,7 @@ auto apm_edit<idx_t>::search_model(const inp_t& P, const search_scheme_t& scheme
             if (!matrix.is_initialized()) set_matrix_input(matrix, part);
             next_step_contexts.clear();
 
-            // no later step extends the text beyond a part at the end of the pattern in its direction
+            // outer: the part is at the end of P in the direction of the step, so no later step extends the string there
             bool outer = dirs[p_idx] == LEFT ? partition.beg(S[p_idx].part) == 0 : partition.end(S[p_idx].part) == m;
             const bool collect_as_members = outer && p_idx + 1 < p;
             if (collect_as_members) member_dir = dirs[p_idx];
@@ -333,6 +339,8 @@ auto apm_edit<idx_t>::search_model(const inp_t& P, const search_scheme_t& scheme
                 return x->node.ctx.pattern_length() < y->node.ctx.pattern_length();
             });
 
+            /* depth: at most the length difference of the contexts, such that depth + k_max columns left of the main
+               diagonal fit into the band of the matrix (see edit_distance_matrix::init) */
             const uint64_t depth = std::min<uint64_t>(
                 2 * edit_distance_matrix<matrix_word_t>::max_supported_errors - S[p_idx].k_max,
                 order.back()->node.ctx.pattern_length() - order.front()->node.ctx.pattern_length());
@@ -392,28 +400,30 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
     uint64_t depth, string_map_t& target) const
 {
     const apm_costs_t& costs = *_params.costs;
-    const uint64_t err_in = entry.node.ctx.errors();
+    const uint64_t err_in = entry.node.ctx.errors(); // the error count of the context of entry
     std::vector<node_t> stack;
     node_t start = entry.node;
     start.set_match_len(0);
 
-    /* the members along the paths: member_lists[x] is a list of members, stack_member_list[y] the index of the list of
-       the path of stack[y], or no_list if the path represents only the string of its node (with the error count and
-       the cost of its cell) */
+    /* the lists of members of the paths: member_lists[x] is list x; [0..stack.size()-1] stack_member_list[y] is the
+       index of the list of the path of stack[y], or no_list if the path represents only the string of its node (with
+       the error count and the cost of its cell) */
     static constexpr uint32_t no_list = std::numeric_limits<uint32_t>::max();
     std::vector<std::vector<path_member_t>> member_lists;
     std::vector<uint32_t> stack_member_list;
-    std::vector<model_member_t> cell_members;
+    std::vector<model_member_t> cell_members; // the members of a cell that are inserted (see insert_cell)
 
-    // appends the members of a context to a list, relative to the cell in which their alignments start
-    auto append_members = [&](const model_entry_t& ctx, std::vector<path_member_t>& list) {
-        const uint16_t err = ctx.node.ctx.errors(), cost = ctx.cost;
-        if (ctx.members.empty()) list.emplace_back(path_member_t{0, 0, 0});
-        for (const model_member_t& mem : ctx.members) {
+    // appends the members of an entry to a list, relative to the cell in which their alignments start
+    auto append_members = [&](const model_entry_t& members_entry, std::vector<path_member_t>& list) {
+        const uint16_t err = members_entry.node.ctx.errors(), cost = members_entry.cost;
+        if (members_entry.members.empty()) list.emplace_back(path_member_t{0, 0, 0});
+
+        for (const model_member_t& mem : members_entry.members) {
             list.emplace_back(path_member_t{mem.ext, uint16_t(mem.err - err), uint16_t(mem.cost - cost)});
         }
     };
 
+    // the index of the list of members of entry, or no_list if it has no members
     uint32_t root_list = no_list;
 
     if (!entry.members.empty()) {
@@ -421,7 +431,8 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
         root_list = 0;
     }
 
-    // inserts the alignments of the members of a path that end in a cell with error count err, cost cost and counters
+    /* inserts the alignments that end in a cell of a path with error count err, cost cost and counters counters: of the
+       string of node if list is no_list, else of the members of the list */
     auto insert_cell = [&](const node_t& node, uint32_t list, uint64_t err, uint64_t cost, uint64_t counters) {
         auto valid = [&](uint64_t e, uint64_t c) {
             return k_min <= e && e <= k_max && c <= costs.bound();
@@ -439,12 +450,13 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
         if (!cell_members.empty()) insert_members(target, node, cell_members);
     };
 
-    // [0..stack.size()-1] 1 <=> the path of stack[y] has restarted (see the restart below)
+    // [0..stack.size()-1] stack_restarted[y] = 1 <=> the matrices were restarted on the path of stack[y] (see restart)
     std::vector<uint8_t> stack_restarted;
 
-    // no further error: the part is matched by free symbols only, each with the cost of its substitution (the cost
-    // bound is checked only with the dynamic program over the costs)
+    // no further error: the part is matched by free symbols only (never by the separator of the sequences), each with
+    // the cost of its substitution (the cost bound is checked only with the dynamic program over the costs)
     if (err_in == k_max) {
+        // without members, the error count stays below the lower bound of the step
         if (err_in < k_min && root_list == no_list) return;
 
         // an extension by a free symbol with the cost and the counters of its path
@@ -460,6 +472,8 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
         uint16_t cost = entry.cost;
         uint64_t counters = entry.counters;
         bool has_node = true;
+
+        // [0..stack.size()-1] path_costs[y] and path_counters[y] are the cost and the counters of the path of stack[y]
         std::vector<uint16_t> path_costs;
         std::vector<uint64_t> path_counters;
 
@@ -486,14 +500,15 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
             apm_dfs_children<free_extension_t> children;
 
             for (uint8_t c : costs.free_symbols(pos)) {
+                if (this->is_separator(c)) continue;
                 uint64_t r = costs.rank(c);
-                const bool accepted = costs.matches(pos, r);
-                uint64_t next_cost = cost + (accepted ? 0 : costs.sub(pos, r));
+                const bool is_match = costs.matches(pos, r);
+                uint64_t next_cost = cost + (is_match ? 0 : costs.sub(pos, r));
                 if (band != nullptr && next_cost > costs.bound()) continue;
                 auto [next_ctx, ok] = node.ctx.extend(c, dir);
                 if (!ok) continue;
                 children.add(free_extension_t{next_ctx, uint16_t(std::min<uint64_t>(next_cost, apm_forbidden)),
-                    counters + (accepted ? 0 : costs.sub_count(pos))}, push);
+                    counters + (is_match ? 0 : costs.sub_count(pos))}, push);
             }
 
             if (!children.has_one()) continue;
@@ -508,6 +523,9 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
         return;
     }
 
+    /* the first column starts with err_in; with depth > 0, the band contains depth + k_max columns left of the main
+       diagonal, so that the matrices can be restarted at a context of the step at most depth rows below (see
+       edit_distance_matrix::add_alignment_start) */
     matrix.init(k_max, {uint16_t(err_in)}, depth > 0 ? depth + k_max : 0);
     if (band != nullptr) band->init(costs, beg, end, dir, entry.cost, entry.counters, matrix.num_rows(), depth);
 
@@ -522,16 +540,17 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
         return it == step_contexts.end() ? nullptr : &it->second;
     };
 
-    /* with collect_as_members: the first row of the final column, the context of the path in it, and [0..num_rows-1]
-       path_ext[row] the extension (see _ext_trie_parent) of the path from the first row of the final column to row */
+    /* with collect_as_members: the first row of the final column, the context of the path in it, and the extensions of
+       the path after it: [0..num_rows-1] path_ext[row] is the extension (see _ext_trie_parent) of the path from the
+       first row of the final column to row */
     const uint64_t first_final_row = std::max<int64_t>(0,
         int64_t(matrix.num_rows()) - int64_t(matrix.last_col_size()));
     node_t first_final_node = start;
     std::vector<uint32_t> path_ext(matrix.num_rows(), 0);
 
-    /* with prune: [0..num_rows-1] best_cost[row] the cost of the cheapest inserted cell of the final column on the
+    /* with prune: [0..num_rows-1] best_cost[row] is the cost of the cheapest inserted cell of the final column on the
        path up to row (apm_forbidden if there is none), best_row[row] its row */
-    const uint64_t max_shift = 2 * costs.max_errors() + 1;
+    const uint64_t max_shift = 2 * costs.max_errors() + 1; // the largest distance of a covering occurrence (see locate_model)
     std::vector<uint16_t> best_cost(matrix.num_rows(), apm_forbidden);
     std::vector<uint64_t> best_row(matrix.num_rows(), 0);
     const uint16_t slack = costs.prune_slack();
@@ -610,9 +629,9 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
         best_cost[row] = best_cost[row - 1];
         best_row[row] = best_row[row - 1];
 
-        // at a context of the step with an error count for which its cells of this row lie in the band (see
-        // edit_distance_matrix::add_alignment_start), the matrices are restarted; its members are added to the members
-        // of the path
+        /* if the node is a context of the step whose error count puts its cells of this row into the band (see
+           edit_distance_matrix::add_alignment_start), the matrices are restarted with it, and its members are added to
+           the members of the path */
         model_entry_t* step_ctx = context_of_step(node, row);
         const uint64_t step_err = step_ctx != nullptr ? step_ctx->node.ctx.errors() : k_max + 1;
         const bool restart = step_err <= k_max && step_err + row >= err_in;
@@ -644,8 +663,10 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
         if (!terminal && matrix.is_in_final_column(row)) {
             insert_final(node, list, restarted, row);
 
-            // with the dynamic program over the costs, a longer text string can have a cheaper alignment than the
-            // matrix shows; a context of the step may be continued in a longer one
+            /* the path ends at a pruned cell, or if only deletions remain (see
+               edit_distance_matrix::only_vertical_gaps_left), except at an outer part, with the dynamic program over
+               the costs (a longer text string can have a cheaper alignment than the matrix shows) and at a context of
+               the step (it may be continued in a longer one) */
             terminal = (!outer && band == nullptr && step_ctx == nullptr && matrix.only_vertical_gaps_left(row))
                 || is_pruned(row, list, restarted);
         }

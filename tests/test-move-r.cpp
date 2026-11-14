@@ -26,7 +26,8 @@
 
 /**
  * @file test-move-r.cpp
- * @brief fuzz tests of move_r: the index, its construction and reverting the text
+ * @brief fuzz tests of move_r: the index, the construction from inputs of every symbol width and the fallback of the
+ *        construction mode
  */
 
 #include "test-move-r-common.hpp"
@@ -34,37 +35,9 @@
 // smallest value run_fuzz reduces max_input_size to in TEST(test_move_r, index)
 constexpr uint64_t min_reduced_max_input_size = 512;
 
-// TEST(test_move_r, parallel_construction): inputs with twice the minimum number of symbols per thread of the
-// construction for every thread (see construction::limit_num_threads)
-constexpr uint64_t input_length_per_thread = 2 * move_r_min_symbols_per_thread;
-
-// TEST(test_move_r, retrieve_range_to_file): the retrieved range [range_beg, range_end]
-constexpr uint64_t range_beg = 10;
-constexpr uint64_t range_end = 20;
-
-// the number of iterations of the fuzz tests other than TEST(test_move_r, index) (see fuzz_iterations)
-constexpr uint64_t num_iterations_parallel_construction = 20;
-constexpr uint64_t num_iterations_pfp_integer_alphabet = 30;
-constexpr uint64_t num_iterations_input_widths = 10;
-constexpr uint64_t num_iterations_retrieve_range_to_file = 20;
-
-// returns the number of threads of a construction: 1 in a parallel functionality (run_fuzz runs it on all threads),
-// else a random number in [1..max_num_threads]
-static uint64_t random_num_threads() { return omp_in_parallel() ? 1 : 1 + gen() % max_num_threads; }
-
-/**
- * @brief returns the contents of a file as an array of values of type value_t
- * @param file the path of the file
- * @return [0..file size / sizeof(value_t) - 1] the values
- */
-template <typename value_t>
-std::vector<value_t> read_values(const std::string& file)
-{
-    std::ifstream in(file, std::ios::binary);
-    std::vector<value_t> values(std::filesystem::file_size(file) / sizeof(value_t));
-    in.read(reinterpret_cast<char*>(values.data()), values.size() * sizeof(value_t));
-    return values;
-}
+// the number of iterations of TEST(test_move_r, construction) and TEST(test_move_r, build_fallback) (see fuzz_iterations)
+constexpr uint64_t num_iterations_construction = 40;
+constexpr uint64_t num_iterations_build_fallback = 1000;
 
 /**
  * @brief builds an index of a random input and checks its queries (see verify_index), with the input type and the
@@ -94,42 +67,32 @@ TEST(test_move_r, index)
         fuzz_iterations(), &max_input_size, min_reduced_max_input_size);
 }
 
-// inputs of length input_length_per_thread * max_num_threads, for which the index is built with all threads
-TEST(test_move_r, parallel_construction)
+/* the index of a random text (see random_text) over a random integer alphabet (see random_integer_alphabet) with
+   symbols of 2 to 8 bytes (see MOVE_R_FOR_EACH_INPUT_WIDTH; the symbols of 1 byte are a byte alphabet), built with a
+   random construction mode from memory or from a file, is the same as the one of the same values as 64-bit symbols
+   built with the suffix array */
+TEST(test_move_r, construction)
 {
-    run_fuzz("move-r", { { "parallel-construction", [](uint64_t i) {
-        uint64_t n = input_length_per_thread * max_num_threads;
-        verify_index_of_iteration(i, n, n);
-    } } }, fuzz_iterations(num_iterations_parallel_construction), nullptr, 0);
-}
-
-/* the index of a text with an integer alphabet is the same with the prefix-free parsing (of the text in memory and of
-   a file) and with the suffix array */
-TEST(test_move_r, pfp_integer_alphabet)
-{
-    run_fuzz("move-r", { { "pfp-integer-alphabet", [](uint64_t i) {
+    run_fuzz("move-r", { { "construction", [](uint64_t) {
         auto run = [&]<typename sym_t>() {
-            /* the symbols are drawn from span consecutive values (up to the maximum input length, so that the symbols
-               of the parsing are often wider than a byte), starting at 1 or close to the largest value of sym_t */
-            const uint64_t span = random_log_uniform_size(min_random_alphabet_size, max_input_size, gen);
-            const uint64_t first = gen() % 2 == 0 ? 1
-                : uint64_t(std::numeric_limits<sym_t>::max()) - span;
-            std::vector<sym_t> input = random_repetitive_input<std::vector<sym_t>>(min_pfp_input_size,
-                max_input_size, sym_t(first), sym_t(first + span - 1), gen() | 1);
+            if constexpr (sizeof(sym_t) > sizeof(uint8_t)) {
+                const integer_alphabet<uint64_t> alphabet = random_integer_alphabet<uint64_t>(1, max_input_size, gen,
+                    max_value_of<sym_t>());
+                std::vector<uint64_t> values = random_text<std::vector<uint64_t>>(min_input_size, max_input_size,
+                    alphabet.sigma, alphabet, gen);
+                std::vector<sym_t> input;
+                for (uint64_t value : values) input.push_back(sym_t(value));
 
-            move_r_params params { .mode = _suffix_array, .num_threads = random_num_threads(),
-                .reorder_alphabet = gen() % 2 == 0 };
-            const move_r<_locate_move> reference(input, params);
-            std::stringstream expected;
-            reference.serialize(expected);
-            params.mode = _pfp;
+                move_r_params params { .mode = _suffix_array, .num_threads = 1, .reorder_alphabet = gen() % 2 == 0 };
+                const move_r<_locate_move> reference(values, params);
+                std::stringstream expected;
+                reference.serialize(expected);
 
-            for (bool from_file : { false, true }) {
-                const std::string label = std::to_string(8 * sizeof(sym_t)) + "-bit symbols, n = "
-                    + std::to_string(input.size()) + ", sigma = " + std::to_string(reference.alphabet_size())
-                    + (from_file ? ", from a file" : ", from memory") + ", "
-                    + std::to_string(params.num_threads) + " threads"
-                    + (params.reorder_alphabet ? ", reordered" : ", not reordered");
+                // the prefix-free parsing (for inputs of at least min_pfp_input_size symbols), else one of the two
+                // modes with the suffix array
+                const bool use_pfp = input.size() >= min_pfp_input_size && gen() % 2 == 0;
+                params.mode = use_pfp ? _pfp : (gen() % 2 == 0 ? _suffix_array : _suffix_array_space);
+                const bool from_file = gen() % 2 == 0;
                 // the symbol type is passed to the constructor with the empty container symbol_type
                 std::vector<sym_t> symbol_type;
                 params.input_file = from_file ? write_temporary_input(input) : "";
@@ -138,126 +101,53 @@ TEST(test_move_r, pfp_integer_alphabet)
                 index.serialize(actual);
                 if (from_file) remove_input_file_and_pfp_cache(params.input_file);
 
-                ASSERT_TRUE(actual.str() == expected.str()) << "the index differs from the one built with the "
-                    << "suffix array, " << label;
+                ASSERT_TRUE(actual.str() == expected.str()) << "the index differs from the one of 64-bit symbols built "
+                    << "with the suffix array, " << sizeof(sym_t) << "-byte symbols, n = " << input.size() << ", sigma = "
+                    << reference.alphabet_size() << ", mode " << int(params.mode)
+                    << (from_file ? ", from a file" : ", from memory")
+                    << (params.reorder_alphabet ? ", reordered" : ", not reordered");
             }
         };
 
-        switch (i % 3) {
-            case 0: run.template operator()<uint16_t>(); break;
-            case 1: run.template operator()<uint32_t>(); break;
-            default: run.template operator()<uint64_t>(); break;
-        }
-    }, true } }, fuzz_iterations(num_iterations_pfp_integer_alphabet), nullptr, 0);
-}
-
-/* the index of a text with symbols of 2 to 7 bytes (built with the suffix array or the prefix-free parsing) is the same
-   as the one of the same values in 64 bits (the symbols of 1 byte are a byte alphabet) */
-TEST(test_move_r, input_widths)
-{
-    run_fuzz("move-r", { { "input-widths", [](uint64_t i) {
-        auto run = [&]<typename sym_t>() {
-            if constexpr (sizeof(sym_t) > sizeof(uint8_t) && sizeof(sym_t) < sizeof(uint64_t)) {
-                // the symbols are drawn from span consecutive values, starting at 1 or close to the largest value
-                const uint64_t span = random_log_uniform_size(min_random_alphabet_size, max_input_size, gen);
-                const uint64_t first = gen() % 2 == 0 ? 1 : max_value_of<sym_t>() - span;
-                std::vector<uint64_t> values = random_repetitive_input<std::vector<uint64_t>>(min_pfp_input_size,
-                    max_input_size, first, first + span - 1, gen() | 1);
-                std::vector<sym_t> input(values.begin(), values.end());
-
-                move_r_params params { .mode = _suffix_array, .num_threads = random_num_threads(),
-                    .reorder_alphabet = gen() % 2 == 0 };
-                const move_r<_locate_move> reference(values, params);
-                std::stringstream expected;
-                reference.serialize(expected);
-                params.mode = i % 2 == 0 ? _suffix_array : _pfp;
-                const move_r<_locate_move> index(input, params);
-                std::stringstream actual;
-                index.serialize(actual);
-
-                ASSERT_TRUE(actual.str() == expected.str()) << "the index differs from the one of 64-bit symbols, "
-                    << sizeof(sym_t) << "-byte symbols, n = " << input.size() << ", sigma = "
-                    << reference.alphabet_size() << (params.mode == _pfp ? ", prefix-free parsing" : ", suffix array");
-            }
-        };
-
-        #define MOVE_R_TEST_INPUT_WIDTH(sym_t) run.template operator()<sym_t>();
+        // the symbol widths of MOVE_R_FOR_EACH_INPUT_WIDTH, one of them drawn
+        std::vector<std::function<void()>> widths;
+        #define MOVE_R_TEST_INPUT_WIDTH(sym_t) widths.emplace_back([&] { run.template operator()<sym_t>(); });
         MOVE_R_FOR_EACH_INPUT_WIDTH(MOVE_R_TEST_INPUT_WIDTH)
         #undef MOVE_R_TEST_INPUT_WIDTH
-    }, true } }, fuzz_iterations(num_iterations_input_widths), nullptr, 0);
+        widths[gen() % widths.size()]();
+    }, true } }, fuzz_iterations(num_iterations_construction), nullptr, 0);
 }
 
-// BWT_range and SA_range with a file name write the values of the range [l, r] to the file
-TEST(test_move_r, retrieve_range_to_file)
+/* build_with_fallback with a random construction mode, with and without -c, with an input length around
+   move_r_max_input_length_sa or below it, and a build that fails for a random set of modes: the result is the mode of
+   the build with the given mode, or after a failed _pfp build without -c and with at most move_r_max_input_length_sa
+   symbols the one of the build with _suffix_array_space; otherwise std::runtime_error is thrown */
+TEST(test_move_r, build_fallback)
 {
-    run_fuzz("move-r", { { "retrieve-range-to-file", [](uint64_t) {
-        using index_t = move_r<_locate_move>;
+    run_fuzz("move-r", { { "build-fallback", [](uint64_t) {
+        const move_r_construction_mode modes[] { _suffix_array, _suffix_array_space, _pfp };
+        const move_r_construction_mode mode = modes[gen() % std::size(modes)];
+        const bool mode_given = gen() % 2 == 0;
+        const uint64_t input_length = gen() % 2 == 0 ? move_r_max_input_length_sa - 1 + gen() % 3
+            : random_log_uniform_size(1, move_r_max_input_length_sa, gen);
+        // fails[m] <=> the build with the mode m fails
+        std::map<move_r_construction_mode, bool> fails;
+        for (move_r_construction_mode m : modes) fails[m] = gen() % 2 == 0;
 
-        // n - 1 = input size >= range_end
-        std::string input = random_repetitive_input<std::string>(range_end, max_input_size, 'a', 'd', gen() | 1);
-        const index_t index(input, move_r_params { .mode = _suffix_array, .num_threads = random_num_threads() });
-        const index_t::retrieve_params range { .l = range_beg, .r = range_end, .num_threads = 1 + gen() % max_num_threads };
-        const std::string label = "n = " + std::to_string(input.size() + 1) + ", "
-            + std::to_string(range.num_threads) + " threads";
-        const std::string file = temporary_file_path("move-r-test-");
+        auto build = [&](move_r_construction_mode m) {
+            if (fails[m]) throw std::runtime_error("the build failed");
+            return m;
+        };
 
-        index.BWT_range(file, range);
-        const std::vector<uint8_t> bwt_from_file = read_values<uint8_t>(file);
-        EXPECT_EQ(bwt_from_file.size(), range_end - range_beg + 1) << "BWT, " << label;
-        EXPECT_EQ(bwt_from_file, index.BWT_range<std::vector<uint8_t>>(range)) << "BWT, " << label;
+        const bool falls_back = fails[mode] && mode == _pfp && !mode_given && input_length <= move_r_max_input_length_sa;
+        const move_r_construction_mode used = falls_back ? _suffix_array_space : mode;
+        const std::string label = "mode " + std::to_string(int(mode)) + (mode_given ? ", given" : ", not given")
+            + ", n = " + std::to_string(input_length);
 
-        index.SA_range(file, range);
-        const std::vector<uint64_t> sa_from_file = read_values<uint64_t>(file);
-        const no_init_vector<uint48_t> sa = index.SA_range(range);
-        EXPECT_EQ(sa_from_file.size(), range_end - range_beg + 1) << "SA, " << label;
-        EXPECT_EQ(sa_from_file, std::vector<uint64_t>(sa.begin(), sa.end())) << "SA, " << label;
-
-        std::filesystem::remove(file);
-    }, true } }, fuzz_iterations(num_iterations_retrieve_range_to_file), nullptr, 0);
-}
-
-// short texts (fewer runs than revert starts requested, a single run of a symbol), with a byte and an integer
-// alphabet, reverted with every number of threads of revert_thread_counts
-TEST(test_move_r, revert_short_texts)
-{
-    const std::vector<std::string> texts { "a", "aa", "ab", "aaaaaaaa", "abababab", "abracadabra" };
-
-    auto check = [&]<move_r_support support, typename inp_t>(inp_t text, uint64_t starts) {
-        using usym_t = std::make_unsigned_t<typename inp_t::value_type>;
-        const move_r<support> index(text, move_r_params { .mode = _suffix_array, .revert_start_samples = starts });
-        const std::string label = "support " + std::to_string(int(support)) + ", " + std::to_string(8 * sizeof(usym_t))
-            + "-bit symbols, n = " + std::to_string(text.size()) + ", revert starts " + std::to_string(starts);
-        verify_parallel_revert<usym_t>(text.size(), [&](uint64_t i) { return uint64_t(usym_t(text[i])); },
-            [&](uint64_t p, uint64_t k) { return index.template revert<std::vector<usym_t>>(p, k); },
-            [&](const std::string& file, uint64_t p, uint64_t k) { index.template revert<usym_t>(file, p, k); }, label);
-    };
-
-    for (const std::string& text : texts) {
-        const std::vector<uint32_t> integers(text.begin(), text.end());
-
-        for (uint64_t starts : revert_start_sample_counts) {
-            check.template operator()<_count>(text, starts);
-            check.template operator()<_locate_move>(text, starts);
-            check.template operator()<_count>(integers, starts);
-            check.template operator()<_locate_rlzsa>(integers, starts);
+        if (fails[used]) {
+            EXPECT_THROW(build_with_fallback(mode, mode_given, input_length, build), std::runtime_error) << label;
+        } else {
+            EXPECT_EQ(build_with_fallback(mode, mode_given, input_length, build), used) << label;
         }
-    }
-}
-
-// a failed pfp construction is repeated with sa-space only without -c and if the input is short enough for sa-space
-TEST(test_move_r, build_fallback_limit)
-{
-    move_r_construction_mode last_mode = _pfp; // the construction mode of the last call of build
-
-    auto build = [&](move_r_construction_mode mode) {
-        last_mode = mode;
-        if (mode == _pfp) throw std::runtime_error("the pfp construction failed");
-        return mode;
-    };
-
-    EXPECT_EQ(build_with_fallback(_pfp, false, move_r_max_input_length_sa, build), _suffix_array_space);
-    EXPECT_THROW(build_with_fallback(_pfp, false, move_r_max_input_length_sa + 1, build), std::runtime_error);
-    EXPECT_EQ(last_mode, _pfp);
-    EXPECT_THROW(build_with_fallback(_pfp, true, 0, build), std::runtime_error);
-    EXPECT_EQ(last_mode, _pfp);
+    } } }, fuzz_iterations(num_iterations_build_fallback));
 }

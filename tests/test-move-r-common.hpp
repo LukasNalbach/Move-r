@@ -38,7 +38,6 @@
 #include <random>
 #include <sstream>
 
-#include <ips2ra.hpp>
 #include <gtest/gtest.h>
 #include <misc/build_cli.hpp>
 #include <move_r/move_r.hpp>
@@ -53,8 +52,18 @@
 inline thread_local std::mt19937 gen(test_seed() + omp_get_thread_num());
 inline uint64_t max_num_threads = omp_get_max_threads();
 inline uint64_t min_input_size = 1;
-inline uint64_t max_input_size = 16000;
+// the largest length of a random input; run_fuzz reduces max_input_size, the inputs of full size are not reduced (see
+// verify_index)
+inline constexpr uint64_t full_input_size = 16000;
+inline uint64_t max_input_size = full_input_size;
 
+/* verify_index draws an input of input_length_per_thread symbols per thread of the construction (such that the
+   construction uses all of its threads, see construction::limit_num_threads) with probability 1 /
+   parallel_input_inverse_probability, and an input of a length between max_input_size and full_input_size with
+   probability 1 / full_size_inverse_probability */
+inline constexpr uint64_t input_length_per_thread = 2 * move_r_min_symbols_per_thread;
+inline constexpr uint64_t parallel_input_inverse_probability = 8;
+inline constexpr uint64_t full_size_inverse_probability = 8;
 
 /* TEST(test_move_r, index) checks the same support and input type in iterations_per_combination consecutive iterations;
    the input type shifts by one after each round over the num_supports supports, so that every combination of a
@@ -71,8 +80,43 @@ inline constexpr uint64_t min_max_pattern_length = 100;
 inline constexpr uint64_t max_max_pattern_length = 10000;
 // num_queries(n) of move_r_adapter is n / input_length_per_query, clamped to [min_num_queries..max_num_queries]
 inline constexpr uint64_t input_length_per_query = 4;
-inline constexpr uint64_t min_num_queries = 12000;
+inline constexpr uint64_t min_num_queries = 16;
 inline constexpr uint64_t max_num_queries = 25000;
+
+/**
+ * @brief returns a random input (see random_text): over a random byte alphabet (see random_input_alphabet) for symbols
+ *        of one byte, else over a random integer alphabet (see random_integer_alphabet)
+ * @tparam inp_t the container of the input
+ * @param min_size the smallest length
+ * @param max_size the largest length
+ * @param gen random number generator
+ */
+template <typename inp_t, typename gen_t>
+inline inp_t random_input(uint64_t min_size, uint64_t max_size, gen_t& gen)
+{
+    using sym_t = typename inp_t::value_type;
+
+    if constexpr (sizeof(sym_t) == 1) {
+        return random_input_alphabet(gen).template input<inp_t>(min_size, max_size, gen);
+    } else {
+        const integer_alphabet<sym_t> alphabet = random_integer_alphabet<sym_t>(1, max_size, gen);
+        return random_text<inp_t>(min_size, max_size, alphabet.sigma, alphabet, gen);
+    }
+}
+
+/**
+ * @brief returns the contents of a file as an array of values of type value_t
+ * @param file the path of the file
+ * @return [0..file size / sizeof(value_t) - 1] the values
+ */
+template <typename value_t>
+std::vector<value_t> read_values(const std::string& file)
+{
+    std::ifstream in(file, std::ios::binary);
+    std::vector<value_t> values(std::filesystem::file_size(file) / sizeof(value_t));
+    in.read(reinterpret_cast<char*>(values.data()), values.size() * sizeof(value_t));
+    return values;
+}
 
 /**
  * @brief writes an input to a new temporary file
@@ -117,22 +161,27 @@ inline void verify_count_and_locate(
 
     auto reported = adapter_t::locate(index, pattern);
     std::vector<uint64_t> located(reported.begin(), reported.end());
-    sort_sequential(located.begin(), located.end(), std::less<>());
+    std::sort(located.begin(), located.end());
     EXPECT_EQ(located.size(), correct_occurrences.size()) << label << ": locate size";
     EXPECT_EQ(located, correct_occurrences) << label << ": locate values";
 }
 
 /**
- * @brief builds one index of a random input with the adapter and checks its queries with random patterns, also after
- *        serializing and loading the index
+ * @brief builds one index of a random input (see random_input) with the adapter and checks its queries with random
+ *        patterns (see random_pattern_and_occurrences), also after serializing and loading the index
  *
  * An adapter is a type with:
  *   - types index_t (the index) and inp_t (the container of the input and of the patterns)
  *   - static uint64_t max_pattern_length(uint64_t n), static uint64_t num_queries(uint64_t n)
- *   - static index_t build(inp_t& input, gen_t&, uint64_t max_num_threads)
+ *   - static index_t build(inp_t& input, gen_t&, uint64_t num_threads)
  *   - static uint64_t count(index_t&, inp_t& pattern), static <occurrences> locate(index_t&, inp_t& pattern)
  *   - static void verify_pattern(index_t&, inp_t& pattern, const std::vector<uint64_t>& occurrences, gen_t&)
  *   - static void verify_retrieval(index_t&, const inp_t& input, gen_t&, uint64_t max_num_threads)
+ *
+ * The number of threads of the construction is 1 in a parallel functionality (run_fuzz runs it on all threads), else
+ * drawn from [1..max_num_threads]; the input has input_length_per_thread symbols per thread of the construction with
+ * probability 1 / parallel_input_inverse_probability, a length in [max_input_size, full_input_size] with probability
+ * 1 / full_size_inverse_probability, else a length in [min_input_size, max_input_size].
  *
  * @tparam adapter_t the index adapter type
  * @tparam gen_t random number generator type
@@ -148,21 +197,26 @@ inline void verify_index(
     using inp_t = typename adapter_t::inp_t;
     using index_t = typename adapter_t::index_t;
 
-    using sym_t = typename inp_t::value_type;
+    const uint64_t num_threads = omp_in_parallel() ? 1 : std::uniform_int_distribution<uint64_t>(1, max_num_threads)(gen);
+    uint64_t min_n = min_input_size;
+    uint64_t max_n = max_input_size;
 
-    // seed of the input, drawn from gen (the input is reproduced with MOVE_R_TEST_SEED); a byte input has a random
-    // alphabet, an integer input symbols of the whole range of its type
-    uint64_t input_seed = std::uniform_int_distribution<uint64_t>(1, ~uint64_t(0))(gen);
-    inp_t input = sizeof(sym_t) == 1
-        ? random_input_alphabet(gen).template input<inp_t>(min_input_size, max_input_size, input_seed)
-        : random_repetitive_input<inp_t>(min_input_size, max_input_size, std::numeric_limits<sym_t>::min(),
-            std::numeric_limits<sym_t>::max(), input_seed);
+    if (num_threads > 1 && gen() % parallel_input_inverse_probability == 0) {
+        min_n = max_n = input_length_per_thread * num_threads;
+    } else if (gen() % full_size_inverse_probability == 0) {
+        min_n = max_input_size;
+        max_n = std::max(max_input_size, full_input_size);
+    }
+
+    inp_t input = random_input<inp_t>(min_n, max_n, gen);
     uint64_t n = input.size();
 
-    index_t index = adapter_t::build(input, gen, max_num_threads);
+    index_t index = adapter_t::build(input, gen, num_threads);
 
     uint64_t max_pattern_length = adapter_t::max_pattern_length(n);
     uint64_t num_queries = adapter_t::num_queries(n);
+    // the symbols the edits of the patterns draw from
+    const std::vector<typename inp_t::value_type> symbols = edit_symbols(input);
 
     // seed of the per-thread generators, drawn from gen (the same in both passes of verify_everything)
     uint64_t query_seed = gen();
@@ -181,7 +235,7 @@ inline void verify_index(
 
             for (uint64_t q = 0; q < queries_per_thread; q++) {
                 auto [pattern, correct_occurrences] =
-                    random_pattern_and_occurrences<inp_t>(input, max_pattern_length, true, gen_thr);
+                    random_pattern_and_occurrences<inp_t>(input, max_pattern_length, symbols, gen_thr);
                 adapter_t::verify_pattern(idx, pattern, correct_occurrences, gen_thr);
             }
         }
@@ -230,19 +284,18 @@ struct move_r_adapter {
      * @brief builds an index of an input with random construction parameters and sets label to them
      * @param input the input
      * @param gen random number generator
-     * @param max_num_threads the maximum number of threads of the construction
+     * @param num_threads the number of threads of the construction
      * @return the index
      */
     template <typename gen_t>
-    static index_t build(inp_t& input, gen_t& gen, uint64_t max_num_threads)
+    static index_t build(inp_t& input, gen_t& gen, uint64_t num_threads)
     {
         std::lognormal_distribution<double> a_distrib(balancing_parameter_log_mean, balancing_parameter_log_deviation);
         std::uniform_int_distribution<int32_t> share_distrib(0, int32_t(context_table_shares.size()) - 1);
 
         move_r_params params {
             .mode = _suffix_array,
-            // one thread in a parallel functionality (run_fuzz runs it on all threads)
-            .num_threads = omp_in_parallel() ? 1 : std::uniform_int_distribution<uint64_t>(1, max_num_threads)(gen),
+            .num_threads = num_threads,
             .a = min_balancing_parameter
                 + uint64_t(std::min(a_distrib(gen), double(max_balancing_parameter - min_balancing_parameter))),
             .reorder_alphabet = gen() % 2 == 0,
@@ -306,6 +359,7 @@ struct move_r_adapter {
         // prepend() returns false and leaves the context unchanged if the extended pattern does not occur
         auto query = index.query();
         bool fully_matched = true;
+
         for (int32_t i = pattern.size() - 1; i >= 0; i--) {
             if (!query.prepend(pattern[i])) {
                 fully_matched = false;
@@ -343,13 +397,14 @@ struct move_r_adapter {
                 occurrences.emplace_back(query.next_occ());
             }
 
-            ips2ra::sort(occurrences.begin(), occurrences.end(), key_of_value {});
+            std::sort(occurrences.begin(), occurrences.end());
             EXPECT_EQ(occurrences, correct_occurrences);
         }
     }
 
     /**
-     * @brief checks revert(), SA_range(), SA(i), BWT_range() and BWT(i) against the naive suffix array
+     * @brief checks revert(), BWT(i), SA(i) and, for the whole range and a random range, BWT_range() and SA_range() in
+     *        memory and to a file against the naive suffix array
      * @param index the index
      * @param input the input of the index
      * @param gen random number generator
@@ -381,49 +436,65 @@ struct move_r_adapter {
 
         compare_reverted_text(reported, input_size, expected, "revert(report), " + label);
 
-        if constexpr (index_t::supports_multiple_locate) {
-            /* the input mapped to the internal symbols of the index (in the index, the suffixes are ordered by the
-               internal symbols): [0..input_size-1] mapped[i] = map_symbol(input[i]) */
-            std::vector<uint64_t> mapped;
-            resize_for_overwrite(mapped, input_size);
+        /* the input mapped to the internal symbols of the index (in the index, the suffixes are ordered by the
+           internal symbols): [0..input_size-1] mapped[i] = map_symbol(input[i]) */
+        std::vector<uint64_t> mapped;
+        resize_for_overwrite(mapped, input_size);
 
-            #pragma omp parallel for num_threads(max_num_threads)
-            for (uint64_t i = 0; i < input_size; i++) mapped[i] = index.map_symbol(input[i]);
+        #pragma omp parallel for num_threads(max_num_threads)
+        for (uint64_t i = 0; i < input_size; i++) mapped[i] = index.map_symbol(input[i]);
 
-            // [0..input_size] the suffix array of mapped with the sentinel
-            std::vector<int64_t> suffix_array = compute_reference_sa<uint64_t>(mapped, input_size, max_num_threads);
-            const no_init_vector<uint48_t> suffix_array_retrieved = index.SA_range({ .num_threads = max_num_threads });
-            // the label of the calling thread (label is per thread)
-            const std::string& index_label = label;
+        // [0..input_size] the suffix array of mapped with the sentinel
+        std::vector<int64_t> suffix_array = compute_reference_sa<uint64_t>(mapped, input_size, max_num_threads);
+        // the label of the calling thread (label is per thread)
+        const std::string& index_label = label;
+        // the BWT of the input as the index reports it: [0..input_size] bwt[i] = input[SA[i] - 1], 0 if SA[i] = 0
+        std::vector<uint64_t> bwt(input_size + 1);
 
+        #pragma omp parallel for num_threads(max_num_threads)
+        for (uint64_t i = 0; i <= input_size; i++)
+            bwt[i] = suffix_array[i] == 0 ? 0 : index_t::symbol_idx(input[suffix_array[i] - 1]);
+
+        // BWT(i) reports the terminator as TERMINATOR_SYMBOL
+        #pragma omp parallel for num_threads(max_num_threads)
+        for (uint64_t i = 0; i <= input_size; i++)
+            EXPECT_EQ(index.BWT(i), suffix_array[i] == 0 ? TERMINATOR_SYMBOL : bwt[i]) << "BWT(" << i << "), " << index_label;
+
+        if constexpr (index_t::has_SA_access) {
             #pragma omp parallel for num_threads(max_num_threads)
             for (uint64_t i = 0; i <= input_size; i++)
-                EXPECT_EQ(suffix_array[i], suffix_array_retrieved[i]) << "SA[" << i << "], " << index_label;
+                EXPECT_EQ(index.SA(i), suffix_array[i]) << "SA(" << i << "), " << index_label;
+        }
 
-            if constexpr (index_t::has_SA_access) {
-                #pragma omp parallel for num_threads(max_num_threads)
-                for (uint64_t i = 0; i <= input_size; i++)
-                    EXPECT_EQ(index.SA(i), suffix_array[i]) << "SA(" << i << "), " << index_label;
+        // the whole range (l > r) and a random range [l, r]
+        const uint64_t l = std::uniform_int_distribution<uint64_t>(0, input_size)(gen);
+        const uint64_t r = std::uniform_int_distribution<uint64_t>(l, input_size)(gen);
+        const uint64_t range_threads = std::uniform_int_distribution<uint64_t>(1, max_num_threads)(gen);
+
+        for (const typename index_t::retrieve_params range : { typename index_t::retrieve_params { .num_threads = max_num_threads },
+                typename index_t::retrieve_params { .l = l, .r = r, .num_threads = range_threads } }) {
+            const uint64_t first = range.l <= range.r ? range.l : 0;
+            const uint64_t last = range.l <= range.r ? range.r : input_size;
+            const std::string what = "[" + std::to_string(first) + ", " + std::to_string(last) + "], "
+                + std::to_string(range.num_threads) + " threads, " + index_label;
+            const std::vector<uint64_t> bwt_range(bwt.begin() + first, bwt.begin() + last + 1);
+            const auto bwt_retrieved = index.template BWT_range<out_t>(range);
+            EXPECT_EQ(std::vector<uint64_t>(bwt_retrieved.begin(), bwt_retrieved.end()), bwt_range) << "BWT_range " << what;
+            const std::string file = temporary_file_path("move-r-test-");
+            index.template BWT_range<usym_t>(file, range);
+            const std::vector<usym_t> bwt_from_file = read_values<usym_t>(file);
+            EXPECT_EQ(std::vector<uint64_t>(bwt_from_file.begin(), bwt_from_file.end()), bwt_range)
+                << "BWT_range to a file " << what;
+
+            if constexpr (index_t::supports_multiple_locate) {
+                const std::vector<uint64_t> sa_range(suffix_array.begin() + first, suffix_array.begin() + last + 1);
+                const no_init_vector<uint48_t> sa_retrieved = index.SA_range(range);
+                EXPECT_EQ(std::vector<uint64_t>(sa_retrieved.begin(), sa_retrieved.end()), sa_range) << "SA_range " << what;
+                index.SA_range(file, range);
+                EXPECT_EQ(read_values<uint64_t>(file), sa_range) << "SA_range to a file " << what;
             }
 
-            // the BWT of the input: [0..input_size] bwt[i] = input[SA[i] - 1], 0 if SA[i] = 0
-            inp_t bwt;
-            resize_for_overwrite(bwt, input_size + 1);
-
-            #pragma omp parallel for num_threads(max_num_threads)
-            for (uint64_t i = 0; i <= input_size; i++)
-                bwt[i] = suffix_array[i] == 0 ? sym_t(0) : input[suffix_array[i] - 1];
-
-            auto bwt_retrieved = index.template BWT_range<out_t>({ .num_threads = max_num_threads });
-
-            #pragma omp parallel for num_threads(max_num_threads)
-            for (uint64_t i = 0; i <= input_size; i++)
-                EXPECT_EQ(index_t::symbol_idx(bwt[i]), uint64_t(bwt_retrieved[i]));
-
-            // BWT(i) reports the terminator as TERMINATOR_SYMBOL
-            #pragma omp parallel for num_threads(max_num_threads)
-            for (uint64_t i = 0; i <= input_size; i++)
-                EXPECT_EQ(index.BWT(i), suffix_array[i] == 0 ? TERMINATOR_SYMBOL : index_t::symbol_idx(bwt[i]));
+            std::filesystem::remove(file);
         }
     }
 };
