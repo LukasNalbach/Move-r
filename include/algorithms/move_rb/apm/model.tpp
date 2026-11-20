@@ -877,7 +877,7 @@ std::pair<uint64_t, uint64_t> apm_costs_t::align_reusing(const str_t& M, cigar_t
 }
 
 inline void apm_cost_band::init(const apm_costs_t& costs, uint64_t beg, uint64_t end, direction_t dir, uint16_t cost_in,
-    uint64_t counters_in, uint64_t num_rows, uint64_t restart_rows)
+    uint64_t counters_in, uint64_t min_counters_in, uint64_t num_rows, uint64_t restart_rows)
 {
     _costs = &costs;
     _bound = costs.bound();
@@ -918,11 +918,17 @@ inline void apm_cost_band::init(const apm_costs_t& costs, uint64_t beg, uint64_t
     }
 
     // the counters of the operations on the part
-    _counts = costs.num_counters() > 0 && _states == 1;
+    _bounds_counters = costs.num_counters() > 0;
+    _counts = _bounds_counters && _states == 1;
 
     if (_counts) {
         _counters.assign(num_rows * _band, 0);
         _counters[_cols_before] = counters_in;
+    }
+
+    if (_bounds_counters) {
+        _min_counters.assign(num_rows * _band * _states, 0);
+        _min_counters[_cols_before * _states] = min_counters_in;
         _sub_count_vals.assign(_len * _num_ranks, 0);
         _ins_count_vals.resize(_len);
         _del_count_vals.resize(_len + 1);
@@ -934,16 +940,56 @@ inline void apm_cost_band::init(const apm_costs_t& costs, uint64_t beg, uint64_t
         }
 
         for (uint64_t c = 0; c <= _len; c++) _del_count_vals[c] = costs.del_count(boundary(c));
+
+        // the counters of opening the gaps that do not touch an end of the part
+        _ins_open_in_count_vals.assign(_len, 0);
+        _ins_open_out_count_vals.assign(_len + 1, 0);
+        _del_open_count_vals.assign(_len + 1, 0);
+
+        if (_states == 3) {
+            for (uint64_t c = 1; c < _len; c++) {
+                if (_reads_right) _ins_open_in_count_vals[c] = costs.ins_open_count(pos(c));
+                else _ins_open_out_count_vals[c] = costs.ins_open_count(pos(c - 1));
+                _del_open_count_vals[c] = costs.del_open_count(boundary(c));
+            }
+        }
     }
 
     // row 0: the first symbols of the part are inserted
     const uint64_t q_ins = _states == 3 ? 1 : 0;
 
     for (uint64_t c = 1; c <= std::min(_len, _cols_after); c++) {
-        uint16_t prev = std::min(_rows[(c - 1 + _cols_before) * _states], _rows[(c - 1 + _cols_before) * _states + q_ins]);
-        _rows[(c + _cols_before) * _states + q_ins] = add_bounded(prev, _ins_vals[c - 1]);
+        const uint64_t x = (c + _cols_before) * _states, x_prev = (c - 1 + _cols_before) * _states;
+        uint16_t prev = std::min(_rows[x_prev], _rows[x_prev + q_ins]);
+        uint16_t v = add_bounded(prev, _ins_vals[c - 1]);
+
+        if (_bounds_counters && v != apm_forbidden) {
+            // the cell in state q_ins continues the predecessor in state 0 (the start) or in state q_ins
+            const uint64_t from = _rows[x_prev] <= _rows[x_prev + q_ins] ? x_prev : x_prev + q_ins;
+            const uint64_t cnt = _min_counters[from] + _ins_count_vals[c - 1];
+            if (costs.exceeds(cnt)) v = apm_forbidden;
+            else _min_counters[x + q_ins] = cnt;
+        }
+
+        _rows[x + q_ins] = v;
         if (_counts) _counters[c + _cols_before] = _counters[c - 1 + _cols_before] + _ins_count_vals[c - 1];
     }
+}
+
+inline uint64_t apm_cost_band::final_min_counters(uint64_t i) const
+{
+    if (!_bounds_counters || _len + _cols_before < i || _len > i + _cols_after) return 0;
+    const uint64_t x = (i * _band + _len + _cols_before - i) * _states;
+    bool found = false;
+    uint64_t counters = 0;
+
+    for (uint64_t q = 0; q < _states; q++) {
+        if (_rows[x + q] == apm_forbidden) continue;
+        counters = found ? apm_costs_t::min_counters(counters, _min_counters[x + q]) : _min_counters[x + q];
+        found = true;
+    }
+
+    return counters;
 }
 
 inline uint64_t apm_cost_band::final_counters(uint64_t i) const
@@ -971,6 +1017,91 @@ inline uint16_t apm_cost_band::min_partial_cost(uint64_t i) const
     return cost;
 }
 
+inline void apm_cost_band::compute_cell_counted(uint64_t i, uint64_t c, uint64_t x, uint64_t r, bool from_above)
+{
+    uint16_t* row = _rows.data() + i * _band * _states;
+    const uint16_t* prev = row - _band * _states;
+    uint64_t* mc = _min_counters.data() + i * _band * _states;
+    const uint64_t* mc_prev = mc - _band * _states;
+
+    // the smallest cost and the smallest counters over the alignments that continue a predecessor with an operation
+    struct cell_t {
+        uint16_t cost = apm_forbidden;
+        uint64_t min_counters = 0;
+        uint64_t counters = 0; // the counters of the cheapest one (the first one of equal cost)
+    };
+
+    /* adds the alignments that continue the predecessor with the cost pred_cost, the smallest counters pred_min and the
+       counters pred_counters of its cheapest alignment by an operation with the cost op_cost and the counters op_counters;
+       the predecessor is skipped if it is discarded or if a counter exceeds its bound */
+    auto add = [&](cell_t& cell, uint16_t pred_cost, uint64_t pred_min, uint64_t pred_counters, uint32_t op_cost,
+        uint64_t op_counters) {
+        if (pred_cost == apm_forbidden) return;
+        const uint16_t v = apm_bounded_sum(pred_cost, op_cost, _bound);
+        const uint64_t min_counters = pred_min + op_counters;
+        if (v == apm_forbidden || _costs->exceeds(min_counters)) return;
+        cell.min_counters = cell.cost == apm_forbidden ? min_counters : apm_costs_t::min_counters(cell.min_counters, min_counters);
+        if (v < cell.cost) { cell.cost = v; cell.counters = pred_counters + op_counters; }
+    };
+
+    const uint16_t sub = c > 0 ? _sub_vals[(c - 1) * _num_ranks + r] : apm_forbidden;
+    const uint64_t sub_count = c > 0 ? _sub_count_vals[(c - 1) * _num_ranks + r] : 0;
+
+    if (_states == 1) {
+        // the counters of the cheapest alignments are kept for final_counters
+        uint64_t* cnt = _counters.data() + i * _band;
+        const uint64_t* cnt_prev = cnt - _band;
+        cell_t cell;
+        if (from_above) add(cell, prev[x + 1], mc_prev[x + 1], cnt_prev[x + 1], _del_vals[c], _del_count_vals[c]);
+
+        if (c > 0) {
+            add(cell, prev[x], mc_prev[x], cnt_prev[x], sub, sub_count);
+            if (x > 0) add(cell, row[x - 1], mc[x - 1], cnt[x - 1], _ins_vals[c - 1], _ins_count_vals[c - 1]);
+        }
+
+        row[x] = cell.cost;
+        mc[x] = cell.min_counters;
+        cnt[x] = cell.counters;
+        return;
+    }
+
+    // with gaps: state 0 (match or substitution), 1 (insertion) and 2 (deletion)
+    cell_t cur[3];
+
+    if (c > 0) {
+        const uint64_t d = 3 * x;
+        const uint16_t out = _ins_open_out[c - 1];
+        const uint64_t out_count = _ins_open_out_count_vals[c - 1];
+        add(cur[0], prev[d], mc_prev[d], 0, sub, sub_count);
+        add(cur[0], prev[d + 1], mc_prev[d + 1], 0, uint32_t(sub) + out, sub_count + out_count);
+        add(cur[0], prev[d + 2], mc_prev[d + 2], 0, sub, sub_count);
+
+        if (x > 0) {
+            const uint64_t l = 3 * (x - 1);
+            const uint16_t ins = _ins_vals[c - 1], open = _ins_open_in[c - 1];
+            const uint64_t ins_count = _ins_count_vals[c - 1], open_count = _ins_open_in_count_vals[c - 1];
+            add(cur[1], row[l], mc[l], 0, uint32_t(ins) + open, ins_count + open_count);
+            add(cur[1], row[l + 1], mc[l + 1], 0, ins, ins_count);
+            add(cur[1], row[l + 2], mc[l + 2], 0, uint32_t(ins) + open, ins_count + open_count);
+        }
+    }
+
+    if (from_above) {
+        const uint64_t a = 3 * (x + 1);
+        const uint16_t del = _del_vals[c], open = _del_open[c];
+        const uint64_t del_count = _del_count_vals[c], open_count = _del_open_count_vals[c];
+        add(cur[2], prev[a], mc_prev[a], 0, uint32_t(del) + open, del_count + open_count);
+        add(cur[2], prev[a + 1], mc_prev[a + 1], 0, uint32_t(del) + open + _ins_open_out[c],
+            del_count + open_count + _ins_open_out_count_vals[c]);
+        add(cur[2], prev[a + 2], mc_prev[a + 2], 0, del, del_count);
+    }
+
+    for (uint64_t q = 0; q < 3; q++) {
+        row[3 * x + q] = cur[q].cost;
+        mc[3 * x + q] = cur[q].min_counters;
+    }
+}
+
 inline bool apm_cost_band::compute_row(uint64_t i, uint8_t sym)
 {
     const uint64_t r = _costs->rank(sym);
@@ -985,23 +1116,9 @@ inline bool apm_cost_band::compute_row(uint64_t i, uint8_t sym)
         const bool from_above = x + 1 < _band;
         const uint16_t sub = c > 0 ? _sub_vals[(c - 1) * _num_ranks + r] : apm_forbidden;
 
-        if (_states == 1 && _counts) {
-            // the counters of the cheapest predecessor (the first one of equal cost)
-            uint64_t* cnt = _counters.data() + i * _band;
-            const uint64_t* cnt_prev = cnt - _band;
-            uint16_t v = from_above ? add_bounded(prev[x + 1], _del_vals[c]) : apm_forbidden;
-            uint64_t k = from_above ? cnt_prev[x + 1] + _del_count_vals[c] : 0;
-
-            if (c > 0) {
-                const uint16_t v_sub = add_bounded(prev[x], sub);
-                if (v_sub < v) { v = v_sub; k = cnt_prev[x] + _sub_count_vals[(c - 1) * _num_ranks + r]; }
-                const uint16_t v_ins = x > 0 ? add_bounded(row[x - 1], _ins_vals[c - 1]) : apm_forbidden;
-                if (v_ins < v) { v = v_ins; k = cnt[x - 1] + _ins_count_vals[c - 1]; }
-            }
-
-            row[x] = v;
-            cnt[x] = k;
-            alive |= v != apm_forbidden;
+        if (_bounds_counters) {
+            compute_cell_counted(i, c, x, r, from_above);
+            for (uint64_t q = 0; q < _states; q++) alive |= row[x * _states + q] != apm_forbidden;
             continue;
         }
 
@@ -1045,37 +1162,56 @@ inline bool apm_cost_band::compute_row(uint64_t i, uint8_t sym)
     return alive;
 }
 
-inline bool apm_cost_band::restart(uint64_t i, uint16_t cost, uint64_t counters)
+inline bool apm_cost_band::restart(uint64_t i, uint16_t cost, uint64_t counters, uint64_t min_counters)
 {
     assert(0 < i && i + _cols_after < _band);
     uint16_t* row = _rows.data() + i * _band * _states;
     uint64_t* cnt_row = _counts ? _counters.data() + i * _band : nullptr;
-    uint16_t& start = row[(_cols_before - i) * _states];
+    uint64_t* mc = _bounds_counters ? _min_counters.data() + i * _band * _states : nullptr;
+    const uint64_t x_start = _cols_before - i;
 
-    if (cost < start) {
-        start = cost;
-        if (_counts) cnt_row[_cols_before - i] = counters;
-    }
+    // merges an alignment with cost v and smallest counters min_cnt into cell x in state q (if no counter exceeds its bound)
+    auto merge = [&](uint64_t x, uint64_t q, uint16_t v, uint64_t min_cnt) {
+        if (v == apm_forbidden || (mc != nullptr && _costs->exceeds(min_cnt))) return false;
+        uint16_t& cell = row[x * _states + q];
+
+        if (mc != nullptr) {
+            uint64_t& cell_min = mc[x * _states + q];
+            cell_min = cell == apm_forbidden ? min_cnt : apm_costs_t::min_counters(cell_min, min_cnt);
+        }
+
+        const bool cheaper = v < cell;
+        if (cheaper) cell = v;
+        return cheaper;
+    };
+
+    if (merge(x_start, 0, cost, min_counters) && _counts) cnt_row[x_start] = counters;
 
     // the insertions of the symbols of the part after the new start (no gap is opened at the start of the part)
     for (uint64_t c = 1; c <= std::min(_len, i + _cols_after); c++) {
         const uint64_t x = c + _cols_before - i;
         const uint16_t ins = _ins_vals[c - 1];
+        const uint64_t ins_count = mc != nullptr ? _ins_count_vals[c - 1] : 0;
 
         if (_states == 1) {
-            const uint16_t v_ins = add_bounded(row[x - 1], ins);
-
-            if (v_ins < row[x]) {
-                row[x] = v_ins;
-                if (_counts) cnt_row[x] = cnt_row[x - 1] + _ins_count_vals[c - 1];
+            const uint64_t min_cnt = mc != nullptr ? mc[x - 1] + ins_count : 0;
+            if (row[x - 1] != apm_forbidden && merge(x, 0, add_bounded(row[x - 1], ins), min_cnt) && _counts) {
+                cnt_row[x] = cnt_row[x - 1] + _ins_count_vals[c - 1];
             }
 
             continue;
         }
 
-        const uint16_t* l = row + 3 * (x - 1);
         const uint16_t open = _ins_open_in[c - 1];
-        row[3 * x + 1] = std::min({row[3 * x + 1], add_bounded(l[0], ins, open), add_bounded(l[1], ins), add_bounded(l[2], ins, open)});
+        const uint64_t open_count = mc != nullptr ? _ins_open_in_count_vals[c - 1] : 0;
+        const uint64_t l = x - 1;
+
+        for (uint64_t q = 0; q < 3; q++) {
+            if (row[l * 3 + q] == apm_forbidden) continue;
+            const bool opens = q != 1;
+            merge(x, 1, add_bounded(row[l * 3 + q], ins, opens ? open : 0),
+                mc != nullptr ? mc[l * 3 + q] + ins_count + (opens ? open_count : 0) : 0);
+        }
     }
 
     for (uint64_t x = (_cols_before - i) * _states; x < (std::min(_len, i + _cols_after) + _cols_before - i + 1) * _states; x++) {

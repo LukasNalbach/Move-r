@@ -32,6 +32,7 @@
 #ifndef MOVE_R_MOVE_R_CONSTRUCTION_MOVE_PHI_TPP
 #define MOVE_R_MOVE_R_CONSTRUCTION_MOVE_PHI_TPP
 
+#include <algorithm>
 #include <misc/utils.hpp>
 
 #include <misc/sort.hpp>
@@ -329,6 +330,125 @@ void move_r<support>::construction::build_plcp_run()
 }
 
 template <move_r_support support>
+void move_r<support>::construction::count_distinct_substrings()
+{
+    log_phase_start("sorting the runs by text position");
+
+    // the pairs (SA[i], LCP[i]) of the run starts i, sorted by SA[i]
+    mds_pairs by_text(r, n);
+
+    #pragma omp parallel for num_threads(p)
+    for (uint64_t x = 0; x < r; x++) {
+        by_text.set<0>(x, I_Phi_inv.get<1>(x));
+        by_text.set<1>(x, LCP_run.template get<0, uint64_t>(x));
+    }
+
+    LCP_run = interleaved_bit_aligned_vectors();
+    by_text.sort_by<0>(p);
+    log_phase_end("time_sort_runs_by_text");
+
+    count_distinct_substrings([&](uint64_t k) { return by_text.get<0>(k); }, [&](uint64_t k) { return by_text.get<1>(k); });
+}
+
+template <move_r_support support>
+template <typename pos_fnc_t, typename plcp_fnc_t>
+void move_r<support>::construction::count_distinct_substrings(pos_fnc_t pos, plcp_fnc_t plcp)
+{
+    log_phase_start("counting the distinct substrings");
+
+    /* the separators, sorted: the position before each sequence start, the separators of the masked runs and the
+       terminator at position n - 1 */
+    std::vector<uint64_t> separators;
+
+    if (params.fasta.sequences != nullptr) {
+        const fasta_sequence_data& seq = *params.fasta.sequences;
+
+        for (uint64_t s = 0; s < seq.num_sequences(); s++) {
+            if (seq.sequence_start(s) > 0) separators.emplace_back(seq.sequence_start(s) - 1);
+        }
+    }
+
+    if (params.fasta.masked_separators != nullptr) {
+        const no_init_vector<uint64_t>& masked = *params.fasta.masked_separators;
+        const uint64_t num_seq_separators = separators.size();
+        separators.insert(separators.end(), masked.begin(), masked.end());
+        std::inplace_merge(separators.begin(), separators.begin() + num_seq_separators, separators.end());
+    }
+
+    separators.emplace_back(n - 1);
+
+    /* position j starts a distinct substring of length L iff PLCP[j] < L and the substring contains no separator, i.e.,
+       L <= dist[j], the number of positions from j to the next separator; so the number of distinct substrings of
+       length L is #{j : PLCP[j] < L} - #{j : max(PLCP[j], dist[j]) < L}. From one text position to the next, PLCP
+       decreases by 1 except at the positions SA[i] of the run starts i, so between these positions and the separators,
+       PLCP and dist decrease by 1 per position, and each such range adds a range of values to the two histograms of
+       PLCP[j] and max(PLCP[j], dist[j]); the values above max_len are not counted */
+    const uint64_t max_len = std::min<uint64_t>(n, max_counted_lcp);
+
+    // [0..p-1][0..max_len + 1] the difference arrays of the two histograms of each thread
+    std::vector<std::vector<int64_t>> diff_plcp(p, std::vector<int64_t>(max_len + 2, 0));
+    std::vector<std::vector<int64_t>> diff_max(p, std::vector<int64_t>(max_len + 2, 0));
+
+    // adds to a difference array the values hi, hi - 1, ..., hi - num + 1, where a negative value counts as 0
+    auto add_values = [&](std::vector<int64_t>& diff, int64_t hi, uint64_t num) {
+        const int64_t lo = hi - int64_t(num) + 1;
+
+        if (lo < 0) {
+            const int64_t negative = std::min<int64_t>(-lo, int64_t(num));
+            diff[0] += negative;
+            diff[1] -= negative;
+        }
+
+        const int64_t beg = std::max<int64_t>(lo, 0), end = std::min<int64_t>(hi, int64_t(max_len));
+        if (beg > end) return;
+        diff[beg]++;
+        diff[end + 1]--;
+    };
+
+    #pragma omp parallel for num_threads(p) schedule(dynamic, 1)
+    for (uint64_t t = 0; t < p; t++) {
+        const uint64_t beg = (t * r) / p, end = ((t + 1) * r) / p;
+        if (beg == end) continue;
+        // the first separator at or after the first position of the thread
+        uint64_t sep = std::lower_bound(separators.begin(), separators.end(), pos(beg)) - separators.begin();
+
+        for (uint64_t k = beg; k < end; k++) {
+            const uint64_t q = pos(k); // the range [q, q_next) of text positions
+            const uint64_t q_next = k + 1 < r ? pos(k + 1) : n;
+            const int64_t plcp_q = int64_t(plcp(k));
+
+            // the pieces [a, b) of the range up to and including a separator
+            for (uint64_t a = q; a < q_next;) {
+                while (separators[sep] < a) sep++;
+                const uint64_t b = std::min(q_next, separators[sep] + 1);
+                const int64_t plcp_a = plcp_q - int64_t(a - q);
+                add_values(diff_plcp[t], plcp_a, b - a);
+                add_values(diff_max[t], std::max(plcp_a, int64_t(separators[sep] - a)), b - a);
+                a = b;
+            }
+        }
+    }
+
+    // _distinct_substrings[L] = the sum over the values v < L of hist_plcp[v] - hist_max[v]
+    resize_no_init(idx._distinct_substrings, max_len + 1);
+    int64_t hist_plcp = 0, hist_max = 0, distinct = 0;
+
+    for (uint64_t L = 1; L <= max_len; L++) {
+        for (uint64_t t = 0; t < p; t++) {
+            hist_plcp += diff_plcp[t][L - 1];
+            hist_max += diff_max[t][L - 1];
+        }
+
+        distinct += hist_plcp - hist_max;
+        idx._distinct_substrings[L] = uint64_t(distinct);
+    }
+
+    // the empty string
+    idx._distinct_substrings[0] = 1;
+    log_phase_end("time_count_distinct_substrings");
+}
+
+template <move_r_support support>
 void move_r<support>::construction::sort_iphi_inv()
 {
     log_phase_start("sorting I_Phi_inv");
@@ -389,6 +509,11 @@ void move_r<support>::construction::sort_iphi()
     }
 
     log_phase_end("time_sort_iphi");
+
+    if (counts_substrings) {
+        count_distinct_substrings([&](uint64_t k) { return I_Phi.get<0>(k); },
+            [&](uint64_t k) { return plcp_pair.template get<0, uint64_t>(k); });
+    }
 }
 
 #endif // MOVE_R_MOVE_R_CONSTRUCTION_MOVE_PHI_TPP

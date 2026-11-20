@@ -33,10 +33,11 @@
 #define MOVE_R_MOVE_R_MOVE_R_HPP
 
 #include <iostream>
+#include <limits>
 #include <string_view>
 #include <data_structures/elias_fano_bit_vector.hpp>
 #include <data_structures/interleaved_bit_aligned_vectors.hpp>
-#include <data_structures/rmq_tree.hpp>
+#include <data_structures/min_tree.hpp>
 #include <move_data_structure/move_data_structure.hpp>
 #include <data_structures/pred_succ_block.hpp>
 #include <data_structures/pred_succ_occ.hpp>
@@ -214,6 +215,9 @@ struct fasta_input_t {
     uint64_t num_index_samples = 0; // number of samples in index_samples
     // the sequences of the FASTA file; stored in a pfp cache (see pfp_cache_fasta_section)
     const fasta_sequence_data* sequences = nullptr;
+    // the positions in the text of the separators of the masked runs of the FASTA file, in increasing order (see
+    // fasta_scan_t::masked_separators); stored in a pfp cache with the sequences
+    const no_init_vector<uint64_t>* masked_separators = nullptr;
     /* if not nullptr, the FASTA file has not been scanned: the prefix-free parsing reads it once (see
        pfp_rlbwt::fasta_ranges; only the mode pfp) and stores the length, the symbol frequencies, the samples and the
        sequences of its text here, and text_len, byte_freqs, index_samples and sequences are set from them */
@@ -315,6 +319,9 @@ struct move_r_params {
     // file storing the [0..255] alphabet map that is applied to the bytes of the input file while the prefix-free
     // parsing reads it (see construction::pfp_alphabet_map)
     std::string pfp_alphabet_map_file = "";
+    /* true <=> the construction counts the distinct substrings of each length that contain no separator of the
+       sequences (see move_r::take_distinct_substrings); it then reads the LCP values at the starts of the BWT runs */
+    bool counts_distinct_substrings = false;
 };
 
 /**
@@ -358,6 +365,9 @@ public:
 
     // true <=> the suffix array samples are the only locate data structure the index stores (see _locate_one_bi)
     static constexpr bool stores_only_SA_samples = support == _locate_one_bi;
+
+    // the largest LCP value and substring length counted by the histograms of the construction
+    static constexpr uint64_t max_counted_lcp = uint64_t(std::numeric_limits<uint16_t>::max()) + 1;
 
     /* encoding of M_LF (see move_pos_encoding_t): ELIAS_FANO for _count to _locate_rlzsa, else CACHE_LINES; with
        ELIAS_FANO, the backward search moves (interval, offset)-pairs (see move_data_structure::move_offset) */
@@ -404,7 +414,7 @@ protected:
 
     using psb_l_t = pred_succ_block<L_reader>;
     using pso_l_t = pred_succ_occ<L_reader>;
-    using L_prev_min_t = rmq_tree<L_prev_min_arity>;
+    using L_prev_min_t = min_tree<L_prev_min_arity>;
 
     // layout of the suffix array samples (also the value written by serialize_SA_samples): in SA_run and
     // SA_run_pos, or as the input intervals of M_Phi_inv in SA_Phi_inv
@@ -495,6 +505,11 @@ protected:
        1 <= SA[i] <= n-2; SA[i] is the smallest such value at a run start in its range, where [0, n) is split into
        move_r_params::revert_start_samples ranges of equal length; bit_width(n) bits per field */
     interleaved_bit_aligned_vectors _revert_starts;
+
+    /* the numbers of the distinct substrings of T that contain no separator of the sequences and not the terminator:
+       [0..min(n, max_counted_lcp)] _distinct_substrings[L] for the length L (see
+       move_r_params::counts_distinct_substrings); empty if they were not counted; not serialized */
+    no_init_vector<uint64_t> _distinct_substrings;
 
     // true <=> the construction read the output of the prefix-free parsing from the pfp cache; not serialized
     bool _rlbwt_from_cache = false;
@@ -713,6 +728,10 @@ public:
 
     // returns the starting positions, names and separator symbol of the sequences of a FASTA input (see _seq_data)
     inline const fasta_sequence_data& seq_data() const { return _seq_data; }
+
+    /* returns the numbers of the distinct substrings counted by the construction (see
+       move_r_params::counts_distinct_substrings and _distinct_substrings) and releases them */
+    inline no_init_vector<uint64_t> take_distinct_substrings() { return std::move(_distinct_substrings); }
 
     // returns whether the construction read the output of the prefix-free parsing from the pfp cache
     inline bool rlbwt_from_cache() const { return _rlbwt_from_cache; }

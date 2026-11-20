@@ -347,8 +347,8 @@ inline std::string format_count_line(const std::string& name, uint64_t count, ui
  * @brief prints the summary of the queries of a patterns file:
  *        patterns: 200 (average length 20 symbols), <pattern_details>
  *        <results>
- *        query time (summed over 4 threads): 4883 us = 24 us per pattern, 1220 ns per symbol, 379 ns per occurrence
- *        wall time: 2627 us
+ *        query time (summed over 4 threads): 4883 us (4,883,412 ns) = 24 us per pattern, 1220 ns per symbol, 379 ns per occurrence
+ *        wall time: 2627 us (2,627,105 ns)
  *        additional memory: 348 KB
  * @param totals the totals of process_patterns
  * @param threads the number of threads
@@ -364,7 +364,7 @@ inline void print_query_summary(const pattern_totals_t& totals, uint64_t threads
     std::cout << '\n';
     for (const std::string& line : summary.results) std::cout << line << '\n';
     std::cout << "query time" << (threads > 1 ? " (summed over " + format_threads(threads) + ")" : std::string())
-              << ": " << format_time(summary.time_query);
+              << ": " << format_time_exact(summary.time_query);
 
     if (num_patterns != 0) {
         std::cout << " = " << format_time(summary.time_query / num_patterns) << " per pattern";
@@ -373,7 +373,7 @@ inline void print_query_summary(const pattern_totals_t& totals, uint64_t threads
             std::cout << ", " << format_time(summary.time_query / summary.num_results) << " per " << summary.result_name;
     }
 
-    std::cout << "\nwall time: " << format_time(totals.time_wall) << '\n';
+    std::cout << "\nwall time: " << format_time_exact(totals.time_wall) << '\n';
     if (summary.additional_memory != 0) std::cout << "additional memory: " << format_size(summary.additional_memory) << '\n';
     std::cout << std::flush;
 }

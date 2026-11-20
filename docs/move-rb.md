@@ -57,7 +57,7 @@ int main()
     move_rb<_locate_rlzsa> index_int(
         std::vector<uint32_t>{ 3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5 });
     bool occurs;
-    auto ctx = index_int.search(std::vector<uint32_t>{ 3, 5 }, occurs);
+    auto ctx = index_int.context_of(std::vector<uint32_t>{ 3, 5 }, occurs);
     // -> 1 9
     std::cout << occurs << " " << ctx.locate_phase().locate()[0] << std::endl;
 }
@@ -127,10 +127,10 @@ int main()
     // ~> 6 6 5 5
     std::cout << b << " " << e << " " << b_R << " " << e_R << std::endl;
 
-    // search a whole pattern from right to left (starting at the context
-    // tables)
+    // the context of a whole pattern, searched from right to left (starting at
+    // the context tables)
     bool found;
-    auto ctx_a = index.search(std::string("a"), found);
+    auto ctx_a = index.context_of(std::string("a"), found);
     std::cout << found << " " << ctx_a.num_occ() << std::endl; // -> 1 5
 
     // locate: the occurrence of the sample of the context in O(1) time, then
@@ -348,7 +348,7 @@ int main()
               << index.documents().num_documents() << std::endl;
 
     bool occurs;
-    auto ctx = index.search(std::string("ACG"), occurs);
+    auto ctx = index.context_of(std::string("ACG"), occurs);
     auto occurrences = [&](auto&& report) {
         ctx.locate_phase().locate(report);
     };
@@ -362,7 +362,7 @@ int main()
 
     // the documents with the numbers of occurrences of "TA", and the
     // document with the most occurrences
-    auto ctx_ta = index.search(std::string("TA"), occurs);
+    auto ctx_ta = index.context_of(std::string("TA"), occurs);
     auto occurrences_ta = [&](auto&& report) {
         ctx_ta.locate_phase().locate(report);
     };

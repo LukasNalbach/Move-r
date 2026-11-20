@@ -120,6 +120,7 @@
     prefix template void MOVE_R_CONSTRUCTION_OF(supp)::sort_iphi_inv(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp)::sort_iphi(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp)::build_plcp_run(); \
+    prefix template void MOVE_R_CONSTRUCTION_OF(supp)::count_distinct_substrings(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp)::store_run_ranks(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp)::store_mlf(); \
     prefix template void MOVE_R_CONSTRUCTION_OF(supp)::load_mlf(); \

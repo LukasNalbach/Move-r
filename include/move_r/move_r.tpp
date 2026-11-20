@@ -63,6 +63,7 @@ void move_r<support>::assign_from(move_r_t&& other)
     _SA_run_pos = std::forward<move_r_t>(other)._SA_run_pos; _SA_run = std::forward<move_r_t>(other)._SA_run;
     _SA_rlz = std::forward<move_r_t>(other)._SA_rlz; _seq_data = std::forward<move_r_t>(other)._seq_data;
     _revert_starts = std::forward<move_r_t>(other)._revert_starts;
+    _distinct_substrings = std::forward<move_r_t>(other)._distinct_substrings;
     _rlbwt_from_cache = other._rlbwt_from_cache;
     _plcp_row_width = other._plcp_row_width;
 }

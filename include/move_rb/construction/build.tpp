@@ -466,6 +466,19 @@ void move_rb<support>::take_fasta_read_once(build_state_t& st, move_r_params& su
     sub_params.fasta.index_samples = scan.samples.data();
     sub_params.fasta.num_index_samples = scan.samples.size();
     sub_params.fasta.sequences = &scan.data;
+    sub_params.fasta.masked_separators = &scan.masked_separators;
+}
+
+template <move_r_support support>
+void move_rb<support>::take_distinct_substrings()
+{
+    const no_init_vector<uint64_t> distinct = idx_fwd.take_distinct_substrings();
+    _distinct_substrings = interleaved_bit_aligned_vectors();
+    if (distinct.empty()) return;
+    const uint64_t max_val = *std::max_element(distinct.begin(), distinct.end());
+    _distinct_substrings = interleaved_bit_aligned_vectors({ uint8_t(std::max<uint64_t>(1, std::bit_width(max_val))) });
+    _distinct_substrings.resize_no_init(distinct.size());
+    for (uint64_t L = 0; L < distinct.size(); L++) _distinct_substrings.template set<0, uint64_t>(L, distinct[L]);
 }
 
 template <move_r_support support>
@@ -488,8 +501,10 @@ void move_rb<support>::build_sub_indexes(build_state_t& st)
 
     try {
         const bool fasta_once = sub_params.fasta.read_once != nullptr && sub_params.fasta.text_len == 0;
+        sub_params.counts_distinct_substrings = true;
         idx_fwd = move_r_fwd_t(input, sub_params);
         _pfp_cached_texts = idx_fwd.rlbwt_from_cache() ? 1 : 0;
+        take_distinct_substrings();
         if (fasta_once) take_fasta_read_once(st, sub_params);
         if (st.sub_indexes_compute_alphabet) sigma = idx_fwd.alphabet_size() + 1;
         else if (st.byte_input) idx_fwd.set_alphabet_maps(st.map_int, st.map_ext);
@@ -516,6 +531,7 @@ void move_rb<support>::build_sub_indexes(build_state_t& st)
         // the backward index is built for T^R (see move_r_params::reversed)
         sub_params.reversed = true;
         sub_params.ignore_pfp_cache = st.ignore_cache_bwd;
+        sub_params.counts_distinct_substrings = false;
         idx_bwd = move_r_bwd_t(input, sub_params);
         if (idx_bwd.rlbwt_from_cache()) _pfp_cached_texts++;
         // with sub_indexes_compute_alphabet, the backward index has computed the same alphabet as the forward index

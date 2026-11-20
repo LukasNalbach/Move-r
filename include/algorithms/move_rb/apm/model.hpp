@@ -456,6 +456,16 @@ public:
     // returns whether packed counters exceed the bound of a counter
     bool exceeds(uint64_t counters) const { return ((counters + _counter_bias) & lane_high_bits) != 0; }
 
+    /* returns the lane-wise minimum of packed counters a and b that do not exceed their bounds (then the highest bit of
+       each lane is 0, see exceeds) */
+    static uint64_t min_counters(uint64_t a, uint64_t b)
+    {
+        // 1 in the lowest bit of each lane in which a is at least b
+        const uint64_t a_not_less = (((a | lane_high_bits) - b) & lane_high_bits) >> (lane_bits - 1);
+        const uint64_t mask = a_not_less * ((uint64_t(1) << lane_bits) - 1);
+        return (b & mask) | (a & ~mask);
+    }
+
     /* returns whether opening a gap has a cost or is counted (then the cost and the counters of an insertion or a
        deletion depend on the preceding operation) */
     bool is_affine() const { return _affine; }
@@ -553,9 +563,10 @@ public:
 
 /**
  * @brief a banded dynamic program over the costs of the alignments of a part P[beg, end) of a pattern, read in a
- *        direction, against a text that grows by one symbol per row; the counters and the costs of opening the gaps
+ *        direction, against a text that grows by one symbol per row; the costs and the counters of opening the gaps
  *        at the ends of the part are omitted, so each cell is a lower bound on the cost (in the model) of every
- *        alignment that ends in it
+ *        alignment that ends in it, and with counters, it also holds a lower bound on each counter; a cell is
+ *        discarded if its cost exceeds the bound or a counter exceeds its bound
  *
  * The cost of opening a gap of insertions is added at its first position: when the gap is entered (read to the right)
  * or left (read to the left). The cost of opening a gap of deletions is added at its boundary. Row i corresponds to i
@@ -577,6 +588,12 @@ protected:
        cost of cell (i, c) in state q */
     std::vector<uint16_t> _rows;
     bool _counts = false; // whether the counters of the cells are kept (see final_counters)
+    bool _bounds_counters = false; // whether the cells are discarded by the smallest values of their counters
+    /* the smallest value of each counter over the alignments that end in a cell, starting from the smallest values
+       passed to init and restart: [0..num_rows * _band * _states - 1] _min_counters[(i * _band + c + _cols_before - i) *
+       _states + q] of cell (i, c) in state q; a cell in which a counter exceeds its bound for every alignment is
+       discarded */
+    std::vector<uint64_t> _min_counters;
     // the counters of the cells: [0..num_rows * _band - 1] _counters[i * _band + c + _cols_before - i] of cell (i, c)
     std::vector<uint64_t> _counters;
     /* the counters of the operations on the part, by the number c of symbols of the part in reading direction:
@@ -593,6 +610,10 @@ protected:
     std::vector<uint16_t> _ins_open_in;  // [0.._len-1] added when a gap of insertions is entered at the c-th symbol
     std::vector<uint16_t> _ins_open_out; // [0.._len] added when a gap of insertions is left after c symbols
     std::vector<uint16_t> _del_open;     // [0.._len] added when a gap of deletions is opened after c symbols
+    // the counters of opening the gaps, indexed as _ins_open_in, _ins_open_out and _del_open
+    std::vector<uint64_t> _ins_open_in_count_vals;
+    std::vector<uint64_t> _ins_open_out_count_vals;
+    std::vector<uint64_t> _del_open_count_vals;
 
     // ############################# INTERNAL METHODS #############################
 
@@ -601,6 +622,13 @@ protected:
 
     // returns the boundary of P after c symbols of the part in reading direction
     uint64_t boundary(uint64_t c) const { return _reads_right ? _beg + c : _beg + _len - c; }
+
+    /**
+     * @brief computes cell (i, c) with the smallest values of the counters (see _min_counters), for the rank r of the
+     *        text symbol of row i; x is the index of the cell in row i, and from_above whether cell (i - 1, c) lies in
+     *        the band
+     */
+    void compute_cell_counted(uint64_t i, uint64_t c, uint64_t x, uint64_t r, bool from_above);
 
     // returns a + b + c, or apm_forbidden if it exceeds the bound
     uint16_t add_bounded(uint32_t a, uint32_t b, uint32_t c = 0) const { return apm_bounded_sum(a, b + c, _bound); }
@@ -616,11 +644,13 @@ public:
      * @param dir the direction the part is read in
      * @param cost_in the cost before the part
      * @param counters_in the packed counters of an alignment before the part with cost cost_in (see final_counters)
+     * @param min_counters_in the smallest value of each counter over the alignments before the part (see
+     *        final_min_counters)
      * @param num_rows the number of rows (text symbols + 1)
      * @param restart_rows the rows [1..restart_rows] can be restarted (see restart)
      */
     void init(const apm_costs_t& costs, uint64_t beg, uint64_t end, direction_t dir, uint16_t cost_in,
-        uint64_t counters_in, uint64_t num_rows, uint64_t restart_rows = 0);
+        uint64_t counters_in, uint64_t min_counters_in, uint64_t num_rows, uint64_t restart_rows = 0);
 
     /**
      * @brief computes row i from row i - 1 for the next text symbol
@@ -635,9 +665,10 @@ public:
      * @param i [1..restart_rows] the row (computed)
      * @param cost the cost of the alignment in cell (i, 0)
      * @param counters the packed counters of the alignment
+     * @param min_counters the smallest value of each counter over the alignments that start in cell (i, 0)
      * @return whether some cell of row i is at most the bound of the model
      */
-    bool restart(uint64_t i, uint16_t cost, uint64_t counters);
+    bool restart(uint64_t i, uint16_t cost, uint64_t counters, uint64_t min_counters);
 
     // ############################# QUERY METHODS #############################
 
@@ -650,6 +681,10 @@ public:
      *        alignments that end in it, starting from counters_in and from the counters passed to restart
      */
     uint64_t final_counters(uint64_t i) const;
+
+    /* returns the smallest value of each counter over the alignments that end in the cell of row i in which the whole
+       part is aligned (0 without counters) */
+    uint64_t final_min_counters(uint64_t i) const;
 
     // returns the smallest cost of the cells of row i in which the part is not aligned completely, or apm_forbidden
     uint16_t min_partial_cost(uint64_t i) const;

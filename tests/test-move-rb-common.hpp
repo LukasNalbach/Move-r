@@ -212,6 +212,8 @@ struct naive_reference {
     std::vector<uint64_t> input_symbol;
     // the internal symbol of each input symbol that occurs in the input
     std::map<uint64_t, uint64_t> internal_symbol;
+    // the positions of the separators of the sequences in text, in increasing order (empty: one sequence)
+    std::vector<uint64_t> separators;
 };
 
 // returns the naive references for an index built from input
@@ -239,6 +241,60 @@ naive_reference build_naive_reference(const idx_t& index, const inp_t& input)
 }
 
 // ############################# CONSTRUCTION #############################
+
+/* returns the numbers of the distinct substrings without a separator of a text with n symbols for each length L in
+   [0..n] (1 for the empty string), from its suffix array SA ([0..n], with the terminator) and the positions of its
+   separators: the suffixes whose first L symbols contain no separator and that share fewer than L symbols with the
+   suffix before them in SA */
+inline std::vector<uint64_t> naive_distinct_substrings(const std::vector<int32_t>& text, const std::vector<int64_t>& SA,
+    const std::vector<uint64_t>& separators)
+{
+    const uint64_t n = text.size();
+    // [0..n] the number of positions from j to the next separator or to the end of the text
+    std::vector<uint64_t> to_separator(n + 1, 0);
+    std::vector<uint8_t> is_separator(n, 0);
+    for (uint64_t s : separators) is_separator[s] = 1;
+    for (uint64_t j = n; j-- > 0;) to_separator[j] = is_separator[j] ? 0 : to_separator[j + 1] + 1;
+
+    std::vector<uint64_t> rank(n + 1), lcp(n + 1, 0);
+    for (uint64_t i = 0; i <= n; i++) rank[SA[i]] = i;
+
+    // the longest common prefix of each suffix with the one before it in SA (Kasai et al.)
+    for (uint64_t j = 0, h = 0; j < n; j++) {
+        if (rank[j] == 0) {
+            h = 0;
+            continue;
+        }
+
+        const uint64_t k = SA[rank[j] - 1];
+        while (j + h < n && k + h < n && text[j + h] == text[k + h]) h++;
+        lcp[rank[j]] = h;
+        if (h > 0) h--;
+    }
+
+    // the suffix SA[i] starts a distinct substring of each length in [lcp[i] + 1, to_separator[SA[i]]]
+    std::vector<int64_t> diff(n + 2, 0);
+
+    for (uint64_t i = 0; i <= n; i++) {
+        const uint64_t len = to_separator[SA[i]];
+
+        if (lcp[i] < len) {
+            diff[lcp[i] + 1]++;
+            diff[len + 1]--;
+        }
+    }
+
+    std::vector<uint64_t> distinct(n + 1);
+    distinct[0] = 1;
+    int64_t sum = 0;
+
+    for (uint64_t L = 1; L <= n; L++) {
+        sum += diff[L];
+        distinct[L] = uint64_t(sum);
+    }
+
+    return distinct;
+}
 
 // verifies the data structures of an index, the reverted text and the suffix array against the naive references
 template <typename inp_t, move_r_support support>
@@ -271,6 +327,18 @@ void verify_construction(
 
     // PSO_L' is always built
     EXPECT_FALSE(index.forward_index().PSO_L_().empty());
+
+    // the numbers of the distinct substrings of each counted length (see move_rb::distinct_substrings)
+    EXPECT_TRUE(index.has_distinct_substrings()) << "the numbers of the distinct substrings are missing, " << label;
+
+    if (index.has_distinct_substrings()) {
+        const std::vector<uint64_t> distinct = naive_distinct_substrings(ref.text, ref.SA, ref.separators);
+        const uint64_t max_len = std::min<uint64_t>(n, std::remove_cvref_t<decltype(index.forward_index())>::max_counted_lcp);
+        uint64_t L = 0;
+        while (L <= max_len && index.distinct_substrings(L) == distinct[L]) L++;
+        EXPECT_GT(L, max_len) << "distinct substrings of length " << L << ": " << index.distinct_substrings(L)
+            << " instead of " << distinct[L] << ", " << label;
+    }
 
     // container type the text is reverted to; the width of its symbols must be the width of the input symbols
     // (see move_r::symbol_idx)
@@ -391,7 +459,7 @@ bool verify_extensions(
     return true;
 }
 
-// verifies the context tables: search() and context_of() must return the contexts that are reached by
+// verifies the context tables: context_of() and table_context_of() must return the contexts that are reached by
 // extending symbol by symbol
 template <typename inp_t, move_r_support support>
 void verify_context_tables(
@@ -424,16 +492,16 @@ void verify_context_tables(
 
         ASSERT_TRUE(occurs) << "a substring of the input does not occur in it, " << label;
 
-        // the context of P, computed with search() (uses the context tables, see move_rb::search)
+        // the context of P, computed with context_of() (uses the context tables, see move_rb::context_of)
         bool found = false;
-        auto fast = index.template search<COUNT>(P, found);
-        ASSERT_TRUE(found) << "search() missed a substring of the input, " << label;
-        ASSERT_EQ(fast.num_occ(), slow.num_occ()) << "search() returned the context of another pattern";
+        auto fast = index.template context_of<COUNT>(P, found);
+        ASSERT_TRUE(found) << "context_of() missed a substring of the input, " << label;
+        ASSERT_EQ(fast.num_occ(), slow.num_occ()) << "context_of() returned the context of another pattern";
         ASSERT_EQ(fast.pattern_length(), P.size());
 
-        // context_of() returns the context of the longest stored suffix of P
+        // table_context_of() returns the context of the longest stored suffix of P
         uint64_t matched = 0;
-        auto entry = index.template context_of<COUNT>(P, matched);
+        auto entry = index.template table_context_of<COUNT>(P, matched);
         ASSERT_LE(matched, P.size()) << "the table matched more symbols than the pattern has";
 
         if (matched != 0) {
@@ -1087,6 +1155,26 @@ void build_and_verify_move_rb(move_rb_test_t test, uint64_t min_n, uint64_t max_
         params.documents = &documents;
     }
 
+    /* the sequences passed to the construction, which counts the distinct substrings without a separator (see
+       move_r_params::counts_distinct_substrings): a random part of the separators between the sequences is passed as
+       the separators of masked runs */
+    fasta_sequence_data construction_sequences;
+    no_init_vector<uint64_t> masked_separators;
+
+    if (with_sequences) {
+        std::vector<uint64_t> starts { sequence_starts[0] };
+
+        for (uint64_t j = 1; j < sequence_starts.size(); j++) {
+            if (gen() % 2 == 0) masked_separators.emplace_back(sequence_starts[j] - 1);
+            else starts.emplace_back(sequence_starts[j]);
+        }
+
+        construction_sequences.set_sequences(n + 1, starts, std::vector<std::string>(starts.size()),
+            uint8_t(fasta_separator_symbol));
+        params.fasta.sequences = &construction_sequences;
+        params.fasta.masked_separators = &masked_separators;
+    }
+
     // use the prefix-free parsing for large enough inputs (see pfp_inverse_probability), else one of the two in-memory
     // modes
     const bool use_pfp = n >= min_pfp_input_size && gen() % pfp_inverse_probability == 0;
@@ -1116,6 +1204,10 @@ void build_and_verify_move_rb(move_rb_test_t test, uint64_t min_n, uint64_t max_
 
     idx_t index = make();
     naive_reference ref = build_naive_reference<idx_t>(index, input);
+
+    if (with_sequences) {
+        for (uint64_t s : sequence_starts) if (s > 0) ref.separators.emplace_back(s - 1);
+    }
 
     // parameters of the index, appended to the failure messages
     std::string label = std::string("support ") + std::to_string(int(support))

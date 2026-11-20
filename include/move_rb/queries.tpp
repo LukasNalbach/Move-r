@@ -77,11 +77,11 @@ inline uint64_t move_rb<support>::input_interval_near(uint64_t i, uint64_t x) co
 
 template <move_r_support support>
 template <query_support_t query_support, typename sym_t>
-auto move_rb<support>::search(move_r_pattern_view<sym_t> P, bool& occurs) const
+auto move_rb<support>::context_of(move_r_pattern_view<sym_t> P, bool& occurs) const
     -> search_context_t<query_support>
 {
     uint64_t matched = 0;
-    auto ctx = context_of<query_support>(P, matched);
+    auto ctx = table_context_of<query_support>(P, matched);
     occurs = true;
 
     for (uint64_t i = P.size() - matched; i > 0; i--) {
@@ -95,7 +95,7 @@ auto move_rb<support>::search(move_r_pattern_view<sym_t> P, bool& occurs) const
 
 template <move_r_support support>
 template <query_support_t query_support, typename sym_t>
-auto move_rb<support>::context_of(move_r_pattern_view<sym_t> P, uint64_t& matched) const
+auto move_rb<support>::table_context_of(move_r_pattern_view<sym_t> P, uint64_t& matched) const
     -> search_context_t<query_support>
 {
     matched = 0;

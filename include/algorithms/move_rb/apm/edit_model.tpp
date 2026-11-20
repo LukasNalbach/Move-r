@@ -49,7 +49,7 @@ uint32_t apm_edit<idx_t>::ext_trie_child(uint32_t parent, uint8_t sym) const
 
 template <typename idx_t>
 auto apm_edit<idx_t>::entry_of(string_map_t& map, const node_t& node, uint64_t err, uint16_t cost, bool& inserted,
-    uint64_t counters) const -> model_entry_t&
+    uint64_t counters, uint64_t min_counters) const -> model_entry_t&
 {
     auto [b, e] = node.ctx.forward_sa_interval();
     string_key_t key{b, e, node.ctx.pattern_length()};
@@ -62,6 +62,7 @@ auto apm_edit<idx_t>::entry_of(string_map_t& map, const node_t& node, uint64_t e
     copy.set_match_len(0);
     model_entry_t& entry = map.emplace(key, model_entry_t{std::move(copy), cost}).first->second;
     entry.counters = counters;
+    entry.min_counters = min_counters;
     return entry;
 }
 
@@ -84,10 +85,10 @@ void apm_edit<idx_t>::add_member(model_entry_t& entry, const model_member_t& mem
 
 template <typename idx_t>
 void apm_edit<idx_t>::insert_or_lower(string_map_t& map, const node_t& node, uint64_t err, uint16_t cost,
-    uint64_t counters) const
+    uint64_t counters, uint64_t min_counters) const
 {
     bool inserted;
-    model_entry_t& entry = entry_of(map, node, err, cost, inserted, counters);
+    model_entry_t& entry = entry_of(map, node, err, cost, inserted, counters, min_counters);
     if (inserted) return;
 
     if (!entry.members.empty()) {
@@ -96,6 +97,7 @@ void apm_edit<idx_t>::insert_or_lower(string_map_t& map, const node_t& node, uin
     }
 
     if (err < entry.node.ctx.errors()) entry.node.ctx.set_errors(err);
+    entry.min_counters = apm_costs_t::min_counters(entry.min_counters, min_counters);
 
     if (cost < entry.cost) {
         entry.cost = cost;
@@ -115,7 +117,62 @@ void apm_edit<idx_t>::insert_members(string_map_t& map, const node_t& node,
         entry.members.emplace_back(model_member_t{0, uint16_t(entry.node.ctx.errors()), entry.cost});
     }
 
+    // the counters of the members are not kept
+    entry.min_counters = 0;
+
     for (const model_member_t& mem : members) add_member(entry, mem);
+}
+
+template <typename idx_t>
+void apm_edit<idx_t>::narrow_to_members(string_map_t& map, direction_t dir) const
+{
+    string_map_t narrowed;
+    std::vector<inp_t> exts; // the symbols of the extension of each member, in the order of the extension
+    std::vector<model_member_t> members;
+
+    for (auto& [key, entry] : map) {
+        if (entry.members.empty()) {
+            insert_or_lower(narrowed, entry.node, entry.node.ctx.errors(), entry.cost, entry.counters, entry.min_counters);
+            continue;
+        }
+
+        exts.resize(entry.members.size());
+
+        for (uint64_t y = 0; y < entry.members.size(); y++) {
+            exts[y].clear();
+            for (uint32_t x = entry.members[y].ext; x != 0; x = _ext_trie_parent[x]) exts[y].push_back(_ext_trie_symbol[x]);
+            std::reverse(exts[y].begin(), exts[y].end());
+        }
+
+        // the length of the longest common prefix of the extensions
+        uint64_t lcp = exts[0].size();
+
+        for (uint64_t y = 1; y < entry.members.size(); y++) {
+            lcp = std::mismatch(exts[y].begin(), exts[y].end(), exts[0].begin(), exts[0].begin() + lcp).first - exts[y].begin();
+        }
+
+        node_t node = entry.node;
+
+        for (uint64_t x = 0; x < lcp; x++) {
+            auto [ctx, ok] = node.ctx.extend(exts[0][x], dir);
+            assert(ok); // the members occur
+            node.ctx = ctx;
+            node.set_last_piece(append_literal(node.last_piece_idx(), exts[0][x], dir));
+        }
+
+        members.clear();
+
+        for (uint64_t y = 0; y < entry.members.size(); y++) {
+            uint32_t ext = 0;
+            for (uint64_t x = lcp; x < exts[y].size(); x++) ext = ext_trie_child(ext, exts[y][x]);
+            members.emplace_back(model_member_t{ext, entry.members[y].err, entry.members[y].cost});
+        }
+
+        if (members.size() == 1 && members[0].ext == 0) insert_or_lower(narrowed, node, members[0].err, members[0].cost);
+        else insert_members(narrowed, node, members);
+    }
+
+    map.swap(narrowed);
 }
 
 template <typename idx_t>
@@ -291,10 +348,14 @@ auto apm_edit<idx_t>::search_model(const inp_t& P, const search_scheme_t& scheme
     string_map_t result, step_contexts, next_step_contexts;
     std::vector<model_entry_t*> order;
 
-    // the dynamic program over the costs, if apm_costs_t::bounds_costs(); if apm_costs_t::prunes(), cells are
-    // discarded by their costs in the last step and in the steps that collect members (see process_part)
+    /* the dynamic program over the costs, if apm_costs_t::bounds_costs(), or with counters if every lower bound of the
+       searches is 0; it discards the cells in which a counter exceeds its bound for every alignment; if
+       apm_costs_t::prunes(), cells are also discarded by their costs in the last step and in the steps that collect
+       members (see process_part) */
+    bool no_lower_bounds = true;
+    for (const search_t& S : plan_scheme.S) for (const search_step_t& step : S) no_lower_bounds &= step.k_min == 0;
     apm_cost_band cost_band;
-    apm_cost_band* band = costs.bounds_costs() ? &cost_band : nullptr;
+    apm_cost_band* band = costs.bounds_costs() || (costs.num_counters() > 0 && no_lower_bounds) ? &cost_band : nullptr;
     const bool prune = band != nullptr && costs.prunes();
 
     for (const search_t& S : plan_scheme.S) {
@@ -353,6 +414,7 @@ auto apm_edit<idx_t>::search_model(const inp_t& P, const search_scheme_t& scheme
                     S[p_idx].k_min, S[p_idx].k_max, matrix, band, step_contexts, depth, next_step_contexts);
             }
 
+            if (collect_as_members) narrow_to_members(next_step_contexts, member_dir);
             step_contexts.swap(next_step_contexts);
         }
 
@@ -433,12 +495,17 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
 
     /* inserts the alignments that end in a cell of a path with error count err, cost cost and counters counters: of the
        string of node if list is no_list, else of the members of the list */
-    auto insert_cell = [&](const node_t& node, uint32_t list, uint64_t err, uint64_t cost, uint64_t counters) {
+    auto insert_cell = [&](const node_t& node, uint32_t list, uint64_t err, uint64_t cost, uint64_t counters,
+        uint64_t min_counters) {
         auto valid = [&](uint64_t e, uint64_t c) {
             return k_min <= e && e <= k_max && c <= costs.bound();
         };
 
-        if (list == no_list) { if (valid(err, band != nullptr ? cost : 0)) insert_or_lower(target, node, err, cost, counters); return; }
+        if (list == no_list) {
+            if (valid(err, band != nullptr ? cost : 0)) insert_or_lower(target, node, err, cost, counters, min_counters);
+            return;
+        }
+
         cell_members.clear();
 
         for (const path_member_t& mem : member_lists[list]) {
@@ -495,7 +562,7 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
 
             has_node = false;
             if (node.match_len() > 0) append_last_symbol(node, part, dir);
-            if (node.match_len() == part.size()) { insert_cell(node, root_list, err_in, cost, counters); continue; }
+            if (node.match_len() == part.size()) { insert_cell(node, root_list, err_in, cost, counters, counters); continue; }
             uint64_t pos = part.pos(node.match_len());
             apm_dfs_children<free_extension_t> children;
 
@@ -527,7 +594,7 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
        diagonal, so that the matrices can be restarted at a context of the step at most depth rows below (see
        edit_distance_matrix::add_alignment_start) */
     matrix.init(k_max, {uint16_t(err_in)}, depth > 0 ? depth + k_max : 0);
-    if (band != nullptr) band->init(costs, beg, end, dir, entry.cost, entry.counters, matrix.num_rows(), depth);
+    if (band != nullptr) band->init(costs, beg, end, dir, entry.cost, entry.counters, entry.min_counters, matrix.num_rows(), depth);
 
     // the cost of the cell of a row in which the whole part is aligned (0 if the costs are not computed)
     auto final_cost = [&](uint64_t row) -> uint16_t { return band != nullptr ? band->final_cost(row) : 0; };
@@ -571,6 +638,7 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
         const uint64_t err = matrix(row, part.size());
         const uint16_t cost = final_cost(row);
         const uint64_t counters = band != nullptr ? band->final_counters(row) : 0;
+        const uint64_t min_counters = band != nullptr ? band->final_min_counters(row) : 0;
         if (cost == apm_forbidden || (path_prunes(list, restarted) && is_covered(row, cost))) return;
 
         if (path_prunes(list, restarted) && k_min <= err && err <= k_max && !costs.exceeds(counters)) {
@@ -578,7 +646,7 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
             best_row[row] = row;
         }
 
-        if (!collect_as_members) { insert_cell(node, list, err, cost, counters); return; }
+        if (!collect_as_members) { insert_cell(node, list, err, cost, counters, min_counters); return; }
         assert(list == no_list);
         if (k_min > err || err > k_max) return;
         cell_members.assign(1, model_member_t{path_ext[row], uint16_t(err), cost});
@@ -640,7 +708,7 @@ void apm_edit<idx_t>::process_part(const model_entry_t& entry, const directional
 
         if (band != nullptr && (alive || restart)) {
             bool alive_band = band->compute_row(row, sym);
-            if (restart) alive_band = band->restart(row, step_ctx->cost, step_ctx->counters);
+            if (restart) alive_band = band->restart(row, step_ctx->cost, step_ctx->counters, step_ctx->min_counters);
             alive &= alive_band;
         }
 

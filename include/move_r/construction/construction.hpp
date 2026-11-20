@@ -246,6 +246,9 @@ public:
 
     // true <=> the RLBWT and the SA samples are read from the output of the prefix-free parsing (mode _pfp)
     bool rlbwt_from_pfp = false;
+    /* true <=> the distinct substrings are counted (see count_distinct_substrings); with has_mphi, sort_iphi counts
+       them from plcp_pair */
+    bool counts_substrings = false;
 
     uint64_t n = 0; // the length of T$
     // true <=> the index is built for the reversed input (see move_r_params::reversed)
@@ -590,11 +593,19 @@ public:
        the prefix-free parsing: at most one per MiB (2^23 bits) of bit_width(n)-bit samples */
     uint64_t pfp_reader_threads() const { return std::clamp<uint64_t>((r * uint64_t(std::bit_width(n))) >> 23, 1, p); }
 
+    /* returns whether this construction reads I_Phi_inv from the output of the prefix-free parsing (see
+       read_iphi_inv_pfp): for the suffix array samples or to count the distinct substrings */
+    bool reads_pfp_iphi_inv() const { return builds_SA_samples || params.counts_distinct_substrings; }
+
     // returns whether this construction reads the SA samples written by the prefix-free parsing
-    bool reads_pfp_sa_samples() const { return chooses_revert_starts() || builds_SA_samples; }
+    bool reads_pfp_sa_samples() const { return chooses_revert_starts() || reads_pfp_iphi_inv(); }
 
     // returns whether this construction reads the LCP samples written by the prefix-free parsing
-    bool reads_pfp_lcp_samples() const { return has_mphi; }
+    bool reads_pfp_lcp_samples() const { return reads_lcp_run(); }
+
+    /* returns whether the LCP values at the starts of the BWT runs are read or computed (see LCP_run): for M_Phi_inv
+       (see has_mphi) or to count the distinct substrings */
+    bool reads_lcp_run() const { return has_mphi || params.counts_distinct_substrings; }
 
     /**
      * @brief called by each construction step that reads the runs file of the prefix-free parsing, when it has
@@ -737,12 +748,31 @@ public:
     void build_plcp_run();
 
     /**
+     * @brief counts the distinct substrings of each length that contain no separator of the sequences and not the
+     *        terminator (see move_r::_distinct_substrings) from the PLCP values at the run starts
+     * @param pos pos(k) returns the (k+1)-th smallest of the text positions SA[i] of the run starts i, k in [0..r-1]
+     * @param plcp plcp(k) returns PLCP[pos(k)], i.e., LCP[i]
+     */
+    template <typename pos_fnc_t, typename plcp_fnc_t>
+    void count_distinct_substrings(pos_fnc_t pos, plcp_fnc_t plcp);
+
+    /**
+     * @brief counts the distinct substrings (see above) from LCP_run and I_Phi_inv (before sort_iphi_inv), whose pairs
+     *        it sorts by the text positions of the run starts, and releases LCP_run; used if sort_iphi does not count
+     *        them (without has_mphi)
+     */
+    void count_distinct_substrings();
+
+    /**
      * @brief builds I_Phi from I_Phi_inv; if LCP_run is not empty, the second component of each pair is the
      *        index of its run (sort_iphi replaces it)
      */
     void build_iphi();
 
-    /** @brief sorts I_Phi by the first components and builds plcp_pair from LCP_run (if LCP_run is not empty) */
+    /**
+     * @brief sorts I_Phi by the first components and builds plcp_pair from LCP_run (if LCP_run is not empty), from which
+     *        it counts the distinct substrings (if counts_substrings)
+     */
     void sort_iphi();
 
     /**

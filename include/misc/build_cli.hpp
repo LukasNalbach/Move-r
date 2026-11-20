@@ -315,6 +315,8 @@ decltype(auto) build_with_fallback(move_r_construction_mode mode, bool construct
 struct fasta_cli_t {
     build_cli_t& cli; // the options
     fasta_sequence_data data; // the names and the boundaries of the sequences
+    // the positions in the text of the separators of the masked runs (see fasta_scan_t::masked_separators)
+    no_init_vector<uint64_t> masked_separators;
     // the frequencies of the bytes in the text: [0..255] freq[c] = number of occurrences of the byte c
     std::array<uint64_t, 256> freq {};
     uint64_t text_size = 0; // length of the text
@@ -342,7 +344,7 @@ struct fasta_cli_t {
         if (move_r_builds_runs_file(cli.mode) && cli.path_input_files.size() == 1) {
             const std::string cache = move_r<>::pfp_cache_path(cli.path_input_files[0], cli.mode);
 
-            if (read_fasta_from_pfp_cache(cache, text_size, data)) {
+            if (read_fasta_from_pfp_cache(cache, text_size, data, masked_separators)) {
                 log_out() << format_count(data.num_sequences(), "sequence") << " from the PFP cache" << std::endl;
                 return;
             }
@@ -368,6 +370,7 @@ struct fasta_cli_t {
         }
 
         data = std::move(read_once_scan.data);
+        masked_separators = std::move(read_once_scan.masked_separators);
         freq = read_once_scan.freq;
         text_size = read_once_scan.text_size;
         samples = std::move(read_once_scan.samples);
@@ -385,6 +388,7 @@ struct fasta_cli_t {
         progress.finish();
         log_phase_end(true, time, cli.measurement(), "time_scan_fasta");
         data = std::move(scan.data);
+        masked_separators = std::move(scan.masked_separators);
         freq = scan.freq;
         text_size = scan.text_size;
         samples = std::move(scan.samples);
@@ -436,7 +440,8 @@ struct fasta_cli_t {
             .alphabet = cli.fasta_alphabet,
             .index_samples = scanned ? samples.data() : nullptr,
             .num_index_samples = samples.size(),
-            .sequences = &data };
+            .sequences = &data,
+            .masked_separators = &masked_separators };
     }
 
     /* returns the number of input symbols: the length of the FASTA text in the FASTA mode (known after scan, or until

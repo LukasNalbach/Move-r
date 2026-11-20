@@ -59,12 +59,10 @@
  *
  * The alternative with the smallest predicted number of steps is run (see apm_step_prediction::choose). Alternative 2 is
  * considered only for the edit distance if lowering an upper bound sets lower bounds to 0 that are kept otherwise.
- * The prediction counts the occurrences near the pattern (see apm_step_prediction) if the partition has computed the
- * numbers of occurrences of the substrings of the pattern (see apm_partition::occurrences) or if computing them takes
- * fewer steps than the predicted searches. With apm_params_t::lower_upper_bounds = false, alternative 2 replaces alternative
- * 1, and the upper bounds of the anchored search are not lowered; with apm_params_t::anchored_search = false,
- * alternative 3 is not considered. For an index without the alphabet size, n and r (see apm_partition::can_optimize),
- * nothing is predicted: alternative 1 is run, or alternative 2 if apm_params_t::lower_upper_bounds is false.
+ * With apm_params_t::lower_upper_bounds = false, alternative 2 replaces alternative 1, and the upper bounds of the
+ * anchored search are not lowered; with apm_params_t::anchored_search = false, alternative 3 is not considered. For an
+ * index without the alphabet size, n and r (see apm_partition::can_optimize), nothing is predicted: alternative 1 is
+ * run, or alternative 2 if apm_params_t::lower_upper_bounds is false.
  *
  * @tparam idx_t the bidirectional index type
  * @tparam query_support COUNT or LOCATE
@@ -124,18 +122,17 @@ public:
             if (has_anchor || (lower && costs.metric() == EDIT_DISTANCE && !costs.bounds_costs())) {
                 std::vector<uint64_t> occ(p); // [0..p-1] the number of occurrences of part i
                 for (uint64_t i = 0; i < p; i++) occ[i] = _partition.num_occ(i);
-                apm_step_prediction predictor(oriented, &costs, costs.metric(), P, index.alphabet_size(),
-                    _partition.symbol_probabilities(), index.num_bwt_runs(), index.input_size(),
-                    has_anchor ? _partition.num_occ_of(P, a_beg, a_end) : 0, params);
-                apm_step_prediction::choice_t choice = predictor.choose(_partition.bounds(), occ);
+                // the prediction of the partition, or a new one if the partition did not predict
+                std::optional<apm_step_prediction> own;
+                apm_step_prediction* predictor = _partition.prediction();
 
-                /* the prediction is repeated with the occurrences near the pattern if the partition has computed the
-                   numbers of occurrences of the substrings of P or if computing them takes fewer steps than predicted */
-                if (_partition.has_occurrences() || choice.steps > _partition.occurrences_steps(m)) {
-                    predictor.set_occurrences(&_partition.occurrences(P));
-                    choice = predictor.choose(_partition.bounds(), occ);
+                if (predictor == nullptr) {
+                    predictor = &own.emplace(oriented, &costs, costs.metric(), P, index.alphabet_size(),
+                        _partition.symbol_probabilities(), apm_distinct_shares(index, m + scheme.k), index.input_size(),
+                        has_anchor ? _partition.num_occ_of(P, a_beg, a_end) : 0, params);
                 }
 
+                const apm_step_prediction::choice_t choice = predictor->choose(_partition.bounds(), occ);
                 lower = choice.lowered;
                 anchored = choice.anchored;
             }

@@ -33,19 +33,30 @@
 #define MOVE_R_ALGORITHMS_MOVE_RB_APM_STEP_PREDICTION_HPP
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <unordered_map>
 #include <vector>
 
+#include <gtl/phmap.hpp>
 #include <misc/apm.hpp>
 #include <misc/search_schemes.hpp>
 #include <algorithms/move_rb/apm/model.hpp>
 #include <algorithms/move_rb/apm/search_base.hpp>
+
+/**
+ * @brief returns the share of the occurrences of a string of each length L in [0..max_len] with distinct continuations
+ *        (see apm_step_prediction): d(L) / n with the number d(L) of the distinct substrings of length L of the text
+ *        (see move_rb::distinct_substrings), or r / n if the index does not store them
+ * @param index the index
+ * @param max_len the largest length
+ */
+template <typename idx_t>
+std::vector<double> apm_distinct_shares(const idx_t& index, uint64_t max_len);
 
 /**
  * @brief predicts how many steps the searches of a search scheme take for a partition of a pattern P into parts
@@ -58,26 +69,44 @@
  * a text symbol c counts as sigma * p_c ways, its weight (p_c is the probability of c in the text, sigma the effective
  * alphabet size, see the constructor).
  *
- * In a text with n symbols and r runs in its BWT, x = occ * r / n of the occ occurrences of the first part are assumed
- * to have distinct continuations. Each of the A(t) strings occurs among these continuations with a probability of at
- * most min(1, x / sigma^t), so the predicted number of steps of the search is the sum of A(t) * min(1, x / sigma^t)
- * over t >= 1. A search that matches its first part symbol by symbol (if the part has a free symbol or can have
- * errors, or if not apm_params_t::start_at_part_contexts) starts with the n occurrences of the empty string (x = r),
+ * Let d(L) be the number of distinct substrings of length L of the text (without a separator of the sequences, see
+ * move_rb::distinct_substrings). Of the occ occurrences of the first part, with length l, x(L) = occ * d(L) / n are
+ * assumed to have distinct continuations to the length L (with r / n instead of d(L) / n if the index does not store
+ * d). A string at depth t occurs among these continuations with a probability of at most min(1, x(l + t) / sigma^t),
+ * and the predicted number of steps of the search is the sum of these probabilities over the strings at the depths
+ * t >= 1. A search that matches its first part symbol by symbol (if the part has a free symbol or can have errors, or
+ * if not apm_params_t::start_at_part_contexts) starts with the n occurrences of the empty string (l = 0, x(L) = d(L)),
  * and the positions of its first part are counted in A(t). With an error model, the prediction is made for the
- * searches that apm_model_plan runs (see choose), and a string whose counters exceed their bounds is not counted.
+ * searches that apm_model_plan runs (see choose); for the Hamming distance, a string whose counters exceed their
+ * bounds is not counted.
  *
- * Occurrences near the pattern (only with the table of the numbers of occurrences of the substrings of P, see
- * set_occurrences): let P[beg, end) be the positions of P searched so far. The surplus of P[beg, end) is its number of
- * occurrences with distinct continuations minus the number the random text predicts, i.e., x times the probability
- * that a random string matches the positions of P[beg, end) after the start of the search. The surplus occurrences
- * are the occurrences near the pattern (in a repetitive text, P can resemble a string with many similar copies).
- * At the next position i, the share of them that match P[i] is the surplus after i divided by the surplus before i, at
- * most 1 (if the table does not contain both substrings, it is the probability that a random symbol matches P[i]); the
- * others continue with an error. Per number of errors e, the occurrences near the pattern are counted together with the
- * number of distinct strings they form: with an operation of weight w (w = 1 for a match), a string continues with at
- * most w strings and with at most as many strings as it has continuing occurrences. The predicted steps at
- * depth t are those of the random text plus the strings near the pattern; per number of errors e, they are at most the
- * number of all strings at depth t with e errors.
+ * For the edit distance (see for_each_counted_step), the depth t of a string is its number of text symbols after the
+ * start, and the positions of P are taken in the order of the search. The search computes the row of the
+ * edit-distance matrix of each extension of a string whose row has a cell within the bounds, so the steps at depth t
+ * are the sigma * A(t - 1) children of the strings at depth t - 1 that the search extends. A string continues at the
+ * next position i of P with a match or a substitution of P[i], with an insertion (P[i] without a text symbol) or with a
+ * deletion (a text symbol without a position of P). Of two alignments of the same string that end at the same position
+ * of P, the one whose insertions and deletions lie further in the direction of the search is counted, if it has at most
+ * as many errors:
+ * - a deletion before P[i] is of a symbol c that does not match P[i], and it is followed by a deletion or by a match of
+ *   P[i] (a deletion of c followed by a substitution of P[i] by c' is replaced by a substitution of P[i] by c followed
+ *   by a deletion of c'),
+ * - an insertion of P[i] is followed by an insertion or by a match of P[i'] (the next position) with a symbol that does
+ *   not match P[i],
+ * - an insertion does not follow a deletion and a deletion does not follow an insertion (a substitution), and an
+ *   insertion (deletion) does not follow a deletion (insertion) and one match.
+ * A string is counted at its alignments that end with a match or a substitution, except those that end with an
+ * insertion followed by a match (the string also ends at the position before) and those that end with a deletion
+ * followed by a match of a symbol that also matches the next position (the string also ends at the next position). A
+ * string with alignments that end at different positions of P is counted once per end, and A(t) is at most sigma^t.
+ * After the last position of a step, if the next step has the other direction or there is none, the search also
+ * extends the strings by deletions of any symbol at a part at the first or the last position of P and if it computes
+ * the costs (see has_band). If it computes the costs, the operations are those of the error model, and as in its
+ * dynamic program, the strings that end at the same position of P are dropped if the lane-wise minimum of their
+ * counters exceeds a bound, else they continue with this minimum (the search checks the bounds of the steps on the
+ * edit distance and the cost bound on the error model; the prediction applies the bounds of the steps to the
+ * operations of the error model); otherwise the search uses the edit distance (any symbol can be substituted, inserted
+ * and deleted) and does not check the counters.
  */
 class apm_step_prediction {
 public:
@@ -98,11 +127,15 @@ private:
     const search_scheme_t& _scheme;
     const apm_costs_t* _costs; // the error model, or nullptr
     double _sigma;             // the effective alphabet size (see the constructor)
-    double _runs_per_symbol;   // r / n: of the occ occurrences of a string, occ * r / n have distinct continuations
+    bool _edit;                // whether the searches use the edit distance
+    /* the share of the occurrences of a string of length L with distinct continuations (see the class description):
+       [0..|_distinct_share| - 1] d(L) / n, or r / n (see apm_distinct_shares); the last value holds for longer strings */
+    std::vector<double> _distinct_share;
     uint64_t _n;               // n, the text length
     /* the anchor P[_anchor_beg, _anchor_end) of the error model (empty if the anchored search is not considered) and
        its number of occurrences */
     uint64_t _anchor_beg = 0, _anchor_end = 0, _anchor_occ = 0;
+    bool _scheme_lower_bounds = false; // whether a step of the scheme has a lower bound above 0
     bool _may_lower;     // see apm_params_t::lower_upper_bounds
     bool _from_contexts; // see apm_params_t::start_at_part_contexts
 
@@ -114,104 +147,93 @@ private:
        _error[i] = _sub[i] + _ins[i] + _del[i] with an error */
     std::vector<double> _match, _sub, _ins, _del, _error;
 
-    /* the table of the numbers of occurrences of the substrings of P: [i][l - 1] the number of occurrences of
-       P[i, i + l) (see apm_partition::occurrences), or nullptr */
-    const std::vector<std::vector<uint64_t>>* _substring_occ = nullptr;
+    // [0..m] 1 <=> a deletion is allowed at boundary b of P (before P[b])
+    std::vector<uint8_t> _del_allowed;
 
-    // the operations with which a string continues at a position: a match, a substitution, an insertion and a deletion
-    static constexpr uint64_t num_operations = 4;
+    // [0..m-2] _common_next[i] = the number of ways of the symbols that match both P[i] and P[i + 1]
+    std::vector<double> _common_next;
 
-    // a group of the strings at depth t that have the same number of errors, the same counters and the same last operation
+    // the last operations of a group of strings (see the class description and for_each_counted_step)
+    enum last_op_t : uint8_t {
+        DIAG,       // a match or a substitution
+        INS,        // an insertion
+        DEL,        // a deletion
+        DEL_MATCH,  // a deletion followed by a match
+        INS_MATCH,  // an insertion followed by a match
+        TRAIL       // a deletion after the last position of a step (see search_order_t::trail)
+    };
+
+    /* a group of the strings at depth t that have searched the same number of positions of P and have the same number
+       of errors, the same counters and the same last operations */
     struct counted_t {
         uint64_t counters;   // the packed counters (see apm_costs_t)
+        uint32_t u;          // the number of positions of P searched after the start (see search_order_t)
         uint8_t errors;      // the number of errors
-        uint8_t last;        // the last operation: 0 (match or substitution), 1 (insertion) or 2 (deletion)
+        last_op_t last;      // the last operations
         double num;          // the number of these strings divided by sigma^t
-        double near_occ;     // the occurrences near the pattern of these strings (see the class description)
-        double near_strings; // the number of these strings with occurrences near the pattern
+        double counted;      // the part of num counted as distinct strings at depth t (see the class description)
 
         // returns the values that identify the group
-        auto key() const { return std::tuple(errors, last, counters); }
+        auto key() const { return std::tuple(u, errors, last, counters); }
     };
 
-    // the occurrences near the pattern of a search (see the class description)
-    struct near_t {
-        uint64_t beg, end;           // the positions of P searched so far are P[beg, end)
-        double x;                    // the occurrences of the start of the search with distinct continuations
-        double match_prob = 1;       // the probability that a random string matches the positions searched after the start
-        double surplus = 0;          // the occurrences of P[beg, end) with distinct continuations minus x * match_prob
-        // whether the table contains P[beg, end) (else its longest prefix in the table is used, see advance)
-        bool counted = true;
-        double match_share = 1;      // the share of the occurrences near the pattern that match the last searched position
-        bool error_free_kept = true; // whether the lower bounds of the steps so far keep the strings without an error
-        double power = 1;            // sigma^t at depth t (at most the largest double)
+    // returns the share of the occurrences of a string of length L with distinct continuations (see _distinct_share)
+    double distinct_share(uint64_t L) const { return _distinct_share[std::min<uint64_t>(L, _distinct_share.size() - 1)]; }
 
-        // returns the occurrences near the pattern without an error
-        double error_free() const { return error_free_kept ? surplus : 0; }
-    };
-
-    /**
-     * @brief appends position i to the positions searched so far: updates the surplus and the share of the occurrences
-     *        near the pattern that match P[i]
-     * @param near the occurrences near the pattern of a search
-     * @param i the position of P
-     */
-    void advance(near_t& near, uint64_t i) const
+    /* returns the number of the steps at depth t of a search whose start has occ occurrences and length l, if the
+       steps are b * sigma^t strings (see the class description); power = sigma^t */
+    double occurring(double b, uint64_t t, double power, double occ, uint64_t l) const
     {
-        near.beg = std::min(near.beg, i);
-        near.end = std::max(near.end, i + 1);
-        near.match_prob *= _match[i] / _sigma;
-        if (near.power < std::numeric_limits<double>::max() / _sigma) near.power *= _sigma;
-        // the occurrences of P[beg, end) with distinct continuations (those of its longest prefix in the table if not counted)
-        const std::vector<uint64_t>& row = (*_substring_occ)[near.beg];
-        const bool counted = near.end - near.beg <= row.size();
-        const double occ = double(row[std::min<uint64_t>(near.end - near.beg, row.size()) - 1]) * _runs_per_symbol;
-        const double surplus = std::max(0.0, occ - near.x * near.match_prob);
-        near.match_share = near.counted && counted && near.surplus > 0 ? std::min(1.0, surplus / near.surplus) : _match[i] / _sigma;
-        near.surplus = surplus;
-        near.counted = counted;
-    }
-
-    /* returns the share of the occurrences near the pattern that continue at position i with errors of weight w:
-       (1 - match_share) * w / max(error(i), sigma - match(i)), i.e., the occurrences that do not match P[i] are split
-       by weight among the other symbols, or among the errors if they have the larger weight */
-    double error_share(const near_t& near, uint64_t i, double w) const
-    {
-        const double other = std::max(_error[i], _sigma - _match[i]);
-        return other > 0 ? (1 - near.match_share) * w / other : 0;
-    }
-
-    /* returns the number of strings with which num strings near the pattern with occ occurrences continue if a share of
-       these occurrences continues with an operation of weight w (w = 1 for a match): a string continues with at most w
-       strings and with at most as many strings as it has continuing occurrences (occ / num * share) */
-    static double continuing_strings(double num, double occ, double share, double w)
-    {
-        return num > 0 ? num * std::min(w, occ / num * share) : 0;
-    }
-
-    /* returns the steps that num strings near the pattern add to the x * b steps that the random text predicts for the
-       b * sigma^t strings at depth t with one number of errors; the sum is at most b * sigma^t */
-    static double near_steps(double b, double num, const near_t& near)
-    {
-        if (num <= 0 || b <= 0) return 0;
-        const double all = b * near.power;
-        return std::min(all, near.x * b + num) - std::min(all, near.x * b);
+        return std::min(b, 1.0) * std::min(power, occ * distinct_share(l + t));
     }
 
     // the computed values of _costs->max_errors(beg, end), by beg * (m + 1) + end
-    mutable std::unordered_map<uint64_t, uint64_t> _max_errors;
+    mutable gtl::flat_hash_map<uint64_t, uint64_t> _max_errors;
 
     // [0..p-1] _searches_of[i] = the indices of the searches that start with part i
     std::vector<std::vector<uint64_t>> _searches_of;
 
-    /* the sums of part_steps (computed by its first call), for the bounds of the uniform partition: [0..|S|-1][t]
-       _sum_a[s][t] = A(1) + ... + A(t) of search s for the t with sigma^t <= r, and _sum_b[s][t] = the sum of
-       A(t') / sigma^t' over t' > t */
-    mutable std::vector<std::vector<double>> _sum_a, _sum_b;
+    /* the steps of the searches of part_steps (computed by its first call), for the bounds of the uniform partition:
+       [0..|S|-1][t - 1] _part_strings[s][t - 1] * sigma^t are the steps of search s at depth t >= 1 (see for_each_step) */
+    mutable std::vector<std::vector<double>> _part_strings;
 
-    /* the steps of the predictions so far: the cells (position, number of errors) and the transitions (group of strings,
-       operation) computed for A(t) */
+    /* the steps of the predictions so far: the positions of the search orders, the cells (position, number of errors),
+       the operations applied to the groups of strings, the groups at the end of each depth and n log n per sorting of
+       n groups */
     mutable uint64_t _work = 0;
+
+    // the number of values of last_op_t
+    static constexpr uint64_t num_last_ops = TRAIL + 1;
+
+    /* a slot of the groups of the edit distance at the depth t being computed (see for_each_counted_step): the groups
+       with u positions of P, a number of errors and last operations are merged in slot
+       ((u + k - t) * (k + 1) + errors) * num_last_ops + last, with the lane-wise minimum of their counters (see
+       close_edit_depth); the slots with the same u form a list */
+    struct slot_t {
+        uint64_t counters; // the lane-wise minimum of the counters of the groups
+        double num;        // the sum of counted_t::num of the groups
+        double counted;    // the sum of counted_t::counted of the groups
+        uint64_t stamp;    // the slot holds groups if stamp = _stamp
+        uint32_t next;     // the next slot of the list of the slots with the same u, or no_slot
+    };
+
+    // the end of a list of slots
+    static constexpr uint32_t no_slot = std::numeric_limits<uint32_t>::max();
+
+    /* the buffers of the predictions (the predictions of one object do not run concurrently): the slots, the first slot
+       of the list of each u + k - t and its stamp (see slot_t), and the current stamp */
+    mutable std::vector<slot_t> _slots;
+    mutable std::vector<uint32_t> _cell_head;
+    mutable std::vector<uint64_t> _cell_stamp;
+    mutable uint64_t _stamp = 0;
+    // the groups at the current depth, and the groups at the next depth before merging (the Hamming distance)
+    mutable std::vector<counted_t> _groups, _next;
+    // see for_each_step
+    mutable std::vector<double> _b_by_errors;
+    mutable std::vector<direction_t> _dirs;
+    // the bounds of the parts and the steps of the anchored search (see anchored_steps)
+    mutable std::vector<uint64_t> _anchored_bounds;
+    mutable search_t _anchored_search;
 
     /* returns the upper bound of a step of a search that has searched P[beg, end) and has the upper bound k_max, lowered
        to _costs->max_errors(beg, end) if lowered */
@@ -223,202 +245,116 @@ private:
         return std::min(k_max, it->second);
     }
 
-    /**
-     * @brief appends position i to the groups of strings with counters (see for_each_counted_step): each group continues
-     *        with a match, a substitution, an insertion and a deletion, whose counter increments (and those of opening a
-     *        gap) are added to its counters; the strings whose counters exceed their bounds or that have more than k_max
-     *        errors are dropped, and the occurrences near the pattern are split among the operations as in for_each_step
-     * @param groups the groups at depth t - 1, set to the groups at depth t
-     * @param next a buffer
-     * @param i the position of P
-     * @param k_max the upper bound on the number of errors
-     * @param near the occurrences near the pattern of the search
-     */
-    void append_counted(std::vector<counted_t>& groups, std::vector<counted_t>& next, uint64_t i, uint64_t k_max,
-        const near_t& near) const
+    // the positions of P that a search matches symbol by symbol after its start, in the order of the search
+    struct search_order_t {
+        std::vector<uint64_t> pos;   // [0..U-1] the positions
+        std::vector<uint64_t> k_max; // [0..U-1] the upper bound of the step of pos[u]
+        // [0..U] the lower bound of the strings that have searched u positions (that of the step ending there, else 0)
+        std::vector<uint64_t> k_min;
+        // [0..U-1] the boundary of P before pos[u] in the direction of its step (where a deletion before pos[u] lies)
+        std::vector<uint64_t> boundary;
+        /* [0..U-1] the number of ways of the symbols that match both pos[u - 1] and pos[u], or -1 if pos[u] does not
+           continue the direction of pos[u - 1] (at the first position and after a change of the direction) */
+        std::vector<double> common_prev;
+        /* [0..U] the boundary of P after pos[u - 1] in the direction of its step if the search extends the strings that
+           end there by deletions after a step (see the class description), else no_trail */
+        std::vector<uint64_t> trail;
+    };
+
+    // the value of search_order_t::trail at positions without deletions after a step
+    static constexpr uint64_t no_trail = std::numeric_limits<uint64_t>::max();
+
+    // the buffer of search_order
+    mutable search_order_t _order;
+
+    /* returns whether the edit-distance search computes the costs and the counters of the error model (the dynamic program
+       of apm_edit with an error model, see apm_cost_band): if apm_costs_t::bounds_costs(), or with counters if the
+       searches have no lower bounds above 0 (with mode.no_lower_bounds or if the scheme has none) */
+    bool has_band(bounds_mode_t mode) const
     {
-        next.clear();
-        _work += num_operations * groups.size();
-
-        for (const counted_t& g : groups) {
-            // appends the strings that continue g with an operation of weight w, with a share of its occurrences near the pattern
-            auto add = [&](uint64_t counters, uint8_t errors, uint8_t last, double w, double share) {
-                if (w == 0 || errors > k_max || _costs->exceeds(counters)) return;
-                next.emplace_back(counted_t{counters, errors, last, g.num * w / _sigma, g.near_occ * share,
-                    continuing_strings(g.near_strings, g.near_occ, share, last == 0 && errors == g.errors ? 1 : w)});
-            };
-
-            add(g.counters, g.errors, 0, _match[i], near.match_share);
-            add(g.counters + _costs->sub_count(i), g.errors + 1, 0, _sub[i], error_share(near, i, _sub[i]));
-            add(g.counters + _costs->ins_count(i) + (g.last == 1 ? 0 : _costs->ins_open_count(i)), g.errors + 1, 1,
-                _ins[i], error_share(near, i, _ins[i]));
-            add(g.counters + _costs->del_count(i) + (g.last == 2 ? 0 : _costs->del_open_count(i)), g.errors + 1, 2,
-                _del[i], error_share(near, i, _del[i]));
-        }
-
-        // the groups with the same key are merged
-        std::sort(next.begin(), next.end(), [](const counted_t& a, const counted_t& b) { return a.key() < b.key(); });
-        groups.clear();
-
-        for (const counted_t& g : next) {
-            if (!groups.empty() && groups.back().key() == g.key()) {
-                groups.back().num += g.num;
-                groups.back().near_occ += g.near_occ;
-                groups.back().near_strings += g.near_strings;
-            } else {
-                groups.emplace_back(g);
-            }
-        }
-    }
-
-    /* returns the occurrences near the pattern at the start of the search S, whose start has x occurrences with distinct
-       continuations: the positions searched so far are the first part of S, or none if from_root */
-    near_t near_start(const search_t& S, const std::vector<uint64_t>& bounds, bool from_root, double x) const
-    {
-        const uint64_t part_beg = bounds[S[0].part], part_end = bounds[S[0].part + 1];
-        if (!from_root) return { .beg = part_beg, .end = part_end, .x = x };
-        const uint64_t start = apm_step_directions(S)[0] == RIGHT ? part_beg : part_end;
-        return { .beg = start, .end = start, .x = x };
+        return _edit && _costs != nullptr && (_costs->bounds_costs() ||
+            (_costs->num_counters() > 0 && (mode.no_lower_bounds || !_scheme_lower_bounds)));
     }
 
     /**
-     * @brief computes A(t) of the search S depth by depth (see the class description) and calls step(b, steps_near) for
-     *        each depth t, with b = A(t) / sigma^t and steps_near the steps that the strings near the pattern add at
-     *        depth t (0 without set_occurrences or if x = 0); with counters in the error model, see
-     *        for_each_counted_step
+     * @brief returns the positions of P that the search S matches symbol by symbol after its start (in _order)
      * @param S the search
      * @param bounds [0..p] the bounds of the parts
      * @param mode the error bounds of the steps
      * @param from_root whether S matches its first part symbol by symbol (see starts_at_root)
-     * @param x the occurrences of the start of S with distinct continuations
+     */
+    const search_order_t& search_order(const search_t& S, const std::vector<uint64_t>& bounds, bounds_mode_t mode,
+        bool from_root) const;
+
+    // merges the groups in next with the same key into groups (for the Hamming distance)
+    void merge_groups(std::vector<counted_t>& next, std::vector<counted_t>& groups) const;
+
+    /**
+     * @brief computes the groups of strings at depth t that end with a text symbol from the groups at depth t - 1 in
+     *        _groups (see the class description): each group continues at its next position pos[u] of the search order
+     *        with a match, a substitution or a deletion before pos[u] by the rules of the class description, and after
+     *        a step with deletions (see search_order_t::trail); the counter increments (and those of opening a gap) are
+     *        added to the counters if counters are checked; with checks per string (if not band), the strings whose
+     *        counters exceed their bounds are dropped; the strings with more errors than the upper bound are dropped
+     * @param order the search order
+     * @param counts whether counters are checked
+     * @param band whether the counters are checked per cell (see close_edit_depth)
+     * @param put called with the counters, the number of positions, the number of errors, the last operations, the
+     *        number and the counted number of each group of continuations (see counted_t)
+     */
+    template <typename put_fnc_t>
+    void extend_counted(const search_order_t& order, bool counts, bool band, put_fnc_t put) const;
+
+    // starts the groups of a new depth of the edit distance: all slots are empty (see slot_t)
+    void start_edit_depth() const;
+
+    /* adds a group of strings at depth t with u positions of P, a number of errors, last operations, counters, a number
+       num and a counted number to its slot (see slot_t); cell = u + k - t */
+    void put_slot(uint64_t cell, uint8_t errors, last_op_t last, uint64_t counters, double num, double counted) const;
+
+    /**
+     * @brief completes the groups of strings at depth t of the edit distance (see the class description) in the slots
+     *        by positions u in increasing order and sets _groups to them: if band, the counters are checked per cell as
+     *        in the dynamic program of apm_edit (the groups at u are dropped if the lane-wise minimum of their counters
+     *        exceeds a bound, else their counters are set to it); then the groups at u continue with an insertion of
+     *        pos[u] (to position u + 1, no text symbol), not after a deletion or a deletion followed by a match of the
+     *        position before pos[u], with at most the upper bound of pos[u] errors and at least the lower bound at the
+     *        end of a step
+     * @param t the depth
+     * @param order the search order
+     * @param counts whether counters are checked
+     * @param band whether the counters are checked per cell
+     */
+    void close_edit_depth(uint64_t t, const search_order_t& order, bool counts, bool band) const;
+
+    /**
+     * @brief computes A(t) of the search S depth by depth (see the class description) and calls step(b) for each depth
+     *        t, with b * sigma^t the steps at depth t (the A(t) strings); for the edit distance or with counters in the
+     *        error model, see for_each_counted_step
+     * @param S the search
+     * @param bounds [0..p] the bounds of the parts
+     * @param mode the error bounds of the steps
+     * @param from_root whether S matches its first part symbol by symbol (see starts_at_root)
      * @param step the function called for each depth
      */
     template <typename step_fnc_t>
     void for_each_step(const search_t& S, const std::vector<uint64_t>& bounds, bounds_mode_t mode, bool from_root,
-        double x, step_fnc_t step) const
-    {
-        if (_costs != nullptr && _costs->num_counters() > 0) {
-            for_each_counted_step(S, bounds, mode, from_root, x, step);
-            return;
-        }
+        step_fnc_t step) const;
 
-        const std::vector<direction_t> dirs = apm_step_directions(S);
-        const bool has_near = _substring_occ != nullptr && x > 0;
-        near_t near = near_start(S, bounds, from_root, x);
-        // [0..k] b_by_errors[e] = A_e(t) / sigma^t, where A_e(t) is the number of strings at depth t with e errors
-        std::vector<double> b_by_errors(_scheme.k + 1, 0.0);
-        // [0..k] near_occ[e] = the occurrences near the pattern with e errors, near_strings[e] = their number of strings
-        std::vector<double> near_occ(_scheme.k + 1, 0.0), near_strings(_scheme.k + 1, 0.0);
-        b_by_errors[0] = 1;
-        uint64_t beg = bounds[S[0].part], end = bounds[S[0].part + 1]; // the positions searched so far are P[beg, end)
-
-        for (uint64_t j = from_root ? 0 : 1; j < S.size(); j++) {
-            const uint64_t part_beg = bounds[S[j].part], part_end = bounds[S[j].part + 1];
-            beg = std::min(beg, part_beg);
-            end = std::max(end, part_end);
-            const uint64_t k_max = upper_bound(beg, end, S[j].k_max, mode.lowered);
-            // the strings with more than k_max errors are dropped
-            for (uint64_t e = k_max + 1; e < b_by_errors.size(); e++) b_by_errors[e] = near_occ[e] = near_strings[e] = 0;
-
-            _work += (part_end - part_beg) * (k_max + 1);
-
-            for (uint64_t y = 0; y < part_end - part_beg; y++) {
-                const uint64_t i = dirs[j] == RIGHT ? part_beg + y : part_end - 1 - y;
-                // depth t from depth t - 1: a match keeps the number of errors, an error increases it by 1
-                for (uint64_t e = k_max; e > 0; e--) b_by_errors[e] = (b_by_errors[e] * _match[i] + b_by_errors[e - 1] * _error[i]) / _sigma;
-                b_by_errors[0] = b_by_errors[0] * _match[i] / _sigma;
-                double b = 0;
-                for (double b_e : b_by_errors) b += b_e;
-                double steps_near = 0;
-
-                // the occurrences near the pattern and their strings at depth t
-                if (has_near) {
-                    advance(near, i);
-                    const double share_error = error_share(near, i, _error[i]);
-
-                    for (uint64_t e = k_max; e > 0; e--) {
-                        near_strings[e] = continuing_strings(near_strings[e], near_occ[e], near.match_share, 1) +
-                            continuing_strings(near_strings[e - 1], near_occ[e - 1], share_error, _error[i]);
-                        near_occ[e] = near_occ[e] * near.match_share + near_occ[e - 1] * share_error;
-                    }
-
-                    near_occ[0] = near.error_free();
-                    near_strings[0] = std::min(1.0, near_occ[0]);
-                    for (uint64_t e = 0; e <= k_max; e++) steps_near += near_steps(b_by_errors[e], near_strings[e], near);
-                }
-
-                step(b, steps_near);
-            }
-
-            // the strings with fewer than S[j].k_min errors are dropped
-            if (!mode.no_lower_bounds) for (uint64_t e = 0; e < S[j].k_min; e++) b_by_errors[e] = near_occ[e] = near_strings[e] = 0;
-            if (!mode.no_lower_bounds && S[j].k_min > 0) near.error_free_kept = false;
-        }
-    }
-
-    /* for_each_step with counters in the error model: the strings are grouped by their numbers of errors, their counters
-       and their last operations (see append_counted) */
+    /* for_each_step for the edit distance or with counters in the error model: the depth t is the number of text symbols
+       after the start, the strings are grouped by their numbers of positions of P, their numbers of errors, their
+       counters and their last operations (see extend_counted and close_edit_depth), and for the edit distance, the steps at
+       depth t are the children of the strings at depth t - 1 that the search extends (see the class description) */
     template <typename step_fnc_t>
     void for_each_counted_step(const search_t& S, const std::vector<uint64_t>& bounds, bounds_mode_t mode,
-        bool from_root, double x, step_fnc_t step) const
-    {
-        const std::vector<direction_t> dirs = apm_step_directions(S);
-        const bool has_near = _substring_occ != nullptr && x > 0;
-        near_t near = near_start(S, bounds, from_root, x);
-        std::vector<counted_t> groups { counted_t{0, 0, 0, 1, 0, 0} }, next; // the groups at depth t, and a buffer
-        uint64_t beg = bounds[S[0].part], end = bounds[S[0].part + 1]; // the positions searched so far are P[beg, end)
-
-        for (uint64_t j = from_root ? 0 : 1; j < S.size(); j++) {
-            const uint64_t part_beg = bounds[S[j].part], part_end = bounds[S[j].part + 1];
-            beg = std::min(beg, part_beg);
-            end = std::max(end, part_end);
-            const uint64_t k_max = upper_bound(beg, end, S[j].k_max, mode.lowered);
-
-            for (uint64_t y = 0; y < part_end - part_beg; y++) {
-                const uint64_t i = dirs[j] == RIGHT ? part_beg + y : part_end - 1 - y;
-                if (has_near) advance(near, i);
-                append_counted(groups, next, i, k_max, near);
-                double b = 0, steps_near = 0;
-
-                for (counted_t& g : groups) {
-                    b += g.num;
-                    if (!has_near) continue;
-                    if (g.errors == 0) {
-                        g.near_occ = near.error_free();
-                        g.near_strings = std::min(1.0, g.near_occ);
-                    }
-
-                    steps_near += near_steps(g.num, g.near_strings, near);
-                }
-
-                step(b, steps_near);
-            }
-
-            // the strings with fewer than S[j].k_min errors are dropped
-            if (!mode.no_lower_bounds) std::erase_if(groups, [&](const counted_t& g) { return g.errors < S[j].k_min; });
-            if (!mode.no_lower_bounds && S[j].k_min > 0) near.error_free_kept = false;
-        }
-    }
+        bool from_root, step_fnc_t step) const;
 
     /**
-     * @brief returns the predicted number of steps of the search S if its start has occ occurrences: the sum of
-     *        min(A(t), x * A(t) / sigma^t) over the depths t, with x = occ * r / n, plus the steps of the strings near
-     *        the pattern (see for_each_step)
+     * @brief returns the predicted number of steps of the search S if its start has occ occurrences: the strings at the
+     *        depths t that occur in the text (see occurring)
      */
     double search_steps(const search_t& S, const std::vector<uint64_t>& bounds, uint64_t occ, bounds_mode_t mode,
-        bool from_root) const
-    {
-        const double x = double(occ) * _runs_per_symbol;
-        double power = 1; // sigma^t while it is at most x
-        double steps = 0;
-
-        for_each_step(S, bounds, mode, from_root, x, [&](double b, double steps_near) {
-            if (power <= x) power *= _sigma;
-            steps += (power <= x ? b * power : x * b) + steps_near;
-        });
-
-        return steps;
-    }
+        bool from_root) const;
 
     // returns whether a symbol other than P[i] is free at a position i of P[beg, end) (then the part has no search context)
     bool has_free(uint64_t beg, uint64_t end) const
@@ -435,34 +371,10 @@ private:
     }
 
     // returns whether a step of the search S has a lower bound above its upper bound (lowered if lowered)
-    bool is_infeasible(const search_t& S, const std::vector<uint64_t>& bounds, bool lowered) const
-    {
-        uint64_t beg = bounds[S[0].part], end = bounds[S[0].part + 1];
-
-        for (const search_step_t& step : S) {
-            beg = std::min(beg, bounds[step.part]);
-            end = std::max(end, bounds[step.part + 1]);
-            if (step.k_min > upper_bound(beg, end, step.k_max, lowered)) return true;
-        }
-
-        return false;
-    }
+    bool is_infeasible(const search_t& S, const std::vector<uint64_t>& bounds, bool lowered) const;
 
     // returns whether lowering the upper bounds changes the upper bound of a step of a search
-    bool lowers_a_bound(const std::vector<uint64_t>& bounds) const
-    {
-        for (const search_t& S : _scheme.S) {
-            uint64_t beg = bounds[S[0].part], end = bounds[S[0].part + 1];
-
-            for (const search_step_t& step : S) {
-                beg = std::min(beg, bounds[step.part]);
-                end = std::max(end, bounds[step.part + 1]);
-                if (upper_bound(beg, end, step.k_max, true) < step.k_max) return true;
-            }
-        }
-
-        return false;
-    }
+    bool lowers_a_bound(const std::vector<uint64_t>& bounds) const;
 
     /**
      * @brief returns the predicted number of steps of the searches of the scheme with the error bounds of mode; a search
@@ -471,39 +383,14 @@ private:
      * @param occ [0..p-1] the numbers of occurrences of the parts
      * @param mode the error bounds
      */
-    double scheme_steps(const std::vector<uint64_t>& bounds, const std::vector<uint64_t>& occ, bounds_mode_t mode) const
-    {
-        double steps = 0;
-
-        for (const search_t& S : _scheme.S) {
-            if (is_infeasible(S, bounds, mode.lowered)) continue;
-            const bool from_root = starts_at_root(S, bounds, mode.lowered);
-            steps += search_steps(S, bounds, from_root ? _n : std::min(occ[S[0].part], _n), mode, from_root);
-        }
-
-        return steps;
-    }
+    double scheme_steps(const std::vector<uint64_t>& bounds, const std::vector<uint64_t>& occ, bounds_mode_t mode) const;
 
     /**
      * @brief returns the predicted number of steps of the anchored search of apm_model_plan: the anchor, then the parts
      *        to its right, then the parts to its left, with the bounds of the parts outside the anchor
      * @param bounds [0..p] the bounds of the parts
      */
-    double anchored_steps(const std::vector<uint64_t>& bounds) const
-    {
-        // the bounds of the parts of the anchored search: the bounds of the anchor and those in bounds outside the anchor
-        std::vector<uint64_t> anchored_bounds { 0, _anchor_beg, _anchor_end, _match.size() };
-        for (uint64_t b : bounds) if (b < _anchor_beg || b > _anchor_end) anchored_bounds.emplace_back(b);
-        std::sort(anchored_bounds.begin(), anchored_bounds.end());
-        anchored_bounds.erase(std::unique(anchored_bounds.begin(), anchored_bounds.end()), anchored_bounds.end());
-        // the index of the part that is the anchor
-        const uint64_t anchor_part = std::find(anchored_bounds.begin(), anchored_bounds.end(), _anchor_beg) - anchored_bounds.begin();
-        search_t search;
-        for (uint64_t part = anchor_part; part + 1 < anchored_bounds.size(); part++) search.emplace_back(search_step_t{uint8_t(part), 0, _scheme.k});
-        for (uint64_t part = anchor_part; part-- > 0;) search.emplace_back(search_step_t{uint8_t(part), 0, _scheme.k});
-        const bool from_root = starts_at_root(search, anchored_bounds, _may_lower);
-        return search_steps(search, anchored_bounds, from_root ? _n : _anchor_occ, {_may_lower, true}, from_root);
-    }
+    double anchored_steps(const std::vector<uint64_t>& bounds) const;
 
 public:
     /**
@@ -520,7 +407,8 @@ public:
      * @param P the pattern
      * @param sigma the alphabet size of the text
      * @param sym_p [0..255] the probability of each byte in the text (see apm_partition::symbol_probabilities), or empty
-     * @param r the number of runs in the BWT of the text
+     * @param distinct_shares [0..L_max] the share of the occurrences of a string of each length with distinct
+     *        continuations (see apm_distinct_shares)
      * @param n the text length
      * @param anchor_occ how often the anchor of the error model occurs in the text (see apm_costs_t::anchor)
      * @param params the query parameters (see apm_params_t::start_at_part_contexts, apm_params_t::lower_upper_bounds and
@@ -528,115 +416,17 @@ public:
      */
     template <typename pat_t>
     apm_step_prediction(const search_scheme_t& scheme, const apm_costs_t* costs, distance_metric_t metric, const pat_t& P,
-        uint64_t sigma, const std::vector<double>& sym_p, uint64_t r, uint64_t n, uint64_t anchor_occ,
-        const apm_params_t& params)
-        : _scheme(scheme), _costs(costs), _sigma(double(sigma)), _runs_per_symbol(double(r) / double(n)), _n(n),
-          _anchor_occ(anchor_occ), _may_lower(params.lower_upper_bounds), _from_contexts(params.start_at_part_contexts),
-          _free(P.size(), 0), _match(P.size(), 0), _sub(P.size(), 0), _ins(P.size(), 0), _del(P.size(), 0),
-          _error(P.size()), _searches_of(scheme.p)
-    {
-        using sym_t = std::remove_cvref_t<decltype(P[0])>;
-        const uint64_t m = P.size();
-        const bool edit = metric == EDIT_DISTANCE;
-        double collision = 0; // sum_c p_c^2, the probability that two random symbols of the text are equal
-        for (double p : sym_p) collision += p * p;
-        if (collision > 0) _sigma = 1 / collision;
-
-        // returns the number of ways that byte c counts as: sigma * p_c, or 1 without the probabilities
-        auto weight = [&](uint64_t c) { return sym_p.empty() ? 1.0 : c < sym_p.size() ? sym_p[c] * _sigma : 0.0; };
-
-        // [0..num_ranks-1] rank_weight[x] = the weight of the byte with rank x in the error model
-        std::vector<double> rank_weight;
-
-        if (costs != nullptr) {
-            rank_weight.resize(costs->num_ranks(), 0);
-
-            for (uint64_t c = 0; c <= std::numeric_limits<uint8_t>::max(); c++) {
-                const uint64_t rank = costs->rank(uint8_t(c));
-                if (rank < costs->num_ranks()) rank_weight[rank] = weight(c);
-            }
-        }
-
-        for (uint64_t i = 0; i < m; i++) {
-            if (costs == nullptr) {
-                _match[i] = weight(uint64_t(std::make_unsigned_t<sym_t>(P[i])));
-                _sub[i] = _sigma - _match[i];
-                _ins[i] = edit ? 1 : 0;
-                _del[i] = edit ? _sigma : 0;
-            } else {
-                _free[i] = costs->has_free(i);
-
-                for (uint64_t rank = 0; rank < costs->num_ranks(); rank++) {
-                    if (costs->is_free(i, rank)) _match[i] += rank_weight[rank];
-                    else if (costs->sub(i, rank) <= costs->bound()) _sub[i] += rank_weight[rank];
-                }
-
-                _ins[i] = edit && costs->ins(i) <= costs->bound() ? 1 : 0;
-                _del[i] = edit && costs->del(i) <= costs->bound() ? _sigma : 0;
-            }
-
-            _error[i] = _sub[i] + _ins[i] + _del[i];
-        }
-
-        if (costs != nullptr && params.anchored_search) std::tie(_anchor_beg, _anchor_end) = costs->anchor();
-        for (uint64_t s = 0; s < scheme.S.size(); s++) _searches_of[scheme.S[s][0].part].emplace_back(s);
-    }
+        uint64_t sigma, const std::vector<double>& sym_p, std::vector<double> distinct_shares, uint64_t n,
+        uint64_t anchor_occ, const apm_params_t& params);
 
     // returns the steps of the predictions so far (see _work)
     uint64_t work() const { return _work; }
 
     /**
-     * @brief sets the numbers of occurrences of the substrings of P, with which the predictions count the occurrences
-     *        near the pattern (see the class description)
-     * @param occ [i][l - 1] the number of occurrences of P[i, i + l) (see apm_partition::occurrences), or nullptr
-     */
-    void set_occurrences(const std::vector<std::vector<uint64_t>>* occ) { _substring_occ = occ; }
-
-    /**
      * @brief returns the predicted number of steps of the searches that start with part i if part i has occ
-     *        occurrences; the other parts have the bounds of the uniform partition, and the occurrences near the pattern
-     *        are not counted (see apm_partition::minimal_bounds)
+     *        occurrences; the other parts have the bounds of the uniform partition (see apm_partition::minimal_bounds)
      */
-    double part_steps(uint64_t i, uint64_t occ) const
-    {
-        if (_sum_a.empty()) {
-            const uint64_t m = _match.size();
-            const double r = _runs_per_symbol * double(_n);
-            const bounds_mode_t mode { _may_lower, _costs != nullptr && _costs->metric() == EDIT_DISTANCE };
-            // [0..p] the bounds of the parts of the uniform partition
-            std::vector<uint64_t> bounds(_scheme.p + 1);
-            for (uint64_t j = 0; j <= _scheme.p; j++) bounds[j] = (j * m) / _scheme.p;
-            _sum_a.resize(_scheme.S.size());
-            _sum_b.resize(_scheme.S.size());
-
-            for (uint64_t s = 0; s < _scheme.S.size(); s++) {
-                std::vector<double> b { 0 }; // b[t] = A(t) / sigma^t of search s for the depths t >= 1
-                for_each_step(_scheme.S[s], bounds, mode, false, 0, [&](double b_t, double) { b.emplace_back(b_t); });
-                double power = 1; // sigma^t
-                _sum_a[s] = { 0 };
-
-                for (uint64_t t = 1; t < b.size() && power * _sigma <= r; t++) {
-                    power *= _sigma;
-                    _sum_a[s].emplace_back(_sum_a[s].back() + b[t] * power);
-                }
-
-                _sum_b[s].resize(b.size(), 0);
-                for (uint64_t t = b.size() - 1; t > 0; t--) _sum_b[s][t - 1] = _sum_b[s][t] + b[t];
-            }
-        }
-
-        const double x = double(occ) * _runs_per_symbol;
-        double steps = 0;
-
-        for (uint64_t s : _searches_of[i]) {
-            // the largest t with sigma^t <= x
-            const uint64_t t = x < _sigma ? 0 : std::min<uint64_t>(uint64_t(std::log(x) / std::log(_sigma)),
-                std::min(_sum_a[s].size(), _sum_b[s].size()) - 1);
-            steps += _sum_a[s][t] + x * _sum_b[s][t];
-        }
-
-        return steps;
-    }
+    double part_steps(uint64_t i, uint64_t occ) const;
 
     /**
      * @brief returns the searches that apm_model_plan runs for the parts with the bounds: without an error model, the
@@ -652,27 +442,7 @@ public:
      * @param occ [0..p-1] the numbers of occurrences of the parts (read only for the first parts of the searches that
      *        start with the search context of their first part)
      */
-    choice_t choose(const std::vector<uint64_t>& bounds, const std::vector<uint64_t>& occ) const
-    {
-        if (_costs == nullptr) return { scheme_steps(bounds, occ, {false, false}), false, false };
-
-        const bool edit = _costs->metric() == EDIT_DISTANCE;
-        const bool bounds_costs = _costs->bounds_costs();
-        const bool lowers = _may_lower && lowers_a_bound(bounds);
-        choice_t best { std::numeric_limits<double>::infinity(), false, false };
-
-        // keeps an alternative if it has the smallest prediction so far
-        auto consider = [&](double steps, bool lowered, bool anchored) {
-            if (steps < best.steps) best = { steps, lowered, anchored };
-        };
-
-        if (_may_lower) consider(scheme_steps(bounds, occ, {true, edit && (lowers || bounds_costs)}), true, false);
-        if (!_may_lower || (edit && lowers && !bounds_costs)) {
-            consider(scheme_steps(bounds, occ, {false, edit && bounds_costs}), false, false);
-        }
-        if (_anchor_beg < _anchor_end) consider(anchored_steps(bounds), _may_lower, true);
-        return best;
-    }
+    choice_t choose(const std::vector<uint64_t>& bounds, const std::vector<uint64_t>& occ) const;
 
     /**
      * @brief returns the predicted number of steps of the searches that apm_model_plan runs (see choose)
@@ -684,5 +454,7 @@ public:
         return choose(bounds, occ).steps;
     }
 };
+
+#include <algorithms/move_rb/apm/step_prediction.tpp>
 
 #endif // MOVE_R_ALGORITHMS_MOVE_RB_APM_STEP_PREDICTION_HPP

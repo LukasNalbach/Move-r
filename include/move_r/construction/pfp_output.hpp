@@ -45,8 +45,8 @@
 #include <pfp_rlbwt/pfp_rlbwt.hpp>
 
 /* a pfp cache is the runs file of pfp_rlbwt::build (see pfp_rlbwt::ext_runs) with two further sections: the
-   alphabet map (see pfp_cache_alphabet) and, if the text has been read from a FASTA file, the length of the text and
-   its sequences (see write_fasta_to_pfp_cache) */
+   alphabet map (see pfp_cache_alphabet) and, if the text has been read from a FASTA file, the length of the text, its
+   sequences and the separators of its masked runs (see write_fasta_to_pfp_cache) */
 inline constexpr uint64_t pfp_cache_alphabet_section = pfp_rlbwt::first_extra_section;
 inline constexpr uint64_t pfp_cache_fasta_section = pfp_rlbwt::first_extra_section + 1;
 
@@ -84,10 +84,11 @@ inline bool open_pfp_cache(const std::string& cache_file, pfp_rlbwt::run_data_fi
  * @param cache_file name of the cache file
  * @param text_size stores the length of the text
  * @param sequences stores the sequences
+ * @param masked_separators stores the positions in the text of the separators of the masked runs
  * @return whether the file is a cache that stores them (see pfp_cache_fasta_section)
  */
 inline bool read_fasta_from_pfp_cache(const std::string& cache_file, uint64_t& text_size,
-    fasta_sequence_data& sequences)
+    fasta_sequence_data& sequences, no_init_vector<uint64_t>& masked_separators)
 {
     pfp_rlbwt::run_data_file cache;
     pfp_cache_alphabet alphabet {};
@@ -97,19 +98,31 @@ inline bool read_fasta_from_pfp_cache(const std::string& cache_file, uint64_t& t
     in.seekg(std::streamoff(cache.section(pfp_cache_fasta_section).offset));
     in.read((char*) &text_size, sizeof(uint64_t));
     sequences.load(in);
+    uint64_t num_masked = 0;
+    in.read((char*) &num_masked, sizeof(uint64_t));
+    // a text has at most one separator per symbol
+    if (!in.good() || num_masked > text_size) return false;
+    resize_no_init(masked_separators, num_masked);
+    in.read((char*) masked_separators.data(), std::streamsize(num_masked * sizeof(uint64_t)));
     return in.good();
 }
 
 /**
- * @brief writes the length of the text and its sequences in the layout of the section pfp_cache_fasta_section
+ * @brief writes the length of the text, its sequences and the positions of the separators of its masked runs in the
+ *        layout of the section pfp_cache_fasta_section
  * @param out output stream
  * @param text_size length of the text
  * @param sequences the sequences
+ * @param masked_separators the positions in the text of the separators of the masked runs
  */
-inline void write_fasta_to_pfp_cache(std::ostream& out, uint64_t text_size, const fasta_sequence_data& sequences)
+inline void write_fasta_to_pfp_cache(std::ostream& out, uint64_t text_size, const fasta_sequence_data& sequences,
+    const no_init_vector<uint64_t>& masked_separators)
 {
     out.write((const char*) &text_size, sizeof(uint64_t));
     sequences.serialize(out);
+    const uint64_t num_masked = masked_separators.size();
+    out.write((const char*) &num_masked, sizeof(uint64_t));
+    out.write((const char*) masked_separators.data(), std::streamsize(num_masked * sizeof(uint64_t)));
 }
 
 #endif // MOVE_R_MOVE_R_CONSTRUCTION_PFP_OUTPUT_HPP

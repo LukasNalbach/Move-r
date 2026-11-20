@@ -116,7 +116,7 @@ void move_r<support>::construction::build_rlbwt_pfp()
         pfp_cache_descriptor.open(pfp_prefix);
 
     // the steps that read the runs file: build_rlbwt_c, choose_revert_starts, read_lcp_run_pfp, read_iphi_inv_pfp
-    pfp_output_readers = 1 + chooses_revert_starts() + reads_pfp_lcp_samples() + builds_SA_samples;
+    pfp_output_readers = 1 + chooses_revert_starts() + reads_pfp_lcp_samples() + reads_pfp_iphi_inv();
 
     if (uses_pfp_cache() && std::filesystem::exists(pfp_cache_file()) && read_pfp_cache()) {
         idx._rlbwt_from_cache = true;
@@ -173,7 +173,8 @@ void move_r<support>::construction::build_rlbwt_pfp()
         if (fasta_once || params.fasta.text_len != 0) {
             prm.extra_sections.push_back({ pfp_cache_fasta_section, [&](std::ostream& out) {
                 write_fasta_to_pfp_cache(out, params.fasta.text_len,
-                    params.fasta.sequences != nullptr ? *params.fasta.sequences : fasta_sequence_data());
+                    params.fasta.sequences != nullptr ? *params.fasta.sequences : fasta_sequence_data(),
+                    params.fasta.masked_separators != nullptr ? *params.fasta.masked_separators : no_init_vector<uint64_t>());
             } });
         }
     }
@@ -247,7 +248,7 @@ void move_r<support>::construction::build_rlbwt_pfp_fasta_once(const std::string
     fasta_scan_t& scan = *params.fasta.read_once;
     std::vector<uint64_t> seq_starts;
     std::vector<std::string> seq_names;
-    fasta_sequence_collector collect { 0, seq_starts, seq_names };
+    fasta_sequence_collector collect { 0, seq_starts, seq_names, false, &scan.masked_separators };
 
     pfp_rlbwt::fasta_ranges<fasta_chunk_t> text(params.input_file,
         params.fasta.text_transform(),
@@ -261,6 +262,7 @@ void move_r<support>::construction::build_rlbwt_pfp_fasta_once(const std::string
             params.fasta.index_samples = scan.samples.data();
             params.fasta.num_index_samples = scan.samples.size();
             params.fasta.sequences = &scan.data;
+            params.fasta.masked_separators = &scan.masked_separators;
             std::vector<std::vector<uint64_t>> freq_thr(1, std::vector<uint64_t>(scan.freq.begin(), scan.freq.end()));
             map_byte_alphabet(freq_thr);
             std::copy(idx._map_int.begin(), idx._map_int.end(), map.begin());

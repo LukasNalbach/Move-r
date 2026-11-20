@@ -46,6 +46,7 @@ uint64_t move_rb<support>::size_in_bytes() const
         _S_MLF_p_bwd.size_in_bytes() +
         opt_size(_SA_pos) +
         _seq_data.size_in_bytes() +
+        _distinct_substrings.size_in_bytes() +
         _context_tables.size_in_bytes() +
         _docs.size_in_bytes();
 
@@ -203,6 +204,7 @@ void move_rb<support>::serialize(std::ostream& out) const
     opt_serialize(_SA_pos, out);
 
     _seq_data.serialize(out);
+    _distinct_substrings.serialize(out);
     _context_tables.serialize(out);
     // a byte stating whether the document map is stored, then the document map
     const uint8_t has_docs = has_documents();
@@ -234,6 +236,7 @@ void move_rb<support>::load(std::istream& in)
     opt_load(_SA_pos, in);
 
     _seq_data.load(in);
+    _distinct_substrings.load(in);
     _context_tables.load(in);
     _docs = document_array();
     uint8_t has_docs = 0;

@@ -113,6 +113,8 @@ inline std::string reverse_complement(const std::string& s)
 /** @brief the result of scan_fasta */
 struct fasta_scan_t : pfp_rlbwt::fasta_scan {
     fasta_sequence_data data; // the names and the start positions of the sequences
+    // the positions in the text of the separators of the masked runs, in increasing order
+    no_init_vector<uint64_t> masked_separators;
 };
 
 /**
@@ -130,6 +132,11 @@ struct fasta_chunk_t : pfp_rlbwt::fasta_chunk {
     // the bytes of the name of the header line that the chunk starts inside, as far as they are in the chunk
     std::string continued_name;
     bool continued_name_ends = false; // the name of the header line that the chunk starts inside ends in the chunk
+    // the positions in the text of the chunk of the separators of the masked runs, in increasing order
+    std::vector<uint64_t> masked_separators;
+
+    // the separator of a masked run
+    void masked_separator(uint64_t pos) { masked_separators.emplace_back(pos); }
 
     // the '>' of a header line, which is transformed into a separator (see
     // pfp_rlbwt::fasta_transform::separator_before_first_record)
@@ -174,6 +181,8 @@ struct fasta_sequence_collector {
     std::vector<uint64_t>& seq_starts;
     std::vector<std::string>& seq_names; // (appended) the names of the sequences
     bool name_open = false; // the last name of seq_names continues in the next chunk
+    // (appended, if not nullptr) the positions in the text of the separators of the masked runs
+    no_init_vector<uint64_t>* masked = nullptr;
 
     // appends the sequences of a chunk whose position 0 is at the position shift of the text of the file
     void operator()(fasta_chunk_t& chunk, uint64_t shift)
@@ -185,6 +194,15 @@ struct fasta_sequence_collector {
 
         for (uint64_t start : chunk.seq_starts) seq_starts.emplace_back(text_start + shift + start);
         for (std::string& name : chunk.seq_names) seq_names.emplace_back(std::move(name));
+
+        /* a masked run that continues from the previous chunk has its separator there; the separator at position 0 of
+           the chunk is then dropped, i.e., placed at the position of that separator */
+        if (masked != nullptr) {
+            for (uint64_t pos : chunk.masked_separators) {
+                if (masked->empty() || masked->back() != text_start + shift + pos) masked->emplace_back(text_start + shift + pos);
+            }
+        }
+
         if (!chunk.seq_names.empty()) name_open = chunk.last_name_open;
     }
 };
@@ -198,13 +216,14 @@ struct fasta_sequence_collector {
  * @param text_start the position in the text of the first symbol of the text of the file
  * @param seq_starts (appended) the positions in the text directly after the separators of the headers
  * @param seq_names (appended) the names of the sequences
+ * @param masked (appended, if not nullptr) the positions in the text of the separators of the masked runs
  * @return the text of the file
  */
 inline pfp_rlbwt::fasta_scan scan_fasta_file(const std::string& path, const pfp_rlbwt::fasta_transform& transform,
     const pfp_rlbwt::fasta_scan_params& prm, uint64_t text_start, std::vector<uint64_t>& seq_starts,
-    std::vector<std::string>& seq_names)
+    std::vector<std::string>& seq_names, no_init_vector<uint64_t>* masked = nullptr)
 {
-    fasta_sequence_collector collect { text_start, seq_starts, seq_names };
+    fasta_sequence_collector collect { text_start, seq_starts, seq_names, false, masked };
 
     return pfp_rlbwt::scan_fasta_lines<fasta_chunk_t>([&] { return direct_reader(path); }, transform, prm,
         [&](fasta_chunk_t& chunk, uint64_t shift) { collect(chunk, shift); });
@@ -264,7 +283,8 @@ inline fasta_scan_t scan_fasta(const std::vector<std::string>& in_paths,
         .progress = progress };
 
     for (const std::string& in_path : in_paths) {
-        pfp_rlbwt::fasta_scan file = scan_fasta_file(in_path, transform, prm, result.text_size, seq_starts, seq_names);
+        pfp_rlbwt::fasta_scan file = scan_fasta_file(in_path, transform, prm, result.text_size, seq_starts, seq_names,
+            &result.masked_separators);
         for (uint64_t c = 0; c < result.freq.size(); c++) result.freq[c] += file.freq[c];
         result.text_size += file.text_size;
         if (prm.sample_period != 0) result.samples = std::move(file.samples);

@@ -154,6 +154,9 @@ class move_rb {
     template <query_support_t query_support> struct search_context_t;
     template <query_support_t query_support> struct extend_context_t;
 
+    // the search contexts of approximate pattern matching
+    template <query_support_t query_support> using apm_context_t = search_context_t<query_support>;
+
 protected:
     // whether an SA-sample is at the start (BEG) or at the end (END) of its BWT run
     enum sample_t : uint8_t {BEG = 0, END = 1};
@@ -283,6 +286,11 @@ protected:
     // fasta_sequence_data); empty unless the index was built from such an input
     fasta_sequence_data _seq_data;
 
+    /* the numbers of the distinct substrings of T that contain no separator of the sequences and not the terminator:
+       [0..min(n, move_r_fwd_t::max_counted_lcp)] the number for the length L (see
+       move_r_params::counts_distinct_substrings); empty if the forward index could not count them */
+    interleaved_bit_aligned_vectors _distinct_substrings;
+
     // the search contexts of all patterns up to some length (see context_tables); empty unless requested (see
     // move_r_params::context_table_share)
     ::context_tables _context_tables;
@@ -399,6 +407,9 @@ protected:
     void build_integer_alphabet(build_state_t& st);
     // builds idx_fwd and idx_bwd; idx_fwd is stored on disk meanwhile in the modes _pfp and _suffix_array_space
     void build_sub_indexes(build_state_t& st);
+
+    // takes the numbers of the distinct substrings counted by the forward index (see _distinct_substrings)
+    void take_distinct_substrings();
     /* takes the length of the text and the alphabet map of a FASTA file that the forward index has read once (see
        fasta_input_t::read_once) and sets the parameters of the backward index (sub_params) to read T^R with them */
     void take_fasta_read_once(build_state_t& st, move_r_params& sub_params);
@@ -590,6 +601,23 @@ public:
     // returns the size of the index in bytes
     uint64_t size_in_bytes() const;
 
+    // returns whether the index stores the numbers of the distinct substrings of each length (see distinct_substrings)
+    inline bool has_distinct_substrings() const { return !_distinct_substrings.empty(); }
+
+    /**
+     * @brief returns the number of the distinct substrings of T of length L that contain no separator of the
+     *        sequences and not the terminator (if has_distinct_substrings()); for L beyond the largest counted length,
+     *        it grows linearly by its growth at the largest counted length
+     * @param L the length
+     */
+    inline uint64_t distinct_substrings(uint64_t L) const
+    {
+        const uint64_t last = _distinct_substrings.size() - 1;
+        auto d = [&](uint64_t x) { return _distinct_substrings.template get<0, uint64_t>(x); };
+        if (L <= last) return d(L);
+        return d(last) + (L - last) * (d(last) > d(last - 1) ? d(last) - d(last - 1) : 0);
+    }
+
     /**
      * @brief logs the construction time, the peak memory usage and the construction throughput
      * @param time_construction construction time in nanoseconds
@@ -702,8 +730,8 @@ public:
     inline search_context_t<query_support> empty_context() const { return search_context_t<query_support>(*this); }
 
     /**
-     * @brief searches a pattern from right to left; the search starts at a context stored in the context
-     *        tables, if there is one (see context_of)
+     * @brief returns the search context of P; the search of P from right to left starts at a context stored in
+     *        the context tables, if there is one (see table_context_of)
      * @tparam query_support whether the returned context supports COUNT or LOCATE queries
      * @param P the pattern
      * @param occurs is set to whether P occurs in the input
@@ -711,11 +739,22 @@ public:
      */
     template <query_support_t query_support = LOCATE, typename pat_t>
         requires(!move_r_is_pattern_view<std::remove_cvref_t<pat_t>>)
-    search_context_t<query_support> search(const pat_t& P, bool& occurs) const
-    { return search<query_support>(move_r_pattern_view_t<pat_t>(P), occurs); }
+    search_context_t<query_support> context_of(const pat_t& P, bool& occurs) const
+    { return context_of<query_support>(move_r_pattern_view_t<pat_t>(P), occurs); }
 
     template <query_support_t query_support = LOCATE, typename sym_t>
-    search_context_t<query_support> search(move_r_pattern_view<sym_t> P, bool& occurs) const;
+    search_context_t<query_support> context_of(move_r_pattern_view<sym_t> P, bool& occurs) const;
+
+    /**
+     * @brief returns the search context of P for approximate pattern matching (see apm_context_t and
+     *        context_of)
+     * @tparam query_support whether the returned context supports COUNT or LOCATE queries
+     * @param P the pattern
+     * @param occurs is set to whether P occurs in the input
+     */
+    template <query_support_t query_support, typename pat_t>
+    apm_context_t<query_support> apm_context_of(const pat_t& P, bool& occurs) const
+    { return context_of<query_support>(P, occurs); }
 
     /**
      * @brief returns the search context of the last single_length() symbols of P from the single-length
@@ -728,11 +767,11 @@ public:
      */
     template <query_support_t query_support, typename pat_t>
         requires(!move_r_is_pattern_view<std::remove_cvref_t<pat_t>>)
-    search_context_t<query_support> context_of(const pat_t& P, uint64_t& matched) const
-    { return context_of<query_support>(move_r_pattern_view_t<pat_t>(P), matched); }
+    search_context_t<query_support> table_context_of(const pat_t& P, uint64_t& matched) const
+    { return table_context_of<query_support>(move_r_pattern_view_t<pat_t>(P), matched); }
 
     template <query_support_t query_support, typename sym_t>
-    search_context_t<query_support> context_of(move_r_pattern_view<sym_t> P, uint64_t& matched) const;
+    search_context_t<query_support> table_context_of(move_r_pattern_view<sym_t> P, uint64_t& matched) const;
 
     // counts the occurrences of a NUL-terminated pattern with at most k mismatches (Hamming distance)
     uint64_t count_hamming_dist(const char* P, const search_scheme_t& scheme) const

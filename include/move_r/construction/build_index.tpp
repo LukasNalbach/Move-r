@@ -233,19 +233,40 @@ void move_r<support>::construction::build_index()
     build_mlf();
     if (spill_rlbwt) load_rlbwt();
 
-    if (rlbwt_from_pfp && has_mphi) read_lcp_run_pfp();
+    if (rlbwt_from_pfp && reads_pfp_lcp_samples()) read_lcp_run_pfp();
 
     if constexpr (!builds_SA_samples) {
+        // I_Phi_inv and LCP_run are read or built only to count the distinct substrings
+        if (params.counts_distinct_substrings) {
+            if (rlbwt_from_pfp) {
+                read_iphi_inv_pfp();
+            } else {
+                build_iphi_inv_from_sa();
+                build_plcp_run();
+            }
+
+            count_distinct_substrings();
+            I_Phi_inv.clear();
+        }
+
         build_SA_run_from_iphi_inv();
         build_data_structures_over_l_();
     } else {
-        if (rlbwt_from_pfp) read_iphi_inv_pfp();
-        else if constexpr (support == _locate_one_bi) build_sa_run_from_sa();
-        else build_iphi_inv_from_sa();
-
-        if constexpr (has_mphi) {
-            if (!rlbwt_from_pfp) build_plcp_run();
+        if (rlbwt_from_pfp) {
+            read_iphi_inv_pfp();
+        } else if constexpr (support == _locate_one_bi) {
+            // SA_run is built from the suffix array, with I_Phi_inv only to count the distinct substrings
+            if (params.counts_distinct_substrings) build_iphi_inv_from_sa();
+            else build_sa_run_from_sa();
+        } else {
+            build_iphi_inv_from_sa();
         }
+
+        const bool counts = params.counts_distinct_substrings;
+        if ((has_mphi || counts) && !rlbwt_from_pfp) build_plcp_run();
+        // with has_mphi, sort_iphi counts the substrings from plcp_pair, which is sorted by text
+        counts_substrings = counts && has_mphi;
+        if (counts && !has_mphi) count_distinct_substrings();
 
         build_SA_run_from_iphi_inv();
 

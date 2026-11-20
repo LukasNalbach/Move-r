@@ -45,13 +45,24 @@
  * @brief returns the direction in which each step of a search matches its part: RIGHT if its part lies right of the
  *        part of the previous step, else LEFT; the first step has the direction of the second one (RIGHT if p = 1)
  * @param S the search
+ * @param dirs set to [0..p-1] the direction of step i
+ */
+inline void apm_step_directions(const search_t& S, std::vector<direction_t>& dirs)
+{
+    dirs.resize(S.size());
+    dirs[0] = S.size() == 1 || S[1].part > S[0].part ? RIGHT : LEFT;
+    for (uint64_t i = 1; i < S.size(); i++) dirs[i] = S[i].part > S[i - 1].part ? RIGHT : LEFT;
+}
+
+/**
+ * @brief returns the direction in which each step of a search matches its part (see above)
+ * @param S the search
  * @return [0..p-1] the direction of step i
  */
 inline std::vector<direction_t> apm_step_directions(const search_t& S)
 {
-    std::vector<direction_t> dirs(S.size());
-    dirs[0] = S.size() == 1 || S[1].part > S[0].part ? RIGHT : LEFT;
-    for (uint64_t i = 1; i < S.size(); i++) dirs[i] = S[i].part > S[i - 1].part ? RIGHT : LEFT;
+    std::vector<direction_t> dirs;
+    apm_step_directions(S, dirs);
     return dirs;
 }
 
@@ -147,8 +158,9 @@ class apm_search_base {
 protected:
     using inp_t = typename idx_t::inp_t;
 
+    // the search contexts of approximate pattern matching (see move_rb::apm_context_t)
     template <query_support_t query_support>
-    using search_context_t = typename idx_t::template search_context_t<query_support>;
+    using search_context_t = typename idx_t::template apm_context_t<query_support>;
 
     const idx_t& _index; // the index
     apm_params_t _params; // the query parameters

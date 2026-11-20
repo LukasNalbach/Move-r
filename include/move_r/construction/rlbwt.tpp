@@ -149,13 +149,13 @@ void move_r<support>::construction::build_rlbwt_c()
     if (rlbwt_from_pfp) release_pfp_output();
 
     // build_plcp_run reads T
-    if (deletes_T() && !(has_mphi && !rlbwt_from_pfp)) {
+    if (deletes_T() && !(reads_lcp_run() && !rlbwt_from_pfp)) {
         T_inp.clear();
         T_inp.shrink_to_fit();
     }
 
-    // choose_revert_starts reads sa at the run starts
-    if (!builds_SA_samples && !chooses_revert_starts()) {
+    // choose_revert_starts and the counting of the distinct substrings read sa at the run starts
+    if (!builds_SA_samples && !chooses_revert_starts() && !params.counts_distinct_substrings) {
         sa.clear();
         sa.shrink_to_fit();
     }

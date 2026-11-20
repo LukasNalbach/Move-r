@@ -277,7 +277,7 @@ void run_docs_queries(const document_array& docs, uint64_t n, const docs_query_c
         .results = {
             format_count_line("occurrences", num_occurrences, num_patterns),
             format_count_line("documents", num_documents, num_patterns),
-            "search time: " + format_time(time_search) + ", document time: " + format_time(time_documents)
+            "search time: " + format_time_exact(time_search) + ", document time: " + format_time_exact(time_documents)
                 + (num_documents == 0 ? "" : " = " + format_time(time_documents / num_documents) + " per document")
                 + summed },
         .time_query = time_search + time_documents,

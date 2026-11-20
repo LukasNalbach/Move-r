@@ -278,8 +278,9 @@ void move_r<support>::construction::choose_revert_starts()
 
     if (rlbwt_from_pfp) {
         release_pfp_output();
-    } else if (!builds_SA_samples) {
-        // the SA values at the run starts are not read again, if the index does not sample the suffix array
+    } else if (!builds_SA_samples && !params.counts_distinct_substrings) {
+        /* the SA values at the run starts are not read again, if the index does not sample the suffix array and
+           does not count the distinct substrings */
         sa.clear();
         sa.shrink_to_fit();
     }

@@ -428,6 +428,9 @@ protected:
         // and cost are their smallest error count and cost)
         std::vector<model_member_t> members;
         uint64_t counters = 0; // without members: the packed counters of an alignment with the cost (see apm_cost_band)
+        /* without members: the smallest value of each counter over the alignments of the string (see
+           apm_cost_band::final_min_counters); 0 with members */
+        uint64_t min_counters = 0;
     };
 
     // a member of the contexts on a path of process_part: its error count and its cost are those of the cell of the path
@@ -785,9 +788,10 @@ protected:
      * @param cost the cost of an inserted entry
      * @param inserted is set to whether the entry was inserted
      * @param counters the packed counters of an inserted entry
+     * @param min_counters the smallest value of each counter over the alignments of an inserted entry
      */
     model_entry_t& entry_of(string_map_t& map, const node_t& node, uint64_t err, uint16_t cost, bool& inserted,
-        uint64_t counters = 0) const;
+        uint64_t counters = 0, uint64_t min_counters = 0) const;
 
     /**
      * @brief adds a member to an entry, or lowers the error count and the cost of its member with the same extension
@@ -804,8 +808,10 @@ protected:
      * @param err the error count
      * @param cost the cost
      * @param counters the packed counters of an alignment with the cost (kept with the smallest cost)
+     * @param min_counters the smallest value of each counter over the alignments (the entry keeps the smallest values)
      */
-    void insert_or_lower(string_map_t& map, const node_t& node, uint64_t err, uint16_t cost, uint64_t counters = 0) const;
+    void insert_or_lower(string_map_t& map, const node_t& node, uint64_t err, uint16_t cost, uint64_t counters = 0,
+        uint64_t min_counters = 0) const;
 
     /**
      * @brief inserts a context with members into a map, or adds the members to those of the entry of its string
@@ -814,6 +820,15 @@ protected:
      * @param members the members (at least one)
      */
     void insert_members(string_map_t& map, const node_t& node, const std::vector<model_member_t>& members) const;
+
+    /**
+     * @brief extends each context with members in a map by the longest common prefix of the extensions of its members
+     *        and removes this prefix from their extensions; a context whose only member has an empty extension then
+     *        represents its own string
+     * @param map the map
+     * @param dir the direction of the extensions of the members
+     */
+    void narrow_to_members(string_map_t& map, direction_t dir) const;
 
     /**
      * @brief adds the occurrences at the text ends that the search with unit costs misses (see locate_at_text_ends)
@@ -860,8 +875,9 @@ protected:
      *
      * After a step whose part is at the end of P in its direction, the later steps only extend the other end: the cells
      * of the final column of a path become members of the context of its first cell in the final column (see
-     * model_member_t), and the later steps continue this context once for all of them; the members of the contexts of
-     * the last step are then extended to their own contexts.
+     * model_member_t), this context is extended by the longest common prefix of the extensions of its members (see
+     * narrow_to_members), and the later steps continue it once for all of them; the members of the contexts of the last
+     * step are then extended to their own contexts.
      * @tparam matrix_word_t word type of the edit-distance matrix
      * @param P the pattern
      * @param scheme the search scheme
@@ -901,7 +917,7 @@ protected:
      * @param k_max the upper bound of the step
      * @param matrix the matrix of the part read in direction dir
      * @param band the dynamic program over the costs (see apm_cost_band), or nullptr if the costs are not computed in
-     *        the search (see apm_costs_t::bounds_costs)
+     *        the search (see search_model)
      * @param step_contexts the contexts of the step, which contain entry; a context of it reached by this search at
      *        most depth symbols after entry is continued in this search: the matrices are restarted in its row with its
      *        error count and its cost, and it is marked as covered
